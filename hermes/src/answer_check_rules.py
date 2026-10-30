@@ -825,6 +825,36 @@ _SUBJECT_TYPES = {"пеш": chess.PAWN, "кон": chess.KNIGHT, "сло": chess.
 # The claim is someone else's or not made: «ты думаешь, что чёрные обязаны…», «если бы чёрные были вынуждены…».
 _NOT_A_CLAIM = re.compile(_W + r"(?:бы|думаешь|думал\w*|считаешь|кажется|казалось|пишешь|говоришь|спрашиваешь|думают|"
                           r"think|thought|seems?|you\s+say|wonder)" + _E, re.IGNORECASE)
+# …or the sentence disowns it, wherever it stands: «Неверно, что сейчас белые обязаны сыграть Qe3», «Это не значит,
+# что ферзь обязан отступить», «Многие считают, что…», «…dxe5 — это заблуждение», "it is not true that…" (review
+# 30.10: each of these states the truth the engine would state, and was cut). A sentence that reports or denies a
+# claim is the coach correcting it, not making it.
+_DISOWNED = re.compile(
+    _W + r"(?:неверн\w*|неправд\w*|ошибочн\w*|заблужд\w*|миф\w*|вовсе\s+не|не\s+значит|не\s+означает|не\s+совсем|"
+    r"не\s+обязательно|не\s+факт|(?:сказать|говорить|утвержда\w+|счита\w+|дума\w+|пиш\w+|писать|говорят|верят|"
+    r"полага\w+|увер\w+|принято)\s*,?\s*(?:что|будто)|not\s+true|untrue|myths?|misconception\w*|wrong\s+to|"
+    r"mistake\s+to|(?:does\s+not|doesn'?t|do\s+not|don'?t)\s+mean|not\s+necessarily|(?:say|says|said|think|thinks|"
+    r"believe|believes|claim|claims|written)\s+that)" + _E, re.IGNORECASE)
+# Replies listed as a choice — «dxe5 или Be6», «Qe3 или Qa4 — выбирай любой», "Qe3 or Qa4": what is claimed is a
+# set of replies or the kind of move, not one forced reply (review 30.10: «придётся отступить: Qe3 или Qa4» was cut
+# with Qa4 «about as good»).
+_OR_MOVE = r"(?:[kqrbnкрфлс]?[a-h]?[1-8]?[x:×]?[a-h][1-8]|o-o(?:-o)?)"
+# «dxe5 или Be6», «Qe3, Qa4 или Qc4» after the named reply (a comma alone may go on with the line: «Kxf7, Ng5+»).
+_OR_NEXT = re.compile(r"(?:[+#]?[!?*_»\"]*\s*,\s*[*_«\"]*" + _OR_MOVE + r")*[+#]?[!?*_»\"]*\s*(?:или|либо|or|/)\s*[*_«\"]*"
+                      r"(?:\d{1,3}\s?\.{1,3}\s?)?(?=" + _OR_MOVE + ")", re.IGNORECASE)
+_OR_BEFORE = re.compile(_OR_MOVE + r"[+#]?[!?*_»\"]*\s*(?:или|либо|or|/)\s*[*_«\"]*$", re.IGNORECASE)
+# A move away is the claim («ферзю придётся отступить: Qe3», «король вынужден уйти: Ke7»): the move written after
+# it is an example — every move of that piece is the reply claimed.
+_AWAY_VERBS = re.compile(_W + r"(?:отступить|уйти|отойти|уходить|отходить|убежать|убегать|бежать|retreat|move\s+away|"
+                         r"step\s+away|run)" + _E, re.IGNORECASE)
+# «ты обязан», «вам придётся», "you must": the student's side (the side to move when unknown), whatever side the
+# clause before named («после Ke5 белые играют a6, и ты обязан идти Kd6» is about Black; review 30.10).
+_YOU = re.compile(_W + r"(?:ты|вы|тебе|вам|тебя|вас|you)" + _E, re.IGNORECASE)
+# «уйти с e8», «отступить с d4»: the square the piece leaves — the side to move must have it there.
+_FROM_SQUARE = re.compile(r"\s*(?:[а-яёa-z]+\s+){0,2}?(?:с|from|off)\s+(?P<sq>[a-h][1-8])(?![0-9])", re.IGNORECASE)
+# «белые играют a6», «чёрные отвечают h6»: a pawn move told with a verb is a move of the line, not a square.
+_PLAY_VERB = re.compile(_W + r"(?:игра\w*|сыгра\w*|отвеча\w*|ответ\w*|ход\w*|пойд\w*|plays?|played|replies|answers)"
+                        r"\s*:?\s*$", re.IGNORECASE)
 
 
 # The reply written right after the claim: SAN, or a bare pawn move — after «обязаны ответить» «h6» is a move.
@@ -838,11 +868,8 @@ def _reply_named(board: chess.Board, token: str) -> Optional[chess.Move]:
     return found[0] if len(found) == 1 else None  # «bxc5»: the b-pawn and a bishop may both take
 
 
-def _line_scene(text: str, upto: int, ctx):
-    """(board, SAN of its last move) after the moves written before *upto* in *text*, played as one line from a
-    position given to the turn (the board on the screen first) — the start position only when it is the board, or
-    the line opens with move 1. («после Nxe5 …» is the student's own idea, quoted: the other checks pass over it,
-    here it is the line.) (None, "") when no such line holds; (False, "") when no move is written there."""
+def _line_tokens(text: str, upto: int) -> tuple:
+    """(the moves written before *upto* in *text* as SAN, whether the line opens with move 1)."""
     from src.answer_check import _MOVE, _to_san
 
     converted, _ = _to_san(text[:upto])
@@ -850,95 +877,118 @@ def _line_scene(text: str, upto: int, ctx):
     for m in _MOVE.finditer(converted):
         san = m["san"]
         follows = last_end >= 0 and re.fullmatch(r"[\s,]*", converted[last_end:m.start()]) is not None
-        if not (m["num"] or m["bdots"] or san[0] in "KQRBNO" or "x" in san or follows):
+        told = bool(toks) and _PLAY_VERB.search(converted[max(0, m.start() - 30):m.start()]) is not None
+        if not (m["num"] or m["bdots"] or san[0] in "KQRBNO" or "x" in san or follows or told):
             continue  # «e4» without a number is a square
         toks.append(san + (m["check"] or ""))
         last_end = m.end()
+    first = _MOVE.search(converted)
+    from_one = bool(first and re.match(r"\s*1\s?\.", converted[first.start():]))
+    return toks, from_one
+
+
+def _play(root: chess.Board, toks: list):
+    """(board, SAN of the last move) after *toks* played from *root*; None when one of them is not legal."""
+    b, last = root.copy(stack=False), ""
+    try:
+        for tok in toks:
+            mv = b.parse_san(tok)
+            last = b.san(mv)
+            b.push(mv)
+    except ValueError:
+        return None
+    return b, last
+
+
+def _line_scene(text: str, upto: int, ctx):
+    """(board, SAN of its last move) after the moves written before *upto* in *text*, played as one line from a
+    position given to the turn (the board on the screen first) — the start position only when it is the board, or
+    the line opens with move 1. («после Nxe5 …» is the student's own idea, quoted: the other checks pass over it,
+    here it is the line.) (None, "") when no such line holds; (False, "") when no move is written there."""
+    toks, from_one = _line_tokens(text, upto)
     if not toks:
         return False, ""
     current = ctx.current
-    from_one = bool(re.match(r"\s*1\s?\.", converted[_MOVE.search(converted).start():] if _MOVE.search(converted) else ""))
     roots = [current] + [b for b in getattr(ctx, "boards", []) if b is not current and ctx.is_given(b)]
     for root in roots:
         if root.board_fen() == chess.STARTING_BOARD_FEN and current.board_fen() != chess.STARTING_BOARD_FEN and not from_one:
             continue
-        b, last = root.copy(stack=False), ""
-        try:
-            for tok in toks:
-                mv = b.parse_san(tok)
-                last = b.san(mv)
-                b.push(mv)
-        except ValueError:
-            continue
-        return b, last
+        played = _play(root, toks)
+        if played:
+            return played
     return None, ""
 
 
-def forced_reply_claim(text: str, ctx) -> Optional[dict]:
-    """A claim that a reply is forced («обязаны ответить dxe5», «король вынужден уйти», «единственный ход — Kd6»)
-    for the engine to judge: {board, after (the move it follows), moves (the replies claimed), named (the SAN, or
-    None for a kind of reply), strict (forced, not merely best)}; None when there is none or its board is unsure.
-    *text*: the sentence as check_sentence reads it (ё → е, files in Latin letters)."""
-    if getattr(ctx, "current", None) is None or not text or text.rstrip().endswith("?"):
-        return None  # a question claims nothing («почему ферзь обязан был встать на c1?»)
-    lowered = text.lower()
-    named_at = None  # (claim position, token, strict)
-    for m in _FORCED_MOVE.finditer(lowered):
-        tok = _REPLY_TOKEN.match(lowered, m.end())
-        if tok and not _negated_before(lowered, m.start()):
-            named_at = (m.start(), tok.group(0), not m.group("word").startswith("долж"), tok.start())
-            break
-    if named_at is None:
-        m = _ONLY_THEN_MOVE.search(lowered)
-        tok = _REPLY_TOKEN.match(lowered, m.end()) if m else None
-        if tok and not _negated_before(lowered, m.start()):
-            named_at = (m.start(), tok.group(0), True, tok.start())
-    if named_at is None:
-        m = _MOVE_THEN_ONLY.search(lowered)
-        if m and not _negated_before(lowered, m.end("mv") + 4):
-            named_at = (m.start(), m.group("mv"), True, m.start())
-    kind_m = None
-    if named_at is None:
-        kind_m = _FORCED_KING.search(lowered) or _FORCED_TAKE.search(lowered)
-        if kind_m is None or _negated_before(lowered, kind_m.start()):
-            return None
-    at = named_at[0] if named_at else kind_m.start()
-    if _NOT_A_CLAIM.search(lowered[:at + 40]):
-        return None
-    if _GENERAL.search(lowered) and not _NOW.search(lowered) and not re.search(r"(?<![а-яё])после(?![а-яё])|\bafter\b", lowered):
-        return None  # a rule in general («обычно приходится брать…»), as _forced_reply_issues reads it
-    # The board the claim is about: before the named move when it stands first («Kxb3! — единственный ход»),
-    # else after the moves written before the claim — in this sentence, or the one move of the sentence before
-    # it played on the board on the screen («Первый ход — Rxh6+. Король обязан отойти…»).
-    upto = named_at[3] if named_at else at
+def line_end(text: str, ctx):
+    """(board, last move) at the end of the line *text* writes, as _line_scene reads it; None when it writes none."""
+    board, last = _line_scene(text, len(text), ctx)
+    return (board, last) if board else None
+
+
+def _clause(lowered: str, at: int) -> str:
+    """The clause of the claim at *at*: from the last comma, dash or «и / а / но» before it, and 25 characters on."""
+    return re.split(r"[,;:—–]|\sи\s|\sа\s|\sно\s", lowered[max(0, at - 30): at])[-1] + lowered[at: at + 25]
+
+
+def _readings(text: str, lowered: str, at: int, upto: int, named_at, ctx) -> tuple:
+    """The boards the claim may be about: ([(board, after)] that may condemn it, [(board, after)] that only clear it).
+
+    The moves written before the claim are a line from a position given to the turn — or, as often, the next
+    moves of the line the sentences before built («Первый ход — Bxb5+. … axb5. Дальше Nc7+ — чёрные обязаны
+    ответить Rxc7», prod programme 23.10: Nc7+ is legal on the screen board too, where Kd7 is the better reply;
+    in the line Rxc7 is the only one; review 30.10). A line of the answer is a derived board, which never
+    condemns by itself — it only clears: the claim is wrong when it is wrong in every reading."""
     board, after = _line_scene(text, upto, ctx)
-    if board is False:
-        board, after = None, ""
-        if _NOW.search(lowered[:upto]):
-            board = ctx.current
-        elif named_at and _reply_named(ctx.current, named_at[1]) is not None and named_at[3] == named_at[0]:
-            board = ctx.current  # «Kxb3! — единственный ход»: a move of the board on the screen
-        elif getattr(ctx, "scene_before", None) and ctx.scene_before[2] <= 2:
-            prev_board, prev_san = ctx.scene_before[0], ctx.scene_before[1]
-            b = ctx.current.copy(stack=False)
-            try:
-                b.push_san(prev_san)
-            except ValueError:
-                return None
-            if b.board_fen() != prev_board.board_fen() or b.turn != prev_board.turn:
-                return None  # the sentence before followed a line elsewhere
-            board, after = b, prev_san
-    if board is None:
+    prev = getattr(ctx, "scene_before", None)
+    # The lines the sentences before ended with: the scene, and the line read with the student's quoted moves.
+    ends = [p[0] for p in (prev, getattr(ctx, "forced_line", None)) if p and p[2] <= 3]
+    condemn, clear = [], []
+    if board is not False:
+        if board is not None:
+            condemn.append((board, after))
+        toks, _ = _line_tokens(text, upto)
+        for end in ends:
+            played = _play(end, toks)
+            if played:
+                clear.append(played)
+        return condemn, clear
+    # No move written before the claim: the board as it is («сейчас»), a move of it named first («Kxb3! —
+    # единственный ход»), or the scene of the sentence before («Rxh6+. Король обязан отойти…») — one move from
+    # the board on the screen; a longer line there only clears. «Здесь» after a move told in the sentence before
+    # may mean either board (review 30.10: «Rh8+. Здесь король вынужден уйти с e8» was judged with White to move).
+    student = getattr(ctx, "student_color", None)
+    if _NOW.search(lowered[:upto]) or (_YOU.search(_clause(lowered, at)) and student in (None, ctx.current.turn)):
+        condemn.append((ctx.current, ""))  # «а ты обязан ответить dxe5»: the student's move now
+    elif named_at and _reply_named(ctx.current, named_at[1]) is not None and named_at[3] == named_at[0]:
+        condemn.append((ctx.current, ""))
+    if prev and prev[2] <= 2:
+        b = ctx.current.copy(stack=False)
+        try:
+            b.push_san(prev[1])
+        except ValueError:
+            b = None
+        if b is not None and b.board_fen() == prev[0].board_fen() and b.turn == prev[0].turn:
+            condemn.append((b, prev[1]))
+        else:
+            clear.append((prev[0], prev[1]))
+    line = getattr(ctx, "forced_line", None)
+    if line and line[2] <= 2:
+        clear.append((line[0], line[1]))
+    return condemn, clear
+
+
+def _claim_on(board, after: str, lowered: str, at: int, named_at, kind_m, ctx, anchored: bool) -> Optional[dict]:
+    """The claim read on *board* (None when it cannot be about it). *anchored*: a move written before the claim
+    leads there (a line, the scene of the sentence before), not the board as it is."""
+    if board is None or board.is_game_over() or not board.is_valid():
         return None
-    if board is ctx.current:
-        after = ""
-    if board.is_game_over() or not board.is_valid():
-        return None
-    # The side named in the claim's own clause («после Ke5 белые играют a6, и ты обязан идти Kd6» is about Black),
-    # else the last one named before it («у чёрных … — конь обязан взять»): a board where the other side moves is
-    # another moment of the line.
-    clause = re.split(r"[,;:—–]|\sи\s|\sа\s|\sно\s", lowered[max(0, at - 30): at])[-1] + lowered[at: at + 25]
+    # The side named in the claim's own clause, else the last one named before it («у чёрных … — конь обязан
+    # взять»): a board where the other side moves is another moment of the line. «ты / вы» is the student.
+    clause = _clause(lowered, at)
     named_side = _named_side(clause)
+    if named_side is None and _YOU.search(clause):
+        student = getattr(ctx, "student_color", None)
+        named_side = student if student is not None else board.turn
     if named_side is None:
         sides = re.findall(_W + r"(бел\w*|ч[её]рн\w*|white|black)" + _E, lowered[max(0, at - 60): at])
         named_side = _named_side(sides[-1]) if sides else None
@@ -956,9 +1006,23 @@ def forced_reply_claim(text: str, ctx) -> Optional[dict]:
         move = _reply_named(board, named_at[1])
         if move is None or (ptype is not None and board.piece_type_at(move.from_square) != ptype):
             return None
+        verb = lowered[at:named_at[3]]
+        if _AWAY_VERBS.search(verb):
+            # «придётся отступить: Qe3» claims that the queen must move; Qe3 is one way.
+            piece = board.piece_type_at(move.from_square)
+            moves = [mv for mv in board.legal_moves if mv.from_square == move.from_square]
+            return {"board": board.copy(stack=False), "after": after, "moves": moves, "named": None,
+                    "kind": f"a {chess.piece_name(piece)} move", "strict": named_at[2]}
         return {"board": board.copy(stack=False), "after": after, "moves": [move], "named": board.san(move),
                 "strict": named_at[2]}
     is_king = kind_m.re is _FORCED_KING
+    if is_king:
+        square = _FROM_SQUARE.match(lowered, kind_m.end())
+        king = board.king(board.turn)
+        if square and king != chess.parse_square(square["sq"]):
+            return None  # «уйти с e8»: that king is not the side to move's
+        if not anchored and not board.is_check():
+            return None  # «король вынужден уйти» of a king not in check: a moment told before, not this board
     moves = [mv for mv in board.legal_moves
              if (board.piece_type_at(mv.from_square) == chess.KING if is_king else
                  board.is_capture(mv) and (ptype is None or board.piece_type_at(mv.from_square) == ptype)
@@ -968,6 +1032,63 @@ def forced_reply_claim(text: str, ctx) -> Optional[dict]:
     strict = not re.search(r"должн|должен", kind_m.group(0))
     return {"board": board.copy(stack=False), "after": after, "moves": moves, "named": None,
             "kind": "a king move" if is_king else "a capture", "strict": strict}
+
+
+def forced_reply_claim(text: str, ctx) -> Optional[dict]:
+    """A claim that a reply is forced («обязаны ответить dxe5», «король вынужден уйти», «единственный ход — Kd6»)
+    for the engine to judge: {board, after (the move it follows), moves (the replies claimed), named (the SAN, or
+    None for a kind of reply), strict (forced, not merely best), also (the same claim on the other boards the
+    sentence may be about, see _readings)}; None when there is none or its board is unsure.
+    *text*: the sentence as check_sentence reads it (ё → е, files in Latin letters)."""
+    if getattr(ctx, "current", None) is None or not text or text.rstrip().endswith("?"):
+        return None  # a question claims nothing («почему ферзь обязан был встать на c1?»)
+    lowered = text.lower()
+    if _DISOWNED.search(lowered):
+        return None
+    named_at = None  # (claim position, token, strict, token position)
+    for m in _FORCED_MOVE.finditer(lowered):
+        tok = _REPLY_TOKEN.match(lowered, m.end())
+        if tok and not _negated_before(lowered, m.start()):
+            named_at = (m.start(), tok.group(0), not m.group("word").startswith("долж"), tok.start(), tok.end())
+            break
+    if named_at is None:
+        m = _ONLY_THEN_MOVE.search(lowered)
+        tok = _REPLY_TOKEN.match(lowered, m.end()) if m else None
+        if tok and not _negated_before(lowered, m.start()):
+            named_at = (m.start(), tok.group(0), True, tok.start(), tok.end())
+    if named_at is None:
+        m = _MOVE_THEN_ONLY.search(lowered)
+        if m and not _negated_before(lowered, m.end("mv") + 4):
+            named_at = (m.start(), m.group("mv"), True, m.start(), m.end("mv"))
+    if named_at and (_OR_NEXT.match(lowered, named_at[4]) or _OR_BEFORE.search(lowered[:named_at[3]])):
+        return None  # a choice of replies, not a forced one
+    kind_m = None
+    if named_at is None:
+        kind_m = _FORCED_KING.search(lowered) or _FORCED_TAKE.search(lowered)
+        if kind_m is None or _negated_before(lowered, kind_m.start()):
+            return None
+    at = named_at[0] if named_at else kind_m.start()
+    if _NOT_A_CLAIM.search(lowered[:at + 40]):
+        return None
+    if _GENERAL.search(lowered) and not _NOW.search(lowered) and not re.search(r"(?<![а-яё])после(?![а-яё])|\bafter\b", lowered):
+        return None  # a rule in general («обычно приходится брать…»), as _forced_reply_issues reads it
+    # The board the claim is about: before the named move when it stands first («Kxb3! — единственный ход»),
+    # else after the moves written before the claim — see _readings.
+    upto = named_at[3] if named_at else at
+    condemn, clear = _readings(text, lowered, at, upto, named_at, ctx)
+    claims, also = [], []
+    for i, (board, after) in enumerate(condemn + clear):
+        if board is ctx.current:
+            after = ""
+        claim = _claim_on(board, after, lowered, at, named_at, kind_m, ctx, anchored=bool(after))
+        if claim is None or any(c["board"].fen() == claim["board"].fen() for c in claims + also):
+            continue
+        (claims if i < len(condemn) else also).append(claim)
+    if not claims:
+        return None
+    claim = claims[0]
+    claim["also"] = claims[1:] + also
+    return claim
 
 
 # «При длинной проверяй d1, c1, b1» (production 08.10): the king goes e1–d1–c1; b1 only has to be empty — the

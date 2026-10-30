@@ -5,6 +5,10 @@ depth 24) — dxe5 is the best reply, not a forced one. «Qxd5+. Король в
 takes the queen back, Qxd5. The rules judged forcedness only when the claim could not be true at all (one legal
 reply); now the claim is found by the check (src/answer_check_rules.forced_reply_claim) and judged by the engine
 in the async stage (src/hypothetical.verify_forced_reply), in the text coach and in voice/check.
+
+Review 30.10: a move of the sentence that continues the line of the sentences before is read there too (a line
+only clears, never condemns); a claim denied, called a myth or reported is not the coach's; «X или Y» is a choice;
+«ты» is the student; «здесь» after a move told before reads that scene; a verdict is settled at a fixed depth.
 """
 
 import shutil
@@ -14,7 +18,7 @@ import pytest
 
 from src import config, server
 from src.answer_check import CheckContext, check_sentence
-from src.hypothetical import verify_forced_reply
+from src.hypothetical import FORCED_CONFIRM_DEPTH, verify_forced_reply
 
 TRAP = "rn1qkbnr/ppp2p1p/3p2p1/4p3/2B1P1b1/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 0 5"
 TRAP_Q = "Можно сейчас сыграть Nxe5? Ведь слон g4 связывает коня."
@@ -58,6 +62,24 @@ def _fake(lines_by_fen: dict, calls: list = None):
             out.append(line)
         return {"lines": out} if out else {"error": "no lines"}
     return _analyze
+
+
+def _engine(monkeypatch, lines_by_fen: dict, deep_by_fen: dict = None, calls: list = None):
+    """Both looks of the engine stubbed: the timed one (analyze_timed) and the fixed-depth one that settles a
+    verdict (analyze_cached; *deep_by_fen*, the same lines by default)."""
+    timed = _fake(lines_by_fen, calls)
+    deep = _fake(lines_by_fen if deep_by_fen is None else deep_by_fen)
+
+    def _cached(fen, depth=16, multipv=1):
+        if calls is not None:
+            calls.append((fen, "depth", depth, multipv))
+        res = deep(fen, 0, multipv)
+        for line in res.get("lines", []):
+            line["depth"] = depth
+        return res
+
+    monkeypatch.setattr("src.hypothetical.analyze_timed", timed)
+    monkeypatch.setattr("src.hypothetical.analyze_cached", _cached)
 
 
 class TestTheClaimIsFound:
@@ -131,16 +153,14 @@ class TestTheEngineJudges:
 
     def test_another_reply_as_good_makes_it_not_forced(self, monkeypatch):
         after = _after(TRAP, "Nxe5").fen()
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake({after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]}))
+        _engine(monkeypatch, {after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]})
         issue = verify_forced_reply(self._trap_claim(), 300, True)
         assert issue == ("after Nxe5 Black is not forced to play dxe5: Be6 is about as good (+2.9 for White against "
                          "+2.6 for White after dxe5, engine) — it is one good reply, not the only one")
 
     def test_a_live_game_keeps_the_engines_reply_out(self, monkeypatch):
         after = _after(TRAP, "Nxe5").fen()
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake({after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]}))
+        _engine(monkeypatch, {after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]})
         issue = verify_forced_reply(self._trap_claim(), 300, False)
         assert issue.startswith("after Nxe5 Black is not forced to play dxe5: another reply is about as good")
         assert "Be6" not in issue
@@ -148,31 +168,48 @@ class TestTheEngineJudges:
     def test_alternatives_much_worse_keep_it_forced(self, monkeypatch):
         # «вынуждены взять, иначе теряют фигуру»: true when everything else is clearly worse.
         after = _after(TRAP, "Nxe5").fen()
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake({after: [("d6e5", -2.6), ("g4e6", -4.0), ("d6d5", -5.2)]}))
+        _engine(monkeypatch, {after: [("d6e5", -2.6), ("g4e6", -4.0), ("d6d5", -5.2)]})
         assert verify_forced_reply(self._trap_claim(), 300, True) is None
 
-    def test_a_gap_near_the_line_is_looked_at_again_deeper(self, monkeypatch):
+    def test_the_fixed_depth_look_decides_a_gap_near_the_line(self, monkeypatch):
+        # trap-legal at 600 ms: 0.72 (Be6 -3.07 against dxe5 -2.35) one run, 0.69 the next (review 30.10); the
+        # search to FORCED_CONFIRM_DEPTH gives the same numbers every time, and they decide.
         after = _after(TRAP, "Nxe5").fen()
         calls = []
-        first = _fake({after: [("d6e5", -2.35), ("g4e6", -3.07), ("d6d5", -4.7)]})
-        deeper = _fake({after: [("d6e5", -2.43), ("g4e6", -2.9), ("d6d5", -5.2)]})
-
-        def _analyze(fen, movetime_ms, multipv=1, min_depth=10):
-            calls.append(movetime_ms)
-            return (first if len(calls) == 1 else deeper)(fen, movetime_ms, multipv, min_depth)
-
-        monkeypatch.setattr("src.hypothetical.analyze_timed", _analyze)
+        _engine(monkeypatch, {after: [("d6e5", -2.35), ("g4e6", -3.07), ("d6d5", -4.7)]},
+                {after: [("d6e5", -2.44), ("g4e6", -2.94), ("d6d5", -5.0)]}, calls)
         issue = verify_forced_reply(self._trap_claim(), 300, True)
-        assert calls == [600, 1200] and issue and "Be6 is about as good" in issue
+        assert [c[1] for c in calls] == [600, "depth"] and calls[1][2] == FORCED_CONFIRM_DEPTH
+        assert issue and "Be6 is about as good (+2.9 for White against +2.4 for White after dxe5" in issue
+
+    def test_a_timed_verdict_against_the_claim_is_not_final(self, monkeypatch):
+        # The timed look calls Be6 as good; the fixed-depth one does not: the claim stands.
+        after = _after(TRAP, "Nxe5").fen()
+        _engine(monkeypatch, {after: [("d6e5", -2.4), ("g4e6", -2.7), ("d6d5", -4.7)]},
+                {after: [("d6e5", -2.4), ("g4e6", -3.6), ("d6d5", -5.0)]})
+        assert verify_forced_reply(self._trap_claim(), 300, True) is None
+
+    def test_a_claim_far_from_the_lines_needs_no_deep_look(self, monkeypatch):
+        after = _after(TRAP, "Nxe5").fen()
+        calls = []
+        _engine(monkeypatch, {after: [("d6e5", -2.4), ("g4e6", -4.6), ("d6d5", -5.0)]}, calls=calls)
+        assert verify_forced_reply(self._trap_claim(), 300, True) is None
+        assert [c[1] for c in calls] == [600]
+
+    def test_a_deep_look_short_of_its_depth_says_nothing(self, monkeypatch):
+        # A loaded host stops the search early: no verdict rather than one that flips with the load.
+        after = _after(TRAP, "Nxe5").fen()
+        _engine(monkeypatch, {after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]})
+        shallow = _fake({after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]})
+        monkeypatch.setattr("src.hypothetical.analyze_cached", lambda fen, depth=16, multipv=1: shallow(fen, 0, multipv))
+        assert verify_forced_reply(self._trap_claim(), 300, True) is None
 
     def test_the_named_reply_much_worse_than_the_best(self, monkeypatch):
         # mate2-no: the king «must» move, Qxd5 takes the queen back.
         claim = _claim(["Берёшь коня на d5 с шахом: Qxd5+.",
                         "Король вынужден уйти с e6, после чего ты забираешь ферзя, и партия фактически решена."], MATE2)
         after = _after(MATE2, "Qxd5+").fen()
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake({after: [("d8d5", 6.2), ("e6e7", -5.7), ("e6f5", "mate -4")]}))
+        _engine(monkeypatch, {after: [("d8d5", 6.2), ("e6e7", -5.7), ("e6f5", "mate -4")]})
         issue = verify_forced_reply(claim, 300, True)
         assert issue == ("after Qxd5+ Black is not forced to make a king move: the best reply is Qxd5 (-6.2 for White "
                          "against +5.7 for White after Ke7, engine) — do not call it forced or the only reply")
@@ -181,8 +218,8 @@ class TestTheEngineJudges:
         claim = _claim("После Nxe5 чёрные обязаны ответить h5.", TRAP)
         board = _after(TRAP, "Nxe5")
         after_h5 = _after(TRAP, "Nxe5", "h5").fen()
-        monkeypatch.setattr("src.hypothetical.analyze_timed", _fake({
-            board.fen(): [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -3.3)], after_h5: [("e5g4", 5.0)]}))
+        _engine(monkeypatch, {
+            board.fen(): [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -3.3)], after_h5: [("e5g4", 5.0)]})
         issue = verify_forced_reply(claim, 300, True)
         assert issue.startswith("after Nxe5 Black is not forced to play h5: the best reply is dxe5 (+2.6 for White "
                                 "against +5.0 for White after h5")
@@ -190,11 +227,9 @@ class TestTheEngineJudges:
     def test_should_is_judged_only_against_the_best(self, monkeypatch):
         claim = _claim("После Nxe5 чёрные должны ответить dxe5.", TRAP)
         after = _after(TRAP, "Nxe5").fen()
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake({after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]}))
+        _engine(monkeypatch, {after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]})
         assert verify_forced_reply(claim, 300, True) is None
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake({after: [("g4e6", -0.5), ("d6e5", -2.6), ("d6d5", -5.2)]}))
+        _engine(monkeypatch, {after: [("g4e6", -0.5), ("d6e5", -2.6), ("d6d5", -5.2)]})
         assert "the best reply is Be6" in verify_forced_reply(claim, 300, True)
 
     @pytest.mark.parametrize("lines", [
@@ -203,7 +238,7 @@ class TestTheEngineJudges:
     ])
     def test_mates_and_decided_positions_are_left_alone(self, monkeypatch, lines):
         after = _after(TRAP, "Nxe5").fen()
-        monkeypatch.setattr("src.hypothetical.analyze_timed", _fake({after: lines}))
+        _engine(monkeypatch, {after: lines})
         assert verify_forced_reply(self._trap_claim(), 300, True) is None
 
     def test_one_legal_reply_needs_no_engine(self, monkeypatch):
@@ -216,11 +251,168 @@ class TestTheEngineJudges:
             raise AssertionError("the engine is not asked")
 
         monkeypatch.setattr("src.hypothetical.analyze_timed", _boom)
+        monkeypatch.setattr("src.hypothetical.analyze_cached", _boom)
         assert verify_forced_reply(claim, 300, True) is None
 
     def test_the_engine_away_is_not_an_issue(self, monkeypatch):
         monkeypatch.setattr("src.hypothetical.analyze_timed", lambda *a, **k: {"error": "no engine"})
+        monkeypatch.setattr("src.hypothetical.analyze_cached", lambda *a, **k: {"error": "no engine"})
         assert verify_forced_reply(self._trap_claim(), 300, True) is None
+
+
+# The puzzle «Мат в 3 хода — Набор 13» (prod programme 19.10 and 23.10) and the retry set's «Смешанные — Набор 12».
+MATE3 = "2r1kb1r/1b3pp1/p3N2p/1p2P3/5P1B/2PBq2P/P5PK/3R1R2 w - - 0 1"
+MATE3_ANSWER = ["Первый ход — **Bxb5+**, с шахом бьём пешку на b5.",
+                "Смысл в жертве: чёрные вынуждены ответить **axb5**, забирая слона.",
+                "Дальше **Nc7+** — конь с шахом встаёт на c7, и чёрные обязаны ответить **Rxc7**: это единственный ход."]
+RETRY12 = "1r2kb2/2qb1p2/p2pp1p1/6Br/1n1QPP1P/2N5/1PPN2R1/2KR4 b - - 0 1"
+# After 1.e4 e5 2.d4 exd4 3.Qxd4 Nc6: Qe3, Qa4, Qc4 are about equal.
+CG = "r1bqkbnr/pppp1ppp/2n5/8/3QP3/8/PPP2PPP/RNB1KBNR w KQkq - 1 4"
+
+
+def _readings(claim) -> list:
+    return [claim["board"].fen()] + [c["board"].fen() for c in claim["also"]]
+
+
+class TestTheLineOfTheSentencesBefore:
+    """A move of this sentence legal on the screen board too may continue the line the sentences before wrote
+    (review 30.10: Rxc7, Kb1, Ke7 — each the only legal reply in its line — were cut as «not forced»)."""
+
+    def test_the_line_continued_is_a_reading_and_clears_it(self, monkeypatch):
+        claim = _claim(MATE3_ANSWER, MATE3)
+        line = _after(MATE3, "Bxb5+", "axb5", "Nc7+")
+        assert [line.san(m) for m in line.legal_moves] == ["Rxc7"]
+        assert _readings(claim) == [_after(MATE3, "Nc7+").fen(), line.fen()]
+        # On the screen board Kd7 is the better reply; in the line Rxc7 is the only one: the claim stands.
+        _engine(monkeypatch, {_after(MATE3, "Nc7+").fen(): [("e8d7", -2.1), ("c8c7", "mate -2")]})
+        assert verify_forced_reply(claim, 300, True) is None
+
+    def test_wrong_in_every_reading_the_lines_own_speaks(self, monkeypatch):
+        claim = _claim(MATE3_ANSWER, MATE3)
+        screen, line = _readings(claim)
+        _engine(monkeypatch, {screen: [("e8d7", -2.1), ("c8c7", "mate -2")]})
+        claim["also"][0]["moves"] = list(claim["also"][0]["board"].legal_moves)[:1]
+        assert verify_forced_reply(claim, 300, True) is None  # one legal reply there: forced by the rules
+
+    def test_the_retry_line_kb1_is_the_only_reply(self):
+        claim = _claim(["Ход чёрных — Qxc3!",
+                        "Дальше белые вынуждены играть Nc4 — конь d2 встаёт на c4, чтобы прикрыть поле c2 и защитить ферзя d4.",
+                        "Но ты не отступаешь: Na2+ — шах, и у белых единственный ответ Kb1."], RETRY12)
+        line = _after(RETRY12, "Qxc3", "Nc4", "Na2+")
+        assert [line.san(m) for m in line.legal_moves] == ["Kb1"]
+        assert line.fen() in _readings(claim)
+        assert verify_forced_reply(claim, 300, True) is None  # no engine needed: in the line Kb1 is forced
+
+    def test_the_students_quoted_move_continues_the_line_too(self):
+        # «после Nxe5 Bxd1 белые дают шах слоном. На Bxf7+ король обязан ответить Ke7» — Légal's mate: the quoted
+        # Nxe5 is not a scene of the other checks, but it is the line here.
+        claim = _claim(["Да, это знаменитая ловушка Легаля: после Nxe5 Bxd1 белые дают шах слоном.",
+                        "На Bxf7+ король обязан ответить Ke7, а затем конь с c3 даёт мат на d5."], TRAP, TRAP_Q)
+        assert _after(TRAP, "Nxe5", "Bxd1", "Bxf7+").fen() in _readings(claim)
+        assert verify_forced_reply(claim, 300, True) is None
+
+    def test_a_line_alone_never_condemns(self):
+        # Only the line makes the moves legal: a derived board clears, it does not condemn by itself.
+        assert _claim(["Если чёрные возьмут ферзя: Nxe5 Bxd1.", "Король обязан идти Ke7 после Bxf7+."], TRAP, TRAP_Q) is None
+
+
+class TestHereAfterAMoveToldBefore:
+    """«здесь / сейчас» after a move of the sentence before (review 30.10: «Rh8+. Здесь король вынужден уйти с e8»
+    was judged with White to move)."""
+
+    ROOK = "1r2k3/8/8/8/8/8/8/R3K2R w KQ - 0 1"
+
+    def test_the_scene_is_read_and_the_kings_square_must_be_the_side_to_moves(self):
+        claim = _claim(["Ладья даёт шах: Rh8+.", "Здесь король вынужден уйти с e8, и ты забираешь ладью b8."], self.ROOK)
+        assert _readings(claim) == [_after(self.ROOK, "Rh8+").fen()]
+        assert verify_forced_reply(claim, 300, True) is None  # every legal reply is a king move
+
+    def test_mate2_no_with_here(self):
+        claim = _claim(["Берёшь коня на d5 с шахом: Qxd5+.", "Здесь король вынужден уйти с e6."], MATE2)
+        assert _readings(claim) == [_after(MATE2, "Qxd5+").fen()]
+
+    @pytest.mark.parametrize("sentence", [
+        "Здесь король вынужден уйти с e8.",  # the white king is on e1
+        "Здесь король вынужден уйти.",  # not in check: a moment told before (one sentence of voice/check)
+    ])
+    def test_the_board_as_it_is_does_not_fit(self, sentence):
+        assert _claim(sentence, self.ROOK) is None
+
+
+class TestTheClaimDisowned:
+    """A claim the sentence denies, calls a myth or reports as someone's is not the coach's (review 30.10)."""
+
+    @pytest.mark.parametrize("sentence", [
+        "Неверно, что после Nxe5 чёрные обязаны ответить dxe5: есть ещё Be6.",
+        "Часто пишут, что после Nxe5 чёрные обязаны ответить dxe5, но это не так.",
+        "Это не значит, что после Nxe5 чёрные обязаны ответить dxe5.",
+        "Многие новички считают, что после Nxe5 чёрные обязаны ответить dxe5.",
+        "Распространённый миф: после Nxe5 чёрные обязаны ответить dxe5.",
+        "Кстати, после Nxe5 чёрные обязаны ответить dxe5 — это заблуждение, Be6 ничуть не хуже.",
+        "Не совсем верно говорить, что после Nxe5 чёрным приходится брать dxe5.",
+        "Неправда, будто после Nxe5 у чёрных единственный ответ — dxe5.",
+        "It is not true that after Nxe5 Black must play dxe5: Be6 also holds.",
+        "It is a myth that after Nxe5 Black must play dxe5.",
+    ])
+    def test_trap(self, sentence):
+        assert _claim(sentence, TRAP) is None
+
+    @pytest.mark.parametrize("sentence", [
+        "Неверно, что сейчас белые обязаны сыграть Qe3: Qa4 и Qc4 ничуть не хуже.",
+        "Это вовсе не значит, что сейчас ферзь обязан отступить: Qe3 — у тебя есть и Qa4.",
+        "Нет: сказать, что сейчас у белых единственный ход — Qe3, нельзя, Qa4 и Qc4 так же хороши.",
+    ])
+    def test_center_game(self, sentence):
+        assert _claim(sentence, CG) is None
+
+    def test_the_rewrite_of_mate2_no_is_not_cut(self):
+        assert _claim(["Берёшь коня на d5 с шахом: Qxd5+.",
+                       "Ошибочно думать, что король вынужден уйти с e6 — чёрные просто берут ферзя Qxd5."], MATE2) is None
+
+
+class TestAChoiceOfReplies:
+    """«dxe5 или Be6», "Qe3 or Qa4": a set of replies, not one forced (review 30.10)."""
+
+    @pytest.mark.parametrize("sentence, fen", [
+        ("После Nxe5 чёрным придётся ответить dxe5 или Be6 — в обоих случаях пешка потеряна.", TRAP),
+        ("After Nxe5 Black has to play dxe5 or Be6, and either way a pawn is lost.", TRAP),
+        ("Сейчас ферзю придётся отступить: Qe3 или Qa4 — выбирай любой.", CG),
+        ("Right now the queen has to retreat: Qe3 or Qa4, both are fine.", CG),
+        ("Сейчас ферзь атакован, и тебе придётся отступить: Qe3 или Qa4, оба хода нормальные.", CG),
+        ("Сейчас у белых единственный ход — Qe3, Qa4 или Qc4.", CG),
+    ])
+    def test_listed(self, sentence, fen):
+        assert _claim(sentence, fen) is None
+
+    def test_a_move_away_with_an_example_claims_every_move_of_the_piece(self, monkeypatch):
+        claim = _claim("Сейчас ферзь атакован, и тебе придётся отступить: Qe3.", CG)
+        board = chess.Board(CG)
+        assert claim["named"] is None and claim["kind"] == "a queen move"
+        assert set(claim["moves"]) == {m for m in board.legal_moves if m.from_square == chess.D4}
+        _engine(monkeypatch, {CG: [("d4e3", -0.2), ("d4a4", -0.2), ("d4c4", -0.3)]})
+        assert verify_forced_reply(claim, 300, True) is None
+
+
+class TestYouIsTheStudent:
+    """«ты / вы» in the claim's clause is the student (the side to move when unknown), not the side the clause
+    before named (review 30.10)."""
+
+    def test_the_comments_own_example(self):
+        fen = "8/8/8/P4k2/8/8/8/7K b - - 0 1"
+        claim = _claim("Смотри: после Ke5 белые играют a6, и ты обязан идти Kd6 — иначе пешка просто идёт в ферзи.", fen)
+        assert claim["board"].fen() == _after(fen, "Ke5", "a6").fen() and claim["named"] == "Kd6"
+
+    def test_the_white_side_named_before(self):
+        fen = _after(TRAP, "Nxe5").fen()
+        claim = _claim("Белые взяли пешку, а ты обязан ответить dxe5.", fen)
+        assert claim["board"].fen() == fen and claim["named"] == "dxe5"
+
+    def test_a_student_of_the_other_side(self):
+        fen = _after(TRAP, "Nxe5").fen()
+        ctx = CheckContext.from_fens([fen])
+        ctx.student_color = chess.WHITE
+        assert check_sentence("Белые взяли пешку, а ты обязан ответить dxe5.", ctx) == []
+        assert not ctx.forced_claims
 
 
 @pytest.mark.skipif(not shutil.which("stockfish") and not shutil.which("/opt/homebrew/bin/stockfish"),
@@ -231,6 +423,9 @@ class TestWithStockfish:
     @pytest.fixture(autouse=True)
     def _local_engine(self, monkeypatch):
         monkeypatch.setattr("src.tools.stockfish.ENGINE_API_URL", "", raising=False)
+        # No time cap on the fixed-depth search: a loaded test host would stop it short, and then the engine says
+        # nothing (test_a_deep_look_short_of_its_depth_says_nothing) — the numbers here are the depth's own.
+        monkeypatch.setattr("src.tools.stockfish.MAX_MS", 0, raising=False)
 
     def test_trap_legal(self):
         issue = verify_forced_reply(_claim(TRAP_SENTENCE, TRAP, TRAP_Q), 300, True)
@@ -241,6 +436,9 @@ class TestWithStockfish:
                         "Король вынужден уйти с e6, после чего ты забираешь ферзя, и партия фактически решена."], MATE2)
         issue = verify_forced_reply(claim, 300, True)
         assert issue and issue.startswith("after Qxd5+ Black is not forced to make a king move: the best reply is Qxd5")
+
+    def test_the_puzzle_line_passes(self):
+        assert verify_forced_reply(_claim(MATE3_ANSWER, MATE3), 300, True) is None
 
     def test_a_truly_forced_recapture_passes(self):
         claim = _claim("После Nxf7 чёрные обязаны взять Kxf7, иначе теряют ферзя или ладью.", FRIED)
@@ -255,8 +453,7 @@ class TestWiring:
         from tests.unit.test_hypothetical import _turn
 
         after = _after(TRAP, "Nxe5").fen()
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake({after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]}))
+        _engine(monkeypatch, {after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]})
         answer = "Связка тут мнимая. " + TRAP_SENTENCE + " Потом думай о рокировке."
         _, frames = _turn(monkeypatch, answer, TRAP_Q, TRAP, COACH_ANSWER_FIX=False, COACH_HYPOTHETICAL_NOTE=False)
         text = "".join(f.get("delta", "") for f in frames)
@@ -267,8 +464,7 @@ class TestWiring:
         from tests.unit.test_hypothetical import _turn
 
         after = _after(TRAP, "Nxe5").fen()
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake({after: [("d6e5", -2.6), ("g4e6", -4.4), ("d6d5", -5.2)]}))
+        _engine(monkeypatch, {after: [("d6e5", -2.6), ("g4e6", -4.4), ("d6d5", -5.2)]})
         _, frames = _turn(monkeypatch, TRAP_SENTENCE, TRAP_Q, TRAP, COACH_ANSWER_FIX=False, COACH_HYPOTHETICAL_NOTE=False)
         assert "обязаны ответить dxe5" in "".join(f.get("delta", "") for f in frames)
 
@@ -277,8 +473,7 @@ class TestWiring:
 
         after = _after(TRAP, "Nxe5").fen()
         monkeypatch.setattr(config, "COACH_MOVE_VERIFY", True)
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake({after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]}))
+        _engine(monkeypatch, {after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]})
         resp = TestClient(server.app).post("/api/coach/voice/check", headers={"X-User-Id": "voice-forced"},
                                            json={"text": "После Nxe5 чёрные обязаны ответить dxe5.", "fen": TRAP})
         issues = resp.json()["issues"]
@@ -290,8 +485,7 @@ class TestWiring:
 
         after = _after(TRAP, "Nxe5").fen()
         monkeypatch.setattr(config, "COACH_MOVE_VERIFY", True)
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake({after: [("d6e5", -2.6), ("g4e6", -4.4), ("d6d5", -5.2)]}))
+        _engine(monkeypatch, {after: [("d6e5", -2.6), ("g4e6", -4.4), ("d6d5", -5.2)]})
         resp = TestClient(server.app).post("/api/coach/voice/check", headers={"X-User-Id": "voice-forced"},
                                            json={"text": "После Nxe5 чёрные обязаны ответить dxe5.", "fen": TRAP})
         assert resp.json() == {"issues": []}

@@ -20,7 +20,7 @@ import chess
 
 from src.fen_repair import repair_fen
 from src.position_facts import VALUES, static_facts
-from src.tools.stockfish import analyze_timed
+from src.tools.stockfish import analyze_cached, analyze_timed
 
 logger = logging.getLogger(__name__)
 
@@ -566,10 +566,15 @@ def site_solution_note(fen: Optional[str], solution, movetime_ms: int = 250) -> 
 # the best is not the reply at all. A won or lost position (beyond FORCED_DECIDED) is too coarse at this depth to
 # call two replies equal, and a mate is never «as good» as another reply.
 FORCED_DECIDED = 4.0
-# The gap between two replies needs more depth than one evaluation: trap-legal's was 0.69 at 300 ms, 0.63–0.72 at
-# 600 ms, 0.47 at 2 s (depth 19). A gap near the line is looked at again, deeper, before it decides anything.
 FORCED_MOVETIME_FACTOR = 2
+# The gap between two replies moves with the depth: trap-legal's was 0.69–0.72 at 600 ms (depth 16–17, by the
+# host's load), so the same sentence was cut in one run and shown in the next (review 30.10). A timed look only
+# clears a claim far from the lines; a verdict against it, or a gap near a line, is settled by a search to a fixed
+# depth — the same numbers on every run (the engine server caches by depth; trap-legal: 0.50 at depth 17), and a
+# search that does not reach that depth says nothing.
+FORCED_CONFIRM_DEPTH = 17
 FORCED_CONFIRM_BAND = (0.35, 1.1)
+FORCED_MISTAKE_BAND = 1.0
 
 
 def _mover_value(line: dict) -> tuple:
@@ -579,19 +584,108 @@ def _mover_value(line: dict) -> tuple:
     return float(line.get("score") or 0.0), None
 
 
-def _reply_rows(board: chess.Board, movetime_ms: int, min_depth: int) -> tuple:
-    """The engine's three best replies on *board*: ([(move, pawns for the mover, mate, pawns for White)], depth)."""
-    res = analyze_timed(board.fen(), movetime_ms, multipv=3, min_depth=min_depth)
-    rows, depth = [], 0
-    for ln in (res.get("lines") or []) if "error" not in res else []:
+def _engine_lines(fen: str, multipv: int, movetime_ms: Optional[int], depth: Optional[int]) -> Optional[dict]:
+    """A timed look (*movetime_ms*), or one to a fixed *depth* — None when a line of it stopped short of that
+    depth (the host's time cap under load: its lines mix depths, and their gaps with them); a line that found a
+    mate ends early and counts."""
+    if depth is None:
+        res = analyze_timed(fen, movetime_ms, multipv=multipv, min_depth=MIN_DEPTH)
+        return None if "error" in res else res
+    res = analyze_cached(fen, depth=depth, multipv=multipv)
+    lines = (res.get("lines") or []) if "error" not in res else []
+    if not lines or any(int(ln.get("depth") or 0) < depth and ln.get("mate_in") is None for ln in lines):
+        return None
+    return res
+
+
+def _reply_rows(board: chess.Board, movetime_ms: Optional[int] = None, depth: Optional[int] = None) -> list:
+    """The engine's three best replies on *board*: [(move, pawns for the mover, mate, pawns for White)]."""
+    res = _engine_lines(board.fen(), 3, movetime_ms, depth)
+    rows = []
+    for ln in (res or {}).get("lines") or []:
         try:
             mv = chess.Move.from_uci((ln.get("pv") or "").split()[0])
         except (ValueError, IndexError):
             continue
         if mv in board.legal_moves:
             rows.append((mv, *_mover_value(ln), _white_pawns(ln, board.turn)))
-            depth = max(depth, int(ln.get("depth") or 0))
-    return rows, depth
+    return rows
+
+
+def _forced_verdict(claim: dict, rows: list, reveal_best: bool, movetime_ms: Optional[int], depth: Optional[int]) -> tuple:
+    """(why the claim is wrong or None, whether a gap sits near a line) on one engine look *rows*."""
+    board, claimed = claim["board"], set(claim["moves"])
+    inside = [r for r in rows if r[0] in claimed]
+    outside = [r for r in rows if r[0] not in claimed]
+    if not rows or not outside:
+        return None, False  # every reply the engine looks at is one the claim names
+    bound = False
+    if inside:
+        named_value, named_mate, named_white = inside[0][1], inside[0][2], inside[0][3]
+    elif len(rows) == 3 and rows[0][1] - rows[-1][1] >= MISTAKE and rows[-1][2] is None:
+        # Not among the engine's three best: each claimed reply is at least as bad as the third one.
+        named_value, named_mate, named_white, bound = rows[-1][1], None, None, True
+    elif claim.get("named") and len(claimed) == 1:
+        after = board.copy(stack=False)
+        after.push(next(iter(claimed)))
+        if after.is_game_over():
+            return None, False
+        res = _engine_lines(after.fen(), 1, movetime_ms, None if depth is None else depth - 1)
+        line = ((res or {}).get("lines") or [None])[0]
+        if not line:
+            return None, False
+        value, mate = _mover_value(line)
+        named_value, named_mate, named_white = -value, (-mate if mate is not None else None), _white_pawns(line, after.turn)
+    else:
+        return None, False
+    best = rows[0]
+    side = "White" if board.turn == chess.WHITE else "Black"
+    after_txt = f"after {claim['after']}" if claim.get("after") else "here"
+    label = claim.get("named") or claim.get("kind") or "that reply"
+    head = f"{after_txt} {side} is not forced to {'play' if claim.get('named') else 'make'} {label}"
+    shown = claim.get("named") or (board.san(inside[0][0]) if inside else None)
+    named_eval = f" against {_fmt(named_white)} after {shown}" if shown and named_white is not None else ""
+    near = False
+    # The named reply a mistake worse than the best: not the reply at all. Two mates for the mover, or the best
+    # only a longer road to the same mate against it, are left alone.
+    if best[0] not in claimed:
+        mover_wins = best[2] is not None and best[2] > 0 and named_mate is not None and named_mate > 0
+        both_mated = best[2] is not None and best[2] < 0 and named_mate is not None and named_mate < 0
+        if not mover_wins and not both_mated:
+            if best[1] - named_value >= MISTAKE:
+                if not reveal_best:
+                    return f"{head}: another reply is much better (engine) — do not call it forced or the only reply", near
+                return (f"{head}: the best reply is {board.san(best[0])} ({_fmt(best[3])}{named_eval}, engine) — do "
+                        "not call it forced or the only reply"), near
+            near = best[1] - named_value >= FORCED_MISTAKE_BAND
+    if bound or not claim.get("strict", True):
+        return None, near  # «должны ответить dxe5» claims the best reply, and it is good enough
+    for mv, value, mate, white in outside:
+        # Mates are left alone here: in a mating line every reply may lose the same way, and the line the
+        # coach tells is the main one («король вынужден взять, и Лh8#»).
+        if mate is not None or named_mate is not None or abs(named_value) > FORCED_DECIDED:
+            continue
+        if abs(value - named_value) > INACCURACY:
+            near = near or abs(value - named_value) <= FORCED_CONFIRM_BAND[1]
+            continue
+        if not reveal_best:
+            return f"{head}: another reply is about as good (engine) — it is one good reply, not the only one", near
+        return (f"{head}: {board.san(mv)} is about as good ({_fmt(white)}{named_eval}, engine) — it is one good "
+                "reply, not the only one"), near
+    return None, near
+
+
+def _verify_one_reading(claim: dict, movetime_ms: int, reveal_best: bool) -> Optional[str]:
+    board, claimed = claim["board"], set(claim["moves"])
+    if board.is_game_over() or not claimed or all(mv in claimed for mv in board.legal_moves):
+        return None  # forced by the rules themselves
+    movetime = movetime_ms * FORCED_MOVETIME_FACTOR
+    issue, near = _forced_verdict(claim, _reply_rows(board, movetime_ms=movetime), reveal_best, movetime, None)
+    if issue is None and not near:
+        return None  # far from every line: the timed look is enough to let it stand
+    # Against the claim, or close to the line: only the fixed-depth search decides.
+    return _forced_verdict(claim, _reply_rows(board, depth=FORCED_CONFIRM_DEPTH), reveal_best, None,
+                           FORCED_CONFIRM_DEPTH)[0]
 
 
 def verify_forced_reply(claim: dict, movetime_ms: int = 300, reveal_best: bool = True) -> Optional[str]:
@@ -599,77 +693,18 @@ def verify_forced_reply(claim: dict, movetime_ms: int = 300, reveal_best: bool =
 
     *claim* comes from src/answer_check_rules.forced_reply_claim: the board, the move it follows, the replies
     claimed (one named move, or every king move / capture for «король обязан отойти», «вынуждены взять»),
-    and *strict* — forced, not merely best («должны ответить»). *reveal_best* off (a live game) keeps the
-    engine's own reply out of the text. Never raises.
+    and *strict* — forced, not merely best («должны ответить»). Its *also* are the other readings of the same
+    sentence (the line the sentences before built, where the moves of this one are legal too): the claim is
+    wrong only when it is wrong in each of them, and then the line's own reading speaks. *reveal_best* off (a
+    live game) keeps the engine's own reply out of the text. Never raises.
     """
     try:
-        board, claimed = claim["board"], set(claim["moves"])
-        legal = list(board.legal_moves)
-        if board.is_game_over() or not claimed or all(mv in claimed for mv in legal):
-            return None  # forced by the rules themselves
-        movetime = movetime_ms * FORCED_MOVETIME_FACTOR
-        rows, depth = _reply_rows(board, movetime, MIN_DEPTH)
-        inside = [r for r in rows if r[0] in claimed]
-        if claim.get("strict", True) and inside and inside[0][2] is None and any(
-                r[2] is None and FORCED_CONFIRM_BAND[0] <= abs(r[1] - inside[0][1]) <= FORCED_CONFIRM_BAND[1]
-                for r in rows if r[0] not in claimed):
-            deeper, _ = _reply_rows(board, movetime * 2, depth + 2)  # a gap near the line: once more, deeper
-            rows = deeper or rows
-        if not rows:
-            return None
-        inside = [r for r in rows if r[0] in claimed]
-        outside = [r for r in rows if r[0] not in claimed]
-        if not outside:
-            return None  # every reply the engine looks at is one the claim names
-        bound = False
-        if inside:
-            named_value, named_mate, named_white = inside[0][1], inside[0][2], inside[0][3]
-        elif len(rows) == 3 and rows[0][1] - rows[-1][1] >= MISTAKE and rows[-1][2] is None:
-            # Not among the engine's three best: each claimed reply is at least as bad as the third one.
-            named_value, named_mate, named_white, bound = rows[-1][1], None, None, True
-        elif claim.get("named") and len(claimed) == 1:
-            after = board.copy(stack=False)
-            after.push(next(iter(claimed)))
-            if after.is_game_over():
-                return None
-            res = analyze_timed(after.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
-            line = (res.get("lines") or [None])[0] if "error" not in res else None
-            if not line:
-                return None
-            value, mate = _mover_value(line)
-            named_value, named_mate, named_white = -value, (-mate if mate is not None else None), _white_pawns(line, after.turn)
-        else:
-            return None
-        best = rows[0]
-        side = "White" if board.turn == chess.WHITE else "Black"
-        after_txt = f"after {claim['after']}" if claim.get("after") else "here"
-        label = claim.get("named") or claim.get("kind") or "that reply"
-        head = f"{after_txt} {side} is not forced to {'play' if claim.get('named') else 'make'} {label}"
-        shown = claim.get("named") or (board.san(inside[0][0]) if inside else None)
-        named_eval = f" against {_fmt(named_white)} after {shown}" if shown and named_white is not None else ""
-        # The named reply a mistake worse than the best: not the reply at all. Two mates for the mover, or the best
-        # only a longer road to the same mate against it, are left alone.
-        if best[0] not in claimed:
-            mover_wins = best[2] is not None and best[2] > 0 and named_mate is not None and named_mate > 0
-            both_mated = best[2] is not None and best[2] < 0 and named_mate is not None and named_mate < 0
-            if best[1] - named_value >= MISTAKE and not mover_wins and not both_mated:
-                if not reveal_best:
-                    return f"{head}: another reply is much better (engine) — do not call it forced or the only reply"
-                return (f"{head}: the best reply is {board.san(best[0])} ({_fmt(best[3])}{named_eval}, engine) — do not "
-                        "call it forced or the only reply")
-        if bound or not claim.get("strict", True):
-            return None  # «должны ответить dxe5» claims the best reply, and it is good enough
-        for mv, value, mate, white in outside:
-            # Mates are left alone here: in a mating line every reply may lose the same way, and the line the
-            # coach tells is the main one («король вынужден взять, и Лh8#»).
-            if mate is not None or named_mate is not None or abs(named_value) > FORCED_DECIDED \
-                    or abs(value - named_value) > INACCURACY:
-                continue
-            if not reveal_best:
-                return f"{head}: another reply is about as good (engine) — it is one good reply, not the only one"
-            return (f"{head}: {board.san(mv)} is about as good ({_fmt(white)}{named_eval}, engine) — it is one good "
-                    "reply, not the only one")
-        return None
+        issue = _verify_one_reading(claim, movetime_ms, reveal_best)
+        for other in claim.get("also") or []:
+            if issue is None:
+                break
+            issue = _verify_one_reading(other, movetime_ms, reveal_best)
+        return issue
     except Exception:  # noqa: BLE001 — a failed check never blocks the answer
         logger.debug("verify_forced_reply failed", exc_info=True)
         return None
