@@ -1,0 +1,608 @@
+{
+ "what": "WP-D cases (plan 30.10): positive = a false board-rule claim, judged false on its board; negative = true claims of the same relations (production answers via fpsurface/all_sentences.json, the true parts of triage answers, boards written for WP-D) that must not be judged false; no_claim = words that are not a board-rule claim",
+ "positive": [
+  {
+   "id": "d2-solution#only",
+   "source": "triage d2-solution#only",
+   "fen": "kr6/2pn1p2/p6p/P2Pp3/N1P5/7B/3Q1PPP/6K1 b - - 0 33",
+   "shown": null,
+   "question": "Сдаюсь, покажи решение",
+   "student": null,
+   "game_moves": null,
+   "before": [
+    "Не сдавайся — эта идея стоит того, чтобы её запомнить. ",
+    "Решение: 33...Rb1+ 34.Qc1 Rxc1#.",
+    "Смотри, что происходит. ",
+    "Ладья бьёт по первой горизонтали с шахом — Rb1+. "
+   ],
+   "sentences": [
+    "Белый король на g1 далеко, и закрыться может только ферзь: 34.Qc1 — d2–c1."
+   ],
+   "expect": {
+    "rel": "only_move",
+    "kind": "block",
+    "truth_has": [
+     "Qd1",
+     "Qe1"
+    ]
+   },
+   "truth": "Qc1, Qd1 and Qe1 are all legal blocks (all lose). The queen-only part is true; the move-only part is false."
+  },
+  {
+   "id": "d2-solution#obliged",
+   "source": "triage d2-solution#obliged",
+   "fen": "kr6/2pn1p2/p6p/P2Pp3/N1P5/7B/3Q1PPP/6K1 b - - 0 33",
+   "shown": null,
+   "question": "Сдаюсь, покажи решение",
+   "student": null,
+   "game_moves": null,
+   "before": [
+    "Не сдавайся — эта идея стоит того, чтобы её запомнить. ",
+    "Решение: 33...Rb1+ 34.Qc1 Rxc1#.",
+    "Смотри, что происходит. ",
+    "Ладья бьёт по первой горизонтали с шахом — Rb1+. ",
+    "Белый король на g1 далеко, и закрыться может только ферзь: 34.Qc1 — d2–c1.",
+    "Но это как раз то, что нужно чёрным: ладья на b1 забирает ферзя на c1 и ставит мат — b1–c1. ",
+    "Ферзь был единственной защитой, а теперь он сам загородил королю последний выход.",
+    "Ключ здесь — открытая линия «b». "
+   ],
+   "sentences": [
+    "Как думаешь, почему белый ферзь просто обязан был встать на c1, у него не было выбора? "
+   ],
+   "expect": {
+    "rel": "only_move",
+    "kind": "any",
+    "truth_has": [
+     "Qd1",
+     "Qe1"
+    ]
+   },
+   "truth": "Qd1 and Qe1 were also legal; only blocking somewhere on the first rank was forced."
+  },
+  {
+   "id": "d2-solution#escape",
+   "source": "triage d2-solution#escape",
+   "fen": "kr6/2pn1p2/p6p/P2Pp3/N1P5/7B/3Q1PPP/6K1 b - - 0 33",
+   "shown": null,
+   "question": "Сдаюсь, покажи решение",
+   "student": null,
+   "game_moves": null,
+   "before": [
+    "Не сдавайся — эта идея стоит того, чтобы её запомнить. ",
+    "Решение: 33...Rb1+ 34.Qc1 Rxc1#.",
+    "Смотри, что происходит. ",
+    "Ладья бьёт по первой горизонтали с шахом — Rb1+. ",
+    "Белый король на g1 далеко, и закрыться может только ферзь: 34.Qc1 — d2–c1.",
+    "Но это как раз то, что нужно чёрным: ладья на b1 забирает ферзя на c1 и ставит мат — b1–c1. "
+   ],
+   "sentences": [
+    "Ферзь был единственной защитой, а теперь он сам загородил королю последний выход."
+   ],
+   "expect": {
+    "rel": "no_flight",
+    "kind": "blocker",
+    "truth_has": [
+     "queen on c1",
+     "king on g1"
+    ]
+   },
+   "truth": "c1 is not a flight square of Kg1; f1/h1 are covered by the rook along rank 1, f2/g2/h2 are White's own pawns."
+  },
+  {
+   "id": "mate1-no",
+   "source": "triage mate1-no",
+   "fen": "6k1/5pp1/7p/8/8/8/5PPP/3R2K1 w - - 0 1",
+   "shown": null,
+   "question": "Тут есть мат в один? Ладья на d8?",
+   "student": null,
+   "game_moves": null,
+   "before": [
+    "Нет, мата в один здесь нет. ",
+    "Rd8+ — просто шах: король уходит на h7, и всё.",
+    "Зато у тебя лишняя ладья — партия выиграна. "
+   ],
+   "sentences": [
+    "Сначала отрежь короля по 7-й горизонтали: Rd7, и чёрный король заперт на последних двух линиях. "
+   ],
+   "expect": {
+    "rel": "confined",
+    "truth_has": [
+     "Kh7 and then Kg6"
+    ]
+   },
+   "truth": "The rook covers the 7th rank only to f7 (Black's f7 pawn); the king has h7 and then g6."
+  },
+  {
+   "id": "r-notation",
+   "source": "triage r-notation",
+   "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "shown": null,
+   "question": "Что значит запись Кр:е5?",
+   "student": null,
+   "game_moves": null,
+   "before": [
+    "«Кр» — это король, а двоеточие означает взятие. ",
+    "То есть запись «Кр:e5» читается «король берёт на e5»: король встаёт на поле e5 и снимает фигуру или пешку, которая там стояла.",
+    "Но важно помнить: такая запись возможна только тогда, когда король действительно может дойти до этого поля и там что-то стоит. "
+   ],
+   "sentences": [
+    "Сейчас, в самом начале партии, король на e5 попасть не может — поле слишком далеко и занято своими же фигурами, так что хода «Кр:e5» тут просто нет. "
+   ],
+   "expect": {
+    "rel": "occupied",
+    "truth_has": [
+     "e5 is empty"
+    ]
+   },
+   "truth": "In the start position e5 is empty."
+  },
+  {
+   "id": "material",
+   "source": "triage material",
+   "fen": "rnbqkb1r/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3",
+   "shown": null,
+   "question": "Кто впереди по материалу и на сколько?",
+   "student": null,
+   "game_moves": null,
+   "before": [
+    "По материалу впереди белые — у них на три очка больше, это целый конь. ",
+    "У чёрных на b8 стоит конь, а второго коня нет: похоже, он уже потерян."
+   ],
+   "sentences": [
+    "Правда, сейчас на доске перевес белых даже больше, чем просто лишний конь — посмотри, чей ход и как белые могут забрать пешку e5. "
+   ],
+   "expect": {
+    "rel": "can_capture",
+    "truth_has": [
+     "e5"
+    ]
+   },
+   "truth": "No white piece attacks e5; White has no capture at all in this position."
+  },
+  {
+   "id": "st1#11/exchange-e4",
+   "source": "triage st1#11/exchange-e4",
+   "fen": "r1bqkb1r/pp3pp1/2nppn1p/2p5/2B1P3/3P1N1P/PPP2PP1/RNBQ1RK1 w kq - 1 7",
+   "shown": null,
+   "question": "Опиши позицию",
+   "student": "w",
+   "game_moves": [
+    "e4",
+    "c5",
+    "Nf3",
+    "d6",
+    "Bc4",
+    "e6",
+    "O-O",
+    "Nf6",
+    "d3",
+    "h6",
+    "h3",
+    "Nc6"
+   ],
+   "before": [
+    "Позиция после 1.e4 c5 2.Nf3 d6 3.Bc4 e6 4.O-O Nf6 5.d3 h6 6.h3 Nc6 — сицилианская защита, у тебя белые. ",
+    "Материал ровный, но у чёрных чуть больше пространства и контроля центра: пешка c5 вместе с конём на c6 давит на d4, а конь на f6 нападает на твою пешку e4. "
+   ],
+   "sentences": [
+    "Она прикрыта пешкой d3, так что пока всё держится — но менять на e4 чёрные могут в любой момент. "
+   ],
+   "expect": {
+    "rel": "can_exchange",
+    "truth_has": [
+     "Nxe4 loses 2 points"
+    ]
+   },
+   "truth": "The only capture is Nxe4, answered by dxe4: a knight for a pawn, not an exchange."
+  },
+  {
+   "id": "no-flight-after-a-check",
+   "source": "mate1-no, the first sentence's class: «Rd8+ — просто шах: король уходит на h7»",
+   "fen": "6k1/5pp1/7p/8/8/8/5PPP/3R2K1 w - - 0 1",
+   "question": "Тут есть мат в один? Ладья на d8?",
+   "sentences": [
+    "Rd8+ — и у чёрного короля нет ни одного свободного поля."
+   ],
+   "expect": {
+    "rel": "no_flight",
+    "truth_has": [
+     "h7"
+    ]
+   },
+   "truth": "after Rd8+ the king goes to h7"
+  },
+  {
+   "id": "can-capture-nothing-reaches",
+   "source": "material, the same class on another board",
+   "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 3 3",
+   "sentences": [
+    "Чёрные могут взять пешку e4 конём."
+   ],
+   "expect": {
+    "rel": "can_capture",
+    "truth_has": [
+     "e4"
+    ]
+   },
+   "truth": "no Black knight reaches e4 (Nc6, Ng8)"
+  },
+  {
+   "id": "only-legal-move-false",
+   "source": "the legal sense of «единственный возможный ход» on a board with others",
+   "fen": "6k1/5ppp/8/8/8/8/5PPP/3R2K1 b - - 0 1",
+   "sentences": [
+    "У чёрных единственный возможный ход — Kf8."
+   ],
+   "expect": {
+    "rel": "only_move",
+    "kind": "any",
+    "truth_has": [
+     "other legal moves"
+    ]
+   },
+   "truth": "h6, g6, f6, h5, … are legal"
+  }
+ ],
+ "negative": [
+  {
+   "id": "true-occupied-01",
+   "source": "prod_set out_71.json mate1-yes",
+   "fen": "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+   "shown": null,
+   "question": "Есть мат в один ход?",
+   "sentences": [
+    "Ладья идёт на восьмую горизонталь и бьёт мат: у чёрного короля на g8 нет ни одного свободного поля — f7, g7 и h7 заняты своими пешками, а ладью нечем взять."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-occupied-02",
+   "source": "prod_set out_71.json castle-short-g1",
+   "fen": "4k3/8/8/8/8/7n/8/R3K2R w KQ - 0 1",
+   "shown": null,
+   "question": "Можно сделать короткую рокировку?",
+   "sentences": [
+    "Длинная рокировка (0-0-0) при этом разрешена — поля d1 и c1 свободны."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-occupied-03",
+   "source": "corpus_pos out_71.json castle-long-blocked",
+   "fen": "r1bqk2r/ppp2ppp/2np1n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R w KQkq - 2 6",
+   "shown": null,
+   "question": "Могу ли я рокироваться в длинную?",
+   "sentences": [
+    "Короткую рокировку (O-O) сыграть можно прямо сейчас: g1 и f1 свободны."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-occupied-04",
+   "source": "corpus_pos out_71_1023.json mate1-yes",
+   "fen": "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+   "shown": null,
+   "question": "Есть мат в один ход?",
+   "sentences": [
+    "Проверь: поле d8 пустое, а своей ладьёй ты бьёшь по последней линии — у чёрного короля на g8 нет ни одного свободного поля, и ни одна фигура не может прикрыть или взять ладью."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-occupied-05",
+   "source": "corpus_pos out_71_1028.json castle-long-blocked",
+   "fen": "r1bqk2r/ppp2ppp/2np1n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R w KQkq - 2 6",
+   "shown": null,
+   "question": "Могу ли я рокироваться в длинную?",
+   "sentences": [
+    "А короткая рокировка доступна хоть сейчас: поля f1 и g1 свободны."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-occupied-06",
+   "source": "corpus_pos out_71_1028.json g2-illegal",
+   "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "shown": null,
+   "question": "Кe5",
+   "sentences": [
+    "К тому же партия ещё на первом ходу, поле e5 пустое."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-occupied-07",
+   "source": "corpus_pos out_local_1022.json puzzle:pins-endgames:endgame-set-28",
+   "fen": "8/4N2P/2k2Nn1/6n1/3K4/8/8/8 b - - 0 1",
+   "shown": null,
+   "question": "Задача из урока «Эндшпиль — Набор 28» (курс «Связки и Эндшпили»). Какой здесь первый ход и почему?",
+   "sentences": [
+    "После Kd6 белый конь f6 вынужден уйти — поле e7 занято твоим королём, а h7 висит."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-occupied-08",
+   "source": "corpus_pos out_programme.json puzzle:chess-basics:opening-rules-piece-development",
+   "fen": "2r3r1/pp3p1k/1bn1qP2/3pN3/3R4/8/PPPQ2PP/2K2R2 w - - 0 1",
+   "shown": null,
+   "question": "Задача из урока «Правила дебюта: Развитие фигур» (курс «Основы шахмат»). Какой здесь первый ход и почему?",
+   "sentences": [
+    "Поле h4 свободно по вертикали h, и ни одна фигура чёрных её не держит."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-only_move-09",
+   "source": "corpus_pos out_programme.json puzzle:advanced-tactics:deflection-example-2",
+   "fen": "r3r1k1/1pp2p1Q/pb2nP1p/6q1/7p/7P/PPB2PP1/R3R1K1 b - - 8 21",
+   "shown": null,
+   "question": "Задача из урока «Пример 2» (курс «Продвинутая тактика»). Какой здесь первый ход и почему?",
+   "sentences": [
+    "Это позиция с ходом чёрных, и здесь у чёрных единственный возможный ход — Kf8."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-only_move-10",
+   "source": "corpus_pos out_programme.json puzzle:mate-in-3-moves:mate-in-3-set-34",
+   "fen": "8/7Q/b2bpkr1/5p2/P3p3/2Pq4/1P3PPP/4R1KR b - - 0 1",
+   "shown": null,
+   "question": "Задача из урока «Мат в 3 хода — Набор 34» (курс «Мат в 3 хода»). Какой здесь первый ход и почему?",
+   "sentences": [
+    "После Rxg2+ у белых единственный законный ход: Kxg2."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-occupied-11",
+   "source": "corpus_pos out_programme_1023.json concept:advanced-tactics:Блокировка",
+   "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "shown": "q1r1k2r/3R1n1p/p3N1bQ/1p4P1/7P/P1N5/1PP5/1K1R4 b - - 0 1",
+   "question": "Объясни тему «Блокировка» и покажи пример.",
+   "sentences": [
+    "— ферзь отдаёт себя, но ладья обязана его взять: 1...Лf8, и поле f8 занято своей же ладьёй."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-no_flight-12",
+   "source": "corpus_pos out_programme_1023.json puzzle:chess-basics:pin-continued",
+   "fen": "1rkr3R/1pnb4/8/8/3Q4/8/7K/3R4 w - - 0 1",
+   "shown": null,
+   "question": "Задача из урока «Связка. Продолжение» (курс «Основы шахмат»). Какой здесь первый ход и почему?",
+   "sentences": [
+    "Мат в один: Qxd7# — ферзь бьёт слона на d7, и чёрному королю некуда уйти."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-no_flight-13",
+   "source": "corpus_pos out_programme_1023.json puzzle:checkmate-patterns:bishop-checkmates",
+   "fen": "7k/8/6K1/8/8/8/B6B/8 w - - 0 1",
+   "shown": null,
+   "question": "Задача из урока «Шахматные маты слоном» (курс «Шахматные паттерны мата»). Какой здесь первый ход и почему?",
+   "sentences": [
+    "Мат в один: **Be5#** — слон становится на e5 и бьёт по диагонали до h8, откуда чёрному королю некуда деться."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-occupied-14",
+   "source": "corpus_pos out_programme_1023.json puzzle:mate-in-3-moves:mate-in-3-set-21",
+   "fen": "8/1R6/K7/3N4/k7/n7/1P6/2n1b3 w - - 0 1",
+   "shown": null,
+   "question": "Задача из урока «Мат в 3 хода — Набор 21» (курс «Мат в 3 хода»). Какой здесь первый ход и почему?",
+   "sentences": [
+    "А теперь конь с d5 идёт на b6 — это шах, и он же мат: поле b6 свободно, а король на a4 заперт своими же фигурами, уйти ему некуда."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-occupied-15",
+   "source": "corpus_pos out_30_stand.json pawn-b3-words",
+   "fen": "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 6",
+   "shown": null,
+   "question": "Если пешка пойдёт b3, чтобы у слона было место отступить?",
+   "sentences": [
+    "Смотри: после b3 чёрные играют b5, и слону на a4 действительно некуда отступить — поле b3 уже занято собственной пешкой, и слона просто выигрывают."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-can_capture-16",
+   "source": "corpus_pos out_theory_stand.json name-berlin",
+   "fen": "r1bqkb1r/pppp1ppp/2n2n2/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+   "shown": null,
+   "question": "Как называется этот вариант?",
+   "sentences": [
+    "А вот чёрные в ответ могут взять пешку e4 конём — пешка e4 ничем не защищена."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-can_capture-17",
+   "source": "corpus_game stand2/st4.json e5",
+   "fen": "rnbqkbnr/pppp1ppp/8/4p3/3PP3/8/PPP2PPP/RNBQKBNR b KQkq - 0 2",
+   "shown": null,
+   "question": "e5",
+   "sentences": [
+    "Позиция примерно равная, но подумай, что делать с e5: её можно защитить фигурой, а можно взять на d4 самому — только посчитай, чем ты возьмёшь и что останется под боем после размена."
+   ],
+   "judged": true
+  },
+  {
+   "id": "true-can_capture-18",
+   "source": "corpus_game stand3/st1.json Есть ли у меня угрозы?",
+   "fen": "r2qk1nr/ppp2ppp/2nbb3/4p3/2p1P3/3P1N1P/PPP2PP1/RNBQ1RK1 w kq - 1 7",
+   "shown": null,
+   "question": "Есть ли у меня угрозы?",
+   "sentences": [
+    "Смотри: слон e6 бьёт твою пешку h3, а держит её только пешка g2 — значит, следующим ходом чёрные могут просто взять h3, и твоя пешка уйдёт."
+   ],
+   "judged": true
+  },
+  {
+   "id": "d2-true-part-4",
+   "source": "triage d2-solution: the part of the sentence that is true",
+   "fen": "kr6/2pn1p2/p6p/P2Pp3/N1P5/7B/3Q1PPP/6K1 b - - 0 33",
+   "question": "Сдаюсь, покажи решение",
+   "before": [
+    "Не сдавайся — эта идея стоит того, чтобы её запомнить. ",
+    "Решение: 33...Rb1+ 34.Qc1 Rxc1#.",
+    "Смотри, что происходит. ",
+    "Ладья бьёт по первой горизонтали с шахом — Rb1+. "
+   ],
+   "sentences": [
+    "Белый король на g1 далеко, и закрыться может только ферзь: 34.Qc1 — d2–c1."
+   ],
+   "only_rel_kind": [
+    "only_move",
+    "block"
+   ],
+   "judged": true
+  },
+  {
+   "id": "d2-true-part-6",
+   "source": "triage d2-solution: the part of the sentence that is true",
+   "fen": "kr6/2pn1p2/p6p/P2Pp3/N1P5/7B/3Q1PPP/6K1 b - - 0 33",
+   "question": "Сдаюсь, покажи решение",
+   "before": [
+    "Не сдавайся — эта идея стоит того, чтобы её запомнить. ",
+    "Решение: 33...Rb1+ 34.Qc1 Rxc1#.",
+    "Смотри, что происходит. ",
+    "Ладья бьёт по первой горизонтали с шахом — Rb1+. ",
+    "Белый король на g1 далеко, и закрыться может только ферзь: 34.Qc1 — d2–c1.",
+    "Но это как раз то, что нужно чёрным: ладья на b1 забирает ферзя на c1 и ставит мат — b1–c1. "
+   ],
+   "sentences": [
+    "Ферзь был единственной защитой, а теперь он сам загородил королю последний выход."
+   ],
+   "only_rel_kind": [
+    "only_move",
+    "parry"
+   ],
+   "judged": true
+  },
+  {
+   "id": "mate-no-flight",
+   "source": "written for WP-D",
+   "fen": "3R2k1/5ppp/8/8/8/8/5PPP/6K1 b - - 1 1",
+   "sentences": [
+    "Это мат: у чёрного короля на g8 нет ни одного свободного поля."
+   ],
+   "judged": true
+  },
+  {
+   "id": "king-cut-on-the-8th",
+   "source": "written for WP-D",
+   "fen": "6k1/R7/8/8/8/8/5PPP/6K1 b - - 1 1",
+   "sentences": [
+    "Ладья на седьмой, и чёрный король заперт на последней горизонтали."
+   ],
+   "judged": true
+  },
+  {
+   "id": "only-block-true",
+   "source": "written for WP-D",
+   "fen": "1r4k1/8/8/8/8/8/3Q1PPP/1r4K1 w - - 0 1",
+   "sentences": [
+    "Закрыться от шаха может только ферзь."
+   ],
+   "judged": true
+  },
+  {
+   "id": "exchange-even",
+   "source": "written for WP-D",
+   "fen": "r1bqkbnr/pppp1ppp/2n5/8/3NP3/8/PPP2PPP/RNBQKB1R b KQkq - 0 4",
+   "sentences": [
+    "Чёрные могут разменяться на d4 в любой момент."
+   ],
+   "judged": true
+  },
+  {
+   "id": "checks-along-d-true",
+   "source": "written for WP-D",
+   "fen": "3K4/8/8/4k3/8/8/1P6/r7 b - - 0 1",
+   "sentences": [
+    "После Ke5 чёрная ладья будет шаховать по вертикали d."
+   ],
+   "judged": false
+  },
+  {
+   "id": "en-passant-capture",
+   "source": "written for WP-D",
+   "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+   "sentences": [
+    "Белые могут взять пешку f5 на проходе: exf6."
+   ],
+   "judged": true
+  }
+ ],
+ "no_claim": [
+  {
+   "id": "hypothetical-d3-example",
+   "sentence": "Заметь: если бы белая пешка стояла на h3, а не на h4, конь g4 успевал отойти, и удар был бы пустым."
+  },
+  {
+   "id": "advice-not-legality",
+   "sentence": "Хочешь, разберём, почему нельзя было просто съесть f7 конём сразу?"
+  },
+  {
+   "id": "rule-en-passant",
+   "sentence": "И ещё два условия, которые часто забывают: бить можно только пешкой (не конём, не ферзём) и только ту пешку, которая только что прыгнула через поле."
+  },
+  {
+   "id": "example",
+   "sentence": "Даже когда она бьёт, она бьёт вперёд наискосок: например, белая пешка с e2 может взять на d3 или f3, но не на d1."
+  },
+  {
+   "id": "obliged-practical",
+   "sentence": "Король обязан уйти с шахом, а ладья остаётся под боем: это и есть вилка в чистом виде."
+  },
+  {
+   "id": "yes-no-question",
+   "sentence": "Можно взять пешку e5?"
+  },
+  {
+   "id": "imperative-cut",
+   "sentence": "Сначала отрежь короля по 7-й горизонтали."
+  },
+  {
+   "id": "only-good-move",
+   "sentence": "Единственный ход — Qc1."
+  },
+  {
+   "id": "checks-in-general",
+   "sentence": "Хочешь, покажу на примере, как шах по линии превращает рокировку в невозможную?"
+  },
+  {
+   "id": "shield-from-checks",
+   "sentence": "Ферзь белых на f8 сам связан: он прикрывает своего короля от шахов по линии f."
+  },
+  {
+   "id": "cannot-capture-rule",
+   "sentence": "Слон или конь так взять не могут вообще — ни при каких обстоятельствах."
+  },
+  {
+   "id": "busy-not-occupied",
+   "sentence": "Слон бьёт с шахом по ферзю чёрных на c6, а ферзь занят: он связал твою пешку c2 с твоим слоном c1."
+  },
+  {
+   "id": "centre-occupied",
+   "sentence": "Хороший ход — центр занят, и партия пошла по дебюту королевской пешки."
+  },
+  {
+   "id": "future-capture",
+   "sentence": "Потом чёрные смогут взять пешку e4."
+  },
+  {
+   "id": "no-moves-is-not-no-flight",
+   "sentence": "У чёрных нет ни одного хода — их король на h1 запатован."
+  },
+  {
+   "id": "king-named-is-not-the-one",
+   "sentence": "Король f6 отнимает у него поля e7, f7 и g7, так что бежать некуда."
+  }
+ ]
+}

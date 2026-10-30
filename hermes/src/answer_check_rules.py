@@ -1507,6 +1507,16 @@ def _retreat_square_issues(text: str, ctx) -> list[str]:
     chases, chase_san = _chase_boards(board, frm, named, [x.group(0) for x in _MOVE_LOW.finditer(getattr(ctx, "question", "") or "")])
     if not chases:
         return []
+    # The chase the sentence means is one after which every square it names is a retreat (prod 29.10, d1-why: after
+    # b3 or Nd2 the bishop can go to a6, b5, d3 and e2 and is lost on three of them; after d3 two of the squares are
+    # no retreat at all, and judging on every chase at once named only b5). When no chase leaves them all open, every
+    # chase is judged as before.
+    def opens_all(b: chess.Board) -> bool:
+        return all(chess.Move(frm, t) in b.legal_moves and b.piece_at(t) is None for t in squares)
+
+    main = [b for b in chases if opens_all(b)]
+    if main:
+        chases = main
     lost, safe = [], []
     for t in squares:
         caps = []
