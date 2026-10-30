@@ -228,7 +228,7 @@ class TestEngineVerdict:
         ctx = CheckContext.from_fens([RUY], question="А если b3?")
         [claims] = _sentences(ctx, "Это всего на пешку хуже, чем было.")
         why = verify_claims(claims, 300)
-        assert why and "pawns worse for White" in why and "in material -3" in why
+        assert why and "pawns worse for White" in why and "in material -" in why  # −2 or −3: where the search stops
 
 
 class TestNeverBlocks:
@@ -325,3 +325,162 @@ class TestWiring:
         resp = client.post("/api/coach/voice/check", headers={"X-User-Id": "line-user"},
                            json={"text": "После Nc3 белые стоят лучше.", "fen": FRIED})
         assert resp.json()["issues"] == []
+
+
+# ── review 30.10: correct teaching the first version cut ────────────────────────────────────────────────────────────
+
+FRIED_GAME = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Ng5 d5 5. exd5 Nxd5 6. Nxf7 Kxf7 7. Qf3+ Ke6 8. Qxd5+ Qxd5"
+# 3...Nd4 on the board, White to move (Nxd4 is right, Nxe5? Qg5! the trap)
+BLACKBURNE = "r1bqkbnr/pppp1ppp/8/4p3/2BnP3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
+
+
+class TestReviewNoFalseCuts:
+    """Each sentence is correct; the review of 30.10 found the first version cutting it."""
+
+    @pytest.mark.parametrize("question, sentence", [
+        # The student is Black: White's capture is asked about, «ты» is the side that wins the queen.
+        ("Что если белые возьмут ферзём на d5?", "После Qxd5+ Qxd5 ты остаёшься с лишним ферзём."),
+        ("Я пошёл королём на e6. Что если он возьмёт ферзём на d5?", "После Qxd5+ Qxd5 ты остаёшься с лишним ферзём."),
+        ("Тут есть мат в два хода?", "Он может взять Qxd5+, но тогда ты забираешь ферзя, и партия решена."),
+    ])
+    def test_you_is_not_the_side_to_move_when_the_other_side_moves(self, question, sentence):
+        assert _sentences(CheckContext.from_fens([FRIED], question=question), sentence) == [[]]
+
+    @pytest.mark.parametrize("sentence", [
+        "После 8.Qxd5+ Qxd5 9.Bxd5+ Kxd5 у белых нет ферзя, а после 8.Nc3 белые стоят лучше.",
+        "Ход 8.Qxd5+ проигрывает ферзя после 8...Qxd5, а вот 8.Nc3 сохраняет атаку, и белые стоят лучше.",
+        "8.Qxd5+ Qxd5 9.Bxd5+ Kxd5 оставляет белых без ферзя; правильно 8.Nc3, и у белых решающий перевес.",
+    ])
+    def test_two_branches_are_not_one_line(self, sentence):
+        ctx = CheckContext.from_fens([FRIED], question="Тут есть мат в два хода?")
+        assert _sentences(ctx, sentence) == [[]]
+
+    @pytest.mark.parametrize("sentence", [
+        "Берёшь Qxd5+, а он просто отвечает Qxd5 — и ферзя у тебя больше нет.",
+        "Забираешь коня ферзём, Qxd5+, но чёрный ферзь бьёт обратно, и ты остаёшься без ферзя.",
+        "Играешь Qxd5+, чёрные отвечают Qxd5, и вместо мата у тебя минус ферзь.",
+        "Вот ты берёшь Qxd5+ — и сразу видно, почему так не играют: ферзь d8 защищает коня.",
+    ])
+    def test_a_refutation_told_in_the_second_person_is_not_advice(self, sentence):
+        assert proposed_move(sentence, CheckContext.from_fens([FRIED], question="Можно ферзём взять коня на d5?")) is None
+
+    @pytest.mark.parametrize("question", ["Разбери мою партию, где я ошибся?", "Что тут было?"])
+    @pytest.mark.parametrize("sentence", [
+        "Здесь ты играешь Qxd5+, и после Qxd5 партия переворачивается.",
+        "Тут ты играешь 8.Qxd5+, а соперник отвечает 8...Qxd5.",
+        "Здесь ты играешь Qxd5+.",  # the game's own next move
+    ])
+    def test_the_students_game_told_in_the_present_is_not_advice(self, question, sentence):
+        ctx = CheckContext.from_fens([FRIED], [FRIED_GAME], question=question)
+        assert proposed_move(sentence, ctx) is None
+
+    def test_advice_in_the_second_person_still_is(self):
+        # Not the game's move, no answer told: still the coach's advice (mate2-no).
+        ctx = CheckContext.from_fens([FRIED], ["1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Ng5 d5 5. exd5 Nxd5 6. Nxf7 Kxf7 7. Qf3+ Ke6 8. Nc3"],
+                                     question="Тут есть мат в два хода?")
+        found = proposed_move("Берёшь коня на d5 с шахом: Qxd5+.", ctx)
+        assert found and found[2] == "Qxd5+"
+
+    @pytest.mark.parametrize("question, first, second", [
+        ("А если Nxe5?", "Правильно здесь 4.Nxd4 exd4 5.O-O, и позиция примерно равная.",
+         "А взятие пешки конём — это почти на две пешки хуже, чем было, из-за ответа ферзём на g5."),
+        ("Можно взять конём на e5?", "Лучший ход здесь 4.Nxd4.", "Твоя идея взять на e5 примерно на две пешки хуже, чем было."),
+    ])
+    def test_a_number_is_not_held_against_the_line_recommended_before(self, question, first, second):
+        ctx = CheckContext.from_fens([BLACKBURNE], question=question)
+        _, claims = _sentences(ctx, first, second)
+        assert [c for c in claims if c["kind"] == "swing"] == []
+
+    @pytest.mark.parametrize("sentence", [
+        "Ты говоришь, что после Qxd5+ белые выигрывают ферзя.",
+        "Многие новички уверены, что после Qxd5+ белые выигрывают ферзя.",
+        "Ты утверждаешь, что Qxd5+ выигрывает ферзя.",
+        "По твоим словам, после Qxd5+ ты забираешь ферзя.",
+        "Твоя идея такая: Qxd5+, и белые выигрывают ферзя.",
+        "Это миф, что после Qxd5+ белые выигрывают ферзя.",
+        "После Qxd5+ Qxd5 никто не скажет, что белые стоят лучше.",
+    ])
+    def test_what_someone_says_is_not_the_coachs_claim(self, sentence):
+        assert _sentences(CheckContext.from_fens([FRIED], question="Я думаю, Qxd5+ выигрывает ферзя, да"), sentence) == [[]]
+
+    def test_the_plan_instead_of_a_refuted_line(self):
+        ctx = CheckContext.from_fens([FRIED], question="Что тут играть?")
+        assert _sentences(ctx, "Брать 8.Qxd5+ нельзя: после 8...Qxd5 белые остаются без ферзя.",
+                          "Поэтому дальше спокойно развиваешься и рокируешься, и у тебя перевес.")[1] == []
+
+    @pytest.mark.parametrize("sentence", [
+        "После 8.Qxd5+ Qxd5 9.Bxd5+ Kxd5 белым лучше сдаться.",
+        "После Qxd5+ Qxd5 тебе лучше не спешить и вывести фигуры.",
+        "После Qxd5+ Qxd5 ты лучше сразу подумай о защите.",
+    ])
+    def test_dative_better_is_advice(self, sentence):
+        assert _sentences(CheckContext.from_fens([FRIED], question="Что если ферзь возьмёт на d5?"), sentence) == [[]]
+
+    def test_the_nominative_is_still_an_evaluation(self):
+        [claims] = _sentences(CheckContext.from_fens([FRIED]), "После Qxd5+ Qxd5 белые стоят лучше.")
+        assert claims and claims[0]["side"] == chess.WHITE
+
+    @pytest.mark.parametrize("sentence", [
+        "После размена ферзей Qxd8+ Kxd8 позиция белых примерно на две пешки лучше, чем у чёрных: лишнее качество.",
+        "После Qxd8+ Kxd8 белые стоят на две пешки лучше, чем чёрные.",
+    ])
+    def test_a_comparison_of_the_sides_is_not_a_swing(self, sentence):
+        ctx = CheckContext.from_fens(["1nbqkbnr/ppp2ppp/8/4p3/4P3/8/PPP2PPP/R1BQKBNR w KQk - 0 5"], question="Стоит меняться ферзями?")
+        [claims] = _sentences(ctx, sentence)
+        assert [c for c in claims if c["kind"] == "swing"] == []
+
+    def test_a_practical_warning_with_its_condition(self):
+        ctx = CheckContext.from_fens([chess.STARTING_FEN], question="Расскажи про опасные гамбиты")
+        assert _sentences(ctx, "Гамбит Стаффорда: 1.e4 e5 2.Nf3 Nf6 3.Nxe5 Nc6 4.Nxc6 dxc6 — неприятная для белых позиция, "
+                               "если не знать ловушек.") == [[]]
+
+    def test_the_engines_own_move_is_no_mistake(self, monkeypatch):
+        # A short search under load: 4...Qg5 «gives away» 1.6 pawns (+0.7 → −0.9 for Black) while it is the engine's
+        # own choice after 4.Nxe5 — noise, not the trap told backwards.
+        board = chess.Board(ITALIAN_FEN)
+        keys = []
+        for san in ("Nd4", "Nxe5", "Qg5"):
+            board.push_san(san)
+            keys.append(_key(board))
+        scores = {keys[1]: (0.7, "d8g5 e5f7"), keys[2]: (0.9, "c4f7 e8d8")}
+        monkeypatch.setattr("src.hypothetical.analyze_timed", _fake_analysis(scores))
+        [claims] = _sentences(_italian_ctx(), "Если сыграть Nd4, то на Nxe5 у чёрных есть Qg5, и белые проигрывают.")
+        assert claims and verify_claims(claims, 150) is None
+
+
+@requires_sf
+class TestReviewTrapsWithThePriceNext:
+    """A trap told in two sentences: the grab, then its price. The grab is true as material."""
+
+    def test_legal(self, local_engine):
+        ctx = CheckContext.from_fens([chess.STARTING_FEN], question="Покажи мат Легаля")
+        claims, _ = _sentences(ctx, "1.e4 e5 2.Nf3 d6 3.Bc4 Bg4 4.Nc3 g6 5.Nxe5 Bxd1 — чёрные выигрывают ферзя.",
+                               "Но после 6.Bxf7+ Ke7 7.Nd5# белые ставят мат.")
+        assert claims and verify_claims(claims, 300) is None
+
+    def test_blackburne(self, local_engine):
+        claims, _ = _sentences(_italian_ctx(), "После 3...Nd4 4.Nxe5 Qg5 5.Nxf7 Qxg2 6.Rf1 Qxe4+ 7.Be2 белые уже выигрывают ладью.",
+                               "Однако следует 7...Nf3#, и это мат.")
+        assert claims and verify_claims(claims, 300) is None
+
+    def test_a_material_claim_the_line_does_not_make_is_still_judged(self, local_engine):
+        # mate2-no: «ты забираешь ферзя» after 8.Qxd5+ — no queen taken in the line, and no mate: −6 is the answer.
+        ctx = CheckContext.from_fens([FRIED], question="Тут есть мат в два хода?")
+        _, claims = _sentences(ctx, "Берёшь коня на d5 с шахом: Qxd5+.",
+                               "Король вынужден уйти с e6, после чего ты забираешь ферзя, и партия фактически решена.")
+        assert verify_claims(claims, 300)
+
+
+class TestReviewVoiceParity:
+    def test_voice_keeps_a_refutation_in_the_second_person(self, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        monkeypatch.setattr("src.hypothetical.analyze_timed", _fake_analysis(_fried_scores()))
+        monkeypatch.setattr(config, "COACH_MOVE_VERIFY", True)
+        monkeypatch.setattr(config, "COACH_LINE_VERDICT", True)
+        monkeypatch.setattr("src.board_rules.tablebase", lambda board: None)
+        resp = TestClient(server.app).post(
+            "/api/coach/voice/check", headers={"X-User-Id": "line-user"},
+            json={"text": "Берёшь Qxd5+, а он просто отвечает Qxd5 — и ферзя у тебя больше нет.", "fen": FRIED,
+                  "question": "Можно ферзём взять коня на d5?"})
+        assert resp.status_code == 200 and resp.json()["issues"] == []

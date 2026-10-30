@@ -51,7 +51,8 @@ CLEAR_PAWNS = 1.5
 MISTAKE_PAWNS = 1.5
 WORSE_PAWNS = 0.4
 # «на N пешек хуже»: the number is wrong when it is off the engine's swing by max(SWING_ABS, SWING_REL × the
-# larger) and off the material swing by a pawn or more (a coach counting material is not contradicted).
+# larger), off the material swing by a pawn or more (a coach counting material is not contradicted), and not
+# between the two.
 SWING_ABS = 1.5
 SWING_REL = 0.3
 MAX_PLIES = 8
@@ -82,6 +83,12 @@ _GOOD = (r"(?:выигрыва(?:ет|ют|ешь)|выиграе(?:т|шь)|в�
 _BAD = (r"(?:теря(?:ет|ют|ешь)|потеря(?:ет|ют|ешь)|loses?)\s+" + _STAKE
         + r"|(?:проигрыва(?:ет|ют|ешь)|проиграе(?:т|шь)|проиграют|loses?|is\s+lost|are\s+lost)" + _END
         + r"|(?:получа(?:ет|ют|ешь)|получит|получат|получишь)\s+мат|(?:gets?|is)\s+(?:check)?mated")
+# «белые стоят лучше», «ты стоишь лучше» — but «белым лучше сдаться», «тебе лучше сыграть Ng4», «ты лучше подумай о
+# защите» are advice, not an evaluation (review 30.10): the side in the nominative, «ты» only with «стоишь», and no
+# infinitive right after.
+_NOMINATIVE = (r"(?P<side>белые|ч[её]рные|white|black|соперник|противник|(?:your\s+)?opponent|"
+               r"ты(?=\s+(?:уже\s+|тогда\s+|там\s+)?стоишь\s)|you(?=\s+(?:are|stand)\s))")
+_NO_INFINITIVE = r"(?!\s+(?:(?:сразу|всего|уже|просто|не|бы|же)\s+)*(?!почти)[а-яё]+(?:ть|ться|ти|чь)(?![а-яё]))"
 _SECOND = (r"выигрываешь|выиграешь|забираешь|заберешь|заберёшь|оста[её]шься|останешься|ставишь|поставишь|побеждаешь|"
            r"получаешь|получишь|теряешь|потеряешь|проигрываешь|проиграешь")
 _CLAIMS = [
@@ -95,10 +102,10 @@ _CLAIMS = [
     (re.compile(_W + rf"у\s+{_SIDE}\s+(?:уже\s+|сразу\s+|тогда\s+|там\s+)?(?P<v>(?:решающ\w+|подавляющ\w+|явн\w+|большой|огромн\w+|"
                 r"серь[её]зн\w+|заметн\w+|сильн\w+|ощутим\w+|чист\w+|лишн\w+)\s+(?:перевес|преимуществ\w*|фигур\w*|ферз\w*|ладь\w*)"
                 r"|(?:перевес|преимуществ\w*)" + _E + ")", re.IGNORECASE), True),
-    (re.compile(_W + rf"{_SIDE}\s+(?:уже\s+|тогда\s+|там\s+)?(?:сто(?:ят|ит|ишь)\s+)?(?:заметно\s+|явно\s+|намного\s+|гораздо\s+|"
-                r"значительно\s+|clearly\s+|much\s+)?(?P<v>лучше|better)" + _E, re.IGNORECASE), True),
-    (re.compile(_W + rf"{_SIDE}\s+(?:уже\s+|тогда\s+|там\s+)?(?:сто(?:ят|ит|ишь)\s+)?(?:заметно\s+|явно\s+|намного\s+|гораздо\s+|"
-                r"значительно\s+|clearly\s+|much\s+)?(?P<v>хуже|worse)" + _E, re.IGNORECASE), False),
+    (re.compile(_W + rf"{_NOMINATIVE}\s+(?:уже\s+|тогда\s+|там\s+)?(?:сто(?:ят|ит|ишь)\s+)?(?:заметно\s+|явно\s+|намного\s+|гораздо\s+|"
+                r"значительно\s+|clearly\s+|much\s+)?(?P<v>лучше|better)" + _E + _NO_INFINITIVE, re.IGNORECASE), True),
+    (re.compile(_W + rf"{_NOMINATIVE}\s+(?:уже\s+|тогда\s+|там\s+)?(?:сто(?:ят|ит|ишь)\s+)?(?:заметно\s+|явно\s+|намного\s+|гораздо\s+|"
+                r"значительно\s+|clearly\s+|much\s+)?(?P<v>хуже|worse)" + _E + _NO_INFINITIVE, re.IGNORECASE), False),
     # «опасная для чёрных игра», «чёрные в беде», "dangerous for Black"
     (re.compile(_W + rf"(?P<v>опасн\w+|неприятн\w+|тяж[её]л\w+|плох\w+|dangerous|bad|trouble)\s+(?:\w+\s+)?(?:для|for)\s+{_SIDE}{_E}",
                 re.IGNORECASE), False),
@@ -112,20 +119,29 @@ _MOVE_SUBJECT = re.compile(r"(?<![A-Za-z0-9])(?:[KQRBN][a-h]?[1-8]?x?[a-h][1-8](
                            rf"(?P<v>{_GOOD}|{_BAD})")
 _MOVE_SUBJECT_BAD = re.compile(rf"(?:{_BAD})$")
 # The student's belief or a quote, not the coach's claim: «думаешь, что выигрываешь ферзя».
+# …or what someone says or is sure of, a myth (review 30.10: «Ты говоришь, что…», «Многие новички уверены, что…»,
+# «Это миф, что…», «никто не скажет, что белые стоят лучше» were judged as the coach's own claims).
 _BELIEF = re.compile(_W + r"(?:дума\w*|кажет\w*|казал\w*|счита\w*|ожида\w*|наде\w*|рассчитыва\w*|по-тво\w+|якобы|будто|"
-                     r"хоч\w*|хотел\w*|мечта\w*|пишешь|спрашива\w*|think|thought|hope|expect|seems?|believe)" + _E, re.IGNORECASE)
+                     r"хоч\w*|хотел\w*|мечта\w*|пишешь|спрашива\w*|говор\w*|скаж\w*|сказа\w*|утвержда\w*|уверен\w*|"
+                     r"предлага\w*|по\s+тво\w+\s+слов\w*|тво\w+\s+иде\w+|миф\w*|заблужд\w*|легенд\w*|"
+                     r"think|thought|hope|expect|seems?|believe|says?|said|claims?|sure|myth)" + _E, re.IGNORECASE)
 # The price named in the same sentence after the outcome: «забирают коня, но получают мат», «…забирают коня, и белые
 # ставят мат» — told, not hidden.
-_PRICE = re.compile(_W + r"(?:но|однако|зато|правда|хотя|ценой|мат(?:а|ом|у)?|матует|ловушк\w*|отыгрыва\w*|but|however|though|yet|"
+_PRICE = re.compile(_W + r"(?:но|однако|зато|правда|хотя|ценой|мат(?:а|ом|у)?|матует|ловуш\w*|отыгрыва\w*|but|however|though|yet|"
                     r"at\s+the\s+cost|mates?|checkmate|trap\w*)" + _E, re.IGNORECASE)
 # A condition between the line and the outcome: «Qxd5+, и если король отойдёт, ты забираешь ферзя» is about a reply
 # the line does not write; the engine would judge another one.
+# …or right after the outcome in its clause: «неприятная для белых позиция, если не знать ловушек» (review 30.10).
 _CONDITION = re.compile(_W + r"(?:если|когда|в\s+случае|коли|if|when|unless|in\s+case)" + _E, re.IGNORECASE)
 # «…, после чего ты забираешь ферзя», «в ответ», «в итоге»: what follows is the end of the line before.
 _FOLLOWS = re.compile(_W + r"(?:после\s+(?:чего|этого|того)|в\s+ответ|тогда|затем|дальше|далее|потом|в\s+итоге|в\s+результате|"
                       r"then|after\s+that|afterwards|as\s+a\s+result)" + _E, re.IGNORECASE)
+# «Поэтому дальше спокойно развиваешься…», «Вместо этого…»: the plan instead of the line before, not its end.
+_INSTEAD = re.compile(r"^\W*(?:поэтому|так\s+что|вместо\s+(?:этого|него|того)|instead|so)" + _E, re.IGNORECASE)
 # Alternatives between two written moves («Nf6 или Bc5», «не Nd4, а Nf6»): not one line.
-_ALTERNATIVE = re.compile(_W + r"(?:или|либо|вместо|а\s+не|не|or|instead|rather|not)" + _E, re.IGNORECASE)
+# «…у белых нет ферзя, а после 8.Nc3…», «…; правильно 8.Nc3» start another branch too (review 30.10).
+_ALTERNATIVE = re.compile(_W + r"(?:или|либо|вместо|а\s+не|не|а\s+(?:после|на|вот|если)|правильн\w*|лучше|сильнее|or|instead|"
+                          r"rather|not|whereas|correct\w*|better)" + _E + r"|;", re.IGNORECASE)
 # «на почти четыре пешки хуже», «хуже на две пешки», "two pawns worse"
 _SWING_NUM = r"(?P<n>пешку|pawn|\d+(?:[.,]\d+)?|одну|одна|полторы|две|два|три|четыре|пять|шесть|семь|восемь|девять|one|two|three|four|five|six|seven|eight|nine|half\s+a)"
 _SWING = [
@@ -136,8 +152,11 @@ _SWING = [
     re.compile(_W + rf"(?:almost\s+|about\s+|roughly\s+|nearly\s+)?{_SWING_NUM}\s+pawns?\s+(?P<dir>worse|better)" + _E, re.IGNORECASE),
 ]
 # The change against the position before: «…хуже, чем было», «по сравнению с …», "than before".
-_AGAINST_BEFORE = re.compile(r"\s*,?\s*(?:чем|than)" + _E, re.IGNORECASE)
-_COMPARED = re.compile(_W + r"(?:по\s+сравнению|в\s+сравнении|compared)" + _E, re.IGNORECASE)
+# Only against the position before — not «лучше, чем у чёрных», «хуже, чем Nc3» (two sides, two moves; review 30.10).
+_AGAINST_BEFORE = re.compile(r"\s*,?\s*(?:чем\s+(?:было|был[аио]?|до(?![а-яё])|раньше|прежде|сейчас|в\s+начале|в\s+исходн\w+|на\s+доске)|"
+                             r"than\s+(?:before|it\s+was|now|at\s+the\s+start))" + _E, re.IGNORECASE)
+_COMPARED = re.compile(_W + r"(?:(?:по\s+сравнению|в\s+сравнении)\s+с\s+(?:тем|исходн\w+|прежн\w+|начальн\w+|позици\w+\s+до|"
+                       r"момент\w+\s+до)|compared\s+(?:to|with)\s+(?:before|the\s+(?:start|position\s+before)))" + _E, re.IGNORECASE)
 _NUMBERS = {"пешку": 1, "pawn": 1, "одну": 1, "одна": 1, "one": 1, "полторы": 1.5, "half a": 0.5, "две": 2, "два": 2, "two": 2, "три": 3, "three": 3,
             "четыре": 4, "four": 4, "пять": 5, "five": 5, "шесть": 6, "six": 6, "семь": 7, "seven": 7, "восемь": 8,
             "eight": 8, "девять": 9, "nine": 9}
@@ -156,11 +175,17 @@ def _side_of(word: str, ctx, line_on_current: bool, sentence: str = "") -> Optio
     # «ты» is the student: their colour in a game; outside one the side to move on the board on the screen — only
     # for a line played from that board (the coach of an opening line may speak to either side), and not when the
     # sentence names that colour itself («Если белые сыграют Qxf7+, ты теряешь ферзя»: the student is Black there).
+    # Nor when the question or the sentence tells the other side's move or the student's own last one («Что если он
+    # возьмёт ферзём на d5?», «Он может взять Qxd5+, но тогда ты забираешь ферзя»: the student is Black; review 30.10).
     student = ctx.student_color
     if student is None:
         if not line_on_current or ctx.current is None or _COLOUR_WORD[ctx.current.turn].search(sentence):
             return None
-        student = ctx.current.turn
+        from src.answer_check import student_side
+
+        student = student_side(ctx, sentence)
+        if student is None:
+            return None
     if w in ("ты", "тебя", "тебе", "you", "") or not w:
         return student
     return not student  # соперник, противник, opponent
@@ -262,14 +287,25 @@ def _starts_here(converted: str, first) -> bool:
     return not _THEY_MOVE.search(earlier)
 
 
+def _ply(m, previous: Optional[int]) -> Optional[int]:
+    """The half-move a written move is numbered as («8.Nc3» → 14, «8...Qxd5» → 15), else the one after *previous*."""
+    if m["num"]:
+        return 2 * (int(m["num"]) - 1) + (1 if (m["dots"] or "") in ("...", "…") else 0)
+    return None if previous is None else previous + 1
+
+
 def _segments(converted: str, tokens: list) -> list:
-    """The written moves split where the text offers an alternative («Nf6 или Bc5»)."""
-    out, cur = [], []
+    """The written moves split where the text offers an alternative («Nf6 или Bc5») or a move's number does not
+    follow the move before («8.Qxd5+ Qxd5 9.Bxd5+ Kxd5 …, а после 8.Nc3 …»: two branches, not 10.Nc3; review 30.10)."""
+    out, cur, ply = [], [], None
     for m in tokens:
-        if cur and _ALTERNATIVE.search(converted[cur[-1].end():m.start()]):
+        here = _ply(m, ply)
+        if cur and (_ALTERNATIVE.search(converted[cur[-1].end():m.start()])
+                    or (m["num"] and ply is not None and here != ply + 1)):
             out.append(cur)
             cur = []
         cur.append(m)
+        ply = here
     if cur:
         out.append(cur)
     return out
@@ -278,7 +314,7 @@ def _segments(converted: str, tokens: list) -> list:
 def line_claims(text: str, ctx) -> list:
     """The outcomes *text* (one sentence) promises at the end of a line it writes, for verify_claims. Also keeps
     the line on *ctx* for the sentence after it («Тогда белые выигрывают ферзя»)."""
-    from src.answer_check import _CONTINUES, _to_san
+    from src.answer_check import _CONTINUES, _DENIES, _FAILS, _RECOMMENDS, _to_san
 
     if ctx is None or not (text or "").strip():
         return []
@@ -287,8 +323,11 @@ def line_claims(text: str, ctx) -> list:
     converted, _ = _to_san(text.replace("ё", "е"))
     low = converted.lower()
     tokens = _tokens(converted)
-    # «Тогда …», «…, после чего ты забираешь ферзя» in a sentence with no moves of its own: the line before goes on.
-    follows = previous is not None and bool(_CONTINUES.match(converted) or (not tokens and _FOLLOWS.search(low)))
+    # «Тогда …», «…, после чего ты забираешь ферзя» in a sentence with no moves of its own: the line before goes on
+    # — not «Поэтому дальше спокойно развиваешься…», the plan instead of it.
+    follows = previous is not None and not _INSTEAD.match(low) \
+        and bool(_CONTINUES.match(converted) or (not tokens and _FOLLOWS.search(low)))
+    previous_advice = getattr(ctx, "_line_advice", False)
     lines = []  # (end offset in the text, start board, moves, on the screen's board)
     segments = _segments(converted, tokens)
     for seg in segments:
@@ -308,8 +347,13 @@ def line_claims(text: str, ctx) -> list:
             lines.append((m.end(), board, moves[: extra + i + 1], on_current))
     if lines:
         ctx._line_end = lines[-1][1:]
+        ctx._line_advice = bool(_RECOMMENDS.search(low))
     elif follows and not tokens:
         ctx._line_end = previous  # still the line before
+    # A line the sentence refutes («Брать 8.Qxd5+ нельзя: после 8...Qxd5 белые остаются без ферзя») is not the one
+    # the next sentence goes on with: «Поэтому дальше … у тебя перевес» is about the plan instead (review 30.10).
+    if _FAILS.search(low) or _DENIES.search(converted):
+        ctx._line_end = None
     if "?" in text or len(segments) > 1:
         return []  # a question; alternatives («Qd3 или Qxd5+ — и белые выигрывают фигуру»): which line is meant is not known
     claims = []
@@ -322,7 +366,8 @@ def line_claims(text: str, ctx) -> list:
                 line = (0,) + tuple(previous)
             if line is None:
                 continue
-            if not _claimed(low, converted, at, m.end()) or _CONDITION.search(low[line[0]:m.start()]):
+            if not _claimed(low, converted, at, m.end()) or _CONDITION.search(low[line[0]:m.start()]) \
+                    or _CONDITION.search(_clause_after(low, m.end())):
                 continue
             side_word = m.groupdict().get("side") or ""
             color = _side_of(side_word, ctx, line[3], low)
@@ -330,18 +375,18 @@ def line_claims(text: str, ctx) -> list:
                 continue
             favoured = color if good else not color
             claims.append({"kind": "line", "board": line[1], "moves": line[2], "side": favoured,
-                           "words": converted[m.start():m.end()].strip()[:80]})
+                           "words": converted[m.start():m.end()].strip()[:80], "stake": _stake(m.group("v"))})
     for m in _MOVE_SUBJECT.finditer(converted):
         before = [ln for ln in lines if ln[0] <= m.start("v")]
         if not before or not _claimed(low, converted, m.start("v"), m.end()):
             continue
         line = before[-1]
-        if _CONDITION.search(low[line[0]:m.start()]):
+        if _CONDITION.search(low[line[0]:m.start()]) or _CONDITION.search(_clause_after(low, m.end())):
             continue
         mover = line[1].turn if len(line[2]) % 2 == 1 else not line[1].turn
         good = not _MOVE_SUBJECT_BAD.match(m.group("v"))
         claims.append({"kind": "line", "board": line[1], "moves": line[2], "side": mover if good else not mover,
-                       "words": m.group(0).strip()[:80]})
+                       "words": m.group(0).strip()[:80], "stake": _stake(m.group("v"))})
     for rx in _SWING:
         for m in rx.finditer(low):
             from src.claim_scope import denied_before
@@ -354,7 +399,7 @@ def line_claims(text: str, ctx) -> list:
             pawns = float(n) if re.fullmatch(r"\d+(?:\.\d+)?", n) else _NUMBERS.get(n)
             if not pawns:
                 continue
-            ref = _swing_reference(lines, previous, ctx)
+            ref = _swing_reference(lines, previous, previous_advice, ctx, low)
             if ref is None:
                 continue
             board, moves = ref
@@ -380,23 +425,59 @@ def _claimed(low: str, text: str, at: int, end: int) -> bool:
                 or "«" in text[:at] or '"' in text[:at])
 
 
-def _swing_reference(lines: list, previous, ctx) -> Optional[tuple]:
+def _swing_reference(lines: list, previous, previous_advice: bool, ctx, low: str) -> Optional[tuple]:
     """The move the number is about: this sentence's line, the line of the sentence before, or the one move the
-    student asked about («А если b3?» — «…это почти на четыре пешки хуже»), played on the board on the screen."""
+    student asked about («А если b3?» — «…это почти на четыре пешки хуже»), played on the board on the screen.
+
+    A sentence without a line of its own is judged only when the move it is about is not in doubt (review 30.10:
+    «Правильно здесь 4.Nxd4 … . А взятие пешки конём — это почти на две пешки хуже, чем было» is about 4.Nxe5, not
+    the line before): not after the coach's recommendation, not when the student asked about another move, not
+    when the sentence names a square the move does not touch («из-за ответа ферзём на g5», «взять на e5»)."""
     if lines:
         return lines[-1][1], lines[-1][2]
-    if previous is not None:
-        return previous[0], list(previous[1])
-    if ctx.current is None:
-        return None
     quoted = []
-    for q in sorted(ctx.quoted or ()):
-        try:
-            quoted.append(ctx.current.parse_san(q))
-        except ValueError:
-            continue
-    if len(quoted) == 1:
-        return ctx.current, quoted
+    if ctx.current is not None:
+        for q in sorted(ctx.quoted or ()):
+            try:
+                quoted.append(ctx.current.parse_san(q))
+            except ValueError:
+                continue
+    if previous is not None:
+        board, moves = previous[0], list(previous[1])
+        if previous_advice or (quoted and (board is not ctx.current or moves[0] not in quoted)):
+            return None
+    elif len(quoted) == 1:
+        board, moves = ctx.current, quoted
+    else:
+        return None
+    touched = {chess.square_name(sq) for mv in moves for sq in (mv.from_square, mv.to_square)}
+    if any(sq not in touched for sq in re.findall(r"(?<![a-z0-9])[a-h][1-8](?![0-9])", low)):
+        return None
+    return board, moves
+
+
+def _clause_after(low: str, end: int) -> str:
+    """The rest of the outcome's clause: up to the end of the sentence or a «;»."""
+    return re.split(r"[.;!?]", low[end:], maxsplit=1)[0]
+
+
+_STAKES = (("ферз", (chess.QUEEN,)), ("ладь", (chess.ROOK,)), ("качеств", (chess.ROOK,)), ("кон", (chess.KNIGHT,)),
+           ("слон", (chess.BISHOP,)), ("фигур", (chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN)),
+           ("материал", (chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN)), ("queen", (chess.QUEEN,)),
+           ("rook", (chess.ROOK,)), ("exchange", (chess.ROOK,)), ("knight", (chess.KNIGHT,)), ("bishop", (chess.BISHOP,)),
+           ("piece", (chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN)),
+           ("material", (chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN)))
+
+
+def _stake(verb: str) -> Optional[tuple]:
+    """The pieces an outcome is about («выигрывают ферзя», «забирает фигуру»), or None for the game, an evaluation,
+    a mate: a material outcome is a statement about material (see _verify_line)."""
+    v = (verb or "").lower().replace("ё", "е")
+    if re.search(r"мат(?![а-яё])|матует|mates|партию|игру|the\s+game", v):
+        return None
+    for word, kinds in _STAKES:
+        if word in v:
+            return kinds
     return None
 
 
@@ -440,16 +521,36 @@ def _name(color: bool) -> str:
     return "White" if color == chess.WHITE else "Black"
 
 
+def _took(board: chess.Board, moves: list, side: bool, kinds: tuple) -> bool:
+    """Does *side* capture a piece of *kinds* in the line?"""
+    b = board.copy(stack=False)
+    for mv in moves:
+        if b.turn == side and b.piece_type_at(mv.to_square) in kinds:
+            return True
+        b.push(mv)
+    return False
+
+
 def _verify_line(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
     from src.hypothetical import _fmt, _numbered
 
     board, moves, side = claim["board"], claim["moves"], claim["side"]
+    # A material outcome is a statement about material (review 30.10, Legal's mate: «…5.Nxe5 Bxd1 — чёрные выигрывают
+    # ферзя.» «Но после 6.Bxf7+ Ke7 7.Nd5# белые ставят мат.»): true when the line itself takes that piece, whatever
+    # the price told in the next sentence.
+    stake = claim.get("stake")
+    if stake and _took(board, moves, side, stake):
+        return None
     line, end = _line_text(board, moves)
     got = _eval(end, movetime_ms)
     if got is None:
         return None
     white, pv = got
     mine = white if side == chess.WHITE else -white
+    if stake and mine <= -(MATE_PAWNS - 0.5):
+        # …and a mate against the side is the price of the grab (the Blackburne trap: «7.Be2 белые уже выигрывают
+        # ладью.» «Однако следует 7...Nf3#»), often told in the sentence after; not the material contradicted.
+        return None
     said = f"«{claim['words']}»"
     cont = f" (it goes on {_numbered(end, pv[:4])})" if reveal and pv and abs(white) < MATE_PAWNS - 0.5 else ""
     where = f"after {line}"
@@ -467,6 +568,10 @@ def _verify_line(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
         before.push(mv)
     got_before = _eval(before, movetime_ms)
     if got_before is None:
+        return None
+    if got_before[1] and got_before[1][0] == before.san(moves[last]):
+        # The engine's own choice there is no mistake: the «loss» is the noise of two short searches (review 30.10:
+        # at 150 ms, 3...Nd4 4.Nxe5 Qg5 came out as Black's mistake, +0.7 → −0.9 for Black, with Qg5 the engine's move).
         return None
     mover_before = got_before[0] if side == chess.WHITE else -got_before[0]
     after_board = before.copy(stack=False)
@@ -510,8 +615,11 @@ def _verify_swing(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
         except ValueError:
             break
     material = _material(b, side) - _material(board, side)
-    if abs(said - material) <= 1.0:
-        return None  # the coach counts the material the line loses: «почти на четыре пешки» for a bishop (−3) holds
+    if abs(said - material) < 1.0 or min(material, swing) <= said <= max(material, swing):
+        # The coach counts the material the line loses («почти на четыре пешки» for a bishop, −3), or tells a figure
+        # between that count and the engine's: not clearly wrong. (The count follows the engine's continuation, which
+        # a short search under load may cut before or after a recapture: −2 or −3 for the same 6.b3? b5.)
+        return None
     cont = f" (it goes on {_numbered(end, got_after[1][:4])})" if reveal and got_after[1] else ""
     return (f"«{claim['words']}» is wrong: after {line} the engine evaluates the position at {_fmt(got_after[0])}{cont} "
             f"against {_fmt(got_before[0])} before — about {abs(swing):.1f} pawns {'worse' if swing < 0 else 'better'} "

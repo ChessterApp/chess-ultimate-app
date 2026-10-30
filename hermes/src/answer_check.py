@@ -340,6 +340,10 @@ class CheckContext:
     # sentence, for the engine stage (src/line_verdict.py; prod 29.10), and the end of the last line written.
     line_claims: dict = field(default_factory=dict)
     _line_end: Optional[tuple] = None
+    _line_advice: bool = False  # …and whether that sentence recommended it («Лучший ход здесь 4.Nxd4.»)
+    # The moves of the lines and games given to the turn, as (the position's key, the move's UCI): «Здесь ты играешь
+    # Qxd5+» in a review tells the game's own next move, not advice (review 30.10).
+    line_next: set = field(default_factory=set)
     MAX_BOARDS = 400
 
     @classmethod
@@ -418,9 +422,11 @@ class CheckContext:
         self.add(board.fen())
         for san in _split_moves(pgn):
             try:
-                board.push_san(san)
+                move = board.parse_san(san)
             except ValueError:
                 return
+            self.line_next.add((self._key(board), move.uci()))
+            board.push(move)
             self.add(board.fen())
 
 
@@ -2853,9 +2859,60 @@ _YOU_PLAY = re.compile(
     r"(?:просто\s+|спокойно\s+|сразу\s+|смело\s+|сам\s+)?"
     r"(?:берешь|бьешь|играешь|ставишь|идешь|забираешь|уводишь|отводишь|жертвуешь|переводишь|выводишь|двигаешь|продвигаешь|"
     r"толкаешь|отдаешь|разменива\w*ешь|прыгаешь|ходишь)(?![а-я])", re.IGNORECASE)
-_FAILS = re.compile(r"(?<![а-яa-z])(?:теря\w*|потеря\w*|проигр\w*|ошиб\w*|зева\w*|зевок|подстав\w*|ловушк\w*|плох\w*|нельзя|"
-                    r"опасн\w*|не\s+стоит|не\s+надо|не\s+нужно|hangs?|loses?|blunder\w*|mistake\w*|trap\w*)(?![а-яa-z])",
+# (review 30.10: «…и ферзя у тебя больше нет», «ты остаёшься без ферзя», «почему так не играют» say it fails too)
+_FAILS = re.compile(r"(?<![а-яa-z])(?:теря\w*|потеря\w*|проигр\w*|ошиб\w*|зева\w*|зевок|подстав\w*|ловуш\w*|плох\w*|нельзя|"
+                    r"опасн\w*|не\s+стоит|не\s+надо|не\s+нужно|не\s+проход\w*|не\s+работа\w*|так\s+не\s+игра\w*|больше\s+нет|"
+                    r"оста[её]шься\s+без|остаются\s+без|минус|пропада\w*|hangs?|loses?|blunder\w*|mistake\w*|trap\w*)(?![а-яa-z])",
                     re.IGNORECASE)
+# …nor when it goes on to the opponent's answer («Берёшь Qxd5+, а он просто отвечает Qxd5», «…но чёрный ферзь бьёт
+# обратно»): the sentence tells a line, and the line's outcome is the engine's to judge (src/line_verdict.py), not
+# the first move as advice (review 30.10: four correct refutations of Qxd5+ were cut as «Qxd5+ is a mistake»).
+_REPLY = re.compile(r"(?<![а-яa-z])(?:отвеча\w*|ответ(?:ит|ят|ом)|в\s+ответ|(?:бь[её]т|бьют|бер[её]т|берут|забира\w+)\s+обратно|"
+                    r"replies|answers|recaptures?|takes\s+back)"
+                    r"(?![а-яa-z])", re.IGNORECASE)
+# A move told for the other side in the third person («Что если он возьмёт ферзём на d5?», «Если соперник сыграет
+# Qxd5+…», «чёрные отвечают Qxd5»), or the student's own last move told («Я пошёл королём на e6»): outside a game
+# the student is then not known to be the side to move (review 30.10: a Black student's «ты забираешь ферзя» was
+# read as White's).
+_THIRD_MOVE = re.compile(
+    r"(?<![а-яa-z])(?:он|она|они|соперник\w*|противник\w*|оппонент\w*|белые|черные|he|she|they|(?:my\s+|the\s+|your\s+)?opponent|"
+    r"white|black)\s+(?:[а-яa-z]+\s+){0,2}?"
+    r"(?:бер[её]т|берут|возьм\w+|взять|бь[её]т|бьют|побь\w+|побить|сыгра\w+|игра(?:ет|ют)|пойд\w+|пойти|ид[её]т|идут|ход(?:ит|ят)|"
+    r"жертву\w+|пожертв\w+|отвеча\w+|ответ(?:ит|ят|ить)|забира\w+|забер\w+|забрать|уход\w+|уйд\w+|уйти|отступ\w+|"
+    r"takes?|captures?|plays?|replies|answers?|goes|moves?)(?![а-яa-z])", re.IGNORECASE)
+_I_MOVED = re.compile(r"(?<![а-яa-z])я\s+(?:[а-яa-z]+\s+)?(?:пош[её]л|сходил|сыграл\w*|взял\w*|побил\w*|поставил\w*|отош[её]л|"
+                      r"уш[её]л|отступил\w*|сделал\w*\s+ход|i\s+(?:played|moved|took))(?![а-яa-z])", re.IGNORECASE)
+
+
+def student_side(ctx: Optional[CheckContext], sentence: str = "") -> Optional[bool]:
+    """The student's colour: known in a game; outside one the side to move on the board on the screen — unless the
+    question or *sentence* tells a move of the other side or the student's own last move (then not known)."""
+    if ctx is None:
+        return None
+    if ctx.student_color is not None:
+        return ctx.student_color
+    if ctx.current is None:
+        return None
+    for told in (ctx.question or "", (sentence or "").lower().replace("ё", "е")):
+        if _THIRD_MOVE.search(told) or _I_MOVED.search(told):
+            return None
+    return ctx.current.turn
+
+
+def _tells_line(rest: str) -> bool:
+    """More than one written move after the student's move told in the second person («Здесь ты играешь Qxd5+, и
+    после Qxd5 партия переворачивается»): the opponent's answer is told too — a line, not advice."""
+    converted, _ = _to_san(rest)
+    moves = [m for m in _MOVE.finditer(converted)
+             if m["san"][0] in "KQRBNO" or m["num"] or m["bdots"] or "x" in m["san"]]
+    return len(moves) > 1
+
+
+def _review_asked(ctx: CheckContext) -> bool:
+    """«Разбери мою партию, где я ошибся?»: «здесь ты играешь Qxd5+» tells the student's own game."""
+    from src.intent import _REVIEW
+
+    return bool(_REVIEW.search(ctx.question_raw or ctx.question or ""))
 
 
 def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]:
@@ -2893,8 +2950,9 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
         return ctx.current, move, ctx.current.san(move)
     starts = list(_PROPOSES.finditer(text))
     you_play = _YOU_PLAY.match(text)
-    if you_play and "?" not in text and not _FAILS.search(text) \
-            and (ctx.student_color is None or ctx.student_color == ctx.current.turn):
+    if you_play and "?" not in text and not _FAILS.search(text) and not _REPLY.search(text) \
+            and student_side(ctx, text) == ctx.current.turn and not _tells_line(text[you_play.end():]) \
+            and not _review_asked(ctx):
         starts.insert(0, you_play)
     for m in starts:
         if _NEGATION.search(text[max(0, m.start() - 24): m.start()]):
@@ -2917,12 +2975,16 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
                 move = ctx.current.parse_san(san + (mv["check"] or ""))
             except ValueError:
                 continue
+            if m is you_play and (ctx._key(ctx.current), move.uci()) in ctx.line_next:
+                break  # the game's or the line's own next move, told in the present: narration, not advice
             return ctx.current, move, ctx.current.san(move)
         try:
             from src.move_words import prose_moves
 
             for pm in prose_moves(clause, ctx.current):
                 if pm["move"] is not None:
+                    if m is you_play and (ctx._key(ctx.current), pm["move"].uci()) in ctx.line_next:
+                        break
                     return ctx.current, pm["move"], pm["san"]
         except Exception:  # noqa: BLE001 — words are a bonus on top of notation
             logger.debug("prose move parse failed", exc_info=True)
