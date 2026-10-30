@@ -2580,6 +2580,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # before the sentence is shown (src/hypothetical.verify_recommendation).
         verify_state = {"left": config.COACH_MOVE_VERIFY_PER_TURN if config.COACH_MOVE_VERIFY else 0,
                         "checked": 0, "caught": 0, "ms": 0}
+        tb_line_state = {"left": config.COACH_TABLEBASE_LINE_CHECKS if config.COACH_ANSWER_CHECK else 0}
         fix = {"running": False, "done": False, "sentence": None, "issues": [], "dropped": [],
                "reply": None, "started": None, "first_ms": None, "emitted": False,
                "shown_prefix": "", "head": ""}
@@ -2811,6 +2812,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     old_board_blocks.append(live_game_block(live['note']))
                     message = f"{message}\n\n{old_board_blocks[-1]}"
                     check_ctx.engine_eval = live.get("eval")
+                    if live.get("tablebase"):
+                        # An ending of ≤ 7 pieces in a game: the tablebase is exact where the engine is not (30.10).
+                        check_ctx.tablebase = live["tablebase"]
+                        check_ctx.engine_eval = 0.0 if live["tablebase"] == "draw" else (
+                            20.0 if live["tablebase"].startswith("White") else -20.0)
+                # The result the board facts told the model (they ask the tablebase too) judges its words even when
+                # the engine line was late or had no tablebase answer yet (src/endgame_claims.py, 30.10).
+                from src.endgame_claims import tablebase_from_cache
+
+                tablebase_from_cache(check_ctx)
                 hypo = _await_engine_note(hypo_future, engine_started, hypo_state)
                 if hypo:
                     old_board_blocks.append(
@@ -2956,11 +2967,32 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 frames.extend(_answer_frames(text))
             return frames
 
+        async def _line_outcomes(pairs):
+            """«после Kd5 a6 Kc6 — ничья»: an outcome claim at the end of a written line, whose position the
+            tablebase was not asked about before the sentence, waits for its answer (a network lookup of ≤ 1.5 s,
+            cached, off the event loop; a few per answer) — src/endgame_claims.py, 30.10."""
+            from src.endgame_claims import judge_pending, pop_pending
+
+            out = []
+            for text, issues, sentence in pairs:
+                pending = pop_pending(check_ctx, sentence)
+                if pending and not issues and tb_line_state["left"] > 0:
+                    tb_line_state["left"] -= 1
+                    try:
+                        issue = await loop.run_in_executor(None, judge_pending, pending)
+                    except Exception:  # noqa: BLE001 — the check is best-effort
+                        issue = None
+                    if issue:
+                        issues = [issue]
+                out.append((text, issues, sentence))
+            return out
+
         async def _verified(pairs):
             """A sentence that recommends a move waits for the engine's word on
             it (a few hundred ms, off the event loop); a move that gives away
             material or the game is treated like a wrong claim — not shown,
             the rest rewritten from the engine's facts."""
+            pairs = await _line_outcomes(pairs)
             if verify_state["left"] <= 0 or check_ctx.current is None:
                 return pairs
             out = []
@@ -4261,7 +4293,17 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         # the check (src/game_intent.spoken_squares; Alexander's phone, 24.10).
         from src.game_intent import spoken_squares
 
-        issues = check_sentence(spoken_squares(body.text[:1000]), ctx)
+        said = spoken_squares(body.text[:1000])
+        issues = check_sentence(said, ctx)
+        if not issues and config.COACH_TABLEBASE_LINE_CHECKS > 0:
+            # An outcome claim at the end of a line the coach said («после Kd5 a6 Kc6 — ничья»): the tablebase is
+            # asked here, as in the text coach's engine stage (src/endgame_claims.py, 30.10).
+            from src.endgame_claims import judge_pending, pop_pending
+
+            pending = pop_pending(ctx, said)
+            issue = judge_pending(pending) if pending else None
+            if issue:
+                return [issue]
         if issues or not body.fen or not config.COACH_MOVE_VERIFY:
             return issues
         # The coach's recommendation («сыграй Rg1») against the engine, as in the

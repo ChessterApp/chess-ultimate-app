@@ -878,6 +878,14 @@ def _turn_claim_issues(text: str, ctx) -> list[str]:
     return []
 
 
+def _outcome_issues(lowered: str, ctx) -> list[str]:
+    """«Нет, не догонит», «пешка проходит», «ничью не удержать» in an ending of ≤ 7 pieces against the tablebase
+    (src/endgame_claims.py; prod 29.10, the square: the coach said the pawn queens in a tablebase draw)."""
+    from src.endgame_claims import outcome_issues
+
+    return outcome_issues(lowered, ctx)
+
+
 def rules_issues(lowered: str, ctx) -> list[str]:
     """All the claims above in one sentence (*lowered*: lower case, ё → е)."""
     try:
@@ -887,6 +895,6 @@ def rules_issues(lowered: str, ctx) -> list[str]:
                 + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx) + _colour_issues(lowered)
                 + _castling_rule_issues(lowered, getattr(ctx, "question", "")) + _cannot_go_issues(lowered, ctx)
                 + _forced_reply_issues(lowered, ctx) + _castling_b1_issues(lowered) + _automatic_draw_issues(lowered)
-                + _castle_after_issues(lowered, ctx) + _turn_claim_issues(lowered, ctx))
+                + _castle_after_issues(lowered, ctx) + _turn_claim_issues(lowered, ctx) + _outcome_issues(lowered, ctx))
     except Exception:  # noqa: BLE001 — a broken pattern must never block an answer
         return []

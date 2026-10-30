@@ -439,6 +439,16 @@ def live_game_note(fen: str, movetime_ms: int = 300) -> Optional[dict]:
         return None
     if not board.is_valid() or board.is_game_over():
         return None
+    # An ending of ≤ 7 pieces: the tablebase's result beside the engine's evaluation, asked during the search —
+    # the voice coach's game note had none, and the check judged «не догонит» in a game without it (30.10).
+    tb_future = None
+    if len(board.piece_map()) <= 7:
+        try:
+            from src.voice_engine_note import _tablebase_result, _threat_pool
+
+            tb_future = _threat_pool.submit(_tablebase_result, board.copy(stack=False))
+        except Exception:  # noqa: BLE001 — a bonus on top of the engine
+            tb_future = None
     try:
         from src.position_facts import THREAT_MOVETIME_MS, _score, _threat
 
@@ -452,7 +462,16 @@ def live_game_note(fen: str, movetime_ms: int = 300) -> Optional[dict]:
         parts = [f"- Evaluation: {_fmt(white)}."]
         if threat:
             parts.append(f"- {other} threatens {threat} if {side} ignores it.")
-        return {"eval": white, "threat": threat, "note": "\n".join(parts)}
+        tb = None
+        if tb_future is not None:
+            try:
+                tb = tb_future.result(timeout=0.5)  # the lookup ran during the search; a slow one is left out
+            except Exception:  # noqa: BLE001
+                tb = None
+        if tb:
+            # The result only, no move: the coach hints in a game.
+            parts.append(f"- Endgame tablebase (exact, perfect play): {tb.upper()} — whatever the evaluation shows.")
+        return {"eval": white, "threat": threat, "note": "\n".join(parts), "tablebase": tb}
     except Exception:  # noqa: BLE001
         logger.debug("live_game_note failed", exc_info=True)
         return None

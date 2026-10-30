@@ -341,6 +341,10 @@ COACH_MOVE_VERIFY = _env_flag("COACH_MOVE_VERIFY", True)
 COACH_MOVE_VERIFY_MOVETIME_MS = int(os.environ.get("COACH_MOVE_VERIFY_MOVETIME_MS", "300"))
 COACH_MOVE_VERIFY_CP = int(os.environ.get("COACH_MOVE_VERIFY_CP", "150"))
 COACH_MOVE_VERIFY_PER_TURN = int(os.environ.get("COACH_MOVE_VERIFY_PER_TURN", "4"))
+# «после Kd5 a6 Kc6 — ничья» (30.10): an outcome claim at the end of a written line in an ending of ≤ 7 pieces is
+# judged by the tablebase on the line's last position (src/endgame_claims.py) — at most this many lookups per
+# answer (each ≤ COACH_TABLEBASE_TIMEOUT_S, cached); 0 turns the line lookups off.
+COACH_TABLEBASE_LINE_CHECKS = int(os.environ.get("COACH_TABLEBASE_LINE_CHECKS", "3"))
 # «Дай задачу на связку» (2026-10-05): the task comes from the site's own sets on
 # the theme first (the student's programme, with the set's address), the Lichess
 # puzzle set only when the site has none. COACH_PUZZLES_FROM_SITE=0 → Lichess as before.
