@@ -348,6 +348,9 @@ class CheckContext:
     # The moves of the lines and games given to the turn, as (the position's key, the move's UCI): «Здесь ты играешь
     # Qxd5+» in a review tells the game's own next move, not advice (review 30.10).
     line_next: set = field(default_factory=set)
+    # Outcome claims at the end of a line written in a sentence («после Kd5 a6 Kc6 — ничья») whose position the
+    # tablebase has not been asked about yet: the engine stage asks it (src/endgame_claims.pop_pending, 30.10).
+    outcome_pending: dict = field(default_factory=dict)
     MAX_BOARDS = 400
 
     @classmethod
@@ -3555,7 +3558,10 @@ _CLAIM_START = re.compile(
     r"extra|material|winning|losing|ahead|behind|up\s+an?\b|down\s+an?\b|mate|"
     # a side's name opens most claims about material and the result ("Black is a pawn up"):
     # the words before it streamed, the rewrite restated them — «Right now Black is a No — …» (2026-10-06)
-    r"white|black|белые|белых|ч[её]рные|ч[её]рных)" + _E,
+    r"white|black|белые|белых|ч[её]рные|ч[её]рных|"
+    # …and the outcome of an ending: «Нет, не догонит.» went out whole before its check (prod 29.10, the square)
+    r"догон\w*|догнать|успе(?:ет|ешь|ют|вает|ваешь|вают)|проход(?:ит|ят)|пройд[её]т|ничь\w*|удерж\w*|спас\w*|"
+    r"catch\w*|queens)" + _E,
     re.IGNORECASE)
 
 

@@ -388,6 +388,17 @@ def tablebase(board: chess.Board) -> Optional[dict]:
     return out
 
 
+def tablebase_cached(board: chess.Board) -> Optional[tuple]:
+    """(True, answer) when the tablebase has been asked about *board* this process (the answer may be None:
+    not in the tablebase), None when it has not — never a network call: a synchronous check reads only what the
+    turn has already fetched (src/endgame_claims.py, 2026-10-30)."""
+    key = board.epd()
+    with _tb_lock:
+        if key in _tb_cache:
+            return True, _tb_cache[key]
+    return None
+
+
 def tablebase_white_result(board: chess.Board, tb: dict) -> str:
     """'White wins', 'Black wins' or 'draw' (cursed wins and blessed losses are draws by the 50-move rule)."""
     cat = tb["category"]
