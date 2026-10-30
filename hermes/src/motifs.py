@@ -9,6 +9,7 @@ not an example of it, whatever lesson it came from.
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 import chess
@@ -80,9 +81,14 @@ def _ray_pair(board: chess.Board, sq: int) -> list[tuple[int, int]]:
     return out
 
 
-def _pins(board: chess.Board, color: chess.Color) -> bool:
+def _sliders(board: chess.Board, color: chess.Color, piece: Optional[int] = None) -> chess.SquareSet:
+    """The squares of *color*'s sliders — only of type *piece* when one is asked («связка слоном»)."""
+    return chess.SquareSet([sq for pt in SLIDERS if piece is None or pt == piece for sq in board.pieces(pt, color)])
+
+
+def _pins(board: chess.Board, color: chess.Color, piece: Optional[int] = None) -> bool:
     """A slider of *color* pins an enemy piece to the king or to a piece worth more behind it."""
-    for sq in board.pieces(chess.BISHOP, color) | board.pieces(chess.ROOK, color) | board.pieces(chess.QUEEN, color):
+    for sq in _sliders(board, color, piece):
         for front, back in _ray_pair(board, sq):
             fv, bv = VALUE[board.piece_type_at(front)], VALUE[board.piece_type_at(back)]
             if board.piece_type_at(front) != chess.KING and bv > fv and board.piece_type_at(back) != chess.PAWN:
@@ -90,9 +96,9 @@ def _pins(board: chess.Board, color: chess.Color) -> bool:
     return False
 
 
-def _skewers(board: chess.Board, color: chess.Color) -> bool:
+def _skewers(board: chess.Board, color: chess.Color, piece: Optional[int] = None) -> bool:
     """A slider of *color* attacks a valuable piece with a lesser (non-pawn) piece behind it."""
-    for sq in board.pieces(chess.BISHOP, color) | board.pieces(chess.ROOK, color) | board.pieces(chess.QUEEN, color):
+    for sq in _sliders(board, color, piece):
         for front, back in _ray_pair(board, sq):
             fp, bp = board.piece_type_at(front), board.piece_type_at(back)
             if fp in (chess.KING, chess.QUEEN, chess.ROOK) and bp != chess.PAWN and VALUE[fp] > VALUE[bp]:
@@ -122,9 +128,10 @@ def _discovers(board: chess.Board, move: chess.Move) -> bool:
 MOTIFS = ("fork", "pin", "skewer", "discovered-attack")
 
 
-def shows_motif(fen: str, slug: str) -> Optional[bool]:
+def shows_motif(fen: str, slug: str, piece: Optional[int] = None) -> Optional[bool]:
     """True when the position shows the motif now or after one move of the side to move, False when it
-    does not, None when *slug* is not a motif checked here (or the FEN is broken)."""
+    does not, None when *slug* is not a motif checked here (or the FEN is broken). *piece*: the motif
+    made by that piece only — «вилка конём» is not shown by a rook's double attack (prod 29.10)."""
     if slug not in MOTIFS:
         return None
     try:
@@ -132,23 +139,55 @@ def shows_motif(fen: str, slug: str) -> Optional[bool]:
     except (ValueError, IndexError):
         return None
     us = board.turn
+
+    def by(b: chess.Board, sq: int) -> bool:
+        return piece is None or b.piece_type_at(sq) == piece
+
     if slug == "fork":
-        if any(_forks(board, sq) for sq in chess.SQUARES if board.piece_at(sq)):
+        if any(_forks(board, sq) for sq in chess.SQUARES if board.piece_at(sq) and by(board, sq)):
             return True
         for mv in board.legal_moves:
             after = board.copy(stack=False)
             after.push(mv)
-            if _forks(after, mv.to_square):
+            if by(after, mv.to_square) and _forks(after, mv.to_square):
                 return True
         return False
     if slug in ("pin", "skewer"):
         test = _pins if slug == "pin" else _skewers
-        if test(board, us) or test(board, not us):
+        if test(board, us, piece) or test(board, not us, piece):
             return True
         for mv in board.legal_moves:
             after = board.copy(stack=False)
             after.push(mv)
-            if test(after, us):
+            if test(after, us, piece):
                 return True
         return False
-    return any(_discovers(board, mv) for mv in board.legal_moves)
+    return any(_discovers(board, mv) for mv in board.legal_moves if piece is None or board.piece_type_at(mv.from_square) == piece)
+
+
+# The piece a motif is asked with: «вилка конём», «пример вилки пешкой», «коневая вилка», «связка слоном»,
+# "knight fork", "a fork with the queen". Production 29.10 (d3-example): «Покажи на доске пример вилки конём»
+# put up the lesson's double attack by a rook — the example search did not know the piece was asked.
+_MOTIF_RX = {
+    "fork": r"вилк\w*|двойн\w+\s+удар\w*|forks?|double\s+attacks?",
+    "pin": r"связк\w*|pins?",
+    "skewer": r"сквозн\w+\s+(?:удар|атак)\w*|рентген\w*|skewers?",
+    "discovered-attack": r"вскрыт\w+\s+(?:шах|нападени|атак)\w*|discovered\s+(?:attacks?|checks?)",
+}
+_BY_PIECE = ((chess.KNIGHT, r"кон[её]м", r"конев\w+|конск\w+", r"knight"),
+             (chess.PAWN, r"пешкой", r"пешечн\w+", r"pawn"),
+             (chess.BISHOP, r"слоном", r"слонов\w+", r"bishop"),
+             (chess.ROOK, r"ладь[её]й", r"ладейн\w+", r"rook"),
+             (chess.QUEEN, r"ферз[её]м", r"ферзев\w+", r"queen"),
+             (chess.KING, r"корол[её]м", r"королевск\w+", r"king"))
+
+
+def motif_piece(text: str) -> Optional[tuple]:
+    """(motif slug, piece type) when *text* asks for a motif made by a named piece, else None."""
+    low = (text or "").lower().replace("ё", "е")
+    for slug, motif in _MOTIF_RX.items():
+        for piece, instr, adj, en in _BY_PIECE:
+            if re.search(rf"(?<![а-яa-z])(?:{motif})\s+(?:с\s+|by\s+|with\s+)?(?:(?:a|the|your|my)\s+)?(?:{instr}|{en})(?![а-яa-z])"
+                         rf"|(?<![а-яa-z])(?:{adj}|{en})\s+(?:{motif})(?![а-яa-z])", low):
+                return slug, piece
+    return None
