@@ -1,0 +1,5397 @@
+{
+ "meta": {
+  "what": "design-llm/recorded_extractions.json (hand-written extractions of the 306 eval rows, keyed by row) converted to src/claim_types, plus the 11 triage findings with no eval row (design-llm/triage_extra.py)",
+  "caveat": "written by hand by a designer who knew the finding classes: a ceiling, not a model measurement (plan §1)",
+  "eval_claims": 270,
+  "extra_claims": 8
+ },
+ "eval": {
+  "0": [
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bb5+",
+       "piece": "B",
+       "to": "b5"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "b5",
+      "piece": "B"
+     }
+    ],
+    "neg": true,
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bb5+",
+       "piece": "B",
+       "to": "b5"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "1": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "g5",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "f7"
+     },
+     {
+      "sq": "h7"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bb5+",
+       "piece": "B",
+       "to": "b5"
+      },
+      {
+       "san": "Bd7",
+       "piece": "B",
+       "to": "d7"
+      },
+      {
+       "san": "Qe2",
+       "piece": "Q",
+       "to": "e2"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "2": [],
+  "3": [],
+  "4": [],
+  "5": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "h3",
+     "piece": "N",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "g1"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "6": [
+   {
+    "rel": "hold",
+    "subj": {
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "d6"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "7": [],
+  "8": [
+   {
+    "rel": "hold",
+    "subj": {
+     "piece": "K",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "c6"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Ke5",
+       "piece": "K",
+       "to": "e5"
+      },
+      {
+       "san": "a6",
+       "piece": "P",
+       "to": "a6"
+      },
+      {
+       "san": "Kd6",
+       "piece": "K",
+       "to": "d6"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "9": [],
+  "10": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "e4",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "h2",
+      "piece": "P"
+     },
+     {
+      "sq": "f1",
+      "piece": "R"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qxe4+",
+       "piece": "Q",
+       "to": "e4",
+       "capture": true
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qxe4+",
+       "piece": "Q",
+       "to": "e4",
+       "capture": true
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "11": [],
+  "12": [
+   {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "N",
+      "side": false
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "13": [
+   {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "c4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "14": [
+   {
+    "rel": "pins",
+    "subj": {
+     "piece": "B",
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "c6"
+     }
+    ],
+    "question": "which",
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Ba4",
+       "piece": "B",
+       "to": "a4"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "15": [],
+  "16": [],
+  "17": [],
+  "18": [],
+  "19": [],
+  "20": [],
+  "21": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f7",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "can_capture",
+    "subj": {
+     "piece": "K",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "f7"
+     }
+    ],
+    "neg": true,
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   }
+  ],
+  "22": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "g1",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "g7",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "shown",
+     "plies_back": 1
+    },
+    "source": "fixture"
+   }
+  ],
+  "23": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "f7",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "g7",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   }
+  ],
+  "24": [
+   {
+    "rel": "aim",
+    "subj": {
+     "sq": "g2",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "e6"
+     }
+    ],
+    "pos": {
+     "at": "plan"
+    },
+    "source": "fixture"
+   }
+  ],
+  "25": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "c4",
+     "piece": "B",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "f1"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "26": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f1"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "27": [
+   {
+    "rel": "hold",
+    "subj": {
+     "piece": "B",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "f1"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "b3",
+       "piece": "P",
+       "to": "b3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "28": [],
+  "29": [
+   {
+    "rel": "only_move",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rb1+",
+       "piece": "R",
+       "to": "b1"
+      }
+     ]
+    },
+    "source": "fixture",
+    "move": {
+     "san": "Qc1",
+     "piece": "Q",
+     "to": "c1"
+    },
+    "kind": "block"
+   }
+  ],
+  "30": [],
+  "31": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "g4",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "h6",
+      "piece": "P"
+     },
+     {
+      "piece": "R"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "32": [],
+  "33": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "f1",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "g2"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "O-O",
+       "piece": "K",
+       "castle": "short"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "34": [],
+  "35": [],
+  "36": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "b3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c4"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "b3",
+       "piece": "P",
+       "to": "b3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "37": [],
+  "38": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "a2"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "b3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c4"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "b3",
+       "piece": "P",
+       "to": "b3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "39": [],
+  "40": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f1"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "41": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nc3",
+       "piece": "N",
+       "to": "c3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "42": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "a4",
+      "piece": "B"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "43": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "e1",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Re1",
+       "piece": "R",
+       "to": "e1"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "44": [],
+  "45": [],
+  "46": [
+   {
+    "rel": "defend",
+    "subj": {
+     "piece": "R",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "d8"
+     }
+    ],
+    "pos": {
+     "at": "shown",
+     "plies_back": 2
+    },
+    "source": "fixture"
+   }
+  ],
+  "47": [],
+  "48": [],
+  "49": [],
+  "50": [
+   {
+    "rel": "pins",
+    "subj": {
+     "piece": "B",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "c3",
+      "piece": "N"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "d5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e4"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "51": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "e5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "g8",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "e5",
+       "piece": "P",
+       "to": "e5"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "52": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nf6",
+       "piece": "N",
+       "to": "f6"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "53": [],
+  "54": [
+   {
+    "rel": "aim",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f7"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "55": [],
+  "56": [
+   {
+    "rel": "occupied",
+    "subj": {
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "g7",
+      "piece": "B"
+     },
+     {
+      "sq": "f6",
+      "piece": "N"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "57": [
+   {
+    "rel": "pins",
+    "subj": {
+     "piece": "B",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "c3",
+      "piece": "N"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "58": [],
+  "59": [],
+  "60": [
+   {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d5",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nc3",
+       "piece": "N",
+       "to": "c3"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d5",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nc3",
+       "piece": "N",
+       "to": "c3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "61": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "d6",
+     "piece": "P",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "e5"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "62": [],
+  "63": [],
+  "64": [],
+  "65": [],
+  "66": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "e3",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "d4"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Be3",
+       "piece": "B",
+       "to": "e3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "67": [
+   {
+    "rel": "pins",
+    "subj": {
+     "sq": "g4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "side": true
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bg4",
+       "piece": "B",
+       "to": "g4"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "68": [],
+  "69": [],
+  "70": [],
+  "71": [
+   {
+    "rel": "pins",
+    "subj": {
+     "piece": "B",
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "f6",
+      "piece": "N"
+     }
+    ],
+    "to": {
+     "sq": "d8"
+    },
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "e3",
+       "piece": "P",
+       "to": "e3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "72": [
+   {
+    "rel": "pinned",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d1",
+      "piece": "Q"
+     }
+    ],
+    "neg": true,
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nxe5",
+       "piece": "N",
+       "to": "e5",
+       "capture": true
+      },
+      {
+       "san": "dxe5",
+       "piece": "P",
+       "to": "e5",
+       "capture": true
+      },
+      {
+       "san": "Qxg4",
+       "piece": "Q",
+       "to": "g4",
+       "capture": true
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "73": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "b5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "g5",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "b5",
+       "piece": "P",
+       "to": "b5"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "74": [
+   {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qxd4",
+       "piece": "Q",
+       "to": "d4",
+       "capture": true
+      },
+      {
+       "san": "c5",
+       "piece": "P",
+       "to": "c5"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "75": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "a4",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "b5",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "a4",
+       "piece": "P",
+       "to": "a4"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "76": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "c2",
+      "piece": "P"
+     }
+    ],
+    "question": "which",
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nc3",
+       "piece": "N",
+       "to": "c3"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "d2",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "c2",
+      "piece": "P"
+     }
+    ],
+    "question": "which",
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nd2",
+       "piece": "N",
+       "to": "d2"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "77": [],
+  "78": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "79": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "d6",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e5"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "80": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f1"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "81": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "b3",
+       "piece": "P",
+       "to": "b3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "82": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "b6",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "a8",
+      "piece": "K"
+     }
+    ],
+    "neg": true,
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qb6",
+       "piece": "Q",
+       "to": "b6"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "neg": true,
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qb6",
+       "piece": "Q",
+       "to": "b6"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "83": [],
+  "84": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "c4",
+     "piece": "B",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "f1"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "85": [],
+  "86": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "c4",
+     "piece": "B",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "f1"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "87": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "88": [
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d6",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "exd6",
+       "piece": "P",
+       "to": "d6",
+       "capture": true
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "can_capture",
+    "subj": {
+     "piece": "Q",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "d6"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "exd6",
+       "piece": "P",
+       "to": "d6",
+       "capture": true
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "89": [],
+  "90": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "b5",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "c6",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bb5+",
+       "piece": "B",
+       "to": "b5"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "b5",
+      "piece": "B"
+     }
+    ],
+    "neg": true,
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bb5+",
+       "piece": "B",
+       "to": "b5"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "91": [],
+  "92": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c4",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "d5"
+     }
+    ],
+    "pos": {
+     "at": "shown_after",
+     "moves": [
+      {
+       "san": "c4",
+       "piece": "P",
+       "to": "c4"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "93": [],
+  "94": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "b5",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "c6",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   }
+  ],
+  "95": [],
+  "96": [],
+  "97": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "neg": true,
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   }
+  ],
+  "98": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "99": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f3",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "g2"
+     },
+     {
+      "sq": "h1"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "100": [
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bb5+",
+       "piece": "B",
+       "to": "b5"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "b5",
+      "piece": "B"
+     }
+    ],
+    "neg": true,
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bb5+",
+       "piece": "B",
+       "to": "b5"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "101": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4"
+     },
+     {
+      "sq": "e5"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "102": [],
+  "103": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nf3",
+       "piece": "N",
+       "to": "f3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "104": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nf3",
+       "piece": "N",
+       "to": "f3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "105": [
+   {
+    "rel": "pins",
+    "subj": {
+     "sq": "g5",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f6",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bg5",
+       "piece": "B",
+       "to": "g5"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "106": [],
+  "107": [
+   {
+    "rel": "hold",
+    "subj": {
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "f7"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "occupied",
+    "subj": {
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "f6",
+      "piece": "N"
+     },
+     {
+      "sq": "d7",
+      "piece": "B"
+     },
+     {
+      "sq": "f8",
+      "piece": "B"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "108": [],
+  "109": [],
+  "110": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "g5",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nxe5",
+       "piece": "N",
+       "to": "e5",
+       "capture": true
+      },
+      {
+       "san": "Qg5",
+       "piece": "Q",
+       "to": "g5"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "111": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "b7",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "b7",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rb7",
+       "piece": "R",
+       "to": "b7"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "b7",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "b6",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rb7",
+       "piece": "R",
+       "to": "b7"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "112": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c6",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "b3",
+      "piece": "B"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qc6",
+       "piece": "Q",
+       "to": "c6"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "b3",
+      "piece": "B"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qc6",
+       "piece": "Q",
+       "to": "c6"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "113": [],
+  "114": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "g3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "h4",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "g3",
+       "piece": "P",
+       "to": "g3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "115": [
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bg5+",
+       "piece": "B",
+       "to": "g5"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d1",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "piece": "K",
+      "side": false
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bg5+",
+       "piece": "B",
+       "to": "g5"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "116": [],
+  "117": [],
+  "118": [
+   {
+    "rel": "pins",
+    "subj": {
+     "sq": "b2",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "g7",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "skip",
+     "skip_reason": "general"
+    },
+    "source": "fixture"
+   }
+  ],
+  "119": [],
+  "120": [],
+  "121": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "d3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "b1",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "shown_after",
+     "moves": [
+      {
+       "san": "d3",
+       "piece": "P",
+       "to": "d3"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c5",
+      "piece": "B"
+     }
+    ],
+    "pos": {
+     "at": "shown_after",
+     "moves": [
+      {
+       "san": "d3",
+       "piece": "P",
+       "to": "d3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "122": [],
+  "123": [],
+  "124": [
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "shown_after",
+     "moves": [
+      {
+       "san": "Qh7+",
+       "piece": "Q",
+       "to": "h7"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "125": [],
+  "126": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "e2",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "f1"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   }
+  ],
+  "127": [],
+  "128": [],
+  "129": [
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d1",
+      "piece": "R"
+     }
+    ],
+    "neg": true,
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rd1",
+       "piece": "R",
+       "to": "d1"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "130": [],
+  "131": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c8",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "h8",
+      "piece": "K"
+     },
+     {
+      "sq": "b8",
+      "piece": "N"
+     },
+     {
+      "sq": "f5",
+      "piece": "B"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qc8+",
+       "piece": "Q",
+       "to": "c8"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "132": [
+   {
+    "rel": "only_move",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rh1+",
+       "piece": "R",
+       "to": "h1"
+      }
+     ]
+    },
+    "source": "fixture",
+    "move": {
+     "san": "Bxh1",
+     "piece": "B",
+     "to": "h1",
+     "capture": true
+    },
+    "kind": "any"
+   }
+  ],
+  "133": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c4",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "b6",
+      "piece": "Q"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "134": [
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rxa6+",
+       "piece": "R",
+       "to": "a6",
+       "capture": true
+      },
+      {
+       "san": "bxa6",
+       "piece": "P",
+       "to": "a6",
+       "capture": true
+      },
+      {
+       "san": "Bg2+",
+       "piece": "B",
+       "to": "g2"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "135": [
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "g3+",
+       "piece": "P",
+       "to": "g3"
+      },
+      {
+       "san": "hxg3",
+       "piece": "P",
+       "to": "g3",
+       "capture": true
+      },
+      {
+       "san": "Ng2#",
+       "piece": "N",
+       "to": "g2"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "136": [
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nxf6+",
+       "piece": "N",
+       "to": "f6",
+       "capture": true
+      },
+      {
+       "san": "Kh8",
+       "piece": "K",
+       "to": "h8"
+      },
+      {
+       "san": "Rh7#",
+       "piece": "R",
+       "to": "h7"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "occupied",
+    "subj": {
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "h6",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nxf6+",
+       "piece": "N",
+       "to": "f6",
+       "capture": true
+      },
+      {
+       "san": "Kh8",
+       "piece": "K",
+       "to": "h8"
+      },
+      {
+       "san": "Rh7#",
+       "piece": "R",
+       "to": "h7"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "137": [
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Ra4+",
+       "piece": "R",
+       "to": "a4"
+      },
+      {
+       "san": "Kxa4",
+       "piece": "K",
+       "to": "a4",
+       "capture": true
+      },
+      {
+       "san": "Nc5+",
+       "piece": "N",
+       "to": "c5"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "pinned",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "b5",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Ra4+",
+       "piece": "R",
+       "to": "a4"
+      },
+      {
+       "san": "Kxa4",
+       "piece": "K",
+       "to": "a4",
+       "capture": true
+      },
+      {
+       "san": "Nc5+",
+       "piece": "N",
+       "to": "c5"
+      },
+      {
+       "san": "Ka5",
+       "piece": "K",
+       "to": "a5"
+      },
+      {
+       "san": "b4#",
+       "piece": "P",
+       "to": "b4"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "138": [],
+  "139": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "e1",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Re1",
+       "piece": "R",
+       "to": "e1"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "e8",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Re1",
+       "piece": "R",
+       "to": "e1"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "140": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "e2",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "e3",
+      "piece": "Q"
+     },
+     {
+      "sq": "g4",
+      "piece": "K"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qxe2+",
+       "piece": "Q",
+       "to": "e2",
+       "capture": true
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "141": [],
+  "142": [
+   {
+    "rel": "pinned",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "b2",
+      "piece": "B"
+     }
+    ],
+    "pos": {
+     "at": "shown_after",
+     "moves": [
+      {
+       "san": "d3",
+       "piece": "P",
+       "to": "d3"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "b2",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "e2",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "shown_after",
+     "moves": [
+      {
+       "san": "d3",
+       "piece": "P",
+       "to": "d3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "143": [],
+  "144": [],
+  "145": [],
+  "146": [
+   {
+    "rel": "pins",
+    "subj": {
+     "sq": "d4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f2",
+      "piece": "P"
+     }
+    ],
+    "to": {
+     "sq": "g1"
+    },
+    "source": "fixture"
+   }
+  ],
+  "147": [
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qe6+",
+       "piece": "Q",
+       "to": "e6"
+      },
+      {
+       "san": "Kh8",
+       "piece": "K",
+       "to": "h8"
+      },
+      {
+       "san": "Qh3+",
+       "piece": "Q",
+       "to": "h3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "148": [],
+  "149": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "a2",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "b1"
+     },
+     {
+      "sq": "b3"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Kc2",
+       "piece": "K",
+       "to": "c2"
+      },
+      {
+       "san": "Ba2",
+       "piece": "B",
+       "to": "a2"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "150": [],
+  "151": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "h3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "h3",
+       "piece": "P",
+       "to": "h3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "152": [
+   {
+    "rel": "pinned",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "g2",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "h3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "g4",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "h3",
+       "piece": "P",
+       "to": "h3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "153": [],
+  "154": [
+   {
+    "rel": "attack",
+    "subj": {
+     "piece": "Q",
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "e2",
+      "piece": "Q"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "155": [
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qa4+",
+       "piece": "Q",
+       "to": "a4"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "156": [],
+  "157": [],
+  "158": [],
+  "159": [],
+  "160": [
+   {
+    "rel": "occupied",
+    "subj": {
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "K"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "occupied",
+    "subj": {
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "d1",
+      "piece": "Q"
+     },
+     {
+      "sq": "g2",
+      "piece": "K"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   }
+  ],
+  "161": [],
+  "162": [
+   {
+    "rel": "occupied",
+    "subj": {
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "h5",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "trapped",
+    "subj": {
+     "sq": "h5",
+     "piece": "N"
+    },
+    "objs": [],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   }
+  ],
+  "163": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "pinned",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "c6",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   }
+  ],
+  "164": [
+   {
+    "rel": "pinned",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "c6",
+      "piece": "N"
+     }
+    ],
+    "neg": true,
+    "pos": {
+     "at": "shown_after",
+     "moves": [
+      {
+       "san": "a6",
+       "piece": "P",
+       "to": "a6"
+      },
+      {
+       "san": "Ba4",
+       "piece": "B",
+       "to": "a4"
+      },
+      {
+       "san": "b5",
+       "piece": "P",
+       "to": "b5"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "165": [],
+  "166": [
+   {
+    "rel": "defend",
+    "subj": {
+     "piece": "K",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "f7"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   }
+  ],
+  "167": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c4",
+      "piece": "B"
+     }
+    ],
+    "pos": {
+     "at": "shown_after",
+     "moves": [
+      {
+       "san": "d5",
+       "piece": "P",
+       "to": "d5"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "168": [],
+  "169": [],
+  "170": [],
+  "171": [
+   {
+    "rel": "pins",
+    "subj": {
+     "sq": "h3",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "h4"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "172": [],
+  "173": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "b8",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "b6",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "bxa7",
+       "piece": "P",
+       "to": "a7",
+       "capture": true
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "174": [
+   {
+    "rel": "occupied",
+    "subj": {
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "a5",
+      "piece": "Q"
+     },
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "d4",
+       "piece": "P",
+       "to": "d4"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "175": [
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bg5+",
+       "piece": "B",
+       "to": "g5"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "aim",
+    "subj": {
+     "sq": "d1",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "d8"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bg5+",
+       "piece": "B",
+       "to": "g5"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "176": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "c6",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "b7"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qa6+",
+       "piece": "Q",
+       "to": "a6"
+      },
+      {
+       "san": "bxa6",
+       "piece": "P",
+       "to": "a6",
+       "capture": true
+      },
+      {
+       "san": "Bc6#",
+       "piece": "B",
+       "to": "c6"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "177": [],
+  "178": [
+   {
+    "rel": "pins",
+    "subj": {
+     "sq": "f7",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "g7",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nxf6+",
+       "piece": "N",
+       "to": "f6",
+       "capture": true
+      },
+      {
+       "san": "Kh8",
+       "piece": "K",
+       "to": "h8"
+      },
+      {
+       "san": "Rh6+",
+       "piece": "R",
+       "to": "h6"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "179": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "h7",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "h6",
+      "piece": "K"
+     },
+     {
+      "sq": "h8",
+      "piece": "R"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rh7+",
+       "piece": "R",
+       "to": "h7"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "180": [],
+  "181": [],
+  "182": [
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e2",
+      "piece": "Q"
+     }
+    ],
+    "neg": true,
+    "pos": {
+     "at": "shown_after",
+     "moves": [
+      {
+       "san": "Nd4",
+       "piece": "N",
+       "to": "d4"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "183": [],
+  "184": [],
+  "185": [
+   {
+    "rel": "occupied",
+    "subj": {
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "g6",
+      "piece": "P"
+     },
+     {
+      "sq": "g7",
+      "piece": "B"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "186": [],
+  "187": [
+   {
+    "rel": "pins",
+    "subj": {
+     "sq": "c3",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "N"
+     }
+    ],
+    "to": {
+     "sq": "g7"
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "g7",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "N"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "d6",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "N"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "188": [],
+  "189": [
+   {
+    "rel": "pins",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f7"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "pins",
+    "subj": {
+     "sq": "d8",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "e8"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "190": [],
+  "191": [],
+  "192": [
+   {
+    "rel": "pinned",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e6",
+      "piece": "Q"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "193": [],
+  "194": [],
+  "195": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e6",
+      "piece": "B"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "196": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "c4",
+     "piece": "B",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "f1"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "197": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "a5",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "c4",
+      "piece": "B"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "c4",
+      "piece": "B"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "198": [],
+  "199": [],
+  "200": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "b5",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "c6",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "shown"
+    },
+    "source": "fixture"
+   }
+  ],
+  "201": [],
+  "202": [],
+  "203": [],
+  "204": [],
+  "205": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c6",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "d5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "can_capture",
+    "subj": {
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "c4"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "206": [],
+  "207": [
+   {
+    "rel": "aim",
+    "subj": {
+     "sq": "g7",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "c3",
+      "piece": "N"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "208": [],
+  "209": [],
+  "210": [],
+  "211": [],
+  "212": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "213": [],
+  "214": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d4",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "215": [],
+  "216": [
+   {
+    "rel": "aim",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "217": [
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "218": [
+   {
+    "rel": "pins",
+    "subj": {
+     "sq": "b5",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "piece": "N",
+      "side": false
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "219": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c6",
+     "piece": "P",
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "b7",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c8",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "b7",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "220": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4"
+     },
+     {
+      "sq": "e5"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "221": [
+   {
+    "rel": "blocks",
+    "subj": {
+     "sq": "e6",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "f8",
+      "piece": "B"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "222": [],
+  "223": [
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "c4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "224": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "225": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "226": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "227": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "e4",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "f3",
+      "piece": "N"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "228": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "d1",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "f3",
+      "piece": "N"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "g2",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "f3",
+      "piece": "N"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "can_capture",
+    "subj": {
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "f3"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "229": [],
+  "230": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c4",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c6",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "c4",
+       "piece": "P",
+       "to": "c4"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "231": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c4",
+      "piece": "B"
+     },
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "232": [
+   {
+    "rel": "can_capture",
+    "subj": {
+     "sq": "c4",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "d3"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "233": [
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "c4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c4",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "d3",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d8",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "d3",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "234": [
+   {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d3",
+      "piece": "P"
+     }
+    ],
+    "count": 2,
+    "source": "fixture"
+   }
+  ],
+  "235": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "236": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "e8",
+     "piece": "K"
+    },
+    "objs": [
+     {
+      "sq": "f7",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "f7",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "237": [
+   {
+    "rel": "locked",
+    "subj": {
+     "sq": "c8",
+     "piece": "B"
+    },
+    "objs": [],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "d6",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "238": [
+   {
+    "rel": "hold",
+    "subj": {
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "e5"
+     }
+    ],
+    "question": "which",
+    "source": "fixture"
+   }
+  ],
+  "239": [
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "neg": true,
+    "source": "fixture"
+   },
+   {
+    "rel": "blocks",
+    "subj": {
+     "sq": "d6",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c8",
+      "piece": "B"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "240": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d4",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c3",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "241": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "242": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "243": [
+   {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "c6",
+      "piece": "N"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "244": [
+   {
+    "rel": "can_capture",
+    "subj": {
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "e4"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "245": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "246": [
+   {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "piece": "N",
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "247": [],
+  "248": [
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "neg": true,
+    "source": "fixture"
+   }
+  ],
+  "249": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c1",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "g5",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Ng5",
+       "piece": "N",
+       "to": "g5"
+      }
+     ]
+    },
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d8",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "g5",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Ng5",
+       "piece": "N",
+       "to": "g5"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "250": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "d6",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "251": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "d6",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "252": [],
+  "253": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "e6",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "h3",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "g2",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "h3",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "254": [
+   {
+    "rel": "can_capture",
+    "subj": {
+     "sq": "c3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "b2"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "b2",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c1",
+      "piece": "B"
+     },
+     {
+      "sq": "a1",
+      "piece": "R"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "cxb2",
+       "piece": "P",
+       "to": "b2",
+       "capture": true
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "255": [],
+  "256": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "b1",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "257": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "b1",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "c1",
+      "piece": "B"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "d1",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "c1",
+      "piece": "B"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "258": [],
+  "259": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "260": [],
+  "261": [],
+  "262": [],
+  "263": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "264": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "265": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "h6",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "g5"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "266": [
+   {
+    "rel": "hold",
+    "subj": {
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "g5"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "267": [
+   {
+    "rel": "aim",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f7"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "268": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "c5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "269": [
+   {
+    "rel": "locked",
+    "subj": {
+     "sq": "c1",
+     "piece": "B"
+    },
+    "objs": [],
+    "source": "fixture"
+   },
+   {
+    "rel": "blocks",
+    "subj": {
+     "sq": "d3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c1",
+      "piece": "B"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "270": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "d4"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "271": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "d3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "can_capture",
+    "subj": {
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "e4"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "272": [
+   {
+    "rel": "locked",
+    "subj": {
+     "sq": "c1",
+     "piece": "B"
+    },
+    "objs": [],
+    "source": "fixture"
+   },
+   {
+    "rel": "blocks",
+    "subj": {
+     "sq": "d3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c1",
+      "piece": "B"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "273": [],
+  "274": [],
+  "275": [
+   {
+    "rel": "defend",
+    "subj": {
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "question": "which",
+    "source": "fixture"
+   }
+  ],
+  "276": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "277": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "g7",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "f6",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "back",
+     "plies_back": 1,
+     "tense": "past"
+    },
+    "source": "fixture"
+   }
+  ],
+  "278": [],
+  "279": [
+   {
+    "rel": "occupied",
+    "subj": {
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "e7",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "280": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "e7",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "d8",
+      "piece": "Q"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "e7",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "f8"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "281": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e7",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d8",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "e7",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "e8",
+     "piece": "K"
+    },
+    "objs": [
+     {
+      "sq": "e7",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "can_capture",
+    "subj": {
+     "piece": "Q",
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "d8"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "282": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "e7",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "f8"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "283": [
+   {
+    "rel": "hold",
+    "subj": {
+     "piece": "P",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "f8"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "284": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "e7",
+     "piece": "P",
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "f8"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "285": [
+   {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d8",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "piece": "K",
+      "side": false
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "286": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "d6",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "287": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "d1",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "288": [],
+  "289": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "d4",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "d6",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "290": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nf3",
+       "piece": "N",
+       "to": "f3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "291": [
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "c3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "d1",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "292": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nf3",
+       "piece": "N",
+       "to": "f3"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "293": [
+   {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "e5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "294": [],
+  "295": [],
+  "296": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "297": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "sq": "e4",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "298": [
+   {
+    "rel": "hold",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nc6",
+       "piece": "N",
+       "to": "c6"
+      }
+     ]
+    },
+    "source": "fixture"
+   }
+  ],
+  "299": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f7",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   },
+   {
+    "rel": "defend",
+    "subj": {
+     "piece": "K",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "f7",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "300": [],
+  "301": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "302": [
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "f6",
+      "piece": "N"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "303": [],
+  "304": [
+   {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "source": "fixture"
+   }
+  ],
+  "305": [
+   {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "f6",
+      "piece": "N"
+     }
+    ],
+    "source": "fixture"
+   }
+  ]
+ },
+ "triage_extra": [
+  {
+   "finding": "name-kg",
+   "quote": "ақтар e5 сарбазын ұсынып, орталықты ашуға тырысады",
+   "text": "ақтар e5 сарбазын ұсынып",
+   "position_fen": "rnbqkbnr/pppp1ppp/8/4p3/4PP2/8/PPPP2PP/RNBQKBNR b KQkq - 0 2",
+   "claims": [
+    {
+     "rel": "occupied",
+     "subj": {
+      "side": true
+     },
+     "objs": [
+      {
+       "sq": "e5",
+       "piece": "P"
+      }
+     ],
+     "source": "fixture"
+    }
+   ]
+  },
+  {
+   "finding": "trap-legal",
+   "quote": "и тогда спокойно берёшь слоном: Qxg4",
+   "text": "Nxe5 dxe5 и тогда спокойно берёшь слоном: Qxg4 g4",
+   "position_fen": "rn1qkbnr/ppp2p1p/3p2p1/4p3/2B1P1b1/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 0 5",
+   "claims": [
+    {
+     "rel": "can_capture",
+     "subj": {
+      "piece": "B",
+      "side": true
+     },
+     "objs": [
+      {
+       "sq": "g4"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "Nxe5",
+        "piece": "N",
+        "to": "e5",
+        "capture": true
+       },
+       {
+        "san": "dxe5",
+        "piece": "P",
+        "to": "e5",
+        "capture": true
+       }
+      ]
+     },
+     "source": "fixture"
+    }
+   ]
+  },
+  {
+   "finding": "plan-caro-adv#c3",
+   "quote": "Почему не c3 сразу? Тогда слон с f5 спокойно отходит, и белые только теряют темп.",
+   "text": "Почему не c3 сразу? Тогда слон с f5 спокойно отходит",
+   "position_fen": "rn1qkbnr/pp2pppp/2p5/3pPb2/3P4/8/PPP2PPP/RNBQKBNR w KQkq - 1 4",
+   "claims": [
+    {
+     "rel": "attacked",
+     "subj": null,
+     "objs": [
+      {
+       "sq": "f5",
+       "piece": "B"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "c3",
+        "piece": "P",
+        "to": "c3"
+       }
+      ]
+     },
+     "source": "fixture"
+    }
+   ]
+  },
+  {
+   "finding": "lucena",
+   "quote": "когда чёрная ладья начнёт шаховать по вертикали d, наша ладья просто перекроет линию",
+   "text": "когда чёрная ладья начнёт шаховать по вертикали d",
+   "position_fen": "1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1",
+   "claims": []
+  },
+  {
+   "finding": "material",
+   "quote": "посмотри, чей ход и как белые могут забрать пешку e5",
+   "text": "как белые могут забрать пешку e5",
+   "position_fen": "rnbqkb1r/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3",
+   "claims": [
+    {
+     "rel": "can_capture",
+     "subj": {
+      "side": true
+     },
+     "objs": [
+      {
+       "sq": "e5"
+      }
+     ],
+     "source": "fixture"
+    }
+   ]
+  },
+  {
+   "finding": "op-show-ck",
+   "quote": "d4, занимая центр и не давая чёрным спокойно поставить пешку на d5",
+   "text": "d4, не давая чёрным поставить пешку на d5",
+   "position_fen": "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+   "claims": []
+  },
+  {
+   "finding": "r-notation",
+   "quote": "поле слишком далеко и занято своими же фигурами",
+   "text": "на e5 нельзя: поле слишком далеко и занято своими же фигурами",
+   "position_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "claims": [
+    {
+     "rel": "occupied",
+     "subj": {
+      "side": true
+     },
+     "objs": [
+      {
+       "sq": "e5"
+      }
+     ],
+     "source": "fixture"
+    }
+   ]
+  },
+  {
+   "finding": "g3-hint",
+   "quote": "слон с g2 будет бить прямо в это ослабленное место",
+   "text": "слабость e6. слон с g2 будет бить прямо в это ослабленное место",
+   "position_fen": "rnbqkbnr/ppppp1pp/8/5p2/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2",
+   "claims": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "g2",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "e6"
+      }
+     ],
+     "pos": {
+      "at": "plan"
+     },
+     "source": "fixture"
+    }
+   ]
+  },
+  {
+   "finding": "d2-solution#obliged",
+   "quote": "почему белый ферзь просто обязан был встать на c1, у него не было выбора?",
+   "text": "Rb1+ почему белый ферзь просто обязан был встать на c1 Qc1",
+   "position_fen": "kr6/2pn1p2/p6p/P2Pp3/N1P5/7B/3Q1PPP/6K1 b - - 0 33",
+   "claims": [
+    {
+     "rel": "only_move",
+     "subj": null,
+     "objs": [],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "Rb1+",
+        "piece": "R",
+        "to": "b1"
+       }
+      ]
+     },
+     "source": "fixture",
+     "move": {
+      "san": "Qc1",
+      "piece": "Q",
+      "to": "c1"
+     },
+     "kind": "any"
+    }
+   ]
+  },
+  {
+   "finding": "d3-example",
+   "quote": "если бы белая пешка стояла на h3, а не на h4, конь g4 успевал отойти",
+   "text": "если бы белая пешка стояла на h3",
+   "position_fen": "3r2k1/5pp1/7p/8/1B4N1/7P/5PP1/7K b - - 0 1",
+   "claims": []
+  },
+  {
+   "finding": "st2#7/queen-c7-b6",
+   "quote": "увести ферзя с d8 — например, на c7 или на b6",
+   "text": "увести ферзя с d8 — например, на c7 или на b6",
+   "position_fen": "r1bqk2r/ppppPppp/2n5/8/8/5N2/PPP1PPPP/RNBQKB1R b KQkq - 0 5",
+   "claims": [
+    {
+     "rel": "can_move",
+     "subj": {
+      "sq": "d8",
+      "piece": "Q"
+     },
+     "objs": [
+      {
+       "sq": "c7"
+      },
+      {
+       "sq": "b6"
+      }
+     ],
+     "source": "fixture"
+    }
+   ]
+  }
+ ]
+}

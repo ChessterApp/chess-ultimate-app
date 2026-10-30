@@ -315,6 +315,12 @@ COACH_ANSWER_CHECK = _env_flag("COACH_ANSWER_CHECK", True)
 COACH_ANSWER_FIX = _env_flag("COACH_ANSWER_FIX", True)
 COACH_ANSWER_FIX_MAX_TOKENS = int(os.environ.get("COACH_ANSWER_FIX_MAX_TOKENS", "400"))
 COACH_ANSWER_FIX_TIMEOUT_S = float(os.environ.get("COACH_ANSWER_FIX_TIMEOUT_S", "12"))
+# The relation checker in the answer check (src/answer_check_relations.py, plan 30.10): who attacks, defends,
+# pins, holds what, judged on the board each claim is about.
+#   COACH_RELATION_CHECK — off | shadow | on (default on). shadow computes and logs the issues but never cuts a
+#                          sentence; on cuts it and sends the issue to the rewrite. Read at call time, so a test
+#                          or the harness (scripts/eval_relations.py) can patch it.
+COACH_RELATION_CHECK = os.environ.get("COACH_RELATION_CHECK", "on").strip().lower()
 
 # The student's idea on the board (2026-10-04): a move named in the message
 # («а если Rg1?», «поставить ладью на g1») is played on the board the moment it

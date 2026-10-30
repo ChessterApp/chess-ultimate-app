@@ -1,0 +1,25 @@
+{
+ "stage": "WP-0 baseline (30.10): the legacy numbers with the stubs in place",
+ "doc": "scripts/eval_relations.py --gate exits 1 when a metric breaks a bound; a metric the run did not compute (corpus, timing sample) is not gated. Only the integrator edits this file, after each merge, and only upward for min / downward for max (plan §4, §5.3). *_gated metrics leave out the ambiguous eval rows.",
+ "min": {
+  "triage_legacy": 6,
+  "triage_union": 6,
+  "eval_false_legacy": 15,
+  "eval_false_union": 15,
+  "graded_legacy": 5,
+  "graded_union": 5,
+  "shadow_equals_on": 1
+ },
+ "max": {
+  "eval_true_legacy": 7,
+  "eval_nbc_legacy": 6,
+  "negatives_broken_legacy": 2,
+  "eval_true_relation_gated": 0,
+  "eval_nbc_relation_gated": 0,
+  "negatives_broken_relation": 0,
+  "relation_errors": 0,
+  "relation_p99_ms": 1.0,
+  "check_sentence_p99_ms": 5.0,
+  "corpus_relation_flags": 50
+ }
+}

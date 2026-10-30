@@ -383,6 +383,16 @@ class CheckContext:
     # белые дают шах»; the scene skips quoted moves): (board, its last move, sentences ago). A forced reply claimed
     # in the next sentence may be about it (src/answer_check_rules._readings; review 30.10).
     forced_line: Optional[tuple] = None
+    # The relation checker (src/answer_check_relations.py, plan 30.10): what a sentence leaves for the next one to
+    # refer to (antecedents, the end of a told line) — immutable values only, so check_sentence's shallow copy is a
+    # full snapshot; the claims recorded in shadow mode as (sentence, issues), never shown; its counters (calls,
+    # claims, flags, errors, ms); and the lines that solve the task on the board (SAN lists from the current
+    # position: the puzzle's solution, the engine's line for «какой здесь первый ход») — the boards after their
+    # first moves are what an answer about an unnamed solution move describes.
+    relation_state: dict = field(default_factory=dict)
+    relation_shadow: list = field(default_factory=list)
+    relation_stats: dict = field(default_factory=dict)
+    solution_lines: list = field(default_factory=list)
     MAX_BOARDS = 400
 
     @classmethod
@@ -3867,12 +3877,16 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     line_before = ctx.line_scene
     age_before = line_before.get("age", 0) if line_before is not None else 0
     kept = (ctx._line_end, ctx._line_advice, ctx.forced_line)
+    # …and what the relation checker remembered for the next sentence (its antecedents, the line it told): a
+    # sentence not shown leaves nothing for «он», «тогда» of the next one to refer to (plan 30.10).
+    relation_kept = dict(ctx.relation_state)
     issues = _check_sentence(sentence, ctx)
     if issues:
         ctx.line_scene = line_before
         if line_before is not None:
             line_before["age"] = age_before
         ctx._line_end, ctx._line_advice, ctx.forced_line = kept
+        ctx.relation_state = relation_kept
     return issues
 
 
@@ -3922,6 +3936,11 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
     from src.answer_check_facts import record_fact_issues
 
     issues += record_fact_issues(lowered, text, ctx)
+    # Who attacks, defends, pins, holds what — each claim judged on the board it is about (src/answer_check_relations.py,
+    # off | shadow | on by COACH_RELATION_CHECK; fail-open). After the facts, so this sentence's scene_trail is filled.
+    from src.answer_check_relations import relation_issues
+
+    issues += relation_issues(text, ctx, issues)
     if not san_issues:
         issues += _announced_move_issues(text, ctx)
     if ctx.current is not None and sentence.strip():
