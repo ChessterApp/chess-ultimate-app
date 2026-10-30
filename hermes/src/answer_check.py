@@ -328,6 +328,10 @@ class CheckContext:
     # each: a claim before «Kxh7» in «…поэтому он обязан её взять: Kxh7» is about the board before it.
     scene_before: Optional[tuple] = None
     scene_trail: list = field(default_factory=list)
+    # The line the answer wrote, walked strictly from a given position (moves in words too) — what the next moves
+    # and «пешка на a7, ты на d6» are judged in (src/answer_check_scene.py; prod 29.10).
+    line_scene: Optional[dict] = None
+    passed_keys: set = field(default_factory=set)
     # Positions only named in a tool's text (a lesson's diagram, a list of tasks): a move legal only there is not
     # an answer about the student's board (production 08.10: «Первый ход чёрных — Qxg2+» passed on a diagram).
     text_keys: set = field(default_factory=set)
@@ -421,6 +425,9 @@ class CheckContext:
         pgn = re.sub(r"\{[^}]*\}", " ", pgn)
         self.add(board.fen())
         for san in _split_moves(pgn):
+            # A position on the way through a game or a line, not its end: a line told without move numbers is not
+            # started from there (src/answer_check_scene.py).
+            self.passed_keys.add(self._key(board))
             try:
                 move = board.parse_san(san)
             except ValueError:
@@ -3421,10 +3428,26 @@ def _same_move(named: str, played: str) -> bool:
 def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[str]:
     """The reasons *sentence* is wrong on the board; [] when nothing checkable is wrong."""
     ctx = ctx or CheckContext.from_fens()
+    # A sentence with issues is not shown, and its rewrite is checked on the same context (src/server.py: fix_gate
+    # shares check_ctx): the line it wrote must not be the one the rewrite's «Тогда …» goes on with (review 30.10).
+    line_before = ctx.line_scene
+    age_before = line_before.get("age", 0) if line_before is not None else 0
+    issues = _check_sentence(sentence, ctx)
+    if issues:
+        ctx.line_scene = line_before
+        if line_before is not None:
+            line_before["age"] = age_before
+    return issues
+
+
+def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
     if sentence.strip():
         ctx.scene_age += 1  # the scene a move of this sentence sets is age 0; the explanation after it still sees it
         ctx.scene_before = (ctx.scene, ctx.scene_san, ctx.scene_age) if ctx.scene is not None else None
         ctx.scene_trail = []
+        from src.answer_check_scene import age_scene
+
+        age_scene(ctx)
     # The line the sentence before ended with: a sentence left out here (meta, an echo, another language) ends it.
     previous_line, ctx._line_end = ctx._line_end, None
     if is_meta(sentence):
@@ -3449,7 +3472,7 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
               + _opening_issues(text) + _opening_identity_issues(text, ctx) + _told_move_issues(lowered, text, ctx)
               + _fact_issues(lowered, text, ctx)
               + _plan_move_issues(lowered, text, ctx)
-              + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx))
+              + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx) + _scene_issues(text, ctx))
     if not san_issues:
         issues += _announced_move_issues(text, ctx)
     squares = _SQ_RE.findall(lowered)
@@ -3473,6 +3496,18 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     except Exception:  # noqa: BLE001 — the check must never break a turn
         logger.debug("line claims failed", exc_info=True)
     return list(dict.fromkeys(issues))
+
+
+def _scene_issues(text: str, ctx: CheckContext) -> list[str]:
+    """The moves and the «piece on square» told after a written line, in the position the line reached
+    (src/answer_check_scene.py: «Kd6 — и белый король заходит через d5», prod 29.10)."""
+    from src.answer_check_scene import scene_issues
+
+    try:
+        return scene_issues(text, ctx)
+    except Exception:  # noqa: BLE001 — a broken walk must never block an answer
+        logger.debug("scene check failed", exc_info=True)
+        return []
 
 
 # The coach's private planning written out as the answer. On production
