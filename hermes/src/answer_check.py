@@ -371,6 +371,13 @@ class CheckContext:
     # A tool put another position on the board during this answer (src/server.py): the board the answer
     # talks about may no longer be the one the turn began on.
     board_moved: bool = False
+    # Claims that a reply is forced, by sentence, for the engine stage to judge (src/answer_check_rules.
+    # forced_reply_claim → src/hypothetical.verify_forced_reply; prod 29.10, «обязаны ответить dxe5»).
+    forced_claims: dict = field(default_factory=dict)
+    # The end of the line the sentences before wrote, the student's own quoted moves included («после Nxe5 Bxd1
+    # белые дают шах»; the scene skips quoted moves): (board, its last move, sentences ago). A forced reply claimed
+    # in the next sentence may be about it (src/answer_check_rules._readings; review 30.10).
+    forced_line: Optional[tuple] = None
     MAX_BOARDS = 400
 
     @classmethod
@@ -3776,6 +3783,25 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
     issues += record_fact_issues(lowered, text, ctx)
     if not san_issues:
         issues += _announced_move_issues(text, ctx)
+    if ctx.current is not None and sentence.strip():
+        # A forced reply claimed: the board it is about is known only now (this sentence's scene); the engine
+        # judges it later, off the event loop (src/server.py, the async stage).
+        from src.answer_check_rules import forced_reply_claim, line_end
+
+        try:
+            claim = forced_reply_claim(text, ctx) if not issues and len(ctx.forced_claims) < 40 else None
+        except Exception:  # noqa: BLE001 — a broken pattern must never block an answer
+            claim = None
+        if claim:
+            ctx.forced_claims[sentence] = claim
+        try:
+            ended = line_end(text, ctx)
+        except Exception:  # noqa: BLE001
+            ended = None
+        if ended:
+            ctx.forced_line = (ended[0], ended[1], 1)
+        elif ctx.forced_line:
+            ctx.forced_line = (ctx.forced_line[0], ctx.forced_line[1], ctx.forced_line[2] + 1)
     squares = _SQ_RE.findall(lowered)
     if ctx._object:
         ctx.topic = ctx._object

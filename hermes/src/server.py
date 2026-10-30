@@ -3054,8 +3054,34 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if issue:
                         verify_state["caught"] += 1
                         issues = [issue]
+                if not issues and verify_state["left"] > 0:
+                    issues = await _forced_verified(sentence, issues)
                 out.append((text, issues, sentence))
             return out
+
+        async def _forced_verified(sentence, issues):
+            """«после Nxe5 чёрные обязаны ответить dxe5» (prod 29.10): a reply claimed forced, found by the
+            check (src/answer_check_rules.forced_reply_claim), against the engine's best replies there
+            (src/hypothetical.verify_forced_reply); the engine's own move stays out in a live game."""
+            claim = check_ctx.forced_claims.get(sentence)
+            if not claim:
+                return issues
+            from src.hypothetical import verify_forced_reply
+
+            verify_state["left"] -= 1
+            verify_state["checked"] += 1
+            started_f = time.monotonic()
+            try:
+                issue = await loop.run_in_executor(_engine_pool, verify_forced_reply, claim,
+                                                   config.COACH_MOVE_VERIFY_MOVETIME_MS, not live_game)
+            except Exception:  # noqa: BLE001 — the check is best-effort
+                logger.debug("forced reply verification failed", exc_info=True)
+                issue = None
+            verify_state["ms"] += int((time.monotonic() - started_f) * 1000)
+            if issue:
+                verify_state["caught"] += 1
+                return [issue]
+            return issues
 
         if review_pgn and review_future is not None:
             # The game goes on the board at once, before any word of the review.
@@ -4366,6 +4392,15 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                 return [issue]
         if issues or not body.fen or not config.COACH_MOVE_VERIFY:
             return issues
+        # A reply claimed forced («чёрные обязаны ответить dxe5»), against the engine's best replies, as in the
+        # text coach (src/hypothetical.verify_forced_reply, prod 29.10); the engine's own move stays out.
+        claim = ctx.forced_claims.get(spoken_text)
+        if claim:
+            from src.hypothetical import verify_forced_reply
+
+            forced = verify_forced_reply(claim, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal_best=False)
+            if forced:
+                return [forced]
         # The coach's recommendation («сыграй Rg1») against the engine, as in the
         # text coach (src/hypothetical.verify_recommendation); the engine's own
         # move is kept out — the voice coach may be in a game, and it hints.
