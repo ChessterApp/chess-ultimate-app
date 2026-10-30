@@ -3343,6 +3343,19 @@ def _same_move(named: str, played: str) -> bool:
 def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[str]:
     """The reasons *sentence* is wrong on the board; [] when nothing checkable is wrong."""
     ctx = ctx or CheckContext.from_fens()
+    # A sentence with issues is not shown, and its rewrite is checked on the same context (src/server.py: fix_gate
+    # shares check_ctx): the line it wrote must not be the one the rewrite's «Тогда …» goes on with (review 30.10).
+    line_before = ctx.line_scene
+    age_before = line_before.get("age", 0) if line_before is not None else 0
+    issues = _check_sentence(sentence, ctx)
+    if issues:
+        ctx.line_scene = line_before
+        if line_before is not None:
+            line_before["age"] = age_before
+    return issues
+
+
+def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
     if sentence.strip():
         ctx.scene_age += 1  # the scene a move of this sentence sets is age 0; the explanation after it still sees it
         ctx.scene_before = (ctx.scene, ctx.scene_san, ctx.scene_age) if ctx.scene is not None else None

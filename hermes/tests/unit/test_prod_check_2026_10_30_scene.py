@@ -148,7 +148,8 @@ def test_square_voice_utterance_in_one_check():
 
 
 @pytest.mark.parametrize("sentence", [
-    "После 1...Ke5 2.a6 Kd6 пешка на a7, ты на d6.",
+    "После 1...Ke5 2.a6 Kd6 пешка стоит на a7, ты на d6.",
+    "После 1...Ke5 2.a6 Kd6 замри: пешка на a7, ты на d6.",
     "After 1...Ke5 2.a6 Kd6 the pawn is on a7.",
 ])
 def test_square_paraphrases(sentence):
@@ -163,6 +164,8 @@ def test_square_paraphrases(sentence):
     ["Смотри: после Ke5 белые играют a6, и ты идёшь Kd6.", "Теперь замри: пешка на a6, ты на d6."],  # right
     ["Смотри: после Ke5 белые играют a6, и ты идёшь Kd6.", "Пешка на a7 — это уже ферзь через ход."],  # not «now»
     ["Смотри: после Ke5 белые играют a6, и ты идёшь Kd6.", "Теперь пешка на a7?"],  # a question
+    # «пешка на a7» with nothing that holds the position still: a7 is white's next move, told the Russian way
+    ["После 1...Ke5 2.a6 Kd6 пешка на a7, ты на d6."],
 ])
 def test_square_unjudged(sentences):
     out = _run(CheckContext.from_fens([SQUARE]), sentences)
@@ -242,3 +245,125 @@ def test_a_game_position_on_the_way_is_not_a_start_without_a_number():
     ctx = CheckContext.from_fens([board.fen()])
     ctx.add_line(" ".join(moves))
     assert _run(ctx, ["Bxc6 — и чёрный король идёт на f7."]) == [[]]
+
+
+# ── review 30.10: lines the walk could not read to the end, moves told as «piece on square», beliefs ───────────
+
+ITAL0 = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
+QGD0 = "rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 2 4"
+
+
+@pytest.mark.parametrize("fen, sentences", [
+    (QGD0, ["Сыграй Bg5, а на Be7 — e3.", "Потом Bd3 и Nf3."]),
+    (QGD0, ["Сыграй Bg5, а на Be7 — e3.", "Дальше Bd3 и Nge2."]),
+    (ITAL0, ["Играй Bc4, а после Nf6 — d3.", "Затем Bg5, и конь f6 связан."]),
+    (ITAL0, ["Лучший ход — Bc4, на Nf6 отвечай d3.", "Тогда Bg5 свяжет коня."]),
+    (ITAL0, ["Лучший ход — Bc4, на Bc5 отвечай c3.", "Тогда Qb3 — и сразу давление на f7 и b7."]),
+    (ITAL0, ["Play Bc4, and after Nf6 just d3.", "Then Bg5 pins the knight."]),
+    (ITAL0, ["Играй Bc4, а после Nf6 спокойно d3. Затем Bg5, и конь связан."]),  # one voice utterance
+    (ITAL0, ["Играй Bc4 Nf6 и затем d3: пешка на d3, слон на c4."]),
+    (ITAL0, ["Играй Bc4, а после Nf6 — d3.", "В итоге: слон на c4, пешка на d3, и можно рокироваться."]),
+    ("r2q1rk1/pp2bppp/2n1pn2/3p4/3P4/2NBPN2/PP3PPP/R2Q1RK1 w - - 0 10",
+     ["Сыграй Re1, а потом конь перебирается с c3 через e2 на g3.", "В итоге: конь на g3, ладья на e1 — и e3-e4 готов."]),
+])
+def test_a_line_cut_short_by_a_move_not_read_is_not_gone_on_with(fen, sentences):
+    """A bare «e3» after «— », «отвечай», «спокойно», "just", a reroute in words: the walk stops before it, so the
+    line's position is not known — the next «Потом/Затем/Тогда» move and «В итоге: …» are not judged against it."""
+    out = _run(CheckContext.from_fens([fen], question="Как развиваться?"), sentences)
+    assert all(x == [] for x in out), out
+
+
+@pytest.mark.parametrize("fens, sentences", [
+    ([chess.STARTING_FEN], ["Сыграй e4 — это лучший первый ход. Тогда конь на f3, а слон на c4 — и ты быстро рокируешься."]),
+    ([chess.STARTING_FEN], ["Сыграй e4, а потом конь на f3, слон на c4."]),
+    ([chess.STARTING_FEN], ["Сыграй e4. После этого конь на f3 и слон на c4 — классическое развитие."]),
+    ([chess.STARTING_FEN], ["1.e4 e5 2.Qh5 Nc6 3.Bc4 Nf6.", "Теперь ферзь на f7 — мат."]),
+    ([chess.STARTING_FEN], ["Детский мат начинается так: 1.e4 e5 2.Bc4 Nc6.",
+                            "Тогда ферзь на h5 — и мат на f7 неизбежен, если чёрные зевнут."]),
+    ([chess.STARTING_FEN], ["После 1.e4 e5 2.Nf3 Nc6 слон на c4 — это итальянская партия, а слон на b5 — испанская."]),
+    ([ITAL0], ["После Bc4 Nf6 напрашивается конь на g5, удар по f7."]),
+    ([ITAL0], ["Лучший ход — Bc4, а цель — конь на g5."]),
+    ([ITAL0], ["Сыграй Bc4. Чёрные ответят Nf6. Теперь конь на g5, удар по f7."]),
+    ([ITAL0], ["After 3.Bc4 Nf6 the plan is simple: the knight is on g5 and the queen on f3."]),
+    ([ITAL0], ["После 3.Bc4 Bc5 идеальная расстановка белых: пешка на d4, конь на g5, ферзь на b3."]),
+    (["r1bq1rk1/pppnbppp/4p3/3pP3/3P4/3B1N2/PPP2PPP/RNBQK2R w KQ - 0 8"],
+     ["Bxh7+ Kxh7 Ng5+ Kg8 Qh5 Re8.", "Тогда ферзь на h7, король на f8 — и белые атакуют."]),
+])
+def test_piece_on_square_as_the_next_move_or_a_plan(fens, sentences):
+    """«конь на f3», «ферзь на h5», «Теперь ферзь на f7 — мат» name the next move (a piece that gets there in one
+    move) or a goal («цель», «расстановка», «план»): not a claim about where the line stands."""
+    out = _run(CheckContext.from_fens(fens, question="Как играть?"), sentences)
+    assert all(x == [] for x in out), out
+
+
+def test_piece_said_to_stand_where_no_move_takes_it_is_still_judged():
+    """Not one move away and no plan before it: «конь на h4» after 3.Bc4 Nf6 is the position named, wrongly."""
+    issues = _scene(check_sentence("После 3.Bc4 Nf6 конь стоит на h4, а слон на c4.", CheckContext.from_fens([ITAL0])))
+    assert any("no knight on h4" in i for i in issues), issues
+
+
+@pytest.mark.parametrize("fen, sentence, expect", [
+    # every context has the start position: a move legal there is no excuse for a numbered move or a told side
+    (chess.STARTING_FEN, "Главная линия: 1.e4 e5 2.Nf3 Nc6 3.Bc4 Bc5 4.c3 Nf6 5.d4 exd4 6.e5 d5 7.Nc3 — и белые развиваются.",
+     "Nc3 is impossible: c3 is taken by the white pawn"),
+    ("r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2NP1N2/PPP2PPP/R1BQK2R w KQkq - 0 8", "8.Be3 Ba6 9.dxc4 — и белые с лишней фигурой.",
+     "dxc4 is impossible: c4 is empty"),
+    ("r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2NP1N2/PPP2PPP/R1BQK2R w KQkq - 0 8",
+     "Сыграй Be3: слон отступает на a6, и тогда dxc4 выигрывает фигуру.", "dxc4 is impossible: c4 is empty"),
+    ("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5P2/PPPP2PP/RNBQKBNR w KQkq - 1 3",
+     "Сыграй d4: чёрные берут exd4, и тогда белый конь идёт на f3.", "f3 is taken by the white pawn"),
+])
+def test_a_move_legal_on_the_board_as_it_is_but_told_as_the_lines_next(fen, sentence, expect):
+    issues = _scene(check_sentence(sentence, CheckContext.from_fens([fen])))
+    assert any(expect in i for i in issues), issues
+
+
+def test_a_side_told_move_after_the_line_on_the_study_position():
+    issues = _scene(check_sentence("Чёрный король обязан отойти в сторону: Kd6 — и белые играют e4.", _zug_ctx()))
+    assert any("e4 is impossible: e4 is taken by the white king" in i for i in issues), issues
+
+
+def test_a_line_that_fits_a_lesson_position_on_the_screen_too():
+    """b4 fits the start position on the board and the Giuoco on the screen; Bxb4 only the latter: not judged."""
+    ctx = CheckContext.from_fens([chess.STARTING_FEN], question="Что такое гамбит Эванса? Покажи на доске.")
+    ctx.add("r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4")
+    out = _run(ctx, ["Вот позиция итальянской партии.", "Белые играют b4, чёрные отвечают Bxb4, затем c3 и d4."])
+    assert out == [[], []]
+
+
+@pytest.mark.parametrize("sentence", [
+    "После 1...Ke5 2.a6 Kd6 3.a7 Kc7 4.a8 — и у белых новый ферзь.",
+    "После 1...Ke5 2.a6 Kd6 3.a7 Kc7 4.a8=Ф белые выигрывают.",
+    "После 1...Ke5 2.a6 Kd6 3.a7 Kc7 4.a8Ф белые выигрывают.",
+])
+def test_a_promotion_written_without_its_piece(sentence):
+    assert _scene(check_sentence(sentence, CheckContext.from_fens([SQUARE]))) == []
+
+
+def test_promotion_gate_shows_the_sentence():
+    from src.answer_check import SentenceGate
+
+    gate = SentenceGate(CheckContext.from_fens([SQUARE]), enabled=True, release_starts=False)
+    out = gate.feed("После 1...Ke5 2.a6 Kd6 3.a7 Kc7 4.a8 — и у белых новый ферзь. ") + gate.flush()
+    assert all(not issues for _t, issues, _s in out), out
+
+
+@pytest.mark.parametrize("sentence", [
+    "Многие думают: Kd6 — и белый король заходит на d5, но это ошибка: d5 рядом с королём.",
+    "Ошибка новичка — считать, что после Kd6 белый король идёт на d5.",
+    "Ты пишешь: Kd6 и белый король идёт на d5.",
+])
+def test_a_line_told_as_someone_elses_belief(sentence):
+    assert _scene(check_sentence(sentence, _zug_ctx())) == []
+
+
+def test_the_line_of_a_sentence_not_shown_is_not_gone_on_with():
+    """A cut sentence's line («…слон отступает на a6», cut for another claim) is not what the rewrite continues."""
+    ctx = CheckContext.from_fens([CASTLE])
+    assert check_sentence("Сыграй b3, и слон под ударом.", ctx) == []
+    assert check_sentence("Тогда слон отступает на a6, а ферзь d8 атакует пешку a2.", ctx) != []
+    assert _scene(check_sentence("Тогда bxc4 выигрывает слона.", ctx)) == []
+    # …while the shown line is gone on with as before
+    ctx = CheckContext.from_fens([CASTLE])
+    out = _run(ctx, ["Сыграй b3, и слон под ударом.", "Тогда слон отступает на a6.", "Тогда bxc4 выигрывает слона."])
+    assert out[:2] == [[], []] and any("bxc4 is impossible" in i for i in out[2]), out

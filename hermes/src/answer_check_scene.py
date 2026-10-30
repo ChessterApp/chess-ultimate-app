@@ -18,6 +18,9 @@ What is not followed is not judged: a move that fits no position (src/answer_che
 («или», «вместо», a numbered move from another point), a move one side makes twice (a plan told one side at a time:
 «Ke5, Kd6, Kc7»), a pronoun with nothing to name, two pieces that could make the move, a denial, a question, a move
 marked «?». The first move of a line is never judged here: only what follows a move the line has made.
+Review 30.10: a line with a square after its last read move («а на Be7 — e3») is not gone on with; «конь на f3»
+a move away is the next move or a plan, not where the line stands; a line told as someone's belief is not the
+coach's; a sentence not shown leaves the line as it was.
 """
 
 from __future__ import annotations
@@ -76,6 +79,8 @@ _ALTERNATIVE = re.compile(_B + r"(?:или|либо|вместо|иначе|ал
 _SIDE_BEFORE = re.compile(r"(?<![а-яёa-z])(бел(?:ые|ым)|ч[её]рн(?:ые|ым)|white|black)(?:\s+[а-яёa-z]+)?[\s:—–-]*$")
 # A condition («а если он отступит на a6»): the next move is followed when it fits the line, never judged itself.
 _CONDITION = re.compile(_B + r"(?:если|когда|в\s+случае|бы|if|when|in\s+case|would|could)" + _E)
+# Right before a move: «и тогда dxc4», «затем Bg5», "then Bg5" — the line's next move.
+_THEN_BEFORE = re.compile(_B + r"(?:тогда|затем|потом|после\s+чего|then|after\s+that)[\s,:—–-]*$")
 # The sentence goes on with the line of the one before.
 _CONTINUES = re.compile(r"^\W*(?:(?:и|а|и\s+вот|and)\s+)?(?:тогда|затем|потом|далее|дальше|после\s+этого|после\s+чего|"
                         r"then|next|after\s+that|and\s+then)" + _E)
@@ -88,6 +93,41 @@ _HYPOTHETICAL = re.compile(_B + r"(?:если|бы|представь\w*|доп�
 _DENIED_MOVE = re.compile(
     r"нельзя|невозможн|не\s+може|не\s+сможет|не\s+получит|не\s+проходит|не\s+пройд|не\s+зайд|не\s+пуст|не\s+да[её]т|"
     r"не\s+даст|нелегальн|не\s+по\s+правилам|illegal|not\s+legal|can'?t|cannot|impossible|isn'?t\s+possible|not\s+allowed")
+# A line told as someone's belief or as a mistake, in order to refute it («Многие думают: Kd6 — и белый король
+# заходит на d5, но…», «Ошибка новичка — считать, что после Kd6…», «Ты пишешь: …»): not the coach's line (review
+# 30.10; the words of src/answer_check._NOT_TOLD for a claim not told as true, «подумай»/«посчитай» left out).
+_BELIEF = re.compile(
+    _B + r"(?:(?:по)?счита(?:ют|ет|ешь|л\w*|ть)|(?:по)?дума(?:ют|ет|ешь|л\w*|ть)|пишешь|написал\w*|говоришь|сказал\w*|"
+         r"предлагаешь|предложил\w*|спрашиваешь|кажется|будто|якобы|по-твоему|уверен\w*|неправда|неверно|ошибк\w*|"
+         r"ошибочн\w*|заблужд\w*|многие|новичк\w*|thinks?|thought|believes?|mistake\w*|wrong\w*|you\s+wrote|you\s+say|"
+         r"many\s+players|beginners?)" + _E)
+# A square after the walk's last move that it did not read («Сыграй Bg5, а на Be7 — e3.», «и затем d3: …», «конь
+# перебирается … на g3»): the line went on unread, so where it got to is not known — the next sentence does not go
+# on with it and no «piece on square» is judged against it (review 30.10). A square naming a piece or a point
+# («пешка e3», «конь f6 связан», «пункт f7», «удар по f7») is not a move, nor a piece said to be where the line has
+# put it («а конь на f6 уже не даёт…»).
+_SQ_IN = re.compile(rf"(?<![a-z0-9])({SQ})(?![0-9])")
+_NAMES_SQUARE = re.compile(r"(?:(?:пешк|кон|слон|ладь|ферз|корол|пункт|пол|клетк|square|pawn|knight|bishop|rook|queen|"
+                           r"king)[а-яёa-z]*|(?:^|\s)по)\s+$")
+_PIECE_ON = re.compile(r"(?P<w>пешк|кон|слон|ладь|ферз|корол)[а-яё]*\s+(?:(?:уже|теперь|стоит|находится)\s+){0,2}на\s+$")
+_STEM_TYPE = {"пешк": chess.PAWN, "кон": chess.KNIGHT, "слон": chess.BISHOP, "ладь": chess.ROOK, "ферз": chess.QUEEN,
+              "корол": chess.KING}
+
+
+def _unread_move(text: str, board: Optional[chess.Board] = None) -> bool:
+    if re.search(r"[0oо]-[0oо]", text):
+        return True
+    for m in _SQ_IN.finditer(text):
+        before = text[max(0, m.start() - 30):m.start()]
+        if _NAMES_SQUARE.search(before[-14:]):
+            continue
+        on = _PIECE_ON.search(before)
+        if on is not None and board is not None \
+                and board.piece_type_at(chess.parse_square(m.group(1))) == _STEM_TYPE[on["w"]]:
+            continue
+        return True
+    return False
+
 
 # «пешка на a7, ты на d6», «конь стоит на d4», «чёрный король на e6»: where a piece stands, told plainly — a list or
 # a stand verb, the square closing the clause. Not «конь на f3 атакует…» (a claim of its own, judged elsewhere).
@@ -99,6 +139,27 @@ _STANDS = re.compile(
     r"|(?<![a-z])(?:the\s+|your\s+|my\s+)?(?:(?P<en_side>white|black)\s+)?(?P<en_piece>king|queen|rook|bishop|knight|pawn)"
     rf"\s+(?:is|stands|sits)\s+(?:now\s+|still\s+)?on\s+(?P<en_sq>{SQ})(?![0-9]){_CLOSES}"
     rf"|(?<![a-z])you(?:'re|\s+are)\s+(?:now\s+)?on\s+(?P<you_sq>{SQ})(?![0-9]){_CLOSES}")
+
+# Before «piece on square»: a goal or a plan, not the position reached («цель — конь на g5», «идеальная расстановка
+# белых: пешка на d4, …», «а потом конь на f3», "the plan is simple: the knight is on g5"; review 30.10).
+_PLAN = re.compile(_B + r"(?:цел[ьиюей]|план\w*|иде[яюиейа]\w*|расстановк\w*|напрашива\w*|хоч\w*|хотят|стрем\w*|"
+                        r"нужн\w*|надо|долж\w*|будет|будут|потом|затем|дальше|далее|следующ\w*|задач\w*|мечта\w*|"
+                        r"goal\w*|plan\w*|idea\w*|aim\w*|setup|wants?|next|later|will|should|need\w*|target\w*)" + _E)
+# …and what makes it a position held still, not a move: «Теперь замри: пешка на a7, ты на d6».
+_STILL = re.compile(_B + r"(?:замр\w*|стоп|останов\w*|картина|расклад|freeze|stop)" + _E)
+_STAND_VERB = re.compile(_B + r"(?:уже|по-прежнему|стоит|стоишь|находится|находишься)" + _E)
+
+
+def _one_move_to(board: chess.Board, ptype: int, color: Optional[bool], sq: int) -> bool:
+    """A *ptype* of *color* (either, None) gets to *sq* in one move of its side from *board* — pseudo-legal, leniently."""
+    for c in ((color,) if color is not None else (chess.WHITE, chess.BLACK)):
+        b = board.copy(stack=False)
+        b.turn = c
+        for mv in b.generate_pseudo_legal_moves(to_mask=chess.BB_SQUARES[sq]):
+            if b.piece_type_at(mv.from_square) == ptype or mv.promotion == ptype:
+                return True
+    return False
+
 
 # Sentences inside one text (the voice check gets a whole utterance): «…Kd6. Теперь замри: …» — not after a move
 # number («1. Nf3», «12... Kd6»).
@@ -115,6 +176,9 @@ class _Walk:
         self.boards = [self.board.copy(stack=False)]
         self.moves: list = []
         self.branched = False
+        # Other given positions the first move fitted as well (the start position on the board and a lesson's on the
+        # screen): a move impossible on this line but possible on the same line from one of them is not judged.
+        self.alts: list = []
 
     def push(self, move: chess.Move) -> None:
         self.board.push(move)
@@ -123,6 +187,33 @@ class _Walk:
 
     def label(self) -> str:
         return self.start.variation_san(self.moves)
+
+    def copy(self) -> "_Walk":
+        """The line to go on with in a new sentence: the one before stays as it was if this sentence is not shown."""
+        out = _Walk(self.start)
+        out.board = self.board.copy(stack=False)
+        out.boards = list(self.boards)
+        out.moves = list(self.moves)
+        out.branched = self.branched
+        out.alts = self.alts
+        return out
+
+    def possible_from_another_start(self, attempt) -> bool:
+        sans = []
+        b = self.start.copy(stack=False)
+        for mv in self.moves:
+            sans.append(b.san(mv))
+            b.push(mv)
+        for alt in self.alts:
+            b = alt.copy(stack=False)
+            try:
+                for san in sans:
+                    b.push_san(san)
+            except ValueError:
+                continue
+            if attempt(b) is not None:
+                return True
+        return False
 
 
 def _side_word(word: Optional[str]) -> Optional[bool]:
@@ -144,13 +235,24 @@ def _as_mover(board: chess.Board, color: bool) -> Optional[chess.Board]:
     return b if b.is_valid() else None
 
 
+# «4.a8», «a8=Ф» (the Cyrillic piece not read): a pawn's move to the last rank written without the piece is its
+# promotion — to a queen, as _word_moves takes it (review 30.10: «4.a8 — и у белых новый ферзь» was cut).
+_BARE_PROMOTION = re.compile(r"^[a-h](?:x[a-h])?[18][+#]?$")
+
+
 def _parse(board: Optional[chess.Board], san: str) -> Optional[chess.Move]:
     if board is None:
         return None
     try:
         return board.parse_san(san)
     except ValueError:
-        return None
+        pass
+    if _BARE_PROMOTION.match(san):
+        try:
+            return board.parse_san(san.rstrip("+#") + "=Q")
+        except ValueError:
+            return None
+    return None
 
 
 def _ambiguous(board: chess.Board, san: str) -> bool:
@@ -191,8 +293,11 @@ def _pinned_or_check(board: chess.Board, color: bool, pieces: list, to: int) -> 
     b = _as_mover(board, color)
     if b is None:
         return None
+    # Only a move of the piece's own that is not legal: a pseudo-legal move that is legal (a promotion read without
+    # its piece) has no pin or check to tell — the reason is then not this one (review 30.10: «4.a8» was said to
+    # «leave the white king in check» with no check anywhere).
     pseudo = [mv for mv in b.generate_pseudo_legal_moves() if mv.to_square == to and mv.from_square in pieces
-              and b.piece_type_at(mv.from_square) != chess.KING]
+              and b.piece_type_at(mv.from_square) != chess.KING and not b.is_legal(mv)]
     if not pseudo:
         return None
     frm = pseudo[0].from_square
@@ -205,7 +310,7 @@ def _pinned_or_check(board: chess.Board, color: bool, pieces: list, to: int) -> 
                     f"{_NAME[b.piece_type_at(pinner)]} on {chess.square_name(pinner)}")
     if b.is_check():
         return f"the {side} king is in check, and that move does not answer it"
-    return f"it would leave the {side} king in check"
+    return f"it would leave the {side} king in check" if b.is_into_check(pseudo[0]) else None
 
 
 def _why_not(board: chess.Board, color: bool, ptype: int, to: int, capture: bool, walk: "_Walk",
@@ -255,11 +360,19 @@ def _why_not(board: chess.Board, color: bool, ptype: int, to: int, capture: bool
     return why
 
 
-def _legal_on_given(ctx, san: Optional[str], ptype: int, to: int, color: Optional[bool]) -> bool:
+def _legal_on_given(ctx, san: Optional[str], ptype: int, to: int, color: Optional[bool],
+                    number: Optional[tuple] = None) -> bool:
     """The move is legal in some position given to the turn (for the side named, else either): the sentence may have
-    gone back to the board as it is."""
+    gone back to the board as it is. Not the start position standing in for unknown ones (every context has it: any
+    first move of a pawn or a knight would pass), and for a numbered move («9.dxc4») only a position at that move
+    (*number*: side, move number) — review 30.10: «… 6.e5 d5 7.Nc3» passed on the start position, «8.Be3 Ba6
+    9.dxc4» on the board at move 8."""
     for board in getattr(ctx, "boards", []):
         if not ctx.is_given(board):
+            continue
+        if board is not ctx.current and board.board_fen() == chess.STARTING_BOARD_FEN:
+            continue
+        if number is not None and (board.turn != number[0] or board.fullmove_number != number[1]):
             continue
         for c in ((color,) if color is not None else (chess.WHITE, chess.BLACK)):
             if san is not None:
@@ -452,13 +565,13 @@ def _one_sentence(text: str, ctx) -> list[str]:
             if continues and not use_prev:
                 break  # «Дальше идёт Rf3+» after moves not followed: the line goes on from a position not known
             if use_prev and (not found or found[0] is not fresh["walk"].board) and continues:
-                walk, made = fresh["walk"], len(fresh["walk"].moves)  # «Тогда …»: the line goes on, whatever fits
+                walk, made = fresh["walk"].copy(), len(fresh["walk"].moves)  # «Тогда …»: the line goes on, whatever fits
             elif not found:
                 break
             elif use_prev and found[0] is fresh["walk"].board:
                 if len(found) > 1 and not continues:
                     break  # it fits the line before and a given position as well: which one is not known
-                walk, made = fresh["walk"], len(fresh["walk"].moves)
+                walk, made = fresh["walk"].copy(), len(fresh["walk"].moves)
             else:
                 if len({b.fen() for b in found}) > 1 and found[0] is not ctx.current:
                     break  # legal in several positions given to the turn: which one is not known
@@ -466,6 +579,7 @@ def _one_sentence(text: str, ctx) -> list[str]:
                        and ctx._key(b) != ctx._key(found[0])):
                     break  # it fits a position a tool named too (a lesson's diagram): the line may be that one's
                 walk = _Walk(found[0])
+                walk.alts = [b for b in found[1:] if b.fen() != found[0].fen()]
         mv = attempt(walk.board)
         if mv is not None:
             walk.push(mv)
@@ -476,8 +590,8 @@ def _one_sentence(text: str, ctx) -> list[str]:
         walk.branched = True
         board, mover = walk.board, (side if side is not None else walk.board.turn)
         if to is None or conditional or question or denied or (len(walk.moves) <= made and not continues) \
-                or re.match(r"[*_]*\?", converted[end:end + 4]):
-            break  # «Kd5?»: a move the coach warns against is not his line
+                or re.match(r"[*_]*\?", converted[end:end + 4]) or _BELIEF.search(low[:start]):
+            break  # «Kd5?»: a move the coach warns against is not his line; «многие думают: …» — not his either
         if kind == "san":
             if data[1] and (board.turn != want or board.fullmove_number != int(data[1])):
                 break  # «2.Kc3» where the line is at another move: a branch, or one side's moves listed
@@ -493,8 +607,18 @@ def _one_sentence(text: str, ctx) -> list[str]:
             break  # no such piece gets there in one move: a route or a plan («король идёт на f5» from h1)
         if len(_word_moves(board, mover, ptype, to, frm)) > 1:
             break
-        if _legal_on_given(ctx, data[0] if kind == "san" else None, ptype, to, side):
-            break  # the move is made on the board as it is: the sentence may have gone back to it
+        if walk.possible_from_another_start(attempt):
+            break  # the same line from another position given to the turn goes on with it: the line may be that one's
+        # The move is made on the board as it is: the sentence may have gone back to it — not when it is told as the
+        # line's own next move, by its number («7.Nc3»), by the side named («Kd6 — и белые играют e4») or by «и
+        # тогда» right before it («слон отступает на a6, и тогда dxc4»): those go on with the line (review 30.10).
+        told_next = (side is not None and (kind == "word" or bool(_SIDE_BEFORE.search(low[max(last_end, start - 30):start])))
+                     or _THEN_BEFORE.search(low[last_end:start]) is not None)
+        if kind == "san" and data[1]:
+            if _legal_on_given(ctx, data[0], ptype, to, side, (want, int(data[1]))):
+                break
+        elif not told_next and _legal_on_given(ctx, data[0] if kind == "san" else None, ptype, to, side):
+            break
         if kind == "san":
             san = data[0]
             hint = ""
@@ -511,6 +635,8 @@ def _one_sentence(text: str, ctx) -> list[str]:
         break
 
     issues += _stands_issues(low, bool(tokens), walk, fresh, last_end, ctx)
+    if walk is not None and not walk.branched and (_unread_move(low[last_end:], walk.board) or _BELIEF.search(low)):
+        walk.branched = True  # moves after it not read, or someone else's line: the next sentence does not go on with it
     if walk is not None and walk.moves:
         ctx.line_scene = {"walk": walk, "age": 0}
     return issues
@@ -530,10 +656,14 @@ def _stands_issues(low: str, has_moves: bool, walk: Optional[_Walk], fresh, last
             return []
         walk, scope_from = fresh["walk"], 0
     out = []
+    gap, prev_end = "", scope_from
     for m in _STANDS.finditer(low, scope_from):
-        before = low[scope_from:m.start()]
-        if _HYPOTHETICAL.search(before) or _ALTERNATIVE.search(before):
-            break
+        gap += low[prev_end:m.start()] + " "  # the text between the line and this clause, other clauses left out
+        prev_end = m.end()
+        if _HYPOTHETICAL.search(gap) or _ALTERNATIVE.search(gap) or _unread_move(gap, walk.board):
+            break  # imagined, another branch, or a move the walk did not read: not the position it reached
+        if _PLAN.search(low[:m.start()]) or _BELIEF.search(low[:m.start()]):
+            break  # a goal or a plan («цель — конь на g5», «идеальная расстановка: …»), someone else's belief
         if re.search(r"(?:^|\s)(?:не|ни|not)\s+$", low[max(0, m.start() - 6):m.start()]):
             continue
         word = m["piece"] or m["en_piece"] or ("ты" if m["you_sq"] else None)
@@ -547,6 +677,12 @@ def _stands_issues(low: str, has_moves: bool, walk: Optional[_Walk], fresh, last
         if ptype is None:
             continue
         sq = chess.parse_square(sq_name)
+        # «Тогда конь на f3, а слон на c4», «Теперь ферзь на f7 — мат»: a piece named on a square it gets to in one
+        # move from where the line is is the next move told the Russian way, not where the line stands — judged
+        # only when told as standing («стоит», «уже», "is on") or the position is held still («Теперь замри: …»).
+        still = _STILL.search(low[:m.start()]) or _STAND_VERB.search(m.group(0)) or m["en_piece"] or m["you_sq"]
+        if not still and _one_move_to(walk.board, ptype, color, sq):
+            continue
         boards = list(walk.boards) + _given_starts(ctx, numbered=True)
         if any((pc := b.piece_at(sq)) is not None and pc.piece_type == ptype and (color is None or pc.color == color)
                for b in boards):
