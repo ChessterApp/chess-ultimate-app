@@ -503,8 +503,9 @@ class OpeningBook:
     def continuations(self, board) -> list[dict]:
         """The book's moves from a position, the most developed theory first: {"san", "lines" (book lines through
         the position after the move), "eco", "name" (of the shortest line ending there, None inside a line)}.
-        The number of lines is how far the book works a move out — the main move has by far the most (after
-        1.e4 c5: 2.Nf3 301, 2.c3 13), the book's own measure of what is played; it is no game statistic."""
+        The number of lines is how many named lines the book has past a move — not how often it is played: a
+        gambit with many named sub-lines outweighs the quiet main move (after 3...Bc5: 4.b4 51, 4.d3 5), and a
+        move order other openings transpose into gathers their lines (after 1.c4 Nf6: 2.d4 577) — review 30.10."""
         self._build_position_index()
         out = []
         for move in board.legal_moves:

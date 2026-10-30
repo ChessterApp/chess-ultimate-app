@@ -4,29 +4,32 @@ The live production check of 29.10 (theory set) found the coach naming openings 
 the server knows them exactly:
 
   * «**2. c3** (система с последующим d4, любимая атака в стиле Алёхина)» — after 1.e4 c5 2.c3 the book's line
-    is the Alapin Variation; no line through it carries Alekhine's name;
+    is the Alapin Variation; Alekhine's name belongs to another opening (the Alekhine Defense);
   * «Открытый вариант сицилианской защиты, и у белых тут три главных пути» on 1.e4 c5 — the Open Sicilian
-    begins with 2.Nf3 and 3.d4, the board is the plain Sicilian (B20);
-  * «белый конь обычно идёт на c3» after 1.e4 e5 2.f4 exf4 — the book works out 3.Nf3 (92 lines) and 3.Bc4 (29),
-    3.Nc3 not at all.
+    begins with 2.Nf3 and 3.d4, the board is the plain Sicilian (B20).
 
-Three claims are judged here, each only against the book (src/openings_book.py — the 3,800 named lines Hermes
+Two claims are judged here, each only against the book (src/openings_book.py — the 3,800 named lines Hermes
 ships), never from a guess:
 
-  * an ECO code («вариант Морфи (C70)», «код E20») must be a code of the board's position or of a stage on the
-    way to it, of a line the answer writes, or of an opening the sentence names;
+  * an ECO code the sentence ties to the board («Это испанская партия, код C65», «На доске … (B90)») must be a
+    code of the board's position or of a stage on the way to it, of a line the answer writes, or of an opening
+    the sentence names;
   * a variation named by a person («вариант Алапина», «атака … Алёхина», "the Alapin Variation") attached to a
-    written move must be a name of a book line through the position after that move or before it; said of the
-    board («Это открытый вариант…», «Перед нами вариант Найдорфа»), it must be a line the board has reached —
-    not one still ahead of it;
-  * «обычно играют X», «главный ход здесь — X», «конь обычно идёт на c3»: X must not be a move the book hardly
-    knows while another one carries ten times more of its theory (the book's measure of the main move — the
-    same one the opening block gives the model, src/opening_knowledge.py).
+    written move must be a name of a book line through the position after that move or before it — judged only
+    for a name the book gives mostly to one opening (Alekhine, Najdorf, Winawer), not for one it spreads over
+    many (Capablanca, Tarrasch: a usage the book lacks may still be right); a variation the sentence says the
+    board IS («Это открытый вариант…», «Перед нами вариант Найдорфа») must be one the board has reached — not
+    one still ahead of it.
+
+«Обычно играют X», «главный ход здесь — X» are NOT judged (review 30.10): the book names lines and counts no
+games — the Evans Gambit has 51 named sub-lines after 3...Bc5 and 4.d3 five, 2.d4 picks up the whole Indian
+theory after 1.c4 Nf6 by transposition — and Hermes ships no statistics of moves played.
 
 A claim about another position is left alone: a condition or a plan («если», «после», «будет»), a denial, a
-question, a hedge («похоже на», «не путай с»), a range of codes («C60–C99»), an opening the sentence names that
-is not the board's, a position the book does not have. The names of whole openings («это сицилианская защита»)
-stay with src/answer_check._opening_identity_issues.
+question, a hedge («похоже на», «не путай с», «впереди», «самый популярный»), a range of codes («C60–C99»), a code
+in a clause about another opening («…, а принятый гамбит идёт под D20»), an opening the sentence names that is not
+the board's, a position the book does not have. The names of whole openings («это сицилианская защита») stay with
+src/answer_check._opening_identity_issues.
 """
 
 from __future__ import annotations
@@ -36,7 +39,7 @@ from typing import Optional
 
 import chess
 
-from src.claim_scope import CONDITIONAL, DENIAL, denied_before
+from src.claim_scope import CONDITIONAL, denied_before
 
 _W = r"(?<![а-яёa-z])"
 _E = r"(?![а-яёa-z])"
@@ -127,48 +130,54 @@ _ECO = re.compile(r"(?<![A-Za-zА-Яа-яЁё0-9])(?P<l>[A-EАВСЕ])(?P<d>\d\d
 _CYR_LETTER = {"А": "A", "В": "B", "С": "C", "Е": "E"}
 # «C60–C99», «от C60 до C99», "C60 to C99": a range — what an opening covers, not the code of a position.
 _ECO_RANGE = re.compile(r"[A-EАВСЕ]\d\d\s*(?:[-–—…]|\.\.\.?|до|to|по)\s*[A-EАВСЕ]?\d\d")
+# A code is judged only when its clause ties it to the board (review 30.10): «Это испанская партия, код C65», «На
+# доске сицилианская (B90)», «Код нашей партии — B33». A code in a clause about something else — another opening
+# the lexicon cannot name («…, а принятый гамбит идёт под D20», «берлинский эндшпиль — C67»), the student's options
+# («Принять гамбит — D20, отказаться — D30»), a player («Карлсен часто играет C67»), a bare surname («Свешников
+# (B33)») — is left alone. Clauses break at «;» and at a contrast («, а», «, но», ", while").
+_CLAUSE_BREAK = re.compile(r";|,\s*(?:а|но|и|или|зато|хотя|тогда\s+как|while|whereas|but|and|or)(?![а-яёa-z])"
+                           r"|(?<![а-яёa-z])(?:а\s+вот|тогда\s+как|в\s+то\s+время\s+как|whereas)(?![а-яёa-z])",
+                           re.IGNORECASE)
+_TIE = re.compile(_W + r"(?:перед\s+нами|у\s+нас|на\s+доске|в\s+(?:нашей\s+|этой\s+)?партии|наш\w*\s+(?:парти|дебют|вариант)\w*|"
+                  r"эт(?:от|ого|ой|а|у|им|ом)\s+(?:дебют|вариант|позици|парти|начал|защит|систем|лини)\w*|"
+                  r"разыгр\w*|сыгран\w*|называется|здесь|тут|this\s+(?:is|opening|variation|position|line)|it'?s|"
+                  r"it\s+is|we\s+have|our\s+game|on\s+the\s+board|here|бұл)" + _E, re.IGNORECASE)
+# «это» ties a clause to the board when nothing named stands before it: «Это испанская партия, C65» — not «Дракон —
+# это B70», where «это» points back at the dragon.
+_THIS = re.compile(_W + r"(?:это|this)" + _E, re.IGNORECASE)
+# A question for the code or name of the board ties a bare «Код — C68.»; a clause that names an opening of its own
+# does not («Принятый гамбит — D20»).
+_ASKS_CODE = re.compile(r"(?<![а-яёa-z])(?:код\w*|eco)(?![а-яёa-z])", re.IGNORECASE)
+_OPENING_NOUN = re.compile(_W + r"(?:дебют|вариант|защит|гамбит|парти|начал|систем|атак|эндшпил|стен|линия|"
+                           r"defen|gambit|variation|opening|attack|system|game|line)", re.IGNORECASE)
 
-# «обычно играют Кf6», «чаще всего отвечают e6», "usually plays d4" — and «главный/основной ход здесь — 4.Ba4».
-_USUAL = r"(?:обычно|чаще\s+всего|как\s+правило|традиционно|usually|most\s+often|normally|typically)"
-_USUAL_MOVE = re.compile(
-    _W + _USUAL + r"\s+(?:[а-яёa-z]+\s+){0,2}?(?:игра\w*|отвеча\w*|ход[яи]т|пойд[её]т|ид[её]т|идут|ставят|выбира\w*|"
-    r"следует|делают|plays?|answers?|repl(?:y|ies)|goes|go|chooses?|continues?)\s+"
-    # «идёт на c3» names a square, not the pawn move c3 — that is the piece's claim (_USUAL_PIECE)
-    r"(?:(?!(?:на|в|to|on)(?![а-яёa-z]))[а-яёa-z]+\s+){0,2}?"
-    r"(?:[*_«\"(]+)?(?P<mv>(?:\d{1,3}\s?(?:\.\.\.|…|\.)\s?)?(?:[KQRBN][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x[a-h][1-8]|[a-h][1-8]|O-O-O|O-O))"
-    r"(?![A-Za-z0-9])", re.IGNORECASE)
-_MAIN_MOVE = re.compile(
-    r"(?:главн|основн|книжн)\w*\s+(?:теоретическ\w*\s+)?(?:ход|продолжени|ответ)\w*\s+(?:(?:здесь|тут|сейчас|теперь|"
-    r"за\s+бел\w+|за\s+ч[её]рн\w+|бел\w+|ч[её]рн\w+|в\s+этой\s+позиции|по\s+теории)\s+){0,2}"
-    r"(?:[—–:-]|это)\s*(?:это\s+)?(?:[*_«\"(]+)?"
-    r"(?P<mv>(?:\d{1,3}\s?(?:\.\.\.|…|\.)\s?)?(?:[KQRBN][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x[a-h][1-8]|[a-h][1-8]|O-O-O|O-O))"
-    r"(?![A-Za-z0-9])"
-    r"|(?<![a-z])the\s+main\s+(?:move|line|continuation)\s+(?:here\s+)?is\s+(?:[*_\"(]+)?"
-    r"(?P<mv2>(?:\d{1,3}\s?(?:\.\.\.|…|\.)\s?)?(?:[KQRBN][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x[a-h][1-8]|[a-h][1-8]|O-O-O|O-O))"
-    r"(?![A-Za-z0-9])", re.IGNORECASE)
-# «белый конь обычно идёт на c3» — the move told by its piece and square.
-_PIECES = {"конь": chess.KNIGHT, "слон": chess.BISHOP, "ладья": chess.ROOK, "ферзь": chess.QUEEN, "король": chess.KING,
-           "пешка": chess.PAWN, "knight": chess.KNIGHT, "bishop": chess.BISHOP, "rook": chess.ROOK,
-           "queen": chess.QUEEN, "king": chess.KING, "pawn": chess.PAWN}
-_USUAL_PIECE = re.compile(
-    _W + r"(?:(?P<color>бел\w+|ч[её]рн\w+|white|black)\s+)?(?P<piece>конь|слон|ладья|ферзь|король|пешка|knight|bishop|"
-    r"rook|queen|king|pawn)\s+(?:[а-яёa-z]+\s+)?" + _USUAL + r"\s+(?:ид[её]т|вста[её]т|выходит|прыгает|отходит|уходит|"
-    r"становится|развивается|goes|jumps|comes|retreats|develops)\s+(?:на|to)\s+(?P<sq>[a-h][1-8])(?![0-9])",
-    re.IGNORECASE)
-_NEXT = re.compile(_W + r"(?:дальше|далее|следующ\w*|в\s+ответ|ответ\w*|теперь|сейчас|здесь|тут|в\s+этой\s+позиции|"
-                   r"next|in\s+reply|now|here|in\s+this\s+position)" + _E, re.IGNORECASE)
-_ASKS_MAIN = re.compile(r"(?:главн|основн|теоретическ|книжн|обычн|чаще)\w*\s+(?:\w+\s+)?(?:ход|продолжени|игра|отвеча)"
-                        r"|main\s+(?:move|line)|usual\s+move|what\s+do\s+(?:they|players|people)\s+(?:usually\s+)?play",
-                        re.IGNORECASE)
-# How much more of the book a move must carry than the one called usual, and the least it must carry, before
-# «usually X» is wrong: 3.Nf3 92 lines to 3.Nc3's 0 is a verdict, 2.Bb5 235 to 2.Bc4 186 is not.
-_MAIN_RATIO = 10
-_MAIN_MIN_LINES = 20
-
-# A hedge before a name: it is compared, not claimed («не путай с атакой Панова», «похоже на вариант…»).
+# A hedge before a name: it is compared, not claimed («не путай с атакой Панова», «похоже на вариант…»); a variation
+# ahead, possible, a choice, the popular one or the student's advice is no claim that the board is it («…и вариант
+# Найдорфа здесь ещё впереди», «самый популярный её вариант — Найдорф», «Найдорф — то, что тебе подойдёт»), a
+# relative is not the variation itself («московский вариант, родственник варианта Россолимо») — review 30.10.
 _HEDGE = re.compile(_W + r"(?:не|нет|похож\w*|напомина\w*|отлич\w*|в\s+отличие|вместо|как\s+в|путай|переход\w*|"
-                    r"перейд\w*|ведет|ведут|приведет|станет|может|могут|бывает|unlike|like|not|instead|leads?|"
-                    r"transpos\w*|could|would)" + _E, re.IGNORECASE)
+                    r"перейд\w*|ведет|ведут|приведет|станет|может|могут|бывает|впереди|возмож\w*|выбор\w*|выбира\w*|"
+                    r"популярн\w*|подойд\w*|подход\w*|родствен\w*|сродни|близ\w*|аналог\w*|unlike|like|not|instead|"
+                    r"leads?|transpos\w*|could|would|ahead|possible|choice|popular|suits?|related|similar|akin)" + _E,
+                    re.IGNORECASE)
+# The name is the predicate of «the board is …» — «Это открытый вариант…», «Перед нами вариант Найдорфа», «Сейчас на
+# доске …», "This is the Open Sicilian", «Это сицилианская защита, открытый вариант» — the text before it is the
+# identity alone, not a sentence going on to another subject («Это сицилианская защита, и вариант Найдорфа…»,
+# «Это французская защита: здесь начинается выбор между вариантом Винавера…» — review 30.10).
+_PREDICATE = re.compile(
+    r"^[\s*_#>«\"'(-]*(?:(?:да|итак|так|ну|yes|so|well)[\s,]+)?(?:[а-яёa-z-]+\s+){0,3}?"
+    r"(?:это|перед\s+нами|у\s+нас|на\s+доске|разыграли|сыграли|называется|this\s+is|that'?s|it'?s|it\s+is|we\s+have|"
+    r"is\s+called|бұл)"
+    r"(?:\s+(?:здесь|тут|сейчас|теперь|уже|именно|как\s+раз|сам(?:ый|ая|ое)|настоящ\w+|типичн\w+|классическ\w+|"
+    r"на\s+доске|в\s+партии|here|now|already|exactly|the|an?|typical))*"
+    r"\s*[—–:-]?\s*(?:[^,.;:!?—–]{1,40},\s*)?$", re.IGNORECASE)
+# A name opening the sentence is a headline («Открытый вариант сицилианской защиты, и у белых…») — unless the sentence
+# goes on to say what the variation is («Вариант Найдорфа — это то, что тебе подойдёт»): then it is the subject.
+_SUBJECT_TAIL = re.compile(r"[—–:]|\s-\s|(?<![а-яёa-z])(?:это|является|считается|бывает|is|was|means)(?![а-яёa-z])",
+                           re.IGNORECASE)
+# A contrast starts another clause: «2.Кf3 d6 3.d4, а вариант Алапина 2.c3…» — the name is not 3.d4's.
+_CONTRAST = re.compile(r",\s*(?:а|но|и|или|зато|хотя|тогда\s+как|while|whereas|but|and|or)(?![а-яёa-z])"
+                       r"|(?<![а-яёa-z])(?:а\s+вот|тогда\s+как|в\s+то\s+время\s+как|whereas)(?![а-яёa-z])", re.IGNORECASE)
 _HEADLINE = re.compile(r"^[\s*_#>«\"'(-]*")
 
 
@@ -257,7 +266,31 @@ def _describe(board: chess.Board) -> Optional[tuple[str, str]]:
 
 # ── ECO codes ────────────────────────────────────────────────────────────────
 
+def _clause(text: str, start: int, end: int) -> tuple[int, int]:
+    """The clause of *text* around [start, end): from the last break before it to the next break after it."""
+    left = max([b.end() for b in _CLAUSE_BREAK.finditer(text[:start])] or [0])
+    right = _CLAUSE_BREAK.search(text, end)
+    return left, right.start() if right else len(text)
+
+
+def _tied_to_board(text: str, start: int, end: int, asks: bool) -> bool:
+    """The code at [start, end) is said of the board: its clause says so before it («Это …, код C65», «на доске»), or
+    the student asked for this board's code and the clause names nothing else («Код — C68.»)."""
+    left, right = _clause(text, start, end)
+    before = text[left:start]
+    if _TIE.search(before):
+        return True
+    this = _THIS.search(before)
+    if this and not re.search(r"[—–]|\s-\s", before[:this.start()]):
+        return True
+    rest = text[left:start] + text[end:right]
+    return asks and not (_OPENING_NOUN.search(rest) or _named_in(rest) or _PERSON_PHRASE.search(rest.lower())
+                         or re.search(_W + r"(?:" + _PERSON + r")" + _E, rest.lower()))
+
+
 def _eco_issues(text: str, ctx) -> list[str]:
+    from src.answer_check import _ASKS_BOARD_NAME
+
     codes = [(m, _CYR_LETTER.get(m["l"], m["l"]) + m["d"]) for m in _ECO.finditer(text)]
     if not codes:
         return []
@@ -294,9 +327,13 @@ def _eco_issues(text: str, ctx) -> list[str]:
         if word:
             allowed.update(e[0] for e in book.entries if _has_word(e[1], word))
     allowed |= getattr(ctx, "text_codes", set()) | asked
+    q = ctx.question_raw or ctx.question or ""
+    asks = bool(_ASKS_CODE.search(q) or _ASKS_BOARD_NAME.search(q)) and not _named_in(q)
     out = []
     for m, code in codes:
         if code in allowed or m.start() in ranged:
+            continue
+        if not _tied_to_board(text, m.start(), m.end(), asks):
             continue
         if CONDITIONAL.search(text[:m.start()]) or denied_before(text, m.start()):
             continue
@@ -366,8 +403,40 @@ def _consistent(entries, word: str, family: Optional[str] = None) -> bool:
     return any(_has_word(e[1], word) and (family is None or e[1].startswith(family)) for e in entries)
 
 
+_HOME: dict = {}
+
+
+def _home_family(word: str) -> Optional[str]:
+    """The opening most of the book's lines named after *word* belong to (more than half of them), or None.
+
+    Alekhine (56 of 101 in the Alekhine Defense), Najdorf, Winawer, Sveshnikov name one opening: a move of another
+    one, or of another branch, called by that name is the coach's mistake. Capablanca, Tarrasch, Rubinstein,
+    Zaitsev are spread over many openings, and players attach them to lines the book names otherwise («вариант
+    Капабланки» for 4.Qc2 in the Nimzo-Indian, the book's Classical Variation — review 30.10): no verdict."""
+    if word not in _HOME:
+        from collections import Counter
+
+        counts = Counter(e[1].split(":")[0].strip() for e in _book().entries if _has_word(e[1], word))
+        total = sum(counts.values())
+        top = counts.most_common(1)
+        _HOME[word] = top[0][0] if top and top[0][1] * 2 > total else None
+    return _HOME[word]
+
+
+def _said_of_board(lowered: str, start: int, end: int) -> bool:
+    """The name at [start, end) is what the sentence says the board is: the predicate of an identity («Это
+    открытый вариант…», «Перед нами вариант Найдорфа»), or a headline opening the sentence that the sentence does
+    not go on to describe («Открытый вариант сицилианской защиты, и у белых…», prod 29.10)."""
+    if _PREDICATE.match(lowered[:start]):
+        return True
+    if start > len(_HEADLINE.match(lowered).group(0)) + 1:
+        return False
+    tail = re.split(r"[,.;!?]", lowered[end:], 1)[0]
+    return not _SUBJECT_TAIL.search(tail)
+
+
 def _name_issues(text: str, ctx) -> list[str]:
-    from src.answer_check import _ASKS_BOARD_NAME, _IDENTITY, _ON_THE_BOARD, _to_san
+    from src.answer_check import _ASKS_BOARD_NAME, _ON_THE_BOARD, _to_san
 
     converted, _ = _to_san(text)
     lowered = converted.lower()
@@ -396,17 +465,19 @@ def _name_issues(text: str, ctx) -> list[str]:
         if any(":" not in n and _has_word(n, word) for n, _ in named):
             continue
         line_named = any(_has_word(n, word) for n, _ in named)
-        before = [mv for mv in moves if mv[1] <= start]
-        after = [mv for mv in moves if mv[0] >= end]
+        # The move the name is attached to: one written right after it («вариант Алапина 2.c3», «… — 2.c3») first,
+        # else the last one before it in the same clause — «2.Кf3 d6 3.d4, а вариант Алапина 2.c3 считается…» names
+        # 2.c3, not 3.d4 (review 30.10).
         attached = None
-        if before:
+        after = [mv for mv in moves if mv[0] >= end]
+        if after and re.fullmatch(r"[\s*_—–:(-]*(?:\d{1,3}\s?(?:\.\.\.|…|\.)\s?)?", converted[end:after[0][0]]):
+            attached = after[0]
+        before = [mv for mv in moves if mv[1] <= start]
+        if attached is None and before:
             last = before[-1]
             gap = converted[last[1]:start]
-            if len(gap) <= 90 and not re.search(r"[.!?;]", gap):
+            if len(gap) <= 90 and not re.search(r"[.!?;]", gap) and not _CONTRAST.search(gap):
                 attached = last
-        if attached is None and after and re.fullmatch(r"[\s*_—–:(-]*(?:\d{1,3}\s?(?:\.\.\.|…|\.)\s?)?",
-                                                       converted[end:after[0][0]]):
-            attached = after[0]  # «вариант Алапина — 2.c3»
         if attached is not None:
             if plain:
                 continue  # the book's plain names are narrow: judged only of the board, below
@@ -418,17 +489,21 @@ def _name_issues(text: str, ctx) -> list[str]:
                 continue  # out of the book: nothing to compare
             if _consistent(reached + ahead, word):
                 continue
+            home = _home_family(word)
+            if home is None:
+                continue  # a name the book spreads over many openings: players' usage may differ from the book's
             truth = _describe(position)
-            out.append(f"after {san} the position is the {truth[1]} ({truth[0]}) by the ECO book: no book line "
-                       f"through it is named after {word}" if truth else
-                       f"no book line through the position after {san} is named after {word}")
+            whose = (f"; {word}'s lines are in the {home}" if home not in _families(reached + ahead) else
+                     f"; {word}'s lines are other branches of the {home}")
+            out.append((f"after {san} the position is the {truth[1]} ({truth[0]}) by the ECO book: no book line "
+                        f"through it is named after {word}" if truth else
+                        f"no book line through the position after {san} is named after {word}") + whose)
             continue
         if ctx.scene_trail or re.search(r"(?<![0-9])1\s?\.\s?(?:[KQRBN]?[a-h]?x?[a-h][1-8]|O-O)", converted):
             continue  # a line of moves: the name may be about any position of it («…возникает после 2.Кf3 и 3.d4»)
-        # Said of the board: «Это вариант…», «Перед нами…», or the name opening the sentence; and about the board
-        # in front of the student — a game, a question for its name, «здесь».
-        headline = start <= len(_HEADLINE.match(lowered).group(0)) + 1
-        if not (_IDENTITY.search(lowered[:start + 1]) or headline):
+        # Said of the board: the name is the predicate of «Это…», «Перед нами…», or the sentence's headline; and about
+        # the board in front of the student — a game, a question for its name, «здесь».
+        if not _said_of_board(lowered, start, end):
             continue
         q = ctx.question_raw or ctx.question or ""
         asks_board = bool(_ASKS_BOARD_NAME.search(q)) and not _named_in(q)
@@ -451,7 +526,12 @@ def _name_issues(text: str, ctx) -> list[str]:
         if _consistent(reached, word, family):
             continue
         truth = _describe(board)
-        ahead_named = [e for e in ahead if _has_word(e[1], word) and (family is None or e[1].startswith(family))]
+        # A sub-line of a variation the board is already in is a name players give the whole variation: the
+        # book's Sveshnikov begins 8...b5 inside the Lasker-Pelikan the board reached at 5...e5, its «Zaitsev» inside
+        # the Closed Ruy (review 30.10).
+        stages = [e[1] for e in reached if ":" in e[1]]
+        ahead_named = [e for e in ahead if _has_word(e[1], word) and (family is None or e[1].startswith(family))
+                       and not any(e[1].startswith(s + ",") for s in stages)]
         # The turn has a position of that variation (the line the student steps through, a tool's line): the
         # name is about it, the board is on the way.
         shown = [b for b in ctx.boards if not _start(b) and _consistent(book.lineage(b)[0], word, family)]
@@ -461,125 +541,14 @@ def _name_issues(text: str, ctx) -> list[str]:
             first = min(ahead_named, key=lambda e: len(_split_moves(e[2])))
             out.append(f"the board has not reached the {first[1]} yet — it begins {first[2]}; the position on the "
                        f"board is the {truth[1]} ({truth[0]}) by the ECO book")
-        elif not plain and not line_named and not ahead_named:
-            # (a named line said of the board but on another branch is the identity check's: one issue, not two)
-            out.append(f"the position on the board is the {truth[1]} ({truth[0]}) by the ECO book: no book line "
-                       f"through it is named after {word}")
-    return out
-
-
-# ── «Usually X», «the main move is X» ────────────────────────────────────────
-
-def _main_move_verdict(board: chess.Board, move: chess.Move) -> Optional[str]:
-    """Why *move* is not the usual move of *board* by the book, or None (it may be, or the book cannot tell)."""
-    conts = _book().continuations(board)
-    if not conts:
-        return None
-    san = board.san(move)
-    top = conts[0]
-    if top["san"] == san:
-        return None
-    lines = next((c["lines"] for c in conts if c["san"] == san), 0)
-    if top["lines"] < _MAIN_MIN_LINES or lines * _MAIN_RATIO > top["lines"]:
-        return None
-    num = f"{board.fullmove_number}." if board.turn == chess.WHITE else f"{board.fullmove_number}..."
-    others = ", ".join(f"{num}{c['san']} ({c['lines']})" for c in conts[1:3] if c["san"] != san)
-    return (f"{num}{san} is not the usual move here: the ECO book's main move is {num}{top['san']} "
-            f"({top['lines']} book lines follow it{', then ' + others if others else ''}), {num}{san} has "
-            f"{lines or 'no'} book line{'' if lines == 1 else 's'}")
-
-
-def _candidates(ctx, color: Optional[bool]) -> list:
-    """The positions a «usually» may be about, nearest first: the scene the answer's moves set, the board, the
-    positions the student's idea leads to — never the bare start standing in for an unknown position."""
-    out = []
-    if ctx.scene is not None and ctx.scene_age <= 1:
-        out.append(ctx.scene)
-    now = _board_now(ctx)
-    if now is not None:
-        out.append(now)
-    out += [b for b in ctx.boards if ctx.is_given(b)]
-    seen, uniq = set(), []
-    for b in out:
-        key = b.fen()
-        if key in seen or (_start(b) and not (now is not None and _start(now))):
-            continue
-        seen.add(key)
-        if color is None or b.turn == color:
-            uniq.append(b)
-    return uniq
-
-
-def _usual_issues(text: str, ctx) -> list[str]:
-    from src.answer_check import _to_san
-
-    converted, _ = _to_san(text)
-    lowered = converted.lower()
-    if lowered.rstrip().endswith("?"):
-        return []
-    # «Обычно» of the next move, not of a plan in general («конь обычно развивается на f3, слон на c4»): the
-    # sentence says it is about the next move («дальше», «в ответ», «здесь»), the student asked for the main move,
-    # or the move carries its number.
-    next_move = bool(_NEXT.search(lowered)) or bool(_ASKS_MAIN.search(ctx.question_raw or ctx.question or ""))
-    claims = []  # (start, color, parse, number) — parse(board) gives the move or None
-    for rx in (_USUAL_MOVE, _MAIN_MOVE):
-        for m in rx.finditer(converted):
-            raw = m["mv"] if "mv" in m.groupdict() and m["mv"] else m.groupdict().get("mv2")
-            if not raw:
-                continue
-            if DENIAL.search(m.group(0)[:-len(raw)]):
-                continue  # «обычно играют не Кc3, а Кf3»
-            num = re.match(r"\d{1,3}\s?(\.\.\.|…|\.)", raw)
-            if rx is _USUAL_MOVE and not (num or next_move):
-                continue
-            color = None if not num else (chess.WHITE if num.group(1) == "." else chess.BLACK)
-            san = re.sub(r"^\d{1,3}\s?(?:\.\.\.|…|\.)\s?", "", raw)
-
-            def parse(board, san=san):
-                try:
-                    return board.parse_san(san)
-                except ValueError:
-                    return None
-
-            claims.append((m.start(), color, parse, int(re.match(r"\d+", raw).group(0)) if num else None))
-    for m in _USUAL_PIECE.finditer(lowered):
-        if not next_move or DENIAL.search(m.group(0)):
-            continue
-        word = (m["color"] or "").lower()
-        color = chess.WHITE if word.startswith(("бел", "white")) else chess.BLACK if word else None
-        ptype, sq = _PIECES[m["piece"].lower()], chess.parse_square(m["sq"])
-
-        def parse(board, ptype=ptype, sq=sq):
-            found = [mv for mv in board.legal_moves if mv.to_square == sq and board.piece_type_at(mv.from_square) == ptype]
-            return found[0] if len(found) == 1 else None
-
-        claims.append((m.start(), color, parse, None))
-    if not claims:
-        return []
-    book = _book()
-    out = []
-    for start, color, parse, number in claims:
-        if denied_before(lowered, start) or re.search(_W + r"(?:если|когда|if|when|unless)" + _E, lowered[:start]):
-            continue
-        verdicts = []
-        for board in _candidates(ctx, color):
-            if number is not None and board.fullmove_number != number:
-                continue
-            move = parse(board)
-            if move is None:
-                continue
-            reached, _ = book.lineage(board)
-            if not reached:
-                verdicts = []
-                break  # a position out of the book: no verdict at all
-            # an opening named that is not this board's: «в сицилианской обычно играют Кf3» on a French board
-            named = {n.split(":")[0].strip() for n, _ in _named_in(converted)}
-            if named and not named & _families(reached):
-                verdicts = []
-                break
-            verdicts.append(_main_move_verdict(board, move))
-        if verdicts and all(verdicts):
-            out.append(verdicts[0])
+        elif not plain and not line_named and not _consistent(reached + ahead, word):
+            # Another opening's name for the board («Это вариант Свешникова» in the Ruy Lopez): only for a name the
+            # book gives to one opening, and not this one — another branch of the board's own opening is the
+            # identity check's (one issue, not two), a spread name may be the players' usage.
+            home = _home_family(word)
+            if home is not None and home not in _families(reached + ahead):
+                out.append(f"the position on the board is the {truth[1]} ({truth[0]}) by the ECO book: no book line "
+                           f"through it is named after {word}; {word}'s lines are in the {home}")
     return out
 
 
@@ -588,7 +557,7 @@ def opening_book_issues(text: str, ctx) -> list[str]:
     if ctx is None:
         return []
     try:
-        return _eco_issues(text, ctx) + _name_issues(text, ctx) + _usual_issues(text, ctx)
+        return _eco_issues(text, ctx) + _name_issues(text, ctx)
     except Exception:  # noqa: BLE001 — a broken lookup never stops an answer
         import logging
 

@@ -1,8 +1,9 @@
 """Prod check 29.10, theory set: opening facts said from memory where the ECO book on the server knows them —
 a variation named after the wrong person (2.c3 «атака в стиле Алёхина», the Alapin), a variation claimed of a
-board that has not reached it («Открытый вариант сицилианской» on 1.e4 c5), «обычно» for a move the book hardly
-knows (3.Nc3 after 2.f4 exf4), a wrong ECO code. Closed by src/answer_check_openings.py; the book's moves reach
-the model in the opening line of the prompt (src/voice_engine_note._book_moves)."""
+board that has not reached it («Открытый вариант сицилианской» on 1.e4 c5), a wrong ECO code. Closed by
+src/answer_check_openings.py; the book's moves and their names reach the model in the opening line of the prompt
+(src/voice_engine_note._book_moves). «Обычно играют X» (can-kg-accept) is not judged: the book counts no games
+(review 30.10)."""
 
 import chess
 import pytest
@@ -64,18 +65,13 @@ def test_move_sicilian_2_the_open_variation_and_an_alekhine_attack_are_read_back
 
 
 @pytest.mark.unit
-def test_can_kg_accept_the_knight_usually_going_to_c3_is_read_back():
-    # The student's idea (2...exf4) is a position of the turn, as the server builds the check (named_moves).
+def test_can_kg_accept_usually_is_not_judged_by_the_book():
+    # 3.Nc3 after 2.f4 exf4 is rare in practice, but the book cannot say so: it names lines and counts no games
+    # (the Evans Gambit has 51 named sub-lines after 3...Bc5, 4.d3 five). Hermes ships no move statistics, so
+    # «обычно» stays unjudged rather than cut correct teaching (review 30.10).
     ctx = _ctx(KG, "Стоит ли брать пешку f4?", ideas=("exf4",))
-    out = _answer(ctx, (
-        "Да, брать можно — это лучший ход в позиции. Играешь и забираешь пешку f4: она ничем не защищена, а взамен у "
-        "тебя появляется сильная идея — ферзь на h4 с шахом.\n\n"
-        "Смотри, что дальше: белый конь обычно идёт на c3, прикрывая поле e2, а ты бьёшь ферзём на h4 — шах, и белый "
-        "король вынужден как-то выпутываться."))
-    flagged = [(s, i) for s, i in out if any("usual" in x for x in i)]
-    assert len(flagged) == 1 and flagged[0][0].startswith("Смотри, что дальше")
-    issue = next(x for x in flagged[0][1] if "usual" in x)
-    assert issue.startswith("3.Nc3 is not the usual move") and "3.Nf3 (92 book lines" in issue
+    assert not [i for i in check_sentence("Смотри, что дальше: белый конь обычно идёт на c3, прикрывая поле e2.", ctx)
+                if "usual" in i]
 
 
 @pytest.mark.unit
@@ -120,6 +116,9 @@ def test_a_variation_the_board_has_not_reached_is_read_back(moves, question, tex
     (SICILIAN, "А 2. c3 — это система Найдорфа.", "Alapin Variation", "Najdorf"),
     (MORPHY, "Лучше всего 4.Сa4 — вариант Свешникова.", "Morphy Defense", "Sveshnikov"),
     (SICILIAN, "Есть ещё 2.c3, the Winawer Variation.", "Alapin Variation", "Winawer"),
+    # the move written right after the name, past a contrast (review 30.10)
+    (SICILIAN, "Главное продолжение — 2.Кf3 d6 3.d4, а вариант Алёхина 2.c3 спокойнее.", "Alapin Variation",
+     "Alekhine"),
 ])
 def test_a_person_named_for_a_move_must_name_a_book_line_through_it(moves, text, real, person):
     issues = check_sentence(text, _ctx(moves))
@@ -127,24 +126,16 @@ def test_a_person_named_for_a_move_must_name_a_book_line_through_it(moves, text,
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("moves, text, wrong, main", [
-    ("e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6", "Дальше белые обычно играют 5.Кc3.", "5.Nc3", "5.O-O"),
-    ("e4 e5 f4 exf4", "Главный ход здесь — 3.Кc3.", "3.Nc3", "3.Nf3"),
-    ("e4 e6", "Здесь обычно играют 2.Кc3.", "2.Nc3", "2.d4"),
-])
-def test_usually_or_the_main_move_is_judged_by_the_book(moves, text, wrong, main):
-    issues = check_sentence(text, _ctx(moves))
-    assert any(i.startswith(f"{wrong} is not the usual move") and f"main move is {main}" in i for i in issues), issues
-
-
-@pytest.mark.unit
 @pytest.mark.parametrize("moves, text, code", [
     (MORPHY, "Это испанская партия, C65.", "C65"),
     (SICILIAN, "На доске сицилианская защита (B90).", "B90"),
     ("d4 d5 c4 c6", "Это славянская защита, код D30.", "D30"),
+    # a bare code answering the question for the board's code; a code tied by «это» past another clause
+    (MORPHY, "Код — C68.", "C68"),
+    ("d4 d5 c4 e6", "Принятый гамбит — это D20, а у нас на доске D20 тоже.", "D20"),
 ])
 def test_a_wrong_eco_code_is_read_back(moves, text, code):
-    issues = check_sentence(text, _ctx(moves, "Как называется этот дебют?"))
+    issues = check_sentence(text, _ctx(moves, "Какой код у этого дебюта?"))
     assert any(i.startswith(f"{code} is not the ECO code") for i in issues), issues
 
 
@@ -175,14 +166,45 @@ def test_a_wrong_eco_code_is_read_back(moves, text, code):
     ("e4 Nf6 e5", "", "Если играешь защиту Алехина, конь на f6 уходит на d5."),
     ("e4 c6", "", "Спокойнее и надёжнее — 2.d3, вариант Брейера."),
     ("", "Покажи на доске защиту Каро-Канн", "Спокойнее и надёжнее — 2.d3, вариант Брейера."),
-    # «usually»: the main move, a plan in general, a denial, another opening, a position out of the book
-    (MORPHY, "", "Основной ход здесь — **4. Сa4**."),
-    ("e4 e5", "", "Конь обычно развивается на f3, а слон на c4."),
-    ("e4 e5 f4 exf4", "", "Здесь обычно играют не 3.Кc3, а 3.Кf3."),
-    ("e4 e6", "", "В сицилианской здесь обычно играют Кf3."),
-    ("e4 e5 Nf3 Nc6", "", "Дальше белые обычно играют 3.Сc4 или 3.Сb5."),
-    ("r1bq1rk1/pp2bppp/2n1pn2/2pp4/3P4/2PBPN2/PP1N1PPP/R1BQ1RK1 w - - 0 8", "", "Главный ход здесь — Кe5."),
-    (MORPHY, "", "Знаешь, что обычно играют здесь чёрные после 4.Сa4?"),
+    # review 30.10 — «usually» / «the main move» is not judged by line counts: the Giuoco Pianissimo, the English
+    # 2.Nc3, the London's 2.Bf4, the student's own habit, a player, beginners, a time control, a piece word
+    ("e4 e5 Nf3 Nc6 Bc4 Bc5", "Какой план у белых?", "Здесь белые обычно играют 4.d3: спокойно укрепляют центр."),
+    ("c4 Nf6", "Какой ход здесь главный?", "Главный ход здесь — 2.Кc3: белые остаются в английском начале."),
+    ("d4 Nf6", "Я играю лондонскую систему, что дальше?", "В лондонской системе здесь обычно играют 2.Сf4."),
+    ("e4", "Что я обычно отвечаю на e4?", "Против 1.e4 ты чаще всего играешь 1...d5 — в 40 партиях из последних."),
+    ("e4 e5", "", "Здесь новички обычно играют Фh5, но это слабо."),
+    ("e4 e5", "", "Здесь Карлсен обычно играет Кc3."),
+    ("e4 e5", "", "В блице здесь обычно играют Сc4."),
+    ("e4 e5", "", "Дальше белые обычно играют конём f3."),
+    ("e4 e5 Nf3 Nc6 Bc4", "", "Дальше чёрные обычно отвечают 3...Сe7 — венгерская защита."),
+    # review 30.10 — a variation ahead, possible, a choice, the popular one, advice, a relative
+    (SICILIAN, "Как называется этот дебют?", "Это сицилианская защита, и вариант Найдорфа здесь ещё впереди."),
+    (SICILIAN, "Как называется этот дебют?",
+     "Это сицилианская защита, а самый популярный её вариант здесь — вариант Найдорфа."),
+    (SICILIAN, "What variation is this?",
+     "It's the Sicilian Defense, and the Open Sicilian is White's most popular choice here."),
+    (SICILIAN, "Как называется этот дебют?", "Это сицилианская защита — здесь возможен и вариант Алапина, и открытый вариант."),
+    ("e4 e6 d4 d5 Nc3", "Как называется?",
+     "Это французская защита: здесь начинается выбор между вариантом Винавера и классической системой."),
+    ("e4 c5 Nf3 d6 Bb5+", "Как называется вариант?", "Это московский вариант, родственник варианта Россолимо."),
+    # review 30.10 — the name goes with the move written right after it, not with the last move of another clause
+    (SICILIAN, "Какие главные ходы?", "Главное продолжение — 2.Кf3 d6 3.d4, а вариант Алапина 2.c3 считается более спокойным."),
+    # review 30.10 — names the book gives narrower than players do: a sub-line of the variation the board is in, a
+    # surname the book spreads over many openings
+    ("e4 c5 Nf3 Nc6 d4 cxd4 Nxd4 Nf6 Nc3 e5", "Как называется этот вариант?", "Это вариант Свешникова."),
+    ("d4 Nf6 c4 e6 Nc3 Bb4 Qc2", "Как называется этот вариант?", "Это вариант Капабланки."),
+    ("d4 Nf6 c4 e6 Nc3 Bb4", "", "Самое популярное здесь — 4.Фc2, вариант Капабланки."),
+    ("e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Be7 Re1 b5 Bb3 d6 c3 O-O h3 Bb7", "Как называется этот вариант?",
+     "Это вариант Зайцева."),
+    # review 30.10 — a code in a clause about another opening, the student's options, a player, a bare surname
+    ("d4 d5 c4 e6", "Код?", "Это отказанный ферзевый гамбит — D30, а принятый гамбит идёт под D20."),
+    ("e4 e5 Nf3 Nc6 Bb5 Nf6", "Код?", "Это берлинка, C65; берлинский эндшпиль — C67."),
+    ("d4 d5 c4", "", "Принять гамбит — D20, отказаться — D30."),
+    ("d4 d5 c4", "", "Взяв на c4, чёрные получат D20."),
+    (MORPHY, "", "Карлсен часто играет C67."),
+    (SICILIAN, "", "Свешников (B33) — острый вариант."),
+    (SICILIAN, "", "Схевенинген — B80, Найдорф — B90."),
+    (SICILIAN, "", "Например, дракон — это B70."),
 ])
 def test_right_or_other_position_opening_facts_pass(moves, question, text):
     ctx = (CheckContext.from_fens([moves], question=question) if "/" in moves
@@ -218,13 +240,17 @@ def test_the_game_on_the_board_gives_its_stages():
 # ── the book's moves in the prompt, and the voice coach's check ──────────────────────────────────────────────
 
 @pytest.mark.unit
-def test_the_prompt_gives_the_books_moves_main_first():
+def test_the_prompt_gives_the_books_moves_with_their_names_and_no_ranking():
     from src.voice_engine_note import _book_moves
 
     line = _book_moves(_board(SICILIAN).fen())
-    assert line.index("2.Nf3") < line.index("2.c3 — Sicilian Defense: Alapin Variation (B22)")
+    assert "2.c3 — Sicilian Defense: Alapin Variation (B22)" in line and "2.Nf3" in line
     kg = _book_moves(_board("e4 e5 f4 exf4").fen())
-    assert "3.Nf3 — King's Gambit Accepted: King's Knight's Gambit (C34): 92 book lines" in kg and "3.Nc3" not in kg
+    assert "3.Nf3 — King's Gambit Accepted: King's Knight's Gambit (C34)" in kg
+    # review 30.10: line counts are no popularity — the Evans is not offered as «the main / usual move»
+    italian = _book_moves(_board("e4 e5 Nf3 Nc6 Bc4 Bc5").fen())
+    assert "book lines" not in italian and "call only the first" not in italian
+    assert "says nothing of which move is main or usual" in italian
     assert _book_moves("8/8/8/4k3/8/8/4K3/8 w - - 0 1") is None
 
 
@@ -234,10 +260,14 @@ def test_the_voice_check_reads_the_same_opening_facts():
 
     client = TestClient(app)
     resp = client.post("/api/coach/voice/check", headers={"X-User-Id": "voice-openings"}, json={
-        "text": "Смотри, что дальше: белый конь обычно идёт на c3, прикрывая поле e2.",
-        "fen": _board(KG).fen(), "question": "Стоит ли брать пешку f4?",
+        "text": "Дальше белые обычно играют конь эф три.", "fen": _board("e4 e5").fen(),
     })
-    assert any(i.startswith("3.Nc3 is not the usual move") for i in resp.json()["issues"])
+    assert not [i for i in resp.json()["issues"] if "usual" in i]  # review 30.10
+    resp = client.post("/api/coach/voice/check", headers={"X-User-Id": "voice-openings"}, json={
+        "text": "Это сицилианская защита, а вариант Найдорфа здесь ещё впереди.", "fen": _board(SICILIAN).fen(),
+        "question": "Как называется этот дебют?",
+    })
+    assert not [i for i in resp.json()["issues"] if "has not reached" in i]
     resp = client.post("/api/coach/voice/check", headers={"X-User-Id": "voice-openings"}, json={
         "text": "Рядом стоит 2. c3 — любимая атака в стиле Алёхина.", "fen": _board(SICILIAN).fen(),
     })

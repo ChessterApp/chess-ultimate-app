@@ -4223,7 +4223,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
 
     def _check() -> list:
         # The positions the student's idea leads to («Стоит ли брать пешку f4?» → after exf4), as the text coach's
-        # check has them: «белый конь обычно идёт на c3» is about the position after the capture (prod check 29.10).
+        # check has them: a move or an ECO code said after the capture is about that position (prod check 29.10).
         ideas = []
         if body.fen and body.question:
             try:
