@@ -80,6 +80,7 @@ def _engine(monkeypatch, lines_by_fen: dict, deep_by_fen: dict = None, calls: li
 
     monkeypatch.setattr("src.hypothetical.analyze_timed", timed)
     monkeypatch.setattr("src.hypothetical.analyze_cached", _cached)
+    monkeypatch.setattr("src.hypothetical.analyze_position", _cached)
 
 
 class TestTheClaimIsFound:
@@ -126,12 +127,17 @@ class TestTheClaimIsFound:
         "Ты думаешь, что после Nxe5 чёрные обязаны ответить dxe5, но это не так.",  # the student's view
         "Если бы после Nxe5 чёрные были обязаны ответить dxe5, связка бы не работала.",  # counterfactual
         "После Nxe5 белые обязаны сыграть d3.",  # the other side's move: another moment of the line
-        "После Nxe5 чёрные обязаны ответить Qxd1.",  # not a legal reply there: the check of moves judges it
         "Обычно в таких позициях приходится брать dxe5.",  # a rule in general, no line
         "Чёрные обязаны ответить dxe5.",  # no line, no board: it is White to move here
     ])
     def test_not_a_claim_about_this_line(self, sentence):
         assert _claim(sentence, TRAP) is None
+
+    def test_an_impossible_named_reply_is_cut_by_the_move_check(self):
+        # «обязаны ответить Qxd1» after Nxe5: the d2 pawn stands between — the scene's move check says so (merge 30.10).
+        ctx = CheckContext.from_fens([TRAP])
+        issues = check_sentence("После Nxe5 чёрные обязаны ответить Qxd1.", ctx)
+        assert issues and "Qxd1 is impossible" in issues[0]
 
     def test_a_piece_the_side_to_move_lacks_means_the_move_just_written(self):
         # «…Bxb4, слон обязан взять ладью» describes Bxb4 itself; after it White moves and has no bishop.
@@ -202,6 +208,7 @@ class TestTheEngineJudges:
         _engine(monkeypatch, {after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]})
         shallow = _fake({after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]})
         monkeypatch.setattr("src.hypothetical.analyze_cached", lambda fen, depth=16, multipv=1: shallow(fen, 0, multipv))
+        monkeypatch.setattr("src.hypothetical.analyze_position", lambda fen, depth=16, multipv=1: shallow(fen, 0, multipv))
         assert verify_forced_reply(self._trap_claim(), 300, True) is None
 
     def test_the_named_reply_much_worse_than_the_best(self, monkeypatch):
@@ -252,11 +259,13 @@ class TestTheEngineJudges:
 
         monkeypatch.setattr("src.hypothetical.analyze_timed", _boom)
         monkeypatch.setattr("src.hypothetical.analyze_cached", _boom)
+        monkeypatch.setattr("src.hypothetical.analyze_position", _boom)
         assert verify_forced_reply(claim, 300, True) is None
 
     def test_the_engine_away_is_not_an_issue(self, monkeypatch):
         monkeypatch.setattr("src.hypothetical.analyze_timed", lambda *a, **k: {"error": "no engine"})
         monkeypatch.setattr("src.hypothetical.analyze_cached", lambda *a, **k: {"error": "no engine"})
+        monkeypatch.setattr("src.hypothetical.analyze_position", lambda *a, **k: {"error": "no engine"})
         assert verify_forced_reply(self._trap_claim(), 300, True) is None
 
 

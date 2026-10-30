@@ -20,7 +20,7 @@ import chess
 
 from src.fen_repair import repair_fen
 from src.position_facts import VALUES, static_facts
-from src.tools.stockfish import analyze_cached, analyze_timed
+from src.tools.stockfish import analyze_cached, analyze_position, analyze_timed
 
 logger = logging.getLogger(__name__)
 
@@ -610,7 +610,10 @@ def _engine_lines(fen: str, multipv: int, movetime_ms: Optional[int], depth: Opt
     if depth is None:
         res = analyze_timed(fen, movetime_ms, multipv=multipv, min_depth=MIN_DEPTH)
         return None if "error" in res else res
-    res = analyze_cached(fen, depth=depth, multipv=multipv)
+    # A search of its own, never the cache: a timed look that happened to reach the depth served it before, with
+    # its gaps (trap-legal: 0.72 from the cache against 0.50 searched to depth 17 — the verdict flipped by what had
+    # been looked at first; merge 30.10).
+    res = analyze_position(fen, depth=depth, multipv=multipv)
     lines = (res.get("lines") or []) if "error" not in res else []
     if not lines or any(int(ln.get("depth") or 0) < depth and ln.get("mate_in") is None for ln in lines):
         return None
