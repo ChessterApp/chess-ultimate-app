@@ -2904,7 +2904,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         def _answer_frames(text: str) -> list:
             """Frames for answer text that passed the check (the stream as before)."""
             nonlocal streamed_chars
-            text = chess_terms(strip_leaks(text), turn_language)  # DeepSeek's tool-call markup written as text; «епископ»
+            text = chess_terms(strip_leaks(text), turn_language, body.message)  # DeepSeek's tool-call markup as text; «епископ»
             # A mark on a line of its own leaves an empty paragraph behind.
             if text.startswith("\n") and answer_parts and answer_parts[-1].endswith("\n\n"):
                 text = text.lstrip("\n")

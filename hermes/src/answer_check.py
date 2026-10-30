@@ -2747,35 +2747,78 @@ _TERM_TABLE = [
     (r"башн(?:я|и|е|ю|ей|ею|ям|ями|ях|ен)", "ладья", "тура", r"лад[ьеи]|тура"),
     (r"эндгейм\w*", "эндшпиль", "эндшпиль", r"эндшпил"),
     (r"миттельгейм\w*", "миттельшпиль", "миттельшпиль", r"миттельшпил"),
-    (r"[a-h]-?файл\w*|вертикальн\w+\s+файл\w*|открыт\w+\s+файл\w*", "вертикаль", "тік", r"вертикал|тік"),
-    # English words in a Russian or Kazakh sentence: «queen выгоняет на край», «нет pawns», «только immediately»
-    (r"queens?", "ферзь", "уәзір", None), (r"kings?", "король", "патша", None), (r"rooks?", "ладья", "тура", None),
-    (r"bishops?", "слон", "піл", None), (r"knights?", "конь", "ат", None), (r"pawns?", "пешка", "сарбаз", None),
-    (r"opposition", "оппозиция", "оппозиция", None), (r"zugzwang", "цугцванг", "цугцванг", None),
-    (r"fianchetto", "фианкетто", "фианкетто", None), (r"en\s+passant", "взятие на проходе", "өтпелі алу", None),
-    (r"endgame", "эндшпиль", "эндшпиль", None), (r"middlegame", "миттельшпиль", "миттельшпиль", None),
-    (r"skewer", "сквозной удар", "рентген", None), (r"outpost", "форпост", "форпост", None),
-    (r"immediately", "сразу", "бірден", None),
+    # «открытый файл», not the verb «открыть файл PGN» (review 30.10)
+    (r"[a-h]-?файл\w*|вертикальн\w+\s+файл\w*|(?:полу)?открыт(?:ый|ой|ая|ом|ую|ых|ые|ым|ыми|ого|ому)\s+файл\w*",
+     "вертикаль", "тік", r"вертикал|тік"),
+    # English words in a Russian or Kazakh sentence: «queen выгоняет на край», «нет pawns», «только immediately»;
+    # with the right word right next to them they are glossed: «оппозиция, или opposition» (review 30.10) — next to
+    # them only: «мат ставит именно ферзь, … — queen выгоняет на край» (prod 29.10) has both and is wrong
+    (r"queens?", "ферзь", "уәзір", r"ферз|уәзір"), (r"kings?", "король", "патша", r"корол|патша"),
+    (r"rooks?", "ладья", "тура", r"лад[ьеи]|тура"), (r"bishops?", "слон", "піл", r"слон|піл"),
+    (r"knights?", "конь", "ат", r"кон[ьяюеё]|ат(?:ты|қа|ы)?(?![\w-])"), (r"pawns?", "пешка", "сарбаз", r"пешк|сарбаз"),
+    (r"opposition", "оппозиция", "оппозиция", r"оппозиц"), (r"zugzwang", "цугцванг", "цугцванг", r"цугцванг"),
+    (r"fianchetto", "фианкетто", "фианкетто", r"фианкетто"),
+    (r"en\s+passant", "взятие на проходе", "өтпелі алу", r"на\s+проходе|өтпелі"),
+    (r"endgame", "эндшпиль", "эндшпиль", r"эндшпил"), (r"middlegame", "миттельшпиль", "миттельшпиль", r"миттельшпил"),
+    (r"skewer", "сквозной удар", "рентген", r"сквозн|рентген"), (r"outpost", "форпост", "форпост", r"форпост"),
+    (r"immediately", "сразу", "бірден", r"сразу|бірден"),
 ]
 _TERM_WORD = re.compile(r"(?<![\w'-])(?:" + "|".join(f"(?P<t{i}>{row[0]})" for i, row in enumerate(_TERM_TABLE))
                         + r")(?![\w-]|'s\s)", re.IGNORECASE)
 # Not words of the sentence: links and paths («chesster.io/learn/chess-basics/the-king-move-right»), a gloss in
-# brackets («оппозиция (opposition)»), a quoted name («сериал «Ход королевы»»).
-_NOT_TERMS = re.compile(r"\S*[/\\]\S*|\b[\w-]+\.(?:io|com|org|ru|kz|net)\b\S*|\([^()]{0,80}\)|«[^«»]{0,80}»|\"[^\"]{0,80}\"|“[^”]{0,80}”")
+# brackets («оппозиция (opposition)»), a quoted name («сериал «Ход королевы»»); a title in capitals — of a book,
+# a course or an opening («Silman's Complete Endgame Course», «King and Pawn Endgames», «Two Knights Defense») —
+# and the series «Ход королевы» unquoted (review 30.10).
+_NOT_TERMS = re.compile(r"\S*[/\\]\S*|\b[\w-]+\.(?:io|com|org|ru|kz|net)\b\S*|\([^()]{0,80}\)|«[^«»]{0,80}»|\"[^\"]{0,80}\"|“[^”]{0,80}”"
+                        r"|(?<![A-Za-z'])[A-Z][A-Za-z']*(?:\s+(?:(?:and|of|the|for|in|on|to|&)\s+)*[A-Z][A-Za-z']*)+"
+                        r"|Ход\s+королев\w*")
+# A word named as a word of another language: «по-английски opposition», «немецкое слово zugzwang», «от
+# итальянского fianchetto», «ферзь queen деп аталады» — the English words of the sentence are glossed.
+_GLOSSED = re.compile(r"(?<![\w-])(?:по-английски|по-немецки|по-французски|по-итальянски|английск\w*|немецк\w*|"
+                      r"итальянск\w*|французск\w*|латинск\w*|называ\w*|зовут|термин\w*|ағылшын\w*|аталады|in\s+english)(?![\w-])",
+                      re.IGNORECASE)
+
+
+def _term_row(word: str) -> Optional[int]:
+    """The row of _TERM_TABLE the word belongs to, or None."""
+    m = _TERM_WORD.fullmatch(word or "")
+    return int(next(k for k, v in m.groupdict().items() if v)[1:]) if m else None
+
+
+def _term_rows(text: str) -> set:
+    """The rows of _TERM_TABLE whose words are in *text* — the student's question, in any form of the word."""
+    return {int(next(k for k, v in m.groupdict().items() if v)[1:]) for m in _TERM_WORD.finditer(text or "")}
+
+
+def _term_explained(row: int, sentence: str, asked: set, at: Optional[tuple] = None) -> bool:
+    """The word of *row* (at *at* in *sentence*) is the student's own («королева» asked, «королевой» answered), or
+    the right word is in the sentence («ферзь (его ещё зовут королевой)», «Ладью часто называют башней»), or an
+    English word is named as English («по-английски queen») or stands right by the right word: explained, not used."""
+    pat, _ru, _kk, stem = _TERM_TABLE[row]
+    if row in asked:
+        return True
+    english = pat[:1].isalpha()
+    if english and _GLOSSED.search(sentence):
+        return True
+    where = sentence
+    if english:
+        if at is None:
+            return False
+        where = sentence[max(0, at[0] - 25):at[1] + 25]
+    return bool(stem and re.search(r"(?<![\w-])(?:" + stem + ")", where, re.IGNORECASE))
 
 
 def _term_issue(sentence: str, language: str, question: str = "") -> Optional[str]:
     """A word of _TERM_TABLE in a Russian or Kazakh sentence, as an issue, or None."""
     text = _NOT_TERMS.sub(lambda mm: " " * len(mm.group(0)), _NOT_LANGUAGE.sub(lambda mm: " " * len(mm.group(0)), sentence))
+    asked = _term_rows(question)
     for m in _TERM_WORD.finditer(text):
         i = int(next(k for k, v in m.groupdict().items() if v)[1:])
-        _pat, ru, kk, stem = _TERM_TABLE[i]
+        _pat, ru, kk, _stem = _TERM_TABLE[i]
         word = m.group(0)
-        if re.search(r"(?<![\w-])" + re.escape(word) + r"(?![\w-])", question or "", re.IGNORECASE):
-            continue  # the student's own word, echoed to be explained
+        if _term_explained(i, sentence, asked, m.span()):
+            continue
         right = kk if language in ("kk", "kz") else ru
-        if stem and re.search(r"(?<![\w-])(?:" + stem + ")", sentence, re.IGNORECASE):
-            continue  # «ферзь (его ещё зовут королевой)»: the right word is there, the other one explained
         name = {"ru": "Russian", "kk": "Kazakh", "kz": "Kazakh"}[language]
         return f"«{word}» is not the {name} chess word: say {right}"
     return None
@@ -3618,7 +3661,7 @@ class SentenceGate:
             sentences.append(self._buf)
             self._buf = ""
         for sentence in sentences:
-            sentence = chess_terms(normalize_notation(sentence), self.ctx.language)  # «рыцарь» → «конь» before the check
+            sentence = chess_terms(normalize_notation(sentence), self.ctx.language, self.ctx.question_raw)  # «рыцарь» → «конь»
             full = self._released + sentence
             self._released = ""
             if len(full.strip()) >= 12 and self._same(full, self._prev):
@@ -3678,7 +3721,7 @@ class SentenceGate:
         return buf[:cut]
 
     def flush(self) -> list[tuple[str, list[str], str]]:
-        rest, self._buf = chess_terms(normalize_notation(self._buf), self.ctx.language), ""
+        rest, self._buf = chess_terms(normalize_notation(self._buf), self.ctx.language, self.ctx.question_raw), ""
         full, self._released = self._released + rest, ""
         if not rest:
             return []
@@ -3792,20 +3835,29 @@ _SWAP_RE = re.compile(r"(?<![\w-])(" + "|".join(sorted(_SWAP_FORMS, key=len, rev
                       re.IGNORECASE)
 
 
-def chess_terms(text: str, language: Optional[str] = None) -> str:
+def chess_terms(text: str, language: Optional[str] = None, question: str = "") -> str:
     """*text* with the Russian chess words where the model used others («епископ» → «слон», «рыцарь» → «конь»).
-    Only «епископ» outside Russian: in Kazakh «тура» is the rook, and the rest is rewritten (foreign_word_issue)."""
+    Only «епископ» outside Russian: in Kazakh «тура» is the rook, and the rest is rewritten (foreign_word_issue).
+    A word the sentence explains stays (_term_explained, the same as the check): «Ладью часто называют башней»
+    became «…называют ладьёй» (review 30.10)."""
     if not text:
         return text
     rx, forms = (_SWAP_RE, _SWAP_FORMS) if language == "ru" else (_BISHOP_RE, _BISHOP_FORMS)
     if not rx.search(text):
         return text
+    asked = _term_rows(question)
 
-    def swap(m: "re.Match") -> str:
-        word = forms[m.group(1).lower()]
-        return word.capitalize() if m.group(1)[0].isupper() else word
+    def swap_in(sentence: str) -> str:
+        def swap(m: "re.Match") -> str:
+            row = _term_row(m.group(1))
+            if row is not None and _term_explained(row, sentence, asked):
+                return m.group(1)
+            word = forms[m.group(1).lower()]
+            return word.capitalize() if m.group(1)[0].isupper() else word
 
-    return rx.sub(swap, text)
+        return rx.sub(swap, sentence)
+
+    return "".join(swap_in(part) for part in re.split(r"(?<=[.!?…])(\s+)", text))
 
 
 def strip_leaks(text: str) -> str:

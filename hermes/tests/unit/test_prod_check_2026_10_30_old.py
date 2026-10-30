@@ -98,12 +98,12 @@ def test_castling_after_a_move_true_or_conditional_passes(fen, question, sentenc
 ])
 def test_retreat_to_a_square_where_the_piece_is_lost(question, sentence, language):
     issues = check_sentence(sentence, _ctx(question=question, language=language))
-    assert any(i.startswith("the bishop on c4 has no retreat to") and "simply lost" in i for i in issues), issues
-    issue = next(i for i in issues if i.startswith("the bishop on c4"))
-    if "e2" in sentence:
-        assert "Nxe2" in issue
+    assert any("the bishop on c4 has no retreat to b5" in i and "simply lost (Nxb5" in i for i in issues), issues
+    issue = next(i for i in issues if "the bishop on c4" in i)
+    if "b3" in sentence:  # judged after b3: d3 and e2 are lost too (30.10 review: the chasing move decides)
+        assert issue.startswith("after b3 ") and "Nxe2" in issue and "cxd3" in issue
     if "a6" in sentence:
-        assert "only a6 is a real retreat" in issue
+        assert "a6 is a real retreat" in issue
 
 
 @pytest.mark.unit
@@ -128,7 +128,6 @@ def test_retreats_that_are_true_or_not_offered_pass(fen, sentence):
     "O-O-O тоже возможна.",
     "**O-O-O** сейчас доступна.",
     "Да, **длинная рокировка** сейчас доступна.",
-    "Длинная рокировка у тебя есть.",
 ])
 def test_long_castling_with_c1_d1_taken(sentence):
     issues = check_sentence(sentence, _ctx(LONG_BLOCKED, "Могу ли я рокироваться в длинную?"))
@@ -308,3 +307,137 @@ def test_russian_capture_notation_is_a_move():
     assert "Nxf7" in converted
     found = proposed_move("Первый ход — **К:f7**: конь берёт пешку f7.", _ctx(EXAMPLE_4, "Какой здесь первый ход?"))
     assert found is not None and found[2] == "Nxf7"  # the engine stage verifies it as the coach's move
+
+
+# ── Review of 30.10: false cuts of the checks above ─────────────────────────
+
+ALEKHINE = "rnbqkb1r/pppppppp/5n2/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2"  # 1.e4 Nf6
+NIMZO_D4 = "r1bqkbnr/pppppppp/2n5/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 2"  # 1.d4 Nc6
+OPEN_E5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+TWO_KNIGHTS = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
+BISHOP_D6 = "rnbqk2r/ppp2ppp/3B1n2/4p3/4P3/8/PPPP1PPP/RN1QKBNR w KQkq - 0 1"
+KING_E7 = "r1bq1bnr/ppppkppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQ - 2 3"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("fen,question,sentence,language", [
+    # the retreat is judged after the chasing move: 2.e5 Nd5 is the Alekhine, 2.d5 Ne5 a main line
+    (ALEKHINE, "Что будет, если я сыграю e5?", "Ход e5 прогоняет коня — он отступит на d5 или g8, это защита Алехина.", "ru"),
+    (ALEKHINE, "Что будет, если я сыграю e5?", "Если сыграешь e5, конь отступит на d5 — и это нормальная позиция для чёрных.", "ru"),
+    (ALEKHINE, "Что будет, если я сыграю e5?", "После e5 конь отступит на d5, а потом ты атакуешь его ходом c4.", "ru"),
+    (ALEKHINE, "Что будет, если я сыграю e5?", "Ответ на e5 простой: конь отступит на d5 и встанет в центре.", "ru"),
+    (ALEKHINE, "Что будет, если я сыграю e5?", "При e5 конь отступит на d5, и чёрные получат хорошую игру.", "ru"),
+    (ALEKHINE, "What if I play e5?", "If you play e5, the knight will retreat to d5 — that is Alekhine's Defence.", "en"),
+    (NIMZO_D4, "А если d5?", "Ход d5 прогоняет коня, и он уйдёт на e5 или b8.", "ru"),
+])
+def test_a_retreat_is_judged_after_the_chasing_move(fen, question, sentence, language):
+    assert check_sentence(sentence, _ctx(fen, question, language)) == []
+
+
+@pytest.mark.unit
+def test_a_retreat_without_a_named_chase_is_judged_after_every_chase():
+    # b5 is lost after every move that attacks the bishop (Nc3 covers it); d3 and e2 not after Qd3 / Qe2
+    issues = check_sentence("Прогнать слона не выйдет — он отступит на a6, b5, d3 или e2 и всё равно будет бить f1.",
+                            _ctx(BISHOP_C4, "Как мне рокироваться?"))
+    assert issues == ["the bishop on c4 has no retreat to b5 — there it is simply lost (Nxb5); a6 is a real retreat"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("fen,question,sentence", [
+    (OPEN_E5, "Когда я смогу рокироваться?", "После Nf3 ты сможешь рокироваться, но сначала нужно вывести слона f1."),
+    (OPEN_E5, "Когда я смогу рокироваться?", "После Nf3 сможешь рокироваться через пару ходов — осталось вывести слона."),
+    (OPEN_E5, "Когда я смогу рокироваться?", "После Nf3 и вывода слона ты сможешь рокироваться."),
+    (BISHOP_C4, "Как мне рокироваться?", "После b3 рокировка станет возможна лишь тогда, когда слон уйдёт с диагонали a6–f1."),
+    (TWO_KNIGHTS, "Если я сыграю h3, смогу потом рокироваться?", "Да, будет возможна после того, как уберёшь слона с f1."),
+    (TWO_KNIGHTS, "Если я сыграю h3, рокировка станет возможна?", "Да, станет возможна, но сначала убери слона с f1."),
+    # the opponent's castling after the student's move: Bxe5 takes the bishop off f8's diagonal
+    (BISHOP_D6, "Почему чёрные не рокируются?", "После Bxe5 у чёрных рокировка станет возможна."),
+    (BISHOP_D6, "Почему чёрные не рокируются?", "После Bxe5 чёрным короткая рокировка станет доступна."),
+])
+def test_castling_after_a_move_with_a_later_condition_or_the_other_side_passes(fen, question, sentence):
+    ctx = _ctx(fen, question)
+    ctx.student_color = chess.WHITE
+    assert check_sentence(sentence, ctx) == []
+
+
+@pytest.mark.unit
+def test_the_opponents_castling_after_a_move_is_judged_for_the_opponent():
+    ctx = _ctx(BISHOP_D6, "Почему чёрные не рокируются?")
+    ctx.student_color = chess.WHITE
+    issues = check_sentence("После h3 у чёрных рокировка станет возможна.", ctx)
+    assert issues and issues[0].startswith("after h3 Black still cannot castle") and "f8 is attacked" in issues[0]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence", [
+    "Рокировка у тебя ещё есть: король и ладьи не ходили, осталось убрать слона с f1.",
+    "Право на рокировку у тебя есть, но сейчас рокироваться нельзя: между королём и ладьёй стоит слон f1.",
+    "Да, рокировка у тебя сейчас есть как право, но физически сделать её мешают слон и конь.",
+])
+def test_the_right_to_castle_is_not_castling_now(sentence):
+    assert check_sentence(sentence, _ctx(TWO_KNIGHTS, "Я ещё могу рокироваться?", "ru")) == []
+
+
+@pytest.mark.unit
+def test_the_right_to_castle_is_gone_when_the_king_has_moved():
+    assert check_sentence("Рокировка у чёрных ещё есть.", _ctx(KING_E7, "Могут ли чёрные рокироваться?", "ru")) == \
+        ["Black has no right to castle any more: the king has left e8"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence,language", [
+    ("Оппозиция, по-английски opposition, — это когда короли стоят друг напротив друга через одно поле.", "ru"),
+    ("Эндшпиль по-английски называется endgame, а по-русски это заключительная стадия партии.", "ru"),
+    ("По-английски ферзь называется queen, а слон — bishop.", "ru"),
+    ("Цугцванг — немецкое слово zugzwang, означает «принуждение к ходу».", "ru"),
+    ("Фианкетто — от итальянского fianchetto, это развитие слона на большую диагональ.", "ru"),
+    ("Взятие на проходе по-английски называется en passant, это французское выражение.", "ru"),
+    ("Лучшая книга по эндшпилю для тебя — Silman's Complete Endgame Course, она идёт по уровням.", "ru"),
+    ("Для сильных игроков есть Dvoretsky's Endgame Manual, но это уже серьёзный учебник по эндшпилю.", "ru"),
+    ("Это защита двух коней, по-английски Two Knights Defense.", "ru"),
+    ("Хорошая книга про пешечную структуру — Pawn Structure Chess Сольтиса.", "ru"),
+    ("Начни с курса на Lichess под названием King and Pawn Endgames, он бесплатный.", "ru"),
+    ("Шанышқы ағылшынша fork деп аталады, ал ферзь queen деп аталады.", "kk"),
+    ("Посмотри сериал Ход королевы — там хорошо показан мир шахматных турниров.", "ru"),
+    ("Можно открыть файл PGN с партией через кнопку загрузки на сайте.", "ru"),
+])
+def test_a_word_named_as_a_word_or_a_title_passes(sentence, language):
+    assert foreign_word_issue(sentence, language, "Что почитать?") is None
+
+
+@pytest.mark.unit
+def test_the_students_word_in_another_form_and_english_far_from_the_right_word():
+    assert foreign_word_issue("Это одна и та же фигура: королевой её называют только в быту.", "ru",
+                              "Кто сильнее ферзь или королева?") is None
+    assert foreign_word_issue("Займи открытый файл ладьёй, это главный план.", "ru") == \
+        "«открытый файл» is not the Russian chess word: say вертикаль"
+    # the right word far away is not a gloss (prod 29.10)
+    assert foreign_word_issue("Обрати внимание: мат здесь ставит именно ферзь, а свой король на f6 сторожит поля "
+                              "отступления — queen выгоняет на край, король закрывает дверь.", "ru") == \
+        "«queen» is not the Russian chess word: say ферзь"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("question,sentence", [
+    ("Почему ладью называют башней?", "Ладью часто называют башней из-за её формы. "),
+    ("Почему конь — это рыцарь?", "В английском конь называется рыцарем, а по-русски это просто конь. "),
+    ("Что такое эндгейм?", "Слово эндгейм — это калька с английского, правильно говорить эндшпиль. "),
+])
+def test_a_word_the_sentence_explains_is_not_swapped(question, sentence):
+    ctx = _ctx(TWO_KNIGHTS, question, "ru")
+    gate = SentenceGate(ctx, release_starts=False)
+    assert gate.feed(sentence) + gate.flush() == [(sentence, [], sentence)]
+    assert chess_terms(sentence, "ru", question) == sentence  # the server's pass over the shown text
+    assert chess_terms("Башня на h1 стоит плохо. Ладью называют башней.", "ru") == \
+        "Ладья на h1 стоит плохо. Ладью называют башней."
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence", [
+    "Есть миф, будто ладья не должна быть атакована при рокировке, но в правилах этого нет.",
+    "Нет такого правила, что ладья не должна быть атакована.",
+    "Многие думают, что рокироваться можно, только если ладья не атакована, но это не так.",
+    "Есть миф, будто ладья не должна быть под боем при рокировке, но в правилах этого нет.",
+])
+def test_the_false_rook_rule_told_as_a_myth_passes(sentence):
+    assert check_sentence(sentence, _ctx(TWO_KNIGHTS, "Можно рокироваться, если ладья под боем?", "ru")) == []
