@@ -340,6 +340,13 @@ class OpeningBook:
             self._by_moves.setdefault(_split_moves(entry[2]), entry)
         self._max_depth = max((len(k) for k in self._by_moves), default=0)
         self._by_position: Optional[dict[str, tuple[str, str, str]]] = None
+        # Every line by every position on it (prod check 29.10, src/answer_check_openings.py): which lines end in a
+        # position, which pass through it, and the positions of each line — the book's own ECO codes, names and
+        # continuations of a position, for the answer check and the opening line of the prompt.
+        self._ending_all: dict[str, list[int]] = {}
+        self._through_all: dict[str, list[int]] = {}
+        self._entry_keys: list[list[str]] = []
+        self._lineage_cache: dict[str, tuple[list, list]] = {}
 
     # ── lookups ──────────────────────────────────────────────────────
     def by_eco(self, eco: str) -> list[tuple[str, str, str]]:
@@ -426,6 +433,94 @@ class OpeningBook:
                 items.append({"ply": k, "move": move, "name": entry[1], "eco": entry[0], "line": entry[2]})
         return items
 
+    def _build_position_index(self) -> None:
+        if self._by_position is not None:
+            return
+        import chess
+
+        index: dict[str, tuple[str, str, str]] = {}
+        # A position inside a line that no line ends in («1.e4 Nf6 2.e5» — the coach named it Nimzowitsch,
+        # prod 2026-10-13) takes the shortest line through it: its family, never a guess.
+        through: dict[str, tuple[str, str, str]] = {}
+        ending_all: dict[str, list[int]] = {}
+        through_all: dict[str, list[int]] = {}
+        entry_keys: list[list[str]] = []
+        for i, entry in enumerate(self.entries):
+            board = chess.Board()
+            length = len(_split_moves(entry[2]))
+            keys: list[str] = []
+            try:
+                for san in _split_moves(entry[2]):
+                    board.push_san(san)
+                    mid = _position_key(board)
+                    keys.append(mid)
+                    held = through.get(mid)
+                    if held is None or length < len(_split_moves(held[2])):
+                        through[mid] = entry
+            except ValueError:
+                entry_keys.append([])
+                continue
+            entry_keys.append(keys)
+            for mid in dict.fromkeys(keys):
+                through_all.setdefault(mid, []).append(i)
+            key = _position_key(board)
+            ending_all.setdefault(key, []).append(i)
+            old = index.get(key)
+            if old is None or length < len(_split_moves(old[2])):
+                index[key] = entry
+        self._through_position = through
+        self._ending_all, self._through_all, self._entry_keys = ending_all, through_all, entry_keys
+        self._by_position = index
+
+    def lineage(self, board) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str]]]:
+        """The book lines a position belongs to: (reached, ahead).
+
+        *reached* — the lines that end in it or in a position before it on any book line through it (its family,
+        the stages on the way: 1.e4 c5 2.c3 has reached the King's Pawn Game, the Sicilian and the Alapin);
+        *ahead* — the lines that go on through it and end later (from 1.e4 c5: the Open Sicilian, the Najdorf…).
+        Both empty for a position no book line has.
+        """
+        self._build_position_index()
+        key = _position_key(board)
+        cached = self._lineage_cache.get(key)
+        if cached is not None:
+            return cached
+        reached: dict[int, None] = {}
+        ahead: dict[int, None] = {}
+        for i in self._through_all.get(key, []):
+            keys = self._entry_keys[i]
+            upto = keys.index(key)
+            for mid in keys[:upto + 1]:
+                for j in self._ending_all.get(mid, []):
+                    reached[j] = None
+            if upto < len(keys) - 1:
+                ahead[i] = None
+        out = ([self.entries[i] for i in reached], [self.entries[i] for i in ahead if i not in reached])
+        if len(self._lineage_cache) < 20000:
+            self._lineage_cache[key] = out
+        return out
+
+    def continuations(self, board) -> list[dict]:
+        """The book's moves from a position, the most developed theory first: {"san", "lines" (book lines through
+        the position after the move), "eco", "name" (of the shortest line ending there, None inside a line)}.
+        The number of lines is how many named lines the book has past a move — not how often it is played: a
+        gambit with many named sub-lines outweighs the quiet main move (after 3...Bc5: 4.b4 51, 4.d3 5), and a
+        move order other openings transpose into gathers their lines (after 1.c4 Nf6: 2.d4 577) — review 30.10."""
+        self._build_position_index()
+        out = []
+        for move in board.legal_moves:
+            after = board.copy(stack=False)
+            after.push(move)
+            key = _position_key(after)
+            lines = len(self._through_all.get(key, []))
+            if not lines:
+                continue
+            ending = self._by_position.get(key)
+            out.append({"san": board.san(move), "lines": lines, "eco": ending[0] if ending else None,
+                        "name": ending[1] if ending else None})
+        out.sort(key=lambda c: (-c["lines"], c["san"]))
+        return out
+
     def by_position(self, fen: str) -> Optional[dict]:
         """The book line that ends exactly in *fen*'s position (any move order), or None.
 
@@ -435,29 +530,7 @@ class OpeningBook:
         """
         import chess
 
-        if self._by_position is None:
-            index: dict[str, tuple[str, str, str]] = {}
-            # A position inside a line that no line ends in («1.e4 Nf6 2.e5» — the coach named it Nimzowitsch,
-            # prod 2026-10-13) takes the shortest line through it: its family, never a guess.
-            through: dict[str, tuple[str, str, str]] = {}
-            for entry in self.entries:
-                board = chess.Board()
-                length = len(_split_moves(entry[2]))
-                try:
-                    for san in _split_moves(entry[2]):
-                        board.push_san(san)
-                        mid = _position_key(board)
-                        held = through.get(mid)
-                        if held is None or length < len(_split_moves(held[2])):
-                            through[mid] = entry
-                except ValueError:
-                    continue
-                key = _position_key(board)
-                old = index.get(key)
-                if old is None or length < len(_split_moves(old[2])):
-                    index[key] = entry
-            self._by_position = index
-            self._through_position = through
+        self._build_position_index()
         try:
             key = _position_key(chess.Board(fen))
         except ValueError:

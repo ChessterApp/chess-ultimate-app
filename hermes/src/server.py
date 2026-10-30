@@ -4292,7 +4292,17 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
     from src.answer_check import CheckContext, check_sentence
 
     def _check() -> list:
-        ctx = CheckContext.from_fens([body.fen], [body.pgn] if body.pgn else [], question=body.question or "")
+        # The positions the student's idea leads to («Стоит ли брать пешку f4?» → after exf4), as the text coach's
+        # check has them: a move or an ECO code said after the capture is about that position (prod check 29.10).
+        ideas = []
+        if body.fen and body.question:
+            try:
+                from src.prompt_builder import question_moves
+
+                ideas = [q["after_fen"] for q in question_moves(body.question, body.fen) if q.get("after_fen")]
+            except Exception:  # noqa: BLE001 — the check still runs on the board alone
+                ideas = []
+        ctx = CheckContext.from_fens([body.fen] + ideas, [body.pgn] if body.pgn else [], question=body.question or "")
         # An ending of ≤ 7 pieces: the tablebase result judges «это выигрыш» /
         # «ничья» (src/answer_check_rules.py) — the voice coach called a dead
         # draw a win on 2026-10-06.

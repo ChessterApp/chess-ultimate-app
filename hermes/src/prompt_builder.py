@@ -511,6 +511,13 @@ def build_system_prompt(
             opening = _opening(board_fen)
             if opening:
                 board_lines.append(opening + " Name the opening by this, never from memory.")
+            # …and the variation each book move from here leads to (prod check 29.10: 2.c3 called an Alekhine
+            # attack). No order of popularity: the book counts no games (review 30.10).
+            from src.voice_engine_note import _book_moves
+
+            book_moves = _book_moves(board_fen)
+            if book_moves:
+                board_lines.append(book_moves)
         except Exception:
             logger.debug("opening name by position failed", exc_info=True)
     if move_history and not any(line.startswith("Opening (ECO book)") for line in board_lines):

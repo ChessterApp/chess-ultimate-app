@@ -152,6 +152,9 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
     opening = _opening(fen)
     if opening:
         parts.append(opening)
+    book_moves = _book_moves(fen)
+    if book_moves:
+        parts.append(book_moves)
 
     # COACH_ENGINE_FACTS=0 leaves the line as moves and evaluations only.
     facts = _facts(board, result["lines"][0], prefetch) if with_facts else []
@@ -191,6 +194,35 @@ def _opening(fen: str) -> Optional[str]:
         return None
     ru = f" — {found['name_ru']}" if found.get("name_ru") else ""
     return f"Opening (ECO book): {found['eco']} {found['name']}{ru}."
+
+
+def _book_moves(fen: str, limit: int = 5) -> Optional[str]:
+    """The book's moves from the position with the variation each one leads to — for «2.c3 — это вариант…» from
+    the book, not from memory: on 29.10 (prod check) the coach called 2.c3 «атака в стиле Алёхина» (the Alapin
+    Variation). The moves shown are the ones the book works out furthest, but the book names lines and counts no
+    games: the Evans Gambit has 51 named sub-lines after 3...Bc5 and 4.d3 five, 2.d4 after 1.c4 Nf6 gathers the
+    whole Indian theory by transposition. So the line gives no numbers and no order of popularity, and says so
+    (review 30.10: «call only the first one the main move» had the model call the Evans the usual move)."""
+    try:
+        from src.openings_book import get_book
+
+        board = chess.Board(fen)
+        book = get_book()
+        conts = book.continuations(board)
+        here = book.by_position(fen)
+    except Exception:  # noqa: BLE001 — the moves are a bonus on top of the name
+        return None
+    if not conts:
+        return None
+    own = (here or {}).get("name")
+    num = f"{board.fullmove_number}." if board.turn == chess.WHITE else f"{board.fullmove_number}..."
+    told = []
+    for c in sorted(conts[:limit], key=lambda c: c["san"]):
+        named = f" — {c['name']} ({c['eco']})" if c.get("name") and c["name"] != own else ""
+        told.append(f"{num}{c['san']}{named}")
+    return ("Book moves here (ECO book: the variation each move leads to — give a move this name, never one from "
+            "memory; the book names lines and counts no games, so it says nothing of which move is main or usual): "
+            + "; ".join(told) + ".")
 
 
 def _facts(board: chess.Board, top: dict, prefetch) -> list[str]:

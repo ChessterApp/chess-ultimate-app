@@ -361,6 +361,9 @@ class CheckContext:
     # Outcome claims at the end of a line written in a sentence («после Kd5 a6 Kc6 — ничья») whose position the
     # tablebase has not been asked about yet: the engine stage asks it (src/endgame_claims.pop_pending, 30.10).
     outcome_pending: dict = field(default_factory=dict)
+    # ECO codes a tool's result names (identify_opening, get_opening_stats): the coach repeating one says what the
+    # tool said (src/answer_check_openings.py, prod check 29.10).
+    text_codes: set = field(default_factory=set)
     MAX_BOARDS = 400
 
     @classmethod
@@ -398,6 +401,7 @@ class CheckContext:
                 pass
         for pgn in re.findall(r'"pgn"\s*:\s*"([^"]{8,})"', text or ""):
             self.add_line(pgn.replace("\\n", " "))
+        self.text_codes.update(re.findall(r"(?<![A-Za-z0-9])[A-E]\d\d(?![0-9A-Za-z])", text or ""))
 
     @staticmethod
     def _key(board: chess.Board) -> str:
@@ -3746,6 +3750,7 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
     # Written moves first: the positions they lead to join the boards of the
     # turn, and the claims after them («Rg1, ладья нападает на ферзя») are judged there.
     san_issues = _history_issues(text, ctx) + _san_issues(text, ctx) + _recapture_issues(text, ctx)
+    from src.answer_check_openings import opening_book_issues
     from src.answer_check_rules import rules_issues
 
     issues = (_move_issues(lowered) + _attack_issues(lowered, text, ctx) + san_issues
@@ -3753,7 +3758,9 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
               + _fact_issues(lowered, text, ctx)
               + _plan_move_issues(lowered, text, ctx)
               + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx) + _scene_issues(text, ctx)
-              + _asked_motif_issues(lowered, text, ctx) + _composition_issues(lowered, text, ctx))
+              + _asked_motif_issues(lowered, text, ctx) + _composition_issues(lowered, text, ctx)
+              # ECO codes, variations named after a person, «usually X» — by the ECO book (prod check 29.10)
+              + opening_book_issues(text, ctx))
     if not san_issues:
         issues += _announced_move_issues(text, ctx)
     squares = _SQ_RE.findall(lowered)
