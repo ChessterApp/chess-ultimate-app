@@ -336,6 +336,9 @@ class CheckContext:
     # that gives «the solution» or «the mate» with another move is not shown (prod 23.10: «Qf3+ Kg1 и Qh1#» for
     # a puzzle solved by Nh3#).
     puzzle_solution: Optional[list] = None
+    # Claims that a reply is forced, by sentence, for the engine stage to judge (src/answer_check_rules.
+    # forced_reply_claim → src/hypothetical.verify_forced_reply; prod 29.10, «обязаны ответить dxe5»).
+    forced_claims: dict = field(default_factory=dict)
     MAX_BOARDS = 400
 
     @classmethod
@@ -3365,6 +3368,17 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
               + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx))
     if not san_issues:
         issues += _announced_move_issues(text, ctx)
+    if not issues and len(ctx.forced_claims) < 40:
+        # A forced reply claimed: the board it is about is known only now (this sentence's scene); the engine
+        # judges it later, off the event loop (src/server.py, the async stage).
+        from src.answer_check_rules import forced_reply_claim
+
+        try:
+            claim = forced_reply_claim(text, ctx)
+        except Exception:  # noqa: BLE001 — a broken pattern must never block an answer
+            claim = None
+        if claim:
+            ctx.forced_claims[sentence] = claim
     squares = _SQ_RE.findall(lowered)
     if ctx._object:
         ctx.topic = ctx._object
