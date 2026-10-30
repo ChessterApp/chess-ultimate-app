@@ -2699,6 +2699,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                                 board_moved["fen"] = new_fen or "?"
                                 # the engine's verdict was about the old board: no eval-based checks now
                                 check_ctx.engine_eval = check_ctx.tablebase = check_ctx.engine_mate = None
+                                check_ctx.board_moved = True  # nor claims about the old board's history (30.10)
                 except Exception:  # noqa: BLE001 — never break a turn on the bookkeeping
                     logger.debug("board move bookkeeping failed", exc_info=True)
             # What the tool put on the board (a topic example, a puzzle, a game)

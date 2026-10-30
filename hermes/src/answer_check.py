@@ -336,6 +336,13 @@ class CheckContext:
     # that gives «the solution» or «the mate» with another move is not shown (prod 23.10: «Qf3+ Kg1 и Qh1#» for
     # a puzzle solved by Nh3#).
     puzzle_solution: Optional[list] = None
+    # Every line and game the turn has, as (its first position, its moves in SAN): what was played on the way to
+    # the board — «здесь белые пошли 6.Сс4» on the board after 5...a6, «после размена на e4» after 2.exd5 Qxd5
+    # (prod 29.10) are judged against it (src/answer_check_facts.py).
+    line_records: list = field(default_factory=list)
+    # A tool put another position on the board during this answer (src/server.py): the board the answer
+    # talks about may no longer be the one the turn began on.
+    board_moved: bool = False
     MAX_BOARDS = 400
 
     @classmethod
@@ -412,11 +419,14 @@ class CheckContext:
         pgn = re.sub(r"\[[^\]]*\]", " ", pgn or "")
         pgn = re.sub(r"\{[^}]*\}", " ", pgn)
         self.add(board.fen())
+        record: list = []
+        self.line_records.append((board.copy(stack=False), record))
         for san in _split_moves(pgn):
             try:
                 board.push_san(san)
             except ValueError:
                 return
+            record.append(san)
             self.add(board.fen())
 
 
@@ -3363,6 +3373,9 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
               + _fact_issues(lowered, text, ctx)
               + _plan_move_issues(lowered, text, ctx)
               + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx))
+    from src.answer_check_facts import record_fact_issues
+
+    issues += record_fact_issues(lowered, text, ctx)
     if not san_issues:
         issues += _announced_move_issues(text, ctx)
     squares = _SQ_RE.findall(lowered)
