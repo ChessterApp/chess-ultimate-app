@@ -2533,7 +2533,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # belong to (the board, the opening line, the game, what tools put on the
         # board), a gate that holds each sentence until it is checked, and one
         # rewrite of the rest of the answer after a wrong sentence.
-        from src.answer_check import CheckContext, SentenceGate, chess_terms, fix_messages, proposed_move, strip_leaks
+        from src.answer_check import (PROMISE_ISSUE, CheckContext, SentenceGate, chess_terms, fix_messages, proposed_move,
+                                      strip_leaks)
 
         # Every board of the session counts (a capture named for the second
         # board was cut as impossible on the first, 2026-10-02), and in a game
@@ -2573,8 +2574,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if active_board.kind == "game" and active_board.game_state:
             check_ctx.game_engine_moves = _engine_moves(active_board.game_state)
             check_ctx.game_moves = list(active_board.game_state.get("moves") or [])
-        gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
-        fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
+        # «Покажу на доске.» waits for a board action of the turn and is left out without one (prod 29.10).
+        gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK), hold_promises=True)
+        fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK), hold_promises=True)
         fix_markup = MarkupFilter(session.board_state)
         # The coach's recommendation («сыграй Rg1») is checked by the engine
         # before the sentence is shown (src/hypothetical.verify_recommendation).
@@ -2887,6 +2889,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             actions = [a for a in (prune_arrows(a, session.board_state) for a in actions) if a]
             if not actions:
                 return ""
+            gate.board_changed()  # a promise to show it on the board («Покажу на доске.») is kept
+            fix_gate.board_changed()
             try:
                 for action in actions:
                     if isinstance(action, dict):
@@ -2949,6 +2953,13 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             for text, issues, sentence in pairs:
                 if source == "agent" and (fix["running"] or fix["done"]):
                     continue  # the rewrite stands in for the rest of the draft
+                if issues == [PROMISE_ISSUE]:
+                    # «Покажу на доске.» and the turn ended with the board untouched: the promise alone is left
+                    # out — nothing in it to rewrite (prod 29.10, rule-promote).
+                    logger.info("answer check: %s | %s", PROMISE_ISSUE, sentence.strip()[:200])
+                    fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
+                    fix["after_drop"] = True
+                    continue
                 if issues:
                     logger.info("answer check: %s | %s", "; ".join(issues), sentence.strip()[:200])
                     if source == "agent" and config.COACH_ANSWER_FIX:
@@ -3068,6 +3079,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             # shows it, without a second replay and a second pair of writes.
             yield _sse({"board_actions": [{"type": "load_pgn", "pgn": opening_plan.pgn,
                                            "board_id": active_board.id}]})
+        if (review_pgn and review_future is not None) or (famous and not famous.get("hidden")) \
+                or (endgame and endgame["shown"]) or (game_step and (game_step.get("view") or game_step.get("actions"))) \
+                or (puzzle_step and puzzle_step.get("actions")) or (solution_step and solution_step.get("actions")) \
+                or (opening_plan and opening_plan.load):
+            # The pre-step put a position up: «Покажу на доске» is about it — in the draft and in a rewrite of it alike
+            # (review 30.10: only the draft's gate knew, the rewrite's dropped a kept promise).
+            gate.board_changed()
+            fix_gate.board_changed()
 
         try:
             while not (main_done and quick["finished"] and not fix["running"]):

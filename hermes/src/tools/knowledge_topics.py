@@ -151,14 +151,17 @@ def _arrow(fen: str, move: Optional[str]) -> Optional[dict]:
 
 
 def _example_from_lessons(lessons: list[dict], user_id: Optional[str], locale: Optional[str],
-                          motif: Optional[str] = None) -> Optional[dict]:
+                          motif: Optional[str] = None, piece: Optional[int] = None) -> Optional[dict]:
     """A position from the site's own lessons on the topic: the lesson's exercise,
     else its first puzzle (fail-open — the programme is optional). With *motif*
-    (a base topic's slug) a position that does not show it is passed over."""
+    (a base topic's slug) a position that does not show it is passed over; with
+    *piece* too («вилка конём»), one that does not show it made by that piece."""
     from src.motifs import shows_motif
 
     def _fits(fen: str) -> bool:
-        return _legal_fen(fen) and (motif is None or shows_motif(fen, motif) is not False)
+        if not _legal_fen(fen) or motif is None:
+            return _legal_fen(fen)
+        return shows_motif(fen, motif, piece) is True if piece else shows_motif(fen, motif) is not False
 
     try:
         from src.tools.learning_path import get_lesson
@@ -220,9 +223,13 @@ def _example_from_lessons(lessons: list[dict], user_id: Optional[str], locale: O
     return None
 
 
-def _example_from_base(t: dict) -> Optional[dict]:
+def _example_from_base(t: dict, piece: Optional[int] = None) -> Optional[dict]:
+    """The base topic's first legal position — with *piece* («вилка конём»), the first that shows the
+    topic's motif made by that piece (src/motifs.py)."""
+    from src.motifs import shows_motif
+
     for p in t["positions"]:
-        if _legal_fen(p.get("fen")):
+        if _legal_fen(p.get("fen")) and (piece is None or shows_motif(p["fen"], t.get("slug") or "", piece) is not False):
             return {
                 "source": "knowledge_base",
                 "title": p["title_ru"],
@@ -553,11 +560,20 @@ def _endgame_topic(theory: dict, show: bool) -> dict:
 
 
 def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] = None,
-              topics: Optional[dict] = None, with_lessons: bool = True, show: bool = True) -> dict:
+              topics: Optional[dict] = None, with_lessons: bool = True, show: bool = True,
+              question: str = "") -> dict:
     topics = topics if topics is not None else kb.load_topics()
     if not topics:
         return {"error": "The knowledge base is empty on this server (hermes/content/topics)."}
     matches = kb.find_topics(topic, topics)
+    # The motif asked with a named piece («вилка конём», "knight fork"): in the topic the model passed, else in the
+    # student's own words — the example must show the motif made by that piece (prod 29.10, d3-example: a rook's
+    # double attack from the lesson «Двойной удар» went up for «пример вилки конём»).
+    from src.motifs import motif_piece
+
+    asked = motif_piece(topic) or motif_piece(question)
+    if asked and len(matches) > 1 and any(m["slug"] == asked[0] for m in matches):
+        matches = [m for m in matches if m["slug"] == asked[0]]  # "knight fork" is the fork, not «слон против коня»
     book = _book_lesson(topic)
     # A textbook endgame named by its material («ферзь против ладьи», «мат конём и слоном»): the base's
     # own topic when it has one (the elementary mates, the opposition, Lucena, the wrong bishop), else
@@ -655,7 +671,14 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
     if show:
         # The site's own lesson first — it is the customer's curriculum — then the base.
         # A lesson's position that does not show the motif is no example of it (src/motifs.py).
-        example = _example_from_lessons(lessons, user_id, locale, motif=t["slug"]) or _example_from_base(t)
+        piece = asked[1] if asked and asked[0] == t["slug"] else None
+        example = (_example_from_lessons(lessons, user_id, locale, motif=t["slug"], piece=piece)
+                   or _example_from_base(t, piece))
+        if piece and example is None:
+            out["board_hint"] = (f"No verified position of a {t['slug']} made by a {chess.piece_name(piece)} is in the "
+                                 f"lessons or the base, so nothing was put on the board: say so plainly, explain the "
+                                 f"idea in words and offer a puzzle (get_puzzle(theme=<puzzle_themes>)) — never show "
+                                 f"another piece's {t['slug']} as the one asked for, never invent a position.")
         if example:
             side = "White" if chess.Board(example["fen"]).turn == chess.WHITE else "Black"
             out["example"] = {**example, "side_to_move": side}
@@ -749,7 +772,8 @@ def _handle_get_topic(args: dict, **kwargs) -> str:
     # at (on the hidden board), only not put up (src/question_position, 2026-10-20).
     hidden = bool(locked) and board_lock_reason_for(kwargs) == "owned"
     result = get_topic(str(args.get("topic") or ""), locale=args.get("locale") or "ru",
-                       user_id=user_id, show=args.get("show") is not False and (not locked or hidden))
+                       user_id=user_id, show=args.get("show") is not False and (not locked or hidden),
+                       question=str(kwargs.get("student_message") or kwargs.get("utterance") or ""))
     if locked and isinstance(result, dict):
         result.pop("board_actions", None)
         result["board_hint"] = HIDDEN_BOARD_NOTE if hidden else BOARD_KEPT_NOTE
