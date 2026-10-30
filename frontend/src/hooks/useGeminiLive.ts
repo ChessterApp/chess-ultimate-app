@@ -226,7 +226,13 @@ export const SPEECH_CHECKABLE_RE = /[a-h][1-8]|\d|кон[ьяю]|слон|лад
 // «Больше ничего не висит», «остальное защищено»: a claim about the whole board with no piece named — Hermes reads it
 // against the coach's earlier sentences of the answer (sent as `previous`), as the text coach does (30.10).
 export const SPEECH_EXHAUSTIVE_RE = /(?:больше|кроме)[^.!?]{0,40}(?:ничего|никто|ни\s+одн)|(?:ничего|ни\s+одн\S*\s+\S+)\s+(?:\S+\s+){0,2}не\s+(?:висит|под\s+ударом|атакован)|остальн\S*\s+(?:\S+\s+){0,3}(?:защищ|прикрыт|в\s+безопасности|не\s+(?:висит|висят|под\s+ударом))|nothing\s+(?:else\s+)?(?:is\s+)?(?:hanging|under\s+attack|attacked)|(?:everything|all)\s+else\s+is\s+(?:safe|defended|protected)/i;
-export const SPEECH_CHECK_MAX_PER_TURN = 2;
+// Every claim of an answer is checked on the board (Hermes reads it in milliseconds), up to SPEECH_CHECK_MAX_PER_TURN
+// sentences; the engine and the tablebase — seconds — are asked for SPEECH_ENGINE_CHECKS_PER_TURN of them. A sentence
+// goes with engine=true while the answer's engine checks are not spent, and gives its share back when Hermes reports
+// it asked no engine (review 30.10: two plain sentences used both checks up, and «Больше ничего не висит», the
+// wrong retreat squares, the impossible capture later in the answer were never sent; the text coach checks them all).
+export const SPEECH_CHECK_MAX_PER_TURN = 8;
+export const SPEECH_ENGINE_CHECKS_PER_TURN = 2;
 // In a game, the coach naming its own move is always checked, past the limit (Alexander 27.10: the note read aloud
 // used both checks up, and «Мой ответ — конь на f6» was never checked).
 export const COACH_MOVE_CLAIM_RE = /мой\s+(?:ход|ответ)|(?:^|[\s,.—-])я\s+(?:хожу|пойду|сыграю|играю|отвечу|отвечаю|забираю|заберу|беру|возьму|бью|побью|ставлю|двигаю)|(?:^|[\s,.—-])(?:отвечу|отвечаю|забираю|заберу|возьму|сыграю|пойду)\s|my\s+(?:move|reply|answer)|\bI(?:'ll|\s+will)?\s+(?:play|take|capture|answer|reply)/i;
@@ -972,6 +978,13 @@ export default function useGeminiLive(
     audioSinceHoldRef.current = false;
     heldTextRef.current = [];
     modelTurnOpenRef.current = false;
+    if (!opts?.resuming) {
+      // The answer being spoken does not outlive its session: a new session's first sentence is neither read against
+      // the old one's words (`previous`) nor counted against its checks (review 30.10).
+      modelSentenceRef.current = '';
+      spokenBeforeRef.current = '';
+      speechBudgetRef.current = { checks: 0, engine: 0 };
+    }
     ideaGateRef.current?.drop();
     if (keepHold) ideaGateRef.current?.watch(VOICE_GAME_MOVE_HOLD_MS);
     const node = workletNodeRef.current;
@@ -1344,7 +1357,7 @@ export default function useGeminiLive(
   // wrong ones of this turn, and how many checks were sent this turn.
   const modelSentenceRef = useRef('');
   const wrongSentencesRef = useRef<{ text: string; issues: string[] }[]>([]);
-  const speechChecksRef = useRef(0);
+  const speechBudgetRef = useRef({ checks: 0, engine: 0 });
   const speechCheckPendingRef = useRef<Promise<void>[]>([]);
   // The coach's finished sentences of this answer so far: what «больше ничего не висит» excludes (30.10).
   const spokenBeforeRef = useRef('');
@@ -1356,10 +1369,17 @@ export default function useGeminiLive(
     if (!exhaustive && (!SPEECH_CHECKABLE_RE.test(sentence) || (!liveGame && sentence.trim().split(/\s+/).length < 4))) return;
     const ownMove = liveGame && COACH_MOVE_CLAIM_RE.test(sentence);
     const generation = speechGenRef.current;
+    // This answer's budget: a new answer starts a new one, so a late reply never gives a share back to it.
+    const budget = speechBudgetRef.current;
     if (!ownMove) {
-      if (speechChecksRef.current >= SPEECH_CHECK_MAX_PER_TURN) return;
-      speechChecksRef.current += 1;
+      if (budget.checks >= SPEECH_CHECK_MAX_PER_TURN) return;
+      budget.checks += 1;
     }
+    // The coach's own move in a game always goes to the engine, past the limit (27.10).
+    const engine = ownMove || budget.engine < SPEECH_ENGINE_CHECKS_PER_TURN;
+    const held = engine && !ownMove;
+    if (held) budget.engine += 1;
+    let engineUsed = true;  // kept unless Hermes says it asked none (an older Hermes says nothing)
     try {
       const res = await fetch('/api/coach/voice/check', {
         method: 'POST',
@@ -1373,12 +1393,15 @@ export default function useGeminiLive(
           pgn: liveGame ? undefined : optionsRef.current.getPgn?.() || undefined,
           // In a game the coach's moves must be the engine's: Hermes reads the game from the session (25.10).
           session_id: optionsRef.current.getSessionId?.() ?? undefined,
-          // What was said before it: «больше ничего не висит» excludes what that named (30.10).
-          previous: exhaustive ? previous.slice(-1500) : undefined,
+          // What was said before it in this answer: «больше ничего не висит» excludes what that named, and the line
+          // a sentence before wrote is the position this one speaks of — Hermes reads them as the text coach does.
+          previous: previous.trim() ? previous.slice(-1500) : undefined,
+          engine,
         }),
       });
       if (!res.ok) return;
-      const data = (await res.json().catch(() => null)) as { issues?: string[] } | null;
+      const data = (await res.json().catch(() => null)) as { issues?: string[]; engine?: boolean } | null;
+      if (data?.engine === false) engineUsed = false;
       if (sessionRef.current !== session) return;
       if (generation !== speechGenRef.current) return;  // words dropped meanwhile: never heard, never corrected
       if (Array.isArray(data?.issues) && data.issues.length) {
@@ -1386,6 +1409,8 @@ export default function useGeminiLive(
       }
     } catch {
       /* unavailable (an older Hermes answers 404) — the coach is simply not corrected */
+    } finally {
+      if (held && !engineUsed) budget.engine -= 1;  // no engine asked: the next claim may use it
     }
   }, []);
 
@@ -2017,7 +2042,7 @@ export default function useGeminiLive(
         closeUtterance('model');
         modelSentenceRef.current = '';
         wrongSentencesRef.current = [];
-        speechChecksRef.current = 0;
+        speechBudgetRef.current = { checks: 0, engine: 0 };
         spokenBeforeRef.current = '';
       }
       if (sc.turnComplete) {
@@ -2030,7 +2055,7 @@ export default function useGeminiLive(
         const pending = speechCheckPendingRef.current;
         speechCheckPendingRef.current = [];
         modelSentenceRef.current = '';
-        speechChecksRef.current = 0;
+        speechBudgetRef.current = { checks: 0, engine: 0 };
         spokenBeforeRef.current = '';
         void Promise.all(pending).then(() => {
           const wrong = wrongSentencesRef.current;

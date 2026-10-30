@@ -14,8 +14,9 @@ const PREVIOUS_MAX = 1500;
 /**
  * POST /api/coach/voice/check — a sentence the voice coach just said, checked
  * on the board by Hermes (the same check the text coach's answers pass before
- * they are shown). Body: { text, fen?, pgn?, question?, session_id?, previous? }. Returns Hermes'
- * { issues: string[] }; any failure is "no issues" (an older Hermes answers 404).
+ * they are shown). Body: { text, fen?, pgn?, question?, session_id?, previous?, engine? }. Returns Hermes'
+ * { issues: string[], engine?: boolean } (engine: whether the engine or the tablebase was asked; engine=false in
+ * the body asks for the board check alone); any failure is "no issues" (an older Hermes answers 404).
  */
 export async function POST(request: NextRequest) {
   const { userId } = await auth();
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
   const denied = await requireCoachAccess(userId);
   if (denied) return denied;
 
-  let body: { text?: unknown; fen?: unknown; pgn?: unknown; question?: unknown; session_id?: unknown; previous?: unknown };
+  let body: { text?: unknown; fen?: unknown; pgn?: unknown; question?: unknown; session_id?: unknown; previous?: unknown; engine?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
         question: typeof body.question === 'string' ? body.question : undefined,
         session_id: typeof body.session_id === 'string' ? body.session_id : undefined,
         previous: typeof body.previous === 'string' && body.previous.trim() ? body.previous.slice(-PREVIOUS_MAX) : undefined,
+        engine: typeof body.engine === 'boolean' ? body.engine : undefined,
       }),
       signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
     });

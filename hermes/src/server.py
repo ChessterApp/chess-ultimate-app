@@ -4111,6 +4111,10 @@ class VoiceCheckRequest(CoachRequest):
     # What the coach said before this sentence in the same answer: «Больше ничего не висит» is read against what
     # that named (src/answer_check_facts.seed_facts_state; 30.10). Older sites send none: the claim is skipped.
     previous: Optional[str] = None
+    # The engine and the tablebase may be asked (False: the board check alone). The site spends its few engine checks
+    # of an answer on the sentences that use one — reported back as "engine" — and has every other claim of the
+    # answer checked on the board (review 30.10: «Больше ничего не висит» as the third sentence was never sent).
+    engine: Optional[bool] = True
 
 
 class VoiceIdeaRequest(CoachRequest):
@@ -4390,17 +4394,19 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         from src.game_intent import spoken_squares
 
         if body.previous:
-            from src.answer_check_facts import seed_facts_state
-
-            seed_facts_state(ctx, spoken_squares(body.previous[-1500:]))
+            _replay_previous(ctx, spoken_squares(body.previous[-1500:]))
         spoken_text = spoken_squares(body.text[:1000])
         issues = check_sentence(spoken_text, ctx)
+        if not body.engine:
+            return issues  # the board check alone: the site's engine checks of this answer are spent
         if not issues and config.COACH_TABLEBASE_LINE_CHECKS > 0:
             # An outcome claim at the end of a line the coach said («после Kd5 a6 Kc6 — ничья»): the tablebase is
             # asked here, as in the text coach's engine stage (src/endgame_claims.py, 30.10).
             from src.endgame_claims import judge_pending, pop_pending
 
             pending = pop_pending(ctx, spoken_text)
+            if pending:
+                used[0] = True
             issue = judge_pending(pending) if pending else None
             if issue:
                 return [issue]
@@ -4412,6 +4418,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         if claim:
             from src.hypothetical import verify_forced_reply
 
+            used[0] = True
             forced = verify_forced_reply(claim, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal_best=False)
             if forced:
                 return [forced]
@@ -4423,6 +4430,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
 
         found = proposed_move(body.text[:1000], ctx)
         if found:
+            used[0] = True
             why = verify_recommendation(found[0], found[1], found[2], config.COACH_MOVE_VERIFY_MOVETIME_MS,
                                         config.COACH_MOVE_VERIFY_CP, reveal_best=False)
             if why:
@@ -4433,13 +4441,40 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         if claims and config.COACH_LINE_VERDICT:
             from src.line_verdict import verify_claims
 
+            used[0] = True
             why = verify_claims(claims, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal=False)
             if why:
                 return [why]
         return issues
 
+    used = [False]  # the engine or the tablebase was asked: the site counts it against the answer's engine checks
     issues = await asyncio.to_thread(_check)
-    return {"issues": issues}
+    return {"issues": issues, "engine": used[0]}
+
+
+def _replay_previous(ctx, said: str) -> None:
+    """The coach's earlier sentences of the answer, read sentence by sentence on the voice check's context as the text
+    coach's gate reads them (one context across the answer): the line a sentence before wrote is the scene this one is
+    about («…после Ke5 белые играют a6, и ты обязан идти Kd6» → «пешка на a7, ты на d6»), the move a reply is
+    claimed forced after («Qxd5+.» → «Король вынужден уйти с e6»), what «больше ничего не висит» excludes (review
+    30.10, voice). Their own issues are not this sentence's: a sentence with issues leaves the line state as it was
+    (check_sentence), and the claims they recorded for the engine are dropped. Never raises."""
+    from src.answer_check import _split_sentences, check_sentence
+    from src.answer_check_facts import seed_facts_state
+
+    try:
+        done, rest = _split_sentences(said.strip() + " ")
+        for sentence in (done + [rest])[-12:]:
+            if sentence.strip():
+                check_sentence(sentence, ctx)
+    except Exception:  # noqa: BLE001 — the sentence is still checked on the board alone
+        logger.debug("voice check: replaying the answer so far failed", exc_info=True)
+    ctx.forced_claims.clear()
+    ctx.line_claims.clear()
+    if getattr(ctx, "outcome_pending", None):
+        ctx.outcome_pending.clear()
+    # …and the side the earlier sentences spoke of («Под ударом у тебя слон c4» → «больше ничего» is about you).
+    seed_facts_state(ctx, said)
 
 
 def _student_just_played(game) -> Optional[tuple[str, str]]:

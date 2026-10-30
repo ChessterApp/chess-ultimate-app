@@ -3852,6 +3852,7 @@ def _asked_motif_issues(text: str, original: str, ctx: CheckContext) -> list[str
             f"blow by a {named} — that is not the {want} {asked[0]} asked for: say so plainly"]
 
 
+_WS_RUN = re.compile(r"\s{2,}")
 _EMPHASIS = re.compile(r"\*{1,3}|(?<![A-Za-zА-Яа-яЁё0-9])__|__(?![A-Za-zА-Яа-яЁё0-9])")
 
 
@@ -3895,6 +3896,10 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
     # Markdown emphasis is not a word of the claim: «Пешка на a2 **не атакована**», «**Слон c4** висит», «если **ладья**
     # под боем» went through every check the bold split (09.10, the castling rule; 30.10 for all of them).
     text = _EMPHASIS.sub("", sentence).replace("ё", "е")
+    # A run of whitespace is one gap between words: the patterns that allow a few words between a piece and its
+    # claim backtrack polynomially on a long run of spaces (review 30.10: «Пешка» + 50 spaces + «на e4.» held the
+    # event loop for 2.8 s, 590 spaces for over 10 s — a browser-sent voice/check body reaches here too).
+    text = _WS_RUN.sub(lambda m: "\n" if "\n" in m.group(0) else " ", text)
     # Speech transcripts write files in Cyrillic lookalikes: «слон на е2», «пешка с4» (voice, 2026-10-06).
     # …and transliterated ones: «конь на ф3», «ферзь на б6», «пешка г4», «ладья х1» (2026-10-08).
     text = re.sub(r"(?<![а-яА-Яa-zA-Z])([асебдфгхАСЕБДФГХ])(?=[1-8](?![0-9]))",

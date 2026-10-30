@@ -58,6 +58,20 @@ describe('POST /api/coach/voice/check', () => {
     expect(JSON.parse(opts.body)).toEqual(body);
   });
 
+  // 30.10: every claim of an answer goes to the board check; the engine only for the answer's few engine checks.
+  it('forwards the sentences before and the engine flag, and returns whether the engine was asked', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_1' });
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ issues: [], engine: false }) }));
+    global.fetch = fetchMock as any;
+
+    const { POST } = await import('../voice/check/route');
+    const res = await POST(makeRequest({ text: 'Больше ничего не висит.', fen: FEN, previous: 'Под ударом слон c4.', engine: false }) as any);
+    expect(await res.json()).toEqual({ issues: [], engine: false });
+    expect(JSON.parse((fetchMock.mock.calls[0] as any[])[1].body)).toMatchObject({ previous: 'Под ударом слон c4.', engine: false });
+    await POST(makeRequest({ text: 'Больше ничего не висит.', engine: 'no' }) as any);
+    expect(JSON.parse((fetchMock.mock.calls[1] as any[])[1].body).engine).toBeUndefined();
+  });
+
   it('bounds the pgn it forwards', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_1' });
     const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ issues: [] }) }));

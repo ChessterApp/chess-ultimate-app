@@ -40,7 +40,7 @@ vi.mock('@google/genai', () => {
   return { GoogleGenAI, Modality: { AUDIO: 'AUDIO' } };
 });
 
-import useGeminiLive from '../useGeminiLive';
+import useGeminiLive, { SPEECH_CHECK_MAX_PER_TURN, SPEECH_ENGINE_CHECKS_PER_TURN } from '../useGeminiLive';
 
 // ---- Browser API fakes -----------------------------------------------------
 const createdSources: any[] = [];
@@ -1412,7 +1412,8 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
   let toolReply: (body: any) => any = () => ({});
   let engineReply: (body: any) => any = () => ({});
   let intentReply: (body: any) => any = () => ({});
-  afterEach(() => { engineReply = () => ({}); intentReply = () => ({}); });
+  let checkReply: (body: any) => any = () => ({});
+  afterEach(() => { engineReply = () => ({}); intentReply = () => ({}); checkReply = () => ({}); });
   async function connectWith(opts: Record<string, unknown>) {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
       if (url === '/api/coach/live-token') {
@@ -1421,6 +1422,7 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
       if (url === '/api/coach/tool') return { ok: true, json: async () => toolReply(JSON.parse(init.body)) };
       if (url === '/api/coach/voice/engine-note') return { ok: true, json: async () => engineReply(JSON.parse(init.body)) };
       if (url === '/api/coach/voice/intent') return { ok: true, json: async () => intentReply(JSON.parse(init.body)) };
+      if (url === '/api/coach/voice/check') return { ok: true, json: async () => checkReply(JSON.parse(init.body)) };
       return { ok: true, json: async () => ({}) };
     }));
     const hook = renderHook(() => useGeminiLive(opts as any));
@@ -1820,12 +1822,75 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
     });
   });
 
-  it("in a game the coach naming its own move is checked even past the per-turn limit", async () => {
+  it("in a game the coach naming its own move goes to the engine even past the answer's engine checks", async () => {
+    checkReply = () => ({ issues: [], engine: true });  // both engine checks used by the sentences before
     await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
-    act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { outputTranscription: {
-      text: 'Конь f3 хорош. Слон c4 тоже неплох. Мой ответ — конь на f6. ' } } }));
-    await waitFor(() => expect(bodiesTo('/api/coach/voice/check')).toHaveLength(3));
-    expect(bodiesTo('/api/coach/voice/check')[2].text).toContain('Мой ответ');
+    act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { outputTranscription: { text: 'Конь f3 хорош. ' } } }));
+    await waitFor(() => expect(bodiesTo('/api/coach/voice/check')).toHaveLength(1));
+    act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { outputTranscription: { text: 'Слон c4 тоже неплох. ' } } }));
+    await waitFor(() => expect(bodiesTo('/api/coach/voice/check')).toHaveLength(2));
+    act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { outputTranscription: { text: 'Пешка e4 стоит крепко. Мой ответ — конь на f6. ' } } }));
+    await waitFor(() => expect(bodiesTo('/api/coach/voice/check')).toHaveLength(4));
+    expect(bodiesTo('/api/coach/voice/check').map((b: any) => b.engine)).toEqual([true, true, false, true]);
+    expect(bodiesTo('/api/coach/voice/check')[3].text).toContain('Мой ответ');
+  });
+
+  // Review 30.10 (voice): two plain sentences used both checks up, and the claim that came third — «Больше ничего не
+  // висит», wrong retreat squares, an impossible capture — was never sent; the text coach checks every sentence.
+  describe('every claim of an answer is checked; the engine for a few of them', () => {
+    const FEN = 'r1bqkb1r/ppp2ppp/5n2/n2Pp1N1/2B5/8/PPPP1PPP/RNBQK2R w KQkq - 1 6';
+    const coach = (text: string) => act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { outputTranscription: { text } } }));
+    const checks = () => bodiesTo('/api/coach/voice/check');
+
+    it('«Больше ничего не висит» as the third sentence reaches the check, with the sentences before it', async () => {
+      await connectWith({ getFen: () => FEN, getSessionId: () => 's1' });
+      say('Что у меня под ударом?');
+      coach('Под ударом у тебя слон c4, его атакует конь a5. Твой конь g5 давит на пункт f7. Больше ничего не висит. ');
+      await waitFor(() => expect(checks()).toHaveLength(3));
+      expect(checks()[2]).toMatchObject({
+        text: 'Больше ничего не висит.',
+        previous: 'Под ударом у тебя слон c4, его атакует конь a5. Твой конь g5 давит на пункт f7. ',
+      });
+      expect(checks()[1].previous).toBe('Под ударом у тебя слон c4, его атакует конь a5. ');
+    });
+
+    it('a sentence that asked no engine gives its engine check back; one that did keeps it', async () => {
+      checkReply = (b) => ({ issues: [], engine: b.engine && /Nxe5|сыграй/.test(b.text) });
+      await connectWith({ getFen: () => FEN });
+      const said = ['Слон c4 смотрит на f7. ', 'Конь g5 давит на f7. ', 'Пешка d5 мешает чёрным. ',
+        'Сыграй Nxe5 прямо сейчас. ', 'Или сыграй Nxe5 позже, после рокировки. ', 'А сыграй Nxe5 вообще никогда. '];
+      for (const [i, s] of said.entries()) {
+        coach(s);
+        await waitFor(() => expect(checks()).toHaveLength(i + 1));
+        await act(async () => { await new Promise((r) => setTimeout(r, 0)); });  // Hermes's answer is in
+      }
+      await waitFor(() => expect(checks()).toHaveLength(6));
+      expect(checks().map((b: any) => b.engine)).toEqual([true, true, true, true, true, false]);
+    });
+
+    it('the board checks of an answer are bounded', async () => {
+      await connectWith({ getFen: () => FEN });
+      coach(Array.from({ length: 12 }, (_, i) => `Слон c4 смотрит на f7, раз ${i + 1}. `).join(''));
+      await new Promise((r) => setTimeout(r, 10));
+      expect(checks()).toHaveLength(SPEECH_CHECK_MAX_PER_TURN);
+      expect(checks().filter((b: any) => b.engine)).toHaveLength(SPEECH_ENGINE_CHECKS_PER_TURN);  // an older Hermes: kept
+    });
+
+    it('the answer so far does not outlive its session: a new one starts with nothing said', async () => {
+      const { result } = await connectWith({ getFen: () => FEN, getSessionId: () => 's1' });
+      say('Что у меня под ударом?');
+      coach('Под ударом у тебя слон c4. ');
+      await waitFor(() => expect(checks()).toHaveLength(1));
+      act(() => result.current.disconnect());
+      await act(async () => {
+        await result.current.connect();
+      });
+      say('А теперь что?');
+      coach('Больше ничего не висит. Конь g5 давит на пункт f7. ');
+      await waitFor(() => expect(checks()).toHaveLength(2));
+      // «Больше ничего не висит» first in the new session: nothing said before it there, so it is not sent at all.
+      expect(checks()[1]).toMatchObject({ text: 'Конь g5 давит на пункт f7.', previous: 'Больше ничего не висит. ' });
+    });
   });
 
   it('a new conversation during the game is told the game again, without announcing a move', async () => {

@@ -442,7 +442,7 @@ class TestPaths:
         assert issues and "so White wins" in issues[0] and "draw with best play" in issues[0]
         resp = self.client.post("/api/coach/voice/check", headers={"X-User-Id": "voice-tb"}, json={
             "text": "Да, догонит.", "fen": SQUARE, "question": Q_SQUARE})
-        assert resp.json() == {"issues": []}
+        assert resp.json()["issues"] == []
 
     def test_voice_check_asks_the_tablebase_for_a_line(self):
         resp = self.client.post("/api/coach/voice/check", headers={"X-User-Id": "voice-tb"}, json={

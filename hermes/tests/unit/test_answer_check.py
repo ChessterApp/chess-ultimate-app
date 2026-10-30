@@ -317,7 +317,7 @@ class TestVoiceCheckEndpoint:
             "text": "Слон c4 держит f7 на прицеле, и если чёрные сыграют h6, то Ng5 становится угрозой.",
             "fen": PIANISSIMO, "question": "почему слон на c4 опасен?",
         })
-        assert resp.json() == {"issues": []}
+        assert resp.json()["issues"] == []
 
 
 # ── Facts about the position (2026-10-02) ───────────────────────────────────

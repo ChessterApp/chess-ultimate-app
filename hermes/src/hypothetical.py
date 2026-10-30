@@ -616,6 +616,11 @@ FORCED_CONFIRM_DEPTH = 17
 # look): the confirming searches of one reading share this budget, and a search that runs out of it says nothing —
 # the sentence stands. An unloaded host reaches depth 17 for trap-legal in about 0.9 s.
 FORCED_CONFIRM_MAX_MS = 1000
+# …and one sentence's whole check — the timed look and the confirming search of each of its readings — shares this
+# budget (review 30.10, interplay: 1.1–2.4 s per sentence, two readings looked at one after another). A reading
+# that finds no time left says nothing, and since a claim is wrong only when it is wrong in every reading, the
+# sentence stands: a miss rather than a long silent hold.
+FORCED_TOTAL_MAX_MS = 2000
 FORCED_CONFIRM_BAND = (0.35, 1.1)
 FORCED_MISTAKE_BAND = 1.0
 
@@ -730,7 +735,7 @@ def _forced_verdict(claim: dict, rows: list, reveal_best: bool, movetime_ms: Opt
     return None, near
 
 
-def _verify_one_reading(claim: dict, movetime_ms: int, reveal_best: bool) -> Optional[str]:
+def _verify_one_reading(claim: dict, movetime_ms: int, reveal_best: bool, until: float) -> Optional[str]:
     board, claimed = claim["board"], set(claim["moves"])
     if board.is_game_over() or not claimed or all(mv in claimed for mv in board.legal_moves):
         return None  # forced by the rules themselves
@@ -738,8 +743,9 @@ def _verify_one_reading(claim: dict, movetime_ms: int, reveal_best: bool) -> Opt
     issue, near = _forced_verdict(claim, _reply_rows(board, movetime_ms=movetime), reveal_best, movetime, None)
     if issue is None and not near:
         return None  # far from every line: the timed look is enough to let it stand
-    # Against the claim, or close to the line: only the fixed-depth search decides, within its time.
-    deadline = time.monotonic() + FORCED_CONFIRM_MAX_MS / 1000.0
+    # Against the claim, or close to the line: only the fixed-depth search decides, within its time and what is
+    # left of the sentence's.
+    deadline = min(time.monotonic() + FORCED_CONFIRM_MAX_MS / 1000.0, until)
     return _forced_verdict(claim, _reply_rows(board, depth=FORCED_CONFIRM_DEPTH, deadline=deadline), reveal_best,
                            None, FORCED_CONFIRM_DEPTH, deadline)[0]
 
@@ -755,11 +761,14 @@ def verify_forced_reply(claim: dict, movetime_ms: int = 300, reveal_best: bool =
     live game) keeps the engine's own reply out of the text. Never raises.
     """
     try:
-        issue = _verify_one_reading(claim, movetime_ms, reveal_best)
+        until = time.monotonic() + FORCED_TOTAL_MAX_MS / 1000.0  # every reading of the sentence within one budget
+        issue = _verify_one_reading(claim, movetime_ms, reveal_best, until)
         for other in claim.get("also") or []:
             if issue is None:
                 break
-            issue = _verify_one_reading(other, movetime_ms, reveal_best)
+            if (until - time.monotonic()) * 1000 < movetime_ms * FORCED_MOVETIME_FACTOR:
+                return None  # the sentence's time is spent: this reading says nothing, so the claim stands
+            issue = _verify_one_reading(other, movetime_ms, reveal_best, until)
         return issue
     except Exception:  # noqa: BLE001 — a failed check never blocks the answer
         logger.debug("verify_forced_reply failed", exc_info=True)

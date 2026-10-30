@@ -464,3 +464,34 @@ def test_a_word_the_sentence_explains_is_not_swapped(question, sentence):
 ])
 def test_the_false_rook_rule_told_as_a_myth_passes(sentence):
     assert check_sentence(sentence, _ctx(TWO_KNIGHTS, "Можно рокироваться, если ладья под боем?", "ru")) == []
+
+
+# ── A run of whitespace is one gap (review 30.10, interplay) ──────────────────────────────────────────────────
+# The move-claim patterns allow a few words between a piece and its squares; on a long run of spaces they backtracked
+# polynomially: «Пешка» + 50 spaces + «на e4.» took 2.8 s, 590 spaces over 10 s — on the event loop for the text
+# coach, and from any browser-sent body for voice/check. The check reads the run as one space.
+
+
+@pytest.mark.parametrize("gap", [" " * 50, " " * 590, " \t " * 200, " " * 300])
+def test_a_long_run_of_whitespace_is_checked_at_once(gap):
+    import time
+
+    from src.answer_check import CheckContext, check_sentence
+
+    started = time.monotonic()
+    assert check_sentence("Пешка" + gap + "на e4.", CheckContext.from_fens([])) == []
+    assert check_sentence("После" + gap + "Nf3" + gap + "чёрные обязаны ответить Nc6.",
+                          CheckContext.from_fens([chess.STARTING_FEN])) == []
+    assert time.monotonic() - started < 1.0
+
+
+@pytest.mark.parametrize("sentence, wrong", [
+    ("Конь   с b1     прыгает    на b3.", True),
+    ("Конь\n   с b1 прыгает на b3.", True),
+    ("Конь   с b1     прыгает    на c3.", False),
+    ("Пешка" + " " * 80 + "с e2 идёт на e4.", False),
+])
+def test_the_verdict_does_not_depend_on_the_spacing(sentence, wrong):
+    from src.answer_check import CheckContext, check_sentence
+
+    assert bool(check_sentence(sentence, CheckContext.from_fens([]))) is wrong

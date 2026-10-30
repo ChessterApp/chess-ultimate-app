@@ -191,6 +191,20 @@ describe('voice seam through the real proxies: what the hook sends and Hermes re
     expect(atHermes('/api/coach/voice/check')).toMatchObject({ sent: { fen: START, session_id: 's1' }, hermes: { fen: START, session_id: 's1' } });
   });
 
+  // 30.10: the sentences before it go with every checked sentence (the line they wrote, what «больше ничего» excludes),
+  // and the engine flag reaches Hermes; Hermes's word on whether it asked the engine comes back to the hook.
+  it('check: the answer so far and the engine flag reach Hermes', async () => {
+    h.reply = (path) => (path === '/api/coach/voice/check' ? { issues: [], engine: false } : defaultReply(path));
+    await connectWith({ getGame: () => null, getFen: () => START, getSessionId: () => 's1' });
+    coachSays('Под ударом у тебя слон c4, его атакует конь a5. Твой конь g5 давит на пункт f7. ');
+    await waitFor(() => expect(h.to('/api/coach/voice/check')).toHaveLength(2));
+    expect(atHermes('/api/coach/voice/check', 0).hermes.previous).toBeUndefined();
+    expect(atHermes('/api/coach/voice/check', 1)).toMatchObject({
+      sent: { text: 'Твой конь g5 давит на пункт f7.', previous: 'Под ударом у тебя слон c4, его атакует конь a5. ', engine: true },
+      hermes: { text: 'Твой конь g5 давит на пункт f7.', previous: 'Под ударом у тебя слон c4, его атакует конь a5. ', engine: true },
+    });
+  });
+
   it('tool make_game_move called by the model: args, session and the student\'s words reach Hermes', async () => {
     h.reply = (path, body) => (path === '/api/coach/tool/make_game_move'
       ? { result: { ok: true, student_move: 'e4', engine_reply: 'd5' }, board_actions: [{ type: 'game', game: AFTER_GAME }] }

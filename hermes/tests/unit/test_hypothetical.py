@@ -442,7 +442,7 @@ class TestVoiceCheckVerifiesTheRecommendation:
                             _fake_analysis({H4: (8.6, "f3h4"), after.fen(): (-8.8, "g8f6")}))
         resp = self.client.post("/api/coach/voice/check", headers={"X-User-Id": "voice-verify"},
                                 json={"text": "Бери ферзя: Nxh4, он не защищён.", "fen": H4})
-        assert resp.json() == {"issues": []}
+        assert resp.json() == {"issues": [], "engine": True}
 
 
 

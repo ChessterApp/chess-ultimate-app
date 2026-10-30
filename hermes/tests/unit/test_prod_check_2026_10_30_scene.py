@@ -367,3 +367,48 @@ def test_the_line_of_a_sentence_not_shown_is_not_gone_on_with():
     ctx = CheckContext.from_fens([CASTLE])
     out = _run(ctx, ["Сыграй b3, и слон под ударом.", "Тогда слон отступает на a6.", "Тогда bxc4 выигрывает слона."])
     assert out[:2] == [[], []] and any("bxc4 is impossible" in i for i in out[2]), out
+
+
+# ── voice/check reads the sentences before it as the text coach's gate does (review 30.10, voice) ───────────────
+# The hook sends the answer so far as `previous`; it used to seed only «больше ничего»'s state, so «Теперь замри: пешка
+# на a7, ты на d6» — about the line the sentence before wrote — passed by voice and was cut in text.
+
+
+def _voice(text, previous=None, fen=SQUARE, question="Я чёрными, мой ход. Король успеет к пешке?", **extra):
+    from fastapi.testclient import TestClient
+
+    from src.server import app
+
+    body = {"text": text, "fen": fen, "question": question, **extra}
+    if previous is not None:
+        body["previous"] = previous
+    resp = TestClient(app).post("/api/coach/voice/check", headers={"X-User-Id": "voice-scene"}, json=body)
+    assert resp.status_code == 200
+    return resp.json()
+
+
+def test_square_voice_reads_the_line_of_the_sentences_before():
+    out = _voice(SQUARE_ANSWER[3], " ".join(SQUARE_ANSWER[:3]) + " ", engine=False)
+    assert any("after 1...Ke5 2. a6 Kd6" in i and "no pawn on a7" in i for i in out["issues"]), out
+    assert out["engine"] is False
+    assert _voice(SQUARE_ANSWER[3], engine=False)["issues"] == []  # no line before it: the board as it is
+
+
+@pytest.mark.parametrize("sentences", [
+    ["Смотри: после Ke5 белые играют a6, и ты идёшь Kd6.", "Теперь представь: пешка на a7, ты на d6."],  # imagined
+    ["Смотри: после Ke5 белые играют a6, и ты идёшь Kd6.", "Сейчас пешка на a5, а ты на f5."],  # the board as it is
+    ["Смотри: после Ke5 белые играют a6, и ты идёшь Kd6.", "Теперь замри: пешка на a6, ты на d6."],  # right
+    ["Смотри: после Ke5 белые играют a6, и ты идёшь Kd6.", "Пешка на a7 — это уже ферзь через ход."],  # not «now»
+    # a sentence before with issues of its own: its line is not the scene of the next one (as in the text coach)
+    ["Смотри: после Ke5 белые играют a6, и ты идёшь Kd6, а конь с b1 прыгает на b3.", "Теперь замри: пешка на a7, ты на d6."],
+])
+def test_square_voice_unjudged(sentences):
+    *before, last = sentences
+    assert _voice(last, " ".join(before) + " ", engine=False)["issues"] == []
+
+
+def test_the_sentences_before_are_not_judged_themselves():
+    # «previous» holds a wrong sentence: it was the voice check of its own turn; this one is clean.
+    out = _voice("Теперь замри: пешка на a6, ты на d6.",
+                 "Конь с b1 прыгает на b3. Смотри: после Ke5 белые играют a6, и ты идёшь Kd6. ", engine=False)
+    assert out["issues"] == []

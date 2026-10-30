@@ -155,7 +155,8 @@
    "pgn",
    "question",
    "session_id",
-   "previous"
+   "previous",
+   "engine"
   ]
  },
  "POST /api/coach/voice/engine-note": {

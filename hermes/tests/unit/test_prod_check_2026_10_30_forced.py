@@ -225,6 +225,47 @@ class TestTheEngineJudges:
         assert verify_forced_reply(self._trap_claim(), 300, True) is None
         assert not [c for c in calls if c[1] == "depth"]  # no time: not asked at all
 
+    def test_every_reading_of_a_sentence_shares_one_budget(self, monkeypatch):
+        # Review 30.10 (interplay): 1.1–2.4 s per sentence, its readings looked at one after another. The timed
+        # looks and the confirming searches of all readings share FORCED_TOTAL_MAX_MS: a reading with no time left
+        # is not looked at, and the claim — wrong only when wrong in every reading — stands.
+        import types
+
+        after = _after(TRAP, "Nxe5").fen()
+        lines = {after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]}
+        clock, calls = [0.0], []
+        _engine(monkeypatch, lines, calls=calls)
+        timed, deep = hypothetical.analyze_timed, hypothetical.analyze_position
+
+        def _timed(fen, movetime_ms, *a, **k):
+            clock[0] += movetime_ms / 1000.0
+            return timed(fen, movetime_ms, *a, **k)
+
+        def _deep(fen, *a, max_ms=None, **k):
+            clock[0] += (max_ms or 0) / 1000.0  # the search runs its whole time
+            return deep(fen, *a, max_ms=max_ms, **k)
+
+        monkeypatch.setattr("src.hypothetical.time", types.SimpleNamespace(monotonic=lambda: clock[0]))
+        monkeypatch.setattr("src.hypothetical.analyze_timed", _timed)
+        monkeypatch.setattr("src.hypothetical.analyze_position", _deep)
+        claim = dict(self._trap_claim())
+        claim["also"] = [dict(claim, also=[])]  # a second reading, wrong too
+        monkeypatch.setattr("src.hypothetical.FORCED_TOTAL_MAX_MS", 60000)
+        assert verify_forced_reply(claim, 300, True)
+        assert [c[1] for c in calls] == [600, "depth", 600, "depth"]
+        # 600 ms + 1000 ms spent on the first reading: 400 ms left, short of the second one's timed look.
+        calls.clear()
+        clock[0] = 0.0
+        monkeypatch.setattr("src.hypothetical.FORCED_TOTAL_MAX_MS", 2000)
+        assert verify_forced_reply(claim, 300, True) is None
+        assert [c[1] for c in calls] == [600, "depth"]
+        # A tighter budget cuts the confirming search of the first reading itself.
+        calls.clear()
+        clock[0] = 0.0
+        monkeypatch.setattr("src.hypothetical.FORCED_TOTAL_MAX_MS", 1200)
+        verify_forced_reply(self._trap_claim(), 300, True)
+        assert [c[1] for c in calls] == [600, "depth"] and 0 < calls[1][-1] <= 600, calls
+
     def test_the_named_reply_much_worse_than_the_best(self, monkeypatch):
         # mate2-no: the king «must» move, Qxd5 takes the queen back.
         claim = _claim(["Берёшь коня на d5 с шахом: Qxd5+.",
@@ -450,6 +491,7 @@ class TestWithStockfish:
         # nothing (test_a_deep_look_short_of_its_depth_says_nothing) — the numbers here are the depth's own.
         monkeypatch.setattr("src.tools.stockfish.MAX_MS", 0, raising=False)
         monkeypatch.setattr("src.hypothetical.FORCED_CONFIRM_MAX_MS", 60000)
+        monkeypatch.setattr("src.hypothetical.FORCED_TOTAL_MAX_MS", 120000)
 
     def test_a_search_to_a_depth_bounded_in_time_stops_on_time(self, monkeypatch):
         import time
@@ -534,4 +576,45 @@ class TestWiring:
         _engine(monkeypatch, {after: [("d6e5", -2.6), ("g4e6", -4.4), ("d6d5", -5.2)]})
         resp = TestClient(server.app).post("/api/coach/voice/check", headers={"X-User-Id": "voice-forced"},
                                            json={"text": "После Nxe5 чёрные обязаны ответить dxe5.", "fen": TRAP})
-        assert resp.json() == {"issues": []}
+        assert resp.json() == {"issues": [], "engine": True}
+
+
+class TestVoiceWithTheSentencesBefore:
+    """voice/check reads the answer so far (`previous`) sentence by sentence, as the text coach's gate reads it: the
+    move a reply is claimed forced after may be in the sentence before (mate2-no; review 30.10, voice). Its engine
+    may be refused by the site (engine=false: the answer's engine checks are spent); it says whether it asked one."""
+
+    MATE2_BEFORE = "Берёшь коня на d5 с шахом: Qxd5+. "
+    MATE2_SENTENCE = "Король вынужден уйти с e6, после чего ты забираешь ферзя, и партия фактически решена."
+
+    def _post(self, **body):
+        from fastapi.testclient import TestClient
+
+        resp = TestClient(server.app).post("/api/coach/voice/check", headers={"X-User-Id": "voice-forced"},
+                                           json={"fen": MATE2, **body})
+        assert resp.status_code == 200
+        return resp.json()
+
+    def test_mate2_no_by_voice(self, monkeypatch):
+        monkeypatch.setattr(config, "COACH_MOVE_VERIFY", True)
+        calls = []
+        _engine(monkeypatch, {_after(MATE2, "Qxd5+").fen(): [("d8d5", 6.2), ("e6e7", -5.7), ("e6f5", "mate -4")]},
+                calls=calls)
+        out = self._post(text=self.MATE2_SENTENCE, previous=self.MATE2_BEFORE)
+        assert out["engine"] is True and len(out["issues"]) == 1
+        assert out["issues"][0].startswith("after Qxd5+ Black is not forced to make a king move")
+        assert "Qxd5 (" not in out["issues"][0]  # the engine's reply stays out of the voice coach's correction
+        # Without the sentence before there is no move the claim follows: nothing for the engine.
+        calls.clear()
+        assert self._post(text=self.MATE2_SENTENCE) == {"issues": [], "engine": False}
+        assert not calls
+
+    def test_engine_false_is_the_board_check_alone(self, monkeypatch):
+        monkeypatch.setattr(config, "COACH_MOVE_VERIFY", True)
+        calls = []
+        _engine(monkeypatch, {_after(MATE2, "Qxd5+").fen(): [("d8d5", 6.2), ("e6e7", -5.7)]}, calls=calls)
+        out = self._post(text=self.MATE2_SENTENCE, previous=self.MATE2_BEFORE, engine=False)
+        assert out == {"issues": [], "engine": False} and not calls
+        # …the board's own verdicts still come back
+        out = self._post(text="Конь с b1 прыгает на b3 и всё решает.", engine=False)
+        assert out["issues"] == ["a knight cannot move from b1 to b3"]
