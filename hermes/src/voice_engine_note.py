@@ -152,6 +152,9 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
     opening = _opening(fen)
     if opening:
         parts.append(opening)
+    book_moves = _book_moves(fen)
+    if book_moves:
+        parts.append(book_moves)
 
     # COACH_ENGINE_FACTS=0 leaves the line as moves and evaluations only.
     facts = _facts(board, result["lines"][0], prefetch) if with_facts else []
@@ -191,6 +194,32 @@ def _opening(fen: str) -> Optional[str]:
         return None
     ru = f" — {found['name_ru']}" if found.get("name_ru") else ""
     return f"Opening (ECO book): {found['eco']} {found['name']}{ru}."
+
+
+def _book_moves(fen: str, limit: int = 5) -> Optional[str]:
+    """The book's moves from the position, the main one first, with the lines they open — for «обычно играют…»,
+    «главный ход здесь…», «2.c3 — это вариант…» from the book, not from memory: on 29.10 (prod check) the coach
+    called 2.c3 «атака в стиле Алёхина» (the Alapin Variation) and 3.Nc3 «обычно» after 2.f4 exf4 (3.Nf3: 92 book
+    lines, 3.Nc3: 1). src/answer_check_openings.py reads the same numbers back."""
+    try:
+        from src.openings_book import get_book
+
+        board = chess.Board(fen)
+        book = get_book()
+        conts = book.continuations(board)
+        here = book.by_position(fen)
+    except Exception:  # noqa: BLE001 — the moves are a bonus on top of the name
+        return None
+    if not conts:
+        return None
+    own = (here or {}).get("name")
+    num = f"{board.fullmove_number}." if board.turn == chess.WHITE else f"{board.fullmove_number}..."
+    told = []
+    for c in conts[:limit]:
+        named = f" — {c['name']} ({c['eco']})" if c.get("name") and c["name"] != own else ""
+        told.append(f"{num}{c['san']}{named}: {c['lines']} book line{'' if c['lines'] == 1 else 's'}")
+    return ("Book moves here (ECO book; the most worked-out first — call only the first one «the main / usual move», "
+            "and give a move the variation name it has here, never one from memory): " + "; ".join(told) + ".")
 
 
 def _facts(board: chess.Board, top: dict, prefetch) -> list[str]:

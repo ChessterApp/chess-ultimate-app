@@ -336,6 +336,9 @@ class CheckContext:
     # that gives «the solution» or «the mate» with another move is not shown (prod 23.10: «Qf3+ Kg1 и Qh1#» for
     # a puzzle solved by Nh3#).
     puzzle_solution: Optional[list] = None
+    # ECO codes a tool's result names (identify_opening, get_opening_stats): the coach repeating one says what the
+    # tool said (src/answer_check_openings.py, prod check 29.10).
+    text_codes: set = field(default_factory=set)
     MAX_BOARDS = 400
 
     @classmethod
@@ -373,6 +376,7 @@ class CheckContext:
                 pass
         for pgn in re.findall(r'"pgn"\s*:\s*"([^"]{8,})"', text or ""):
             self.add_line(pgn.replace("\\n", " "))
+        self.text_codes.update(re.findall(r"(?<![A-Za-z0-9])[A-E]\d\d(?![0-9A-Za-z])", text or ""))
 
     @staticmethod
     def _key(board: chess.Board) -> str:
@@ -3356,13 +3360,16 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     # Written moves first: the positions they lead to join the boards of the
     # turn, and the claims after them («Rg1, ладья нападает на ферзя») are judged there.
     san_issues = _history_issues(text, ctx) + _san_issues(text, ctx) + _recapture_issues(text, ctx)
+    from src.answer_check_openings import opening_book_issues
     from src.answer_check_rules import rules_issues
 
     issues = (_move_issues(lowered) + _attack_issues(lowered, text, ctx) + san_issues
               + _opening_issues(text) + _opening_identity_issues(text, ctx) + _told_move_issues(lowered, text, ctx)
               + _fact_issues(lowered, text, ctx)
               + _plan_move_issues(lowered, text, ctx)
-              + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx))
+              + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx)
+              # ECO codes, variations named after a person, «usually X» — by the ECO book (prod check 29.10)
+              + opening_book_issues(text, ctx))
     if not san_issues:
         issues += _announced_move_issues(text, ctx)
     squares = _SQ_RE.findall(lowered)
