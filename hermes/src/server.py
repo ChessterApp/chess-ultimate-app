@@ -2177,16 +2177,19 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # known trap's line gets the trap's lines (src/trap_positions — «да, можно взять e5» in the Blackburne
     # Shilling position). Not for a new-puzzle request, a live game or a board the tools already marked.
     site_puzzle_note = trap_note = ""
+    site_puzzle_hit = None  # the lesson task itself: its solution is a solution line for the answer check
     wants_puzzle_now = bool(_WANTS_NEW_PUZZLE.search(body.message or ""))
     if session.board_state and not live_game and review_future is None and not wants_puzzle_now and not hidden_fen:
         if config.COACH_SITE_PUZZLE_LOOKUP and not puzzle_note:
             try:
                 from src.site_puzzle_lookup import site_puzzle_at, site_puzzle_block
 
-                site_puzzle_note = site_puzzle_block(await asyncio.to_thread(site_puzzle_at, session.board_state))
+                site_puzzle_hit = await asyncio.to_thread(site_puzzle_at, session.board_state)
+                site_puzzle_note = site_puzzle_block(site_puzzle_hit)
             except Exception:  # noqa: BLE001 — best-effort
                 logger.debug("site puzzle lookup failed", exc_info=True)
                 site_puzzle_note = ""
+                site_puzzle_hit = None
         if config.COACH_TRAP_POSITIONS:
             try:
                 from src.trap_positions import trap_block
@@ -2587,6 +2590,21 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 check_ctx.puzzle_solution = sol_line["sans"] if sol_line else None
             except Exception:  # noqa: BLE001
                 check_ctx.puzzle_solution = None
+        # The lines that solve the task on the board, from the position the answer is about: a puzzle answer
+        # describes the board after its unnamed solution move («ферзь e5 атакован» after 1.f4) — the relation checker
+        # judges such a claim on the boards after their first moves too (src/answer_check_relations.py, plan 30.10).
+        # The engine's best line joins them in _run, once the turn's engine note is in (no new engine call).
+        try:
+            from src.answer_check_relations import add_solution_line, line_from
+
+            if puzzle_note and check_ctx.puzzle_solution:
+                pz = getattr(active_board, "puzzle", None) or {}
+                add_solution_line(check_ctx, line_from(pz.get("fen"), check_ctx.puzzle_solution, check_ctx.current))
+            if site_puzzle_hit and site_puzzle_hit.get("solution"):
+                add_solution_line(check_ctx, line_from(site_puzzle_hit.get("fen"), site_puzzle_hit["solution"],
+                                                       check_ctx.current))
+        except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
+            logger.debug("solution lines failed", exc_info=True)
         # A game on the board: the coach's moves are the engine's — «я ответил Кc6» with no such move is
         # not shown (src/answer_check._coach_move_issues; stand, 2026-10-12).
         if active_board.kind == "game" and active_board.game_state:
@@ -2721,6 +2739,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                                 # the engine's verdict was about the old board: no eval-based checks now
                                 check_ctx.engine_eval = check_ctx.tablebase = check_ctx.engine_mate = None
                                 check_ctx.board_moved = True  # nor claims about the old board's history (30.10)
+                                check_ctx.solution_lines = []  # nor the old position's solution lines
                 except Exception:  # noqa: BLE001 — never break a turn on the bookkeeping
                     logger.debug("board move bookkeeping failed", exc_info=True)
             # What the tool put on the board (a topic example, a puzzle, a game)
@@ -2819,6 +2838,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     except Exception:  # noqa: BLE001 — never block a turn on the fallback
                         logger.debug("board facts fallback failed", exc_info=True)
                 if note:
+                    # The engine's best line is the solution of «Какой здесь первый ход?» / a lesson task on the board.
+                    from src.answer_check_relations import add_solution_line, engine_solution_line
+
+                    add_solution_line(check_ctx, engine_solution_line(
+                        note, check_ctx, body.message, task_on_board=bool(puzzle_note or site_puzzle_hit)))
                     check_ctx.engine_eval = _parse_white_eval((note.get("lines") or [{}])[0].get("eval"))
                     # The tablebase is exact where the engine is not (a +1.13 dead draw).
                     tb = note.get("tablebase")
@@ -2874,7 +2898,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             """The rest of the answer after a wrong sentence: one tool-free call."""
             reply = None
             try:
+                from src.answer_check_relations import issues_for_fix
                 from src.quick_reply import stream_completion
+
+                # The board truth of the relation checker first, at most three reasons (the full list is logged).
+                issues = issues_for_fix(issues, check_ctx)
 
                 reply = stream_completion(
                     model=model,
@@ -3337,6 +3365,25 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     daemon=True,
                 ).start()
 
+        # The relation checker of the turn (src/answer_check_relations.py): its counters go into turn_end; what it
+        # flagged — the shadow records, the issues that cut sentences — into one relation_check event of the turn.
+        # Collect: jq -c 'select(.event_type=="relation_check")' hermes/metrics/coach-events-*.jsonl
+        # (Supabase: coach_events where event_type = 'relation_check').
+        from src.answer_check_relations import log_record as relation_log_record, turn_summary as relation_summary
+
+        relation = relation_summary(check_ctx)
+        relation_record = relation_log_record(check_ctx)
+        if relation_record:
+            log_event(
+                "relation_check",
+                severity="warn" if relation_record["relation_errors"] else "info",
+                surface="text",
+                user_id=user_id,
+                session_id=session.id,
+                turn_id=turn_id,
+                model=model,
+                payload=relation_record,
+            )
         # The answer check: what was stopped and how the rest was written.
         fix_reply = fix["reply"]
         answer_check = {
@@ -3486,6 +3533,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "stages_ms": dict(stages),
                 "hedge": _hedge_state(agent),
                 "answer_check": answer_check,
+                "relation": relation,
                 "opening": opening_plan.name if opening_plan else None,
                 "quick": {
                     "model": _reply_model(quick_reply) or quick_model_id, "shown": bool(quick_text),
@@ -3515,6 +3563,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "review": dict(review_state),
                 "hedge": _hedge_state(agent),
                 "answer_check": answer_check,
+                **relation,
                 "stages_ms": {**stages, "engine_ready": engine_state.get("ms"),
                               "review_ready": review_state.get("ms"),
                               "total": int((time.monotonic() - request_started) * 1000)},
@@ -4397,6 +4446,9 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
             _replay_previous(ctx, spoken_squares(body.previous[-1500:]))
         spoken_text = spoken_squares(body.text[:1000])
         issues = check_sentence(spoken_text, ctx)
+        # What the relation checker flagged in this sentence (shadow: recorded, not returned) — for review, as the
+        # text turn's relation_check event (src/answer_check_relations.py).
+        relation_record[0] = _relation_voice_record(ctx)
         if not body.engine:
             return issues  # the board check alone: the site's engine checks of this answer are spent
         if not issues and config.COACH_TABLEBASE_LINE_CHECKS > 0:
@@ -4448,8 +4500,22 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         return issues
 
     used = [False]  # the engine or the tablebase was asked: the site counts it against the answer's engine checks
+    relation_record = [None]
     issues = await asyncio.to_thread(_check)
+    if relation_record[0]:
+        log_event("relation_check", severity="warn" if relation_record[0]["relation_errors"] else "info",
+                  surface="voice", user_id=user_id, session_id=body.session_id, payload=relation_record[0])
     return {"issues": issues, "engine": used[0]}
+
+
+def _relation_voice_record(ctx) -> Optional[dict]:
+    """The relation_check payload of one voice sentence, or None (nothing flagged). Never raises."""
+    try:
+        from src.answer_check_relations import log_record
+
+        return log_record(ctx)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _replay_previous(ctx, said: str) -> None:
@@ -4473,6 +4539,10 @@ def _replay_previous(ctx, said: str) -> None:
     ctx.line_claims.clear()
     if getattr(ctx, "outcome_pending", None):
         ctx.outcome_pending.clear()
+    # The relation checker keeps what they set up for this sentence (ctx.relation_state: «он» → the knight they
+    # named, the end of the line they told) — and not their verdicts: each was checked when it was said.
+    ctx.relation_shadow.clear()
+    ctx.relation_stats.clear()
     # …and the side the earlier sentences spoke of («Под ударом у тебя слон c4» → «больше ничего» is about you).
     seed_facts_state(ctx, said)
 
