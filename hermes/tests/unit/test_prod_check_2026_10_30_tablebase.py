@@ -299,6 +299,115 @@ def test_the_live_game_note_carries_the_tablebase_result(monkeypatch):
     assert "Endgame tablebase (exact, perfect play): DRAW" in note["note"]
 
 
+# ── Review 30.10: true sentences that are not a claim of this result ────────
+# Reviewers reproduced each of these as cut. They are correct teaching on their boards, so they must pass.
+
+KPK_OPPOSITION = "8/8/4k3/8/4K3/4P3/8/8 b - - 0 1"  # White wins: White has the opposition
+KQK = "8/8/8/4k3/8/8/8/KQ6 w - - 0 1"               # White wins
+KRK = "8/8/8/4k3/8/8/8/KR6 b - - 0 1"               # White wins
+_LOSS = {"category": "loss", "dtz": -9, "dtm": -21, "best_category": "win", "keeping": []}
+TB.update({KPK_OPPOSITION: {**_LOSS, "best_san": "Kd6"},
+           KQK: {"category": "win", "dtz": 15, "dtm": 15, "best_san": "Kb2", "best_category": "loss", "keeping": []},
+           KRK: {**_LOSS, "best_san": "Kd4"}})
+_BY_EPD.update({chess.Board(f).epd(): TB[f] for f in (KPK_OPPOSITION, KQK, KRK)})
+
+
+@pytest.mark.parametrize("fen, question, sentence", [
+    # A condition after the claim: after a comma, «после 1...Ke4», the other side to move.
+    (SQUARE, Q_SQUARE, "Пешка проходит, если король пойдёт не туда."),
+    (SQUARE, Q_SQUARE, "Белые выиграют, если ты сыграешь Ke4."),
+    (SQUARE, Q_SQUARE, "Пешка пройдёт в ферзи, когда король уйдёт на e4."),
+    (SQUARE, Q_SQUARE, "Пешка проходит после 1...Ke4, потому что король уходит из квадрата."),
+    (SQUARE, Q_SQUARE, "Пешка проходит только при ходе белых."),
+    (SQUARE, Q_SQUARE, "С ходом белых пешка проходит в ферзи."),
+    # Another move than the line's: «без Kd5», «любой другой ход».
+    (SQUARE, Q_SQUARE, "Без Kd5 пешку не догнать."),
+    (SQUARE, Q_SQUARE, "Kd5! Любой другой ход — и пешку уже не догнать."),
+    # «успеет» said of the pawn, in the sentence or in the question.
+    (SQUARE_NO, "Я белыми. Успеет ли моя пешка дойти до a8?", "Да, успеет."),
+    (SQUARE_NO, "Я белыми. Пешка успеет пройти в ферзи?", "Да, успеет — чёрный король вне квадрата."),
+    (SQUARE_NO, "Король догонит пешку?", "Нет — пешка успевает первой."),
+    (SQUARE, "Я белыми. Моя пешка успеет?", "Нет, не успеет: чёрные играют Kd5 и догоняют её."),
+    # Reaching the pawn is not stopping it; the result said after «но / однако».
+    (KPK_OPPOSITION, "Я чёрными. Как защищаться?",
+     "Твой король успевает встать перед пешкой, но у белых оппозиция, и они выигрывают."),
+    (KPK_OPPOSITION, "I'm Black. How do I defend?",
+     "Your king is in time to stand in front of the pawn, but White has the opposition and wins."),
+    (KPK_OPPOSITION, "Я чёрными. Как защищаться?",
+     "Король задержит пешку на пару ходов, однако белые всё равно проведут её в ферзи."),
+    # Someone's belief, a doubt, a rejected statement.
+    (SQUARE_NO, Q_SQUARE, "Кажется, что король догонит пешку, но это иллюзия."),
+    (SQUARE_NO, Q_SQUARE, "Не факт, что король догонит пешку: посчитай квадрат."),
+    (SQUARE, "Я чёрными. Мне кажется, пешка проходит.", "Ты пишешь, что пешка проходит, — это не так: Kd5 и король успевает."),
+    (SQUARE, "Я чёрными. Как играть?", "Белые надеются, что пешка проходит, но ты успеваешь ходом Kd5."),
+    # Another position: a study, the rule, a diagram, «там».
+    (SQUARE_NO, Q_SQUARE, "В знаменитом этюде Рети король догоняет пешку благодаря двойной угрозе."),
+    (SQUARE_NO, Q_SQUARE, "Правило квадрата простое: король внутри квадрата догоняет пешку."),
+    (SQUARE_NO, Q_SQUARE, "На диаграмме из урока король на c3 догоняет пешку a5."),
+    (SQUARE_NO, Q_SQUARE, "Сравни с позицией, где король стоит на e5: там он догонит пешку."),
+    # «выиграть» with an object, «кто выиграет».
+    (SQUARE, Q_SQUARE, "Так ты выиграешь важный темп."),
+    (SQUARE, "I'm Black. Is it a draw?", "Black can win a tempo with Kd5."),
+    (SQUARE, Q_SQUARE, "Белые выиграют темп ходом a6."),
+    (SQUARE, Q_SQUARE, "Кто выиграет, зависит от очереди хода."),
+    (SQUARE, Q_SQUARE, "Выиграет тот, кто первым поставит ферзя."),
+    # A side not known («ему», a bare «спасения нет» with no colour of the student's), an attempt, the checks.
+    (KQK, "", "Спасения нет: чёрный король уже прижат к краю."),
+    (KRK, "Я белыми, как ставить мат?", "Ему уже не спастись: ладья отрезала короля."),
+    (KRK, "Я белыми, как ставить мат?", "Чёрный король пытается спастись в центре, но ладья его отрезает."),
+    (KQK, "Я белыми, как ставить мат?", "Чёрный король спасётся от шахов только на время, мат всё равно будет."),
+    # A denial after the infinitive: true on the White-wins board.
+    (SQUARE_NO, Q_SQUARE_NO, "Удержать ничью здесь нельзя."),
+    (SQUARE_NO, Q_SQUARE_NO, "Спасти партию уже нельзя."),
+    (SQUARE_NO, Q_SQUARE_NO, "Спастись не получится."),
+    (SQUARE_NO, Q_SQUARE_NO, "Догнать пешку уже невозможно."),
+    (SQUARE_NO, Q_SQUARE_NO, "Остановить пешку невозможно."),
+    (SQUARE_NO, Q_SQUARE_NO, "Пешку догнать уже не выйдет."),
+    # The king's own pawn; a goal, not a result.
+    (SQUARE, Q_SQUARE, "Белый король успевает к своей пешке."),
+    (SQUARE_NO, Q_SQUARE_NO, "Твоя задача — удержать ничью."),
+])
+def test_review_true_sentences_pass(fen, question, sentence):
+    ctx = _ctx(fen, question)
+    assert not any("endgame tablebase (exact)" in i for i in check_sentence(sentence, ctx)), sentence
+
+
+def test_review_the_coach_speaks_of_its_own_side_only_in_a_game():
+    ctx = CheckContext.from_fens([KRK], question="", student_color=chess.WHITE)
+    ctx.tablebase = "White wins"
+    board_rules._tb_cache[ctx.current.epd()] = TB[KRK]
+    assert check_sentence("Мне ничью не удержать, поздравляю.", ctx) == []  # the coach is Black: true
+    assert "Black holds the draw" in check_sentence("Мне ничью удержать можно.", ctx)[0]
+
+
+def test_review_a_student_named_only_by_a_verb_of_thinking_is_no_colour():
+    # «Я думаю, белые тут выигрывают?» names no colour of the student's.
+    from src.endgame_claims import _student_named
+
+    assert not _student_named(CheckContext.from_fens([SQUARE], question="Я думаю белые тут выигрывают?"))
+    assert _student_named(CheckContext.from_fens([SQUARE], question="Я играю за белых. Выиграю?"))
+
+
+@pytest.mark.parametrize("fen, question, sentence, meaning", [
+    # The same forms, wrong for the board, are still cut — with the meaning the sentence has.
+    (SQUARE, "Я белыми. Моя пешка успеет?", "Да, успеет.", "the white pawn on a5 queens, so White wins"),
+    (SQUARE, Q_SQUARE, "Пешка успевает первой.", "the white pawn on a5 queens, so White wins"),
+    (SQUARE, Q_SQUARE_NO, "Удержать ничью здесь нельзя.", "Black cannot save the game, so White wins"),
+    (SQUARE, Q_SQUARE, "Догнать пешку уже невозможно.", "the black king does not catch the white pawn on a5, so White wins"),
+    (SQUARE_NO, Q_SQUARE_NO, "Догнать пешку можно.", "the black king catches the white pawn on a5, so White does not win"),
+    (SQUARE, Q_SQUARE, "Белые выиграют партию.", "White wins"),
+    (SQUARE, Q_SQUARE, "Король ловит пешку.", None),  # true: passes
+    (SQUARE_NO, Q_SQUARE_NO, "Король ловит пешку.", "the black king catches the white pawn on a5"),
+    (SQUARE, Q_SQUARE, "Пешка дойдёт до поля a8.", "the white pawn on a5 queens, so White wins"),
+])
+def test_review_wrong_forms_are_still_cut(fen, question, sentence, meaning):
+    issues = [i for i in check_sentence(sentence, _ctx(fen, question)) if "endgame tablebase (exact)" in i]
+    if meaning is None:
+        assert issues == []
+    else:
+        assert issues and f"the sentence says {meaning}" in issues[0], issues
+
+
 @pytest.mark.unit
 class TestPaths:
     def setup_method(self):
