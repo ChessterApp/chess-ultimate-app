@@ -341,6 +341,11 @@ COACH_MOVE_VERIFY = _env_flag("COACH_MOVE_VERIFY", True)
 COACH_MOVE_VERIFY_MOVETIME_MS = int(os.environ.get("COACH_MOVE_VERIFY_MOVETIME_MS", "300"))
 COACH_MOVE_VERIFY_CP = int(os.environ.get("COACH_MOVE_VERIFY_CP", "150"))
 COACH_MOVE_VERIFY_PER_TURN = int(os.environ.get("COACH_MOVE_VERIFY_PER_TURN", "4"))
+# A line the coach writes with its outcome («…Qxd5+, и ты забираешь ферзя», «опасная для чёрных игра», «на четыре
+# пешки хуже») is judged by the engine at the line's end in the same stage and budget as a recommendation
+# (src/line_verdict.py; prod check 29.10).
+#   COACH_LINE_VERDICT — kill switch (default ON; off with COACH_MOVE_VERIFY too).
+COACH_LINE_VERDICT = _env_flag("COACH_LINE_VERDICT", True)
 # «Дай задачу на связку» (2026-10-05): the task comes from the site's own sets on
 # the theme first (the student's programme, with the set's address), the Lichess
 # puzzle set only when the site has none. COACH_PUZZLES_FROM_SITE=0 → Lichess as before.

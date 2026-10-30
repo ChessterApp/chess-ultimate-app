@@ -2987,6 +2987,25 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         if issue:
                             verify_state["caught"] += 1
                             issues = [issue]
+                # A line with the outcome it promises («…Qxd5+, и ты забираешь ферзя»): the engine at the line's end
+                # (src/line_verdict.py, prod 29.10); in a live game without the engine's continuation.
+                claims = check_ctx.line_claims.pop(sentence, None)
+                if claims and not issues and verify_state["left"] > 0 and config.COACH_LINE_VERDICT:
+                    from src.line_verdict import verify_claims
+
+                    verify_state["left"] -= 1
+                    verify_state["checked"] += 1
+                    started_v = time.monotonic()
+                    try:
+                        issue = await loop.run_in_executor(
+                            _engine_pool, verify_claims, claims, config.COACH_MOVE_VERIFY_MOVETIME_MS, not live_game)
+                    except Exception:  # noqa: BLE001 — the check is best-effort
+                        logger.debug("line verdict failed", exc_info=True)
+                        issue = None
+                    verify_state["ms"] += int((time.monotonic() - started_v) * 1000)
+                    if issue:
+                        verify_state["caught"] += 1
+                        issues = [issue]
                 out.append((text, issues, sentence))
             return out
 
@@ -4261,7 +4280,8 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         # the check (src/game_intent.spoken_squares; Alexander's phone, 24.10).
         from src.game_intent import spoken_squares
 
-        issues = check_sentence(spoken_squares(body.text[:1000]), ctx)
+        spoken_text = spoken_squares(body.text[:1000])
+        issues = check_sentence(spoken_text, ctx)
         if issues or not body.fen or not config.COACH_MOVE_VERIFY:
             return issues
         # The coach's recommendation («сыграй Rg1») against the engine, as in the
@@ -4271,11 +4291,21 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         from src.hypothetical import verify_recommendation
 
         found = proposed_move(body.text[:1000], ctx)
-        if not found:
-            return issues
-        why = verify_recommendation(found[0], found[1], found[2], config.COACH_MOVE_VERIFY_MOVETIME_MS,
-                                    config.COACH_MOVE_VERIFY_CP, reveal_best=False)
-        return [why] if why else issues
+        if found:
+            why = verify_recommendation(found[0], found[1], found[2], config.COACH_MOVE_VERIFY_MOVETIME_MS,
+                                        config.COACH_MOVE_VERIFY_CP, reveal_best=False)
+            if why:
+                return [why]
+        # A line with the outcome it promises, as in the text coach (src/line_verdict.py, prod 29.10): the
+        # engine's continuation kept out here too.
+        claims = ctx.line_claims.get(spoken_text)
+        if claims and config.COACH_LINE_VERDICT:
+            from src.line_verdict import verify_claims
+
+            why = verify_claims(claims, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal=False)
+            if why:
+                return [why]
+        return issues
 
     issues = await asyncio.to_thread(_check)
     return {"issues": issues}

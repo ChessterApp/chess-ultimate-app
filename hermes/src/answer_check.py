@@ -336,6 +336,10 @@ class CheckContext:
     # that gives «the solution» or «the mate» with another move is not shown (prod 23.10: «Qf3+ Kg1 и Qh1#» for
     # a puzzle solved by Nh3#).
     puzzle_solution: Optional[list] = None
+    # The outcomes a sentence promises at the end of a line it writes («…Qxd5+, и ты забираешь ферзя»), under the
+    # sentence, for the engine stage (src/line_verdict.py; prod 29.10), and the end of the last line written.
+    line_claims: dict = field(default_factory=dict)
+    _line_end: Optional[tuple] = None
     MAX_BOARDS = 400
 
     @classmethod
@@ -2840,6 +2844,20 @@ _RECOMMENDS = re.compile(
     r"отличн\w*|верн\w*\s+ход|play|go\s+for|recommend|best|good\s+move|strong)(?![а-яa-z])", re.IGNORECASE)
 
 
+# «Берёшь коня на d5 с шахом: Qxd5+.», «Играешь Nf3 — и конь защищает…»: the coach tells the student's move in the
+# present, the second person, at the start of the sentence — advice as much as «сыграй Qxd5+» (prod 29.10: Qxd5+
+# lost the queen to 8...Qxd5 and went out unchecked). Not after «тогда», «после …», «если …» (a step of a line), not
+# in a question, and not when the sentence says the move fails («берёшь на d5 — и теряешь ферзя»).
+_YOU_PLAY = re.compile(
+    r"^[\s*_>#«\"-]*(?:(?:и|а|здесь|тут|сейчас|теперь|сначала|поэтому|так\s+что|вот)\s+)?(?:ты\s+)?"
+    r"(?:просто\s+|спокойно\s+|сразу\s+|смело\s+|сам\s+)?"
+    r"(?:берешь|бьешь|играешь|ставишь|идешь|забираешь|уводишь|отводишь|жертвуешь|переводишь|выводишь|двигаешь|продвигаешь|"
+    r"толкаешь|отдаешь|разменива\w*ешь|прыгаешь|ходишь)(?![а-я])", re.IGNORECASE)
+_FAILS = re.compile(r"(?<![а-яa-z])(?:теря\w*|потеря\w*|проигр\w*|ошиб\w*|зева\w*|зевок|подстав\w*|ловушк\w*|плох\w*|нельзя|"
+                    r"опасн\w*|не\s+стоит|не\s+надо|не\s+нужно|hangs?|loses?|blunder\w*|mistake\w*|trap\w*)(?![а-яa-z])",
+                    re.IGNORECASE)
+
+
 def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]:
     """The move the coach recommends to the side to move on the board on the
     screen: (board, move, san), or None. In notation («Rg1», «Лg1») or in words
@@ -2873,7 +2891,12 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
         except ValueError:
             break
         return ctx.current, move, ctx.current.san(move)
-    for m in _PROPOSES.finditer(text):
+    starts = list(_PROPOSES.finditer(text))
+    you_play = _YOU_PLAY.match(text)
+    if you_play and "?" not in text and not _FAILS.search(text) \
+            and (ctx.student_color is None or ctx.student_color == ctx.current.turn):
+        starts.insert(0, you_play)
+    for m in starts:
         if _NEGATION.search(text[max(0, m.start() - 24): m.start()]):
             continue  # «не стоит играть Rg1», "don't play Rg1"
         clause = text[m.end():]
@@ -3340,6 +3363,8 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
         ctx.scene_age += 1  # the scene a move of this sentence sets is age 0; the explanation after it still sees it
         ctx.scene_before = (ctx.scene, ctx.scene_san, ctx.scene_age) if ctx.scene is not None else None
         ctx.scene_trail = []
+    # The line the sentence before ended with: a sentence left out here (meta, an echo, another language) ends it.
+    previous_line, ctx._line_end = ctx._line_end, None
     if is_meta(sentence):
         return [META_ISSUE]
     if _echoes_question(sentence, ctx):
@@ -3375,6 +3400,16 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
         ctx.topic = hit[-1] if hit else squares[0]
     ctx._object = None
     ctx._subject = None
+    # A line written with its outcome: the engine judges the outcome before the sentence is shown (src/server.py).
+    try:
+        from src.line_verdict import line_claims
+
+        ctx._line_end = previous_line
+        claims = line_claims(text, ctx)
+        if claims and not issues:
+            ctx.line_claims[sentence] = claims
+    except Exception:  # noqa: BLE001 — the check must never break a turn
+        logger.debug("line claims failed", exc_info=True)
     return list(dict.fromkeys(issues))
 
 
