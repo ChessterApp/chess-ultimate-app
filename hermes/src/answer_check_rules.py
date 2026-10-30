@@ -62,6 +62,15 @@ _CAN_CASTLE = [
                re.IGNORECASE),
     re.compile(r"рок[иеі]ровка\s+жасай\s+ала(?:сың|сыз|ды)|рок[иеі]ровка\s+жасауға\s+болады|рок[иеі]ровка\s+жасауыңа\s+болады",
                re.IGNORECASE),
+    # «O-O-O тоже возможна», «0-0 сейчас доступна» (09.10: the notation is the name of the castling too)
+    re.compile(r"(?<![a-z0-9-])(?:o-o-o|0-0-0|o-o|0-0)(?![a-z0-9-])\s+(?:тоже\s+|сейчас\s+|уже\s+|здесь\s+|тут\s+|вполне\s+)*"
+               r"(?:возможн[аы]|доступн[аы]|разрешен[аы]|легальн[аы]|допустим[аы])" + _E, re.IGNORECASE),
+    # «Длинная рокировка у тебя есть всегда, она возможна» (09.10 with c1 and d1 taken): the castling named, then
+    # «она возможна» in the same clause; «рокировка у тебя есть» — the castling is available.
+    re.compile(_W + r"рок[иеі]ровк\w*[^.;!?]{0,40}?,\s*(?:и\s+)?(?:она|it)\s+(?:тоже\s+|сейчас\s+|уже\s+|вполне\s+|is\s+)?"
+               r"(?:возможна|доступна|разрешена|легальна|possible|legal|available)" + _E, re.IGNORECASE),
+    re.compile(_W + r"рок[иеі]ровк\w*\s+(?:у\s+(?:тебя|вас|белых|ч[её]рных)\s+)?(?:всегда\s+|сейчас\s+|уже\s+|ещ[её]\s+)?есть"
+               r"(?!\s+(?:смысл|резон|ли|причин))" + _E, re.IGNORECASE),
     # «рок[иеі]роваться сейчас можно», «рок[иеі]ровку делать можно»
     re.compile(_W + r"рок[иеі]р\w*\s+(?:(?!не\s)[а-яё]+\s+){0,2}?(?:можно|можешь|можете|получится|разрешено|разрешается)" + _E,
                re.IGNORECASE),
@@ -115,6 +124,8 @@ def _castling_issues(text: str, ctx) -> list[str]:
     if not claims:
         return []
     claims.sort()
+    if _AFTER_MOVE.search(text[:claims[0][0]]):
+        return []  # «сначала b3 — и ты сможешь рокироваться»: after the move, _castle_after_move_issues judges it
     question = getattr(ctx, "question", "") or ""
     question_about_castling = bool(re.search(_CASTLE_WORD, question, re.IGNORECASE))
     qm = re.search(_CASTLE_WORD, question, re.IGNORECASE)
@@ -576,8 +587,9 @@ def _colour_issues(text: str) -> list[str]:
 _ROOK_ATTACKED = (r"(?:ладь\w*\s+(?:[а-яё]+\s+){0,2}?(?:под\s+бо\w+|под\s+удар\w*|атакован\w*)"
                   r"|(?:атакованн\w*|атакуем\w*)\s+ладь\w*)")
 # «ладья не должна быть под боем (в момент рокировки)», "the rook must not be attacked" (production 2026-10-07)
+# …and «ладья не должна быть атакована» (09.10: the rule missed «атакована»)
 _ROOK_MUST_NOT = (r"ладь\w*\s+не\s+(?:должн\w*|может|могут|обязан\w*)\s+(?:быть|находиться|стоять|оказаться)\s+"
-                  r"под\s+(?:бо\w+|удар\w*)|rook\s+(?:must|should|may|can)\s*(?:not|n'?t)\s+be\s+(?:attacked|under\s+attack)")
+                  r"(?:под\s+(?:бо\w+|удар\w*)|атакован\w*)|rook\s+(?:must|should|may|can)\s*(?:not|n'?t)\s+be\s+(?:attacked|under\s+attack)")
 
 
 def _castling_rule_issues(text: str, question: str = "") -> list[str]:
@@ -601,7 +613,9 @@ def _castling_rule_issues(text: str, question: str = "") -> list[str]:
         r"[^.;!?]{0,60}?(?:если|когда|if|when)[^.;!?]{0,20}?(?:тво\w+\s+|ваш\w+\s+|мо\w+\s+)?" + _ROOK_ATTACKED +
         r"|" + _ROOK_ATTACKED + r"[^.;!?]{0,30}?(?:нельзя|невозможн|не\s+можешь|не\s+получится|запрещ)"
         r"|при\s+" + _ROOK_ATTACKED + r"[^.;!?]{0,30}?(?:нельзя|невозможн|запрещ)"
-        r"|если\s+(?:только\s+)?(?:тво\w+\s+|ваш\w+\s+)?ладь\w*\s+не\s+(?:находится\s+|стоит\s+)?под\s+(?:бо|удар)"
+        r"|если\s+(?:только\s+)?(?:тво\w+\s+|ваш\w+\s+)?ладь\w*\s+(?:[а-яё]+\s+)?не\s+(?:находится\s+|стоит\s+)?"
+        r"(?:под\s+(?:бо|удар)|атакован|никем\s+не\s+атакован)"  # «только если ладья не атакована» (09.10)
+        r"|ладь\w*\s+(?:[а-яё]+\s+)?не\s+(?:атакован\w*|под\s+(?:бо\w+|удар\w*))[^.;!?]{0,30}?(?:можно|разрешен\w*)\s+рок[иеі]р"
         r"|only\s+if\s+(?:your\s+|the\s+)?rook\s+is\s+not\s+(?:attacked|under\s+attack)"
         r"|" + _ROOK_MUST_NOT,
         text, re.IGNORECASE)
@@ -856,6 +870,248 @@ def _castle_after_issues(text: str, ctx) -> list[str]:
     return []
 
 
+# ── Castling after a move, and where a chased piece retreats (prod 09.10, 29.10) ──────────────────────────
+
+# What a piece is worth when it is taken: a capture by something cheaper, or of an undefended piece, loses it.
+_WORTH = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 100}
+
+
+def _taken_on(board: chess.Board, sq: int) -> Optional[str]:
+    """The capture (SAN) that simply wins the piece on *sq*: by a cheaper piece, or of a piece nothing defends."""
+    pc = board.piece_at(sq)
+    if pc is None or pc.piece_type == chess.KING:
+        return None
+    b = board.copy(stack=False)
+    b.turn = not pc.color
+    b.ep_square = None
+    caps = [m for m in b.legal_moves if m.to_square == sq]
+    if not caps:
+        return None
+    cheapest = min(caps, key=lambda m: _WORTH[b.piece_type_at(m.from_square)])
+    if _WORTH[b.piece_type_at(cheapest.from_square)] < _WORTH[pc.piece_type] or not board.attackers(pc.color, sq):
+        return b.san(cheapest)
+    return None
+
+
+def _path_squares(color: bool, wing: str) -> list:
+    rank = 0 if color == chess.WHITE else 7
+    files = (4, 5, 6) if wing == "O-O" else (4, 3, 2)
+    return [chess.square(f, rank) for f in files]
+
+
+def _castling_kept_out(after: chess.Board, student: bool, wings: list) -> Optional[str]:
+    """After the student's move (*after*, the opponent to move): a reply that keeps every castling of *wings*
+    illegal — '' when nothing has to be done (the reason is the student's own pieces, the rights, or a piece the
+    move did not touch), the reply in SAN, or None when every reply of the forbidding piece gives castling up."""
+    def legal_any(b: chess.Board) -> bool:
+        st = castling_status(b, student)
+        return any(st[w][0] for w in wings)
+
+    if legal_any(after):
+        return None  # castling is there at once: the opponent has to do something about it
+    if after.is_check() or after.is_game_over():
+        return None
+    guards = set()
+    for w in wings:
+        for sq in _path_squares(student, w):
+            guards |= set(after.attackers(not student, sq))
+    if not guards:
+        return ""  # nothing of the opponent's forbids it — the student's own pieces or rights do
+    hit = {g for g in guards if _taken_on(after, g) is not None}
+    rest = after.copy(stack=False)
+    for g in hit:
+        rest.remove_piece_at(g)
+    if not legal_any(rest):
+        return ""  # what the move does not hit (a piece of the opponent's, the student's own pieces) still forbids it
+    for move in after.legal_moves:
+        if move.from_square not in hit:
+            continue
+        b = after.copy(stack=False)
+        b.push(move)
+        if not legal_any(b) and _taken_on(b, move.to_square) is None and not b.is_check():
+            return after.san(move)
+    return None
+
+
+# «Да, после b3 короткая рокировка станет возможна» — the bishop on c4 retreats to a6 and still covers f1 (prod
+# 09.10, the same position 29.10). A castling promised after a written move of the student's is judged after the
+# opponent's reply: the forbidding piece stays put when the move does not hit it, or steps to a safe square from
+# which it still forbids castling.
+_CASTLE_WILL = re.compile(
+    _W + r"(?:(?:коротк\w+\s+|длинн\w+\s+)?рок[иеі]ровк\w*\s+(?:(?!не\s)[а-яё]+\s+){0,2}?"
+    r"(?:станет|будет|окажется|сразу\s+будет|уже\s+будет|снова\s+будет)\s+(?:сразу\s+|уже\s+|снова\s+|тебе\s+)?"
+    r"(?:возможн|доступн|разреш|легальн)\w*"
+    r"|(?:можно\s+будет|сможешь|сможете|успеешь)\s+(?:сразу\s+|уже\s+|спокойно\s+|наконец\s+)?(?:сделать\s+)?"
+    r"(?:коротк\w+\s+|длинн\w+\s+)?рок[иеі]р\w*"
+    r"|(?:you(?:'ll|\s+will)?\s+be\s+able\s+to|you\s+can\s+then)\s+castle|castling\s+(?:becomes|will\s+be)\s+"
+    r"(?:possible|legal|available))" + _E, re.IGNORECASE)
+_YES_WILL = re.compile(r"^\W*(?:да|yes|иә)\W+(?:(?!не\s)[а-яё]+\s+){0,2}?(?:станет|будет)\s+(?:сразу\s+|уже\s+)?"
+                       r"(?:возможн|доступн|разреш|легальн)\w*" + _E, re.IGNORECASE)
+_CASTLE_NOW_AFTER = re.compile(  # «после b3 можно рокироваться» — present tense after the move
+    _W + r"(?:можно|можешь|можете)\s+(?:сразу\s+|уже\s+|спокойно\s+)?(?:сделать\s+)?(?:коротк\w+\s+|длинн\w+\s+)?"
+    r"рок[иеі]р\w*" + _E, re.IGNORECASE)
+# A move written in the lowered sentence, pawn pushes too («b3», «bxc4», «nf3», «кf3», «o-o»).
+_MOVE_LOW = re.compile(r"(?<![a-zа-я0-9])(?:[kqrbnкрфлс][a-h]?[1-8]?[x:×]?[a-h][1-8]|[a-h](?:[x:×][a-h])?[1-8](?:=[qrbn])?|"
+                       r"o-o(?:-o)?|0-0(?:-0)?)[+#!?]*(?![a-zа-я0-9])", re.IGNORECASE)
+_AFTER_MOVE = re.compile(r"(?<![а-яёa-z])(?:после|after|сначала|first)\s+(?:хода\s+|move\s+)?(?:\d{1,3}\s?\.\s?)?"
+                         r"(?P<m>" + _MOVE_LOW.pattern + r")", re.IGNORECASE)
+# Something between the move and the claim that makes it a condition on the reply: «после b3, если чёрные
+# ответят Be6, рокировка станет возможна» is true; it is the reply that decides, and it is named.
+_ON_REPLY = re.compile(r"(?<![а-яё])(?:если|когда|как\s+только|в\s+случае|при\s+условии|только|уйд|отступ|отойд|"
+                       r"ответ|прогон|прогнав|прогнать|убер|уберёшь|разменя|if|when|once|unless|only|retreat|answer)",
+                       re.IGNORECASE)
+
+
+def _parse_lowered(board: chess.Board, written: str) -> Optional[chess.Move]:
+    """A move written in the lowered sentence («b3», «bxc4», «nf3», «кf3») on *board*: «bc4» may be the bishop."""
+    s = _norm_san(written).replace("0-0-0", "o-o-o").replace("0-0", "o-o").replace("o-o-o", "O-O-O").replace("o-o", "O-O")
+    pawn = bool(re.fullmatch(r"[a-h](?:x[a-h])?[1-8](?:=[qrbn])?[+#!?]*", s))  # «b3», «bxc4» — a pawn first
+    for cand in ([s.upper() if s[:1] == "o" else s] if pawn or s[0] not in "kqrbn" else []) + \
+            ([s[0].upper() + s[1:]] if s[0] in "kqrbn" and not s.startswith("o") else []):
+        try:
+            return board.parse_san(cand)
+        except ValueError:
+            continue
+    return None
+
+
+def _castle_after_move_issues(text: str, ctx) -> list[str]:
+    board = getattr(ctx, "current", None)
+    if board is None or not re.search(_CASTLE_WORD, text + " " + (getattr(ctx, "question", "") or ""), re.IGNORECASE):
+        return []
+    student = ctx.student_color if getattr(ctx, "student_color", None) is not None else board.turn
+    if board.turn != student:
+        return []
+    claim = _CASTLE_WILL.search(text)
+    if claim is None and re.search(_CASTLE_WORD, getattr(ctx, "question", "") or "", re.IGNORECASE):
+        claim = _YES_WILL.search(text)  # «А если сначала b3, потом рокировка будет?» — «Да, станет возможна.»
+    move_txt = None
+    if claim is not None:
+        moves = [m for m in _AFTER_MOVE.finditer(text[:claim.start()])]
+        if moves:
+            move_txt = moves[-1]["m"]
+            between = text[moves[-1].end():claim.start()]
+            if _MOVE_LOW.search(between) or _ON_REPLY.search(between):
+                return []  # a line of moves, or the reply named: not this claim
+        elif text.lstrip(" *_«\"").lower().startswith(("да", "yes", "иә")):
+            # «А если сначала сыграть b3, потом рокировка будет?» — «Да, после этого рокировка станет возможна».
+            qm = [m.group(0) for m in _MOVE_LOW.finditer(getattr(ctx, "question", "") or "")]
+            move_txt = qm[-1] if len(qm) == 1 else None
+    else:
+        now = _CASTLE_NOW_AFTER.search(text)
+        moves = [m for m in _AFTER_MOVE.finditer(text[:now.start()])] if now else []
+        if now is None or not moves or not text[:moves[-1].start()].strip(" *_—–-").lower() in ("", "да", "да,", "yes", "yes,"):
+            return []  # present tense only right after «после b3»: «после b3 можно рокироваться»
+        claim, move_txt = now, moves[-1]["m"]
+        between = text[moves[-1].end():claim.start()]
+        if _MOVE_LOW.search(between) or _ON_REPLY.search(between):
+            return []
+    if not move_txt or _negated_before(text, claim.start()):
+        return []
+    if _ON_REPLY.search(text[claim.end():claim.end() + 40]) and re.match(r"\s*[,—–-]?\s*(?:если|когда|как\s+только|только|if|when|once|only)",
+                                                                       text[claim.end():], re.IGNORECASE):
+        return []  # «…станет возможна, когда слон уйдёт» — the condition is named
+    move = _parse_lowered(board, move_txt)
+    if move is None or board.is_castling(move):
+        return []
+    wing = _wing(text) or _wing(getattr(ctx, "question", "") or "")
+    wings = [wing] if wing else ["O-O", "O-O-O"]
+    after = board.copy(stack=False)
+    san = board.san(move)
+    after.push(move)
+    reply = _castling_kept_out(after, student, wings)
+    if reply is None:
+        return []
+    side = "White" if student == chess.WHITE else "Black"
+    names = " or ".join(wings)
+    if reply == "":
+        st = castling_status(after, student)
+        why = "; ".join(f"{w}: {st[w][1]}" for w in wings if st[w][1])
+        return [f"after {san} {side} still cannot castle ({names}) — {why}; the move does not change that"]
+    b = after.copy(stack=False)
+    b.push(after.parse_san(reply))
+    st = castling_status(b, student)
+    why = "; ".join(f"{w}: {st[w][1]}" for w in wings if st[w][1])
+    return [f"after {san} the opponent answers {reply} and {side} still cannot castle ({names}) — {why}; "
+            f"castling after {san} depends on the reply, it is not guaranteed"]
+
+
+# «Прогнать слона не выйдет — он отступит на a6, b5, d3 или e2 и всё равно будет бить f1» (prod 29.10, four answers
+# on r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w): on b5, d3 and e2 the bishop is simply taken (Nxb5,
+# cxd3, Nxe2). The squares a chased piece is said to retreat to are checked: a square where it is lost is no retreat.
+_RETREAT_PIECE = {"слон": chess.BISHOP, "кон": chess.KNIGHT, "лад": chess.ROOK, "ферз": chess.QUEEN,
+                  "піл": chess.BISHOP, "тура": chess.ROOK, "уәзір": chess.QUEEN,
+                  "bishop": chess.BISHOP, "knight": chess.KNIGHT, "rook": chess.ROOK, "queen": chess.QUEEN}
+_RETREAT_NOUN = re.compile(_W + r"(?P<n>слон\w*|кон[ьяюеё]\w*|ладь\w*|ферз\w*|піл\w*|тура\w*|уәзір\w*|bishop|knight|rook|queen)" + _E,
+                           re.IGNORECASE)
+_SQ_LIST = r"[a-h][1-8](?:\s*(?:,|или|либо|и|or|and|,\s*or)\s*[a-h][1-8])*"
+# A retreat verb says it by itself; «уйдёт», «уходит» only when the piece is chased in the sentence («прогнать слона
+# мало — он уйдёт на…»): «после Qa5 конь уходит на b7» is a move of a line, not a retreat from an attack.
+_GO_AWAY = r"уйд[её]т|уйдя|уйти|уходит|спрячется|спрятаться|убежит|убежать"
+_CHASED = re.compile(r"прогна|прогон|отогна|отгоня|выгна|гонишь|гнать|нападаешь|нападает\s+на|атакуешь|вынужден|"
+                     r"chase|kick|қуып|қуу", re.IGNORECASE)
+_RETREAT = re.compile(
+    _W + r"(?:отступ(?:ит|ят|ив|ая|ать|ает|ить)|отойд[её]т|отойдя|отойти|отходит|(?P<go>" + _GO_AWAY + r"))"
+    r"\s+(?:(?!не\s)[а-яё]+\s+){0,2}?на\s+(?:пол[яе]\s+)?(?P<sqs>" + _SQ_LIST + r")(?![0-9])"
+    r"|(?P<kk>" + _SQ_LIST + r")\s*-?\s*(?:ге|ке|қа|ға)\s+(?:шегін\w*|қаш\w*|кет\w*)"
+    r"|\bretreat(?:s|ing)?\s+to\s+(?P<en>" + _SQ_LIST + r")\b", re.IGNORECASE)
+# The sentence says the piece is lost there itself: «на b5 его заберёт конь», "Nxb5 wins it".
+_LOSS_WORDS = re.compile(r"возьм|взят|забер|забира|съе[сдл]|выигр|потер|теря|зевн|подстав|отда[её]|погиб|ловушк|попад[её]т|"
+                         r"(?:окаж|оказ|встан|встаёт|попад|будет)\w*\s+под\s+(?:бой|бо[ея]м|удар\w*|взятие)|без\s+защит|незащищ|captur|taken|lost|loses|wins\s+it|trapped|hang",
+                         re.IGNORECASE)
+
+
+def _retreat_square_issues(text: str, ctx) -> list[str]:
+    board = getattr(ctx, "current", None)
+    m = _RETREAT.search(text) if board is not None else None
+    if m is None or _negated_before(text, m.start()) or _LOSS_WORDS.search(text):
+        return []
+    if m["go"] and not _CHASED.search(text):
+        return []
+    clause = re.split(r"[,;:—–]", text[:m.start()])[-1]
+    if re.search(r"(?<![а-яё])(?:если|когда|пусть|допустим)(?![а-яё])|\b(?:if|when|suppose)\b", clause):
+        return []  # «Если слон c4 уйдёт на d5, рокировка станет доступна» — the move assumed, not offered as a retreat
+    sq_txt = m["sqs"] or m["kk"] or m["en"]
+    squares = [chess.parse_square(s) for s in re.findall(r"[a-h][1-8]", sq_txt)]
+    nouns = list(_RETREAT_NOUN.finditer(text[:m.start()]))
+    if not nouns or not squares:
+        return []
+    word = nouns[-1]["n"].lower()
+    ptype = next((t for k, t in _RETREAT_PIECE.items() if word.startswith(k)), None)
+    if ptype is None:
+        return []
+    written = {_norm_san(x.group(0))[-2:] for x in _WRITTEN_MOVE.finditer(text) if re.search(r"[x:×]", x.group(0))}
+    if any(chess.square_name(s) in written for s in squares):
+        return []  # «…на b5, но там Nxb5»: the capture is in the sentence
+    # The piece: the only one of its kind that reaches every square named (a bishop on c4 for a6, b5, d3, e2).
+    cands = []
+    for sq in board.pieces(ptype, chess.WHITE) | board.pieces(ptype, chess.BLACK):
+        color = board.color_at(sq)
+        b = board.copy(stack=False)
+        b.turn = color
+        b.ep_square = None
+        if all(chess.Move(sq, t) in b.legal_moves for t in squares):
+            cands.append((sq, b))
+    if len(cands) != 1:
+        return []
+    frm, b = cands[0]
+    lost = []
+    for t in squares:
+        after = b.copy(stack=False)
+        after.push(chess.Move(frm, t))
+        cap = _taken_on(after, t)
+        if cap:
+            lost.append((chess.square_name(t), cap))
+    if not lost:
+        return []
+    name = chess.piece_name(ptype)
+    safe = [chess.square_name(t) for t in squares if chess.square_name(t) not in {s for s, _ in lost}]
+    return [f"the {name} on {chess.square_name(frm)} has no retreat to " + ", ".join(s for s, _ in lost)
+            + " — there it is simply lost (" + ", ".join(c for _, c in lost) + ")"
+            + (f"; of the squares named only {', '.join(safe)} {'is a real retreat' if len(safe) == 1 else 'are real retreats'}"
+               if safe else "")]
+
+
 # «На доске ход чёрных» with White to move (production 09.10, a lesson puzzle): the side to move named for the board.
 _TURN_CLAIM = re.compile(
     _W + r"(?:(?:сейчас|здесь|тут|на\s+доске|в\s+этой\s+позиции)\s+(?:[а-яё]+\s+)?ход\s+(?:у\s+)?(?P<a>белых|ч[её]рных)"
@@ -878,8 +1134,14 @@ def _turn_claim_issues(text: str, ctx) -> list[str]:
     return []
 
 
+_EMPHASIS = re.compile(r"\*{1,3}|(?<![a-zа-яё0-9])_{1,2}|_{1,2}(?![a-zа-яё0-9])")
+
+
 def rules_issues(lowered: str, ctx) -> list[str]:
     """All the claims above in one sentence (*lowered*: lower case, ё → е)."""
+    # Markdown emphasis is gone already (answer_check.check_sentence): «нельзя рокироваться, если **ладья** под боем»
+    # (09.10 — the bold hid the claim); a caller with the raw sentence gets the same reading.
+    lowered = _EMPHASIS.sub("", lowered or "")
     try:
         return (_castling_issues(lowered, ctx) + _result_issues(lowered, ctx) + _mate_state_issues(lowered, ctx)
                 + _attacked_by_issues(lowered, ctx)
@@ -887,6 +1149,7 @@ def rules_issues(lowered: str, ctx) -> list[str]:
                 + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx) + _colour_issues(lowered)
                 + _castling_rule_issues(lowered, getattr(ctx, "question", "")) + _cannot_go_issues(lowered, ctx)
                 + _forced_reply_issues(lowered, ctx) + _castling_b1_issues(lowered) + _automatic_draw_issues(lowered)
-                + _castle_after_issues(lowered, ctx) + _turn_claim_issues(lowered, ctx))
+                + _castle_after_issues(lowered, ctx) + _turn_claim_issues(lowered, ctx)
+                + _castle_after_move_issues(lowered, ctx) + _retreat_square_issues(lowered, ctx))
     except Exception:  # noqa: BLE001 — a broken pattern must never block an answer
         return []

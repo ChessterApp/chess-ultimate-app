@@ -2733,18 +2733,68 @@ _FOREIGN_WORD = re.compile(
     r"(?![A-Za-zА-Яа-яЁё)]|'s\s+(?:Gambit|Indian))")  # «ловушка Блэкберна» is a name; «(tempo)» a gloss
 
 
-def foreign_word_issue(sentence: str, language: Optional[str]) -> Optional[str]:
-    """An English chess word in a sentence that is otherwise in *language* (ru/kk), or None."""
+# The chess words of a Russian or Kazakh answer, one table (prod 09.10–29.10: «епископ», «королева», «рыцарь»,
+# «opposition», «queen выгоняет на край», «нет pawns», «en passant», «на d-файле»): the word the model used, and
+# the word the language has — (pattern, Russian, Kazakh). A word of the table in a sentence is not shown; the
+# words chess_terms() can swap in place (the same gender, so the sentence still agrees) never reach the check in
+# the text coach, the others are rewritten (королева → ферзь changes the gender), and the voice coach says the
+# sentence again with the right word.
+_TERM_TABLE = [
+    # (pattern, Russian, Kazakh, the stem of the right word: with it in the sentence the other one is explained)
+    (r"епископ\w*", "слон", "піл", r"слон|піл"),
+    (r"королев(?:а|ы|е|у|ой|ою|ам|ами|ах)", "ферзь", "уәзір", r"ферз|уәзір"),  # not «королевский», not «Королёв»
+    (r"рыцар(?:ь|я|ю|ем|е|и|ей|ям|ями|ях)", "конь", "ат", r"кон[ьяюеё]|ат(?:ты|қа|ы)?(?![\w-])"),
+    (r"башн(?:я|и|е|ю|ей|ею|ям|ями|ях|ен)", "ладья", "тура", r"лад[ьеи]|тура"),
+    (r"эндгейм\w*", "эндшпиль", "эндшпиль", r"эндшпил"),
+    (r"миттельгейм\w*", "миттельшпиль", "миттельшпиль", r"миттельшпил"),
+    (r"[a-h]-?файл\w*|вертикальн\w+\s+файл\w*|открыт\w+\s+файл\w*", "вертикаль", "тік", r"вертикал|тік"),
+    # English words in a Russian or Kazakh sentence: «queen выгоняет на край», «нет pawns», «только immediately»
+    (r"queens?", "ферзь", "уәзір", None), (r"kings?", "король", "патша", None), (r"rooks?", "ладья", "тура", None),
+    (r"bishops?", "слон", "піл", None), (r"knights?", "конь", "ат", None), (r"pawns?", "пешка", "сарбаз", None),
+    (r"opposition", "оппозиция", "оппозиция", None), (r"zugzwang", "цугцванг", "цугцванг", None),
+    (r"fianchetto", "фианкетто", "фианкетто", None), (r"en\s+passant", "взятие на проходе", "өтпелі алу", None),
+    (r"endgame", "эндшпиль", "эндшпиль", None), (r"middlegame", "миттельшпиль", "миттельшпиль", None),
+    (r"skewer", "сквозной удар", "рентген", None), (r"outpost", "форпост", "форпост", None),
+    (r"immediately", "сразу", "бірден", None),
+]
+_TERM_WORD = re.compile(r"(?<![\w'-])(?:" + "|".join(f"(?P<t{i}>{row[0]})" for i, row in enumerate(_TERM_TABLE))
+                        + r")(?![\w-]|'s\s)", re.IGNORECASE)
+# Not words of the sentence: links and paths («chesster.io/learn/chess-basics/the-king-move-right»), a gloss in
+# brackets («оппозиция (opposition)»), a quoted name («сериал «Ход королевы»»).
+_NOT_TERMS = re.compile(r"\S*[/\\]\S*|\b[\w-]+\.(?:io|com|org|ru|kz|net)\b\S*|\([^()]{0,80}\)|«[^«»]{0,80}»|\"[^\"]{0,80}\"|“[^”]{0,80}”")
+
+
+def _term_issue(sentence: str, language: str, question: str = "") -> Optional[str]:
+    """A word of _TERM_TABLE in a Russian or Kazakh sentence, as an issue, or None."""
+    text = _NOT_TERMS.sub(lambda mm: " " * len(mm.group(0)), _NOT_LANGUAGE.sub(lambda mm: " " * len(mm.group(0)), sentence))
+    for m in _TERM_WORD.finditer(text):
+        i = int(next(k for k, v in m.groupdict().items() if v)[1:])
+        _pat, ru, kk, stem = _TERM_TABLE[i]
+        word = m.group(0)
+        if re.search(r"(?<![\w-])" + re.escape(word) + r"(?![\w-])", question or "", re.IGNORECASE):
+            continue  # the student's own word, echoed to be explained
+        right = kk if language in ("kk", "kz") else ru
+        if stem and re.search(r"(?<![\w-])(?:" + stem + ")", sentence, re.IGNORECASE):
+            continue  # «ферзь (его ещё зовут королевой)»: the right word is there, the other one explained
+        name = {"ru": "Russian", "kk": "Kazakh", "kz": "Kazakh"}[language]
+        return f"«{word}» is not the {name} chess word: say {right}"
+    return None
+
+
+def foreign_word_issue(sentence: str, language: Optional[str], question: str = "") -> Optional[str]:
+    """An English chess word, or a word of another register («епископ», «королева»), in a sentence that is
+    otherwise in *language* (ru/kk), or None."""
     if language not in ("ru", "kk", "kz") or not sentence:
         return None
     cyrillic = sum(1 for ch in sentence if "а" <= ch.lower() <= "я" or ch.lower() in "ёәғқңөұүһі")
     if cyrillic < MIN_LANGUAGE_LETTERS:
-        return None
+        # A short sentence still has its words: «Епископ на c4 сильный.» (the table's words are not English names)
+        return _term_issue(sentence, language, question) if cyrillic >= 10 else None
     m = _FOREIGN_WORD.search(_NOT_LANGUAGE.sub(lambda mm: " " * len(mm.group(0)), sentence))
-    if not m:
-        return None
     name = {"ru": "Russian", "kk": "Kazakh", "kz": "Kazakh"}[language]
-    return f"«{m.group(0)}» is an English word in a {name} sentence: say it in {name} (белые, чёрные, сразу, мат, пат, темп)"
+    if m:
+        return f"«{m.group(0)}» is an English word in a {name} sentence: say it in {name} (белые, чёрные, сразу, мат, пат, темп)"
+    return _term_issue(sentence, language, question)
 
 
 _TOPIC_TARGET = re.compile(
@@ -3333,6 +3383,9 @@ def _same_move(named: str, played: str) -> bool:
     return piece_n is None or piece_n == piece_p
 
 
+_EMPHASIS = re.compile(r"\*{1,3}|(?<![A-Za-zА-Яа-яЁё0-9])__|__(?![A-Za-zА-Яа-яЁё0-9])")
+
+
 def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[str]:
     """The reasons *sentence* is wrong on the board; [] when nothing checkable is wrong."""
     ctx = ctx or CheckContext.from_fens()
@@ -3344,10 +3397,12 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
         return [META_ISSUE]
     if _echoes_question(sentence, ctx):
         return [ECHO_ISSUE]
-    wrong_language = language_issue(sentence, ctx.language) or foreign_word_issue(sentence, ctx.language)
+    wrong_language = language_issue(sentence, ctx.language) or foreign_word_issue(sentence, ctx.language, ctx.question_raw)
     if wrong_language:
         return [wrong_language]
-    text = sentence.replace("ё", "е")
+    # Markdown emphasis is not a word of the claim: «Пешка на a2 **не атакована**», «**Слон c4** висит», «если **ладья**
+    # под боем» went through every check the bold split (09.10, the castling rule; 30.10 for all of them).
+    text = _EMPHASIS.sub("", sentence).replace("ё", "е")
     # Speech transcripts write files in Cyrillic lookalikes: «слон на е2», «пешка с4» (voice, 2026-10-06).
     # …and transliterated ones: «конь на ф3», «ферзь на б6», «пешка г4», «ладья х1» (2026-10-08).
     text = re.sub(r"(?<![а-яА-Яa-zA-Z])([асебдфгхАСЕБДФГХ])(?=[1-8](?![0-9]))",
@@ -3563,7 +3618,7 @@ class SentenceGate:
             sentences.append(self._buf)
             self._buf = ""
         for sentence in sentences:
-            sentence = normalize_notation(sentence)
+            sentence = chess_terms(normalize_notation(sentence), self.ctx.language)  # «рыцарь» → «конь» before the check
             full = self._released + sentence
             self._released = ""
             if len(full.strip()) >= 12 and self._same(full, self._prev):
@@ -3623,7 +3678,7 @@ class SentenceGate:
         return buf[:cut]
 
     def flush(self) -> list[tuple[str, list[str], str]]:
-        rest, self._buf = normalize_notation(self._buf), ""
+        rest, self._buf = chess_terms(normalize_notation(self._buf), self.ctx.language), ""
         full, self._released = self._released + rest, ""
         if not rest:
             return []
@@ -3718,24 +3773,39 @@ _LEAKS = re.compile(
 
 
 # «епископ» is the bishop of a church, not of the board: «У белых епископ и конь» (prod, 2026-10-09, 2026-10-13).
-# Masculine for masculine, so the words around it still agree.
+# Masculine for masculine, so the words around it still agree — and «рыцарь» → «конь», «башня» → «ладья»,
+# «эндгейм» → «эндшпиль» the same way (30.10, _TERM_TABLE). «королева» → «ферзь» changes the gender: rewritten.
 _BISHOP_FORMS = {"епископ": "слон", "епископа": "слона", "епископу": "слону", "епископом": "слоном",
                  "епископе": "слоне", "епископы": "слоны", "епископов": "слонов", "епископам": "слонам",
                  "епископами": "слонами", "епископах": "слонах"}
+_SWAP_FORMS = {**_BISHOP_FORMS,
+               "рыцарь": "конь", "рыцаря": "коня", "рыцарю": "коню", "рыцарем": "конём", "рыцаре": "коне",
+               "рыцари": "кони", "рыцарей": "коней", "рыцарям": "коням", "рыцарями": "конями", "рыцарях": "конях",
+               "башня": "ладья", "башни": "ладьи", "башне": "ладье", "башню": "ладью", "башней": "ладьёй",
+               "башнею": "ладьёю", "башен": "ладей", "башням": "ладьям", "башнями": "ладьями", "башнях": "ладьях",
+               "эндгейм": "эндшпиль", "эндгейма": "эндшпиля", "эндгейму": "эндшпилю", "эндгеймом": "эндшпилем",
+               "эндгейме": "эндшпиле", "эндгеймы": "эндшпили", "эндгеймов": "эндшпилей", "эндгеймам": "эндшпилям",
+               "эндгеймами": "эндшпилями", "эндгеймах": "эндшпилях"}
 _BISHOP_RE = re.compile(r"(?<![\w-])(" + "|".join(sorted(_BISHOP_FORMS, key=len, reverse=True)) + r")(?![\w-])",
                         re.IGNORECASE)
+_SWAP_RE = re.compile(r"(?<![\w-])(" + "|".join(sorted(_SWAP_FORMS, key=len, reverse=True)) + r")(?![\w-])",
+                      re.IGNORECASE)
 
 
-def chess_terms(text: str) -> str:
-    """*text* with the Russian chess words where the model used others («епископ» → «слон»)."""
-    if not text or "пископ" not in text.lower():
+def chess_terms(text: str, language: Optional[str] = None) -> str:
+    """*text* with the Russian chess words where the model used others («епископ» → «слон», «рыцарь» → «конь»).
+    Only «епископ» outside Russian: in Kazakh «тура» is the rook, and the rest is rewritten (foreign_word_issue)."""
+    if not text:
+        return text
+    rx, forms = (_SWAP_RE, _SWAP_FORMS) if language == "ru" else (_BISHOP_RE, _BISHOP_FORMS)
+    if not rx.search(text):
         return text
 
     def swap(m: "re.Match") -> str:
-        word = _BISHOP_FORMS[m.group(1).lower()]
+        word = forms[m.group(1).lower()]
         return word.capitalize() if m.group(1)[0].isupper() else word
 
-    return _BISHOP_RE.sub(swap, text)
+    return rx.sub(swap, text)
 
 
 def strip_leaks(text: str) -> str:

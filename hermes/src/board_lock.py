@@ -52,6 +52,41 @@ _ABOUT_THIS_BOARD = re.compile(
     r"|(?<![\w-])(?:[KQRBNКФЛС]?[a-hасе][1-8]|[KQRBNКФЛС][a-h]?x?[a-h][1-8]|O-O(?:-O)?|0-0(?:-0)?)(?![\w-])",
     re.IGNORECASE)
 
+# The result of the position in front of the student: «Это выигрыш?», «Это ничья?», «Кто выигрывает?», «Белые
+# выигрывают?», "Is this a win?", «Мұнда ұтыс па?» (09.10: «Это выигрыш?» had none of the words above, the board
+# was free, and the coach answered about a position of its own). The student's position stays, strictly. A
+# textbook ending named by its material («ферзь против ладьи — это выигрыш?») is not this board's: it has its own
+# position (src/question_position.endgame_theory).
+_RESULT_NOUN = (r"(?:выигрыш\w*|выигран\w*|ничь\w*|ничейн\w*|проигрыш\w*|проигран\w*|"
+                r"wins?|won|winning|draws?|drawn|lost|losing|ұтыс\w*|жеңіс\w*|тең\s+ойын\w*|ұтылыс\w*)")
+_ASKS_RESULT = re.compile(
+    r"(?<![\w-])(?:это|здесь|тут|сейчас|позиция|эта\s+позиция|такая\s+позиция|this|it|here|the\s+position|"
+    r"мұнда|бұл|осы)(?:\s+(?:is|'s|a|an|ли|уже|всё-таки|все-таки|теоретическ\w+|чист\w+|просто|точно|—|-))*"
+    r"\s+" + _RESULT_NOUN + r"(?![\w-])[^.!]*\?"
+    r"|(?:^|[.!?]\s*)(?:а\s+|и\s+|так\s+)?(?:кто|белые|ч[её]рные|я|мы|who|white|black|can\s+(?:white|black|i|we))\s+"
+    r"(?:(?:тут|здесь|сейчас|here|now|тогда)\s+)?(?:выигрыва\w*|выиграет|выиграют|выиграю|выиграем|проигрыва\w*|"
+    r"спас[её]тся|спасутся|спасусь|удерж\w*\s+ничь\w*|wins?|winning|hold\s+(?:the\s+)?draw|draw)"
+    r"(?![\w-])[^.!]*\?"
+    r"|(?<![\w-])" + _RESULT_NOUN + r"\s+ли\s+(?:это|здесь|тут)(?![\w-])[^.!]*\?",  # «Ничья ли это?»
+    re.IGNORECASE)
+_OPENING_TALK = re.compile(r"(?<![\w-])(?:дебют\w*|защит\w*|гамбит\w*|вариант\w*|партии|в\s+целом|обычно|opening|defen[cs]e|"
+                           r"gambit|variation|in\s+general|usually)(?![\w-])", re.IGNORECASE)
+
+
+def _asks_result(text: str) -> bool:
+    """*text* asks how the position in front of the student ends (see _ASKS_RESULT)."""
+    m = _ASKS_RESULT.search(text or "")
+    if m is None or _OPENING_TALK.search(text):
+        return False
+    try:
+        from src.question_position import material_in
+
+        if material_in(text):
+            return False  # «ферзь против ладьи — это выигрыш?»: the textbook ending, not this board
+    except Exception:  # noqa: BLE001 — without the table the question is still about the board
+        pass
+    return True
+
 
 def _board_lock_level(message: str, has_fen: bool, live_game: bool, fen: Optional[str],
                       owned: bool = False) -> tuple[Optional[str], bool, str]:
@@ -68,6 +103,8 @@ def _board_lock_level(message: str, has_fen: bool, live_game: bool, fen: Optiona
     if not has_fen or fen.split()[0] in _DEFAULT_BOARDS:
         return None, False, ""
     text = re.sub(r"«[^»]*»|\"[^\"]*\"|“[^”]*”", " ", message or "")  # «Пример 5» is a lesson's name
+    if _asks_result(text) and not (_WANTS_NEW_BOARD.search(text) or _WANTS_NEW_PUZZLE.search(text)):
+        return fen, True, "asked"
     if _ABOUT_POSITION.search(text) and not (_WANTS_NEW_BOARD.search(text) or _WANTS_NEW_PUZZLE.search(text)):
         return fen, bool(_ABOUT_THIS_BOARD.search(text)), "asked"
     if owned and not _WANTS_NEW_PUZZLE.search(text):
