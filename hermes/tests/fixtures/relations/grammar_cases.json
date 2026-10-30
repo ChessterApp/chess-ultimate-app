@@ -1,0 +1,2685 @@
+{
+ "meta": {
+  "what": "parser cases of the relation checker (WP-A, plan 30.10 §4): expected claims (partial match on the Claim fields) and sentences that must yield no claim (or only Pos.at == skip)",
+  "match": "expect: every pattern matches some claim (dict keys compared recursively, lists element-wise with equal length; a missing key is not compared); forbid: no non-skip claim matches; none: no non-skip claim",
+  "not_checkable_rows_left_out": {
+   "99": "a line position the sentence does not give (judge side: solution lines)"
+  },
+  "built_by": "scratchpad/wpa/build_cases.py, then the class cases of the corpus review added by hand (source 'class')"
+ },
+ "positive": [
+  {
+   "id": "name-winawer",
+   "source": "plan",
+   "text": "Отсюда и план белых — e4-e5 с ударом по коню g8 и захватом пространства, а чёрные подрывают центр через ...c5 и ...f6.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "e5",
+      "piece": "P"
+     },
+     "objs": [
+      {
+       "sq": "g8",
+       "piece": "N"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "frm": "e4",
+        "to": "e5"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "move-najdorf",
+   "source": "plan",
+   "text": "Белые готовят g4 и хотят избежать связки ...Сg4, но теряют темп.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "pin_after",
+     "subj": {
+      "sq": "g4",
+      "piece": "B"
+     },
+     "objs": [],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "Bg4",
+        "piece": "B",
+        "side": false
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "trap-fried-liver",
+   "source": "plan",
+   "text": "Лучше b5 — отгоняешь коня g5 и забираешь инициативу.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "chase",
+     "subj": {
+      "sq": "b5",
+      "piece": "P"
+     },
+     "objs": [
+      {
+       "sq": "g5",
+       "piece": "N"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "b5"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "plan-caro-adv#c2",
+   "source": "plan",
+   "text": "Что скажешь, какой из ходов — Nc3 или Nd2 — по-твоему лучше защищает пешку c2?",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "question": "which",
+     "subj": {
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "c2",
+       "piece": "P"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "Nc3"
+       }
+      ],
+      "alts": [
+       {
+        "at": "after",
+        "moves": [
+         {
+          "san": "Nd2"
+         }
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "pawn-b3-words",
+   "source": "plan",
+   "text": "Слон на a4 пока держится только потому, что его защищает конь f3, а поле b3 ему не нужно.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "f3",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "a4",
+       "piece": "B",
+       "pronoun": true
+      }
+     ],
+     "pos": {
+      "at": "now"
+     }
+    }
+   ],
+   "note": "«пока» does not skip"
+  },
+  {
+   "id": "square-no",
+   "source": "plan",
+   "text": "Нет, король не успевает — но не из-за гонки, а из-за того, что поле d6 под контролем.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "hold",
+     "subj": null,
+     "objs": [
+      {
+       "sq": "d6"
+      }
+     ],
+     "pos": {
+      "at": "now"
+     }
+    }
+   ]
+  },
+  {
+   "id": "d3-which",
+   "source": "plan",
+   "text": "Конь на g4 атакует две фигуры: пешку h6 и ладью...",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "g4",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "h6",
+       "piece": "P"
+      },
+      {
+       "sq": null,
+       "piece": "R"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "st1#10/Nc6-c5",
+   "source": "plan",
+   "text": "h3 — чёрные ответили Nc6: конь с b8 встал на c6 и подкрепил пешку c5 в центре.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "c6",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "c5",
+       "piece": "P"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "h3",
+        "told": true
+       },
+       {
+        "san": "Nc6",
+        "frm": "b8",
+        "to": "c6",
+        "told": true
+       }
+      ],
+      "tense": "past"
+     }
+    }
+   ]
+  },
+  {
+   "id": "st1#10/c1-locked",
+   "source": "plan",
+   "text": "Сейчас соперник закончил развитие и готов рокировать — а у тебя на c1 всё ещё сидит слон, запертый своими же пешками d3 и h3.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "locked_by",
+     "subj": {
+      "sq": "c1",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "d3"
+      },
+      {
+       "sq": "h3"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "st2#5",
+   "source": "plan",
+   "text": "Смотри, что делать: пешку e7 бьют и конь c6, и ферзь d8, и король e8 — но белые грозят взять ферзём на d8, и тогда ты останешься без ферзя.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "capture_with",
+     "subj": {
+      "piece": "Q",
+      "side": true
+     },
+     "objs": [
+      {
+       "sq": "d8"
+      }
+     ]
+    },
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "c6",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "e7",
+       "piece": "P"
+      }
+     ]
+    },
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "d8",
+      "piece": "Q"
+     },
+     "objs": [
+      {
+       "sq": "e7",
+       "piece": "P"
+      }
+     ]
+    },
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "e8",
+      "piece": "K"
+     },
+     "objs": [
+      {
+       "sq": "e7",
+       "piece": "P"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "st2#1",
+   "source": "plan",
+   "text": "Как думаешь, какая фигура белых держит эту пешку на e5 и чем её можно атаковать?",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "hold",
+     "question": "which",
+     "subj": {
+      "side": true,
+      "sq": null
+     },
+     "objs": [
+      {
+       "sq": "e5",
+       "piece": "P"
+      }
+     ]
+    }
+   ],
+   "note": "«держит» is hold (colour-free; the plan table says defend — see «пешку e4 держит конь f6» among the negatives)"
+  },
+  {
+   "id": "st2#7/f8",
+   "source": "plan",
+   "text": "Рокировка невозможна — поле f8 прострелено твоей же пешкой...",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "hold",
+     "subj": {
+      "piece": "P",
+      "owner": "you"
+     },
+     "objs": [
+      {
+       "sq": "f8"
+      }
+     ],
+     "pos": {
+      "at": "now",
+      "moves": []
+     }
+    }
+   ],
+   "note": "castling named as impossible is not a move of the position"
+  },
+  {
+   "id": "st3#9",
+   "source": "plan",
+   "text": "И не забудь про их пешку d4: она под боем твоей пешки c3, но её защищает конь e4.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "e4",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "d4",
+       "piece": "P",
+       "pronoun": true
+      }
+     ]
+    },
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "c3",
+      "piece": "P",
+      "owner": "you"
+     },
+     "objs": [
+      {
+       "sq": "d4",
+       "piece": "P"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "st4#7/he-on-f6",
+   "source": "plan",
+   "text": "Смотри на их коня: он на f6 ничем не прикрыт, так что за пешку d4 бояться нечего — если возьмут, ты возьмёшь коня.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "undefended",
+     "objs": [
+      {
+       "sq": "f6",
+       "piece": "N"
+      }
+     ],
+     "pos": {
+      "at": "now"
+     }
+    }
+   ]
+  },
+  {
+   "id": "black-best",
+   "source": "plan",
+   "text": "Ферзь бьёт пешку e4 с шахом и по пути создаёт вилку: под ударом остаются и пешка h2, и ладья f1.",
+   "prev": [
+    "Qxe4+ — вот лучший ход."
+   ],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "e4",
+      "piece": "Q"
+     },
+     "objs": [
+      {
+       "sq": "h2",
+       "piece": "P"
+      },
+      {
+       "sq": "f1",
+       "piece": "R"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "piece": "Q",
+        "to": "e4",
+        "capture": true,
+        "told": true
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "x-wc2021-g6",
+   "source": "plan",
+   "text": "Чёрные только что сыграли 135...Qg1, напав на коня g7, но ферзь уже не спасает — белые пешки неудержимы.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "g1",
+      "piece": "Q"
+     },
+     "objs": [
+      {
+       "sq": "g7",
+       "piece": "N"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "Qg1",
+        "number": "135...",
+        "side": false,
+        "told": true
+       }
+      ],
+      "tense": "past"
+     }
+    }
+   ]
+  },
+  {
+   "id": "d4-move5",
+   "source": "plan",
+   "text": "Рокировка решает обе задачи: король уходит, а ладья сама встаёт на защиту g2.",
+   "prev": [
+    "После 4... Qg5 чёрные бьют сразу по двум целям: конь на e5 и пешка g2."
+   ],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "piece": "R"
+     },
+     "objs": [
+      {
+       "sq": "g2"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "castle": "short",
+        "piece": "K"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "g3-hint",
+   "source": "plan",
+   "text": "Хорошая идея — g3 с последующим фианкетто: слон с g2 будет бить прямо в это ослабленное место.",
+   "prev": [
+    "Посмотри на пешку чёрных на f5 — из-за неё ослабел пункт e6 и королевский фланг."
+   ],
+   "expect": [
+    {
+     "rel": "plan_reach",
+     "subj": {
+      "sq": "g2",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "e6"
+      }
+     ],
+     "pos": {
+      "at": "plan"
+     }
+    }
+   ],
+   "note": "«это ослабленное место» is the free square the sentence before named"
+  },
+  {
+   "id": "g3-draw",
+   "source": "plan",
+   "text": "Помни про слабость на e6 после f5: фианкетто с g3 и слоном на g2 будет целиться именно туда.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "plan_reach",
+     "subj": {
+      "sq": "g2",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "e6"
+      }
+     ],
+     "pos": {
+      "at": "plan"
+     }
+    }
+   ]
+  },
+  {
+   "id": "trap-fried-liver/after-capture",
+   "source": "plan",
+   "text": "И главное — пока ты тратил ход, белый конь на g5 ничем не связан и бьёт по f7: он одновременно забирает пешку f7 и нападает на ладью h8 и ферзя d8 — двойной удар.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "f7",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "h8",
+       "piece": "R"
+      },
+      {
+       "sq": "d8",
+       "piece": "Q"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "piece": "N",
+        "frm": "g5",
+        "to": "f7",
+        "capture": true,
+        "told": true
+       }
+      ]
+     }
+    },
+    {
+     "rel": "attack",
+     "neg": false,
+     "subj": {
+      "sq": "g5",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "f7"
+      }
+     ]
+    }
+   ],
+   "note": "prevent-only false flag: the double attack is after the capture told in words; «не связан и бьёт» — the negation is the pin's"
+  },
+  {
+   "id": "corpus#9",
+   "source": "grammar_corpus",
+   "text": "Конь с b4 идёт на d3 и нападает на ферзя d1 — вот в чём соль: белый ферзь вынужден отвлекаться на защиту, а ты получаешь темп для атаки.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "d3",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "d1",
+       "piece": "Q"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "piece": "N",
+        "frm": "b4",
+        "to": "d3"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#10",
+   "source": "grammar_corpus",
+   "text": "Пешка идёт на g3 и нападает на ферзя h4 — он вынужден уйти, а ты выигрываешь темп.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "g3",
+      "piece": "P"
+     },
+     "objs": [
+      {
+       "sq": "h4",
+       "piece": "Q"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "piece": "P",
+        "to": "g3"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#13",
+   "source": "grammar_corpus",
+   "text": "Слон с g2 бьёт прямо в ферзя на c8 и одновременно нападает на ладью d7 — чёрные не успевают защитить обоих.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "g2",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "c8",
+       "piece": "Q"
+      }
+     ]
+    },
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "g2",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "d7",
+       "piece": "R"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "corpus#14",
+   "source": "grammar_corpus",
+   "text": "Слон с a4 идёт на c6, и там он сразу нападает на чёрного слона d6 — тот защищён только ферзём b6, так что чёрным приходится отступать слоном на b8.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "c6",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "d6",
+       "piece": "B",
+       "side": false
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "piece": "B",
+        "frm": "a4",
+        "to": "c6"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#15",
+   "source": "grammar_corpus",
+   "text": "Лучший ход — **1...d4**: пешка нападает на слона d3, и заодно разгоняет коня — белые вынуждены разбираться с этим, а связка на c3 теряет зуб.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "d4",
+      "piece": "P"
+     },
+     "objs": [
+      {
+       "sq": "d3",
+       "piece": "B"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "d4",
+        "number": "1..."
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#16",
+   "source": "grammar_corpus",
+   "text": "Смысл шире, чем «отойти от шаха»: после Kf8 белая ладья e1 связывает коня e6 с ладьёй e8, а ферзь h7 бьёт f7 и h6 — но именно король на f8 держит f7 и защищает коня, поэтому белая ладья e1 пока ничего не выигрывает.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "f8",
+      "piece": "K"
+     },
+     "objs": [
+      {
+       "sq": "e6",
+       "piece": "N"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "Kf8"
+       }
+      ]
+     }
+    },
+    {
+     "rel": "pins",
+     "subj": {
+      "sq": "e1",
+      "piece": "R"
+     },
+     "objs": [
+      {
+       "sq": "e6",
+       "piece": "N"
+      }
+     ],
+     "to": {
+      "sq": "e8",
+      "piece": "R"
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#18",
+   "source": "grammar_corpus",
+   "text": "Смотри на чёрного коня g4: он ничем не защищён, а твой ферзь f4 его уже атакует.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "undefended",
+     "objs": [
+      {
+       "sq": "g4",
+       "piece": "N"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "corpus#19",
+   "source": "grammar_corpus",
+   "text": "Позиция пока равная, но обрати внимание на связку: твой конь f6 прикрывает пешку e5, а его держит конь c3.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "f6",
+      "piece": "N",
+      "owner": "you"
+     },
+     "objs": [
+      {
+       "sq": "e5",
+       "piece": "P"
+      }
+     ]
+    },
+    {
+     "rel": "hold",
+     "subj": {
+      "sq": "c3",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "f6",
+       "piece": "N",
+       "pronoun": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "corpus#20",
+   "source": "grammar_corpus",
+   "text": "Зато пешка e6 перекрыла слону f8 и ослабила поле d6.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "locked_by",
+     "subj": {
+      "sq": "f8",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "e6"
+      }
+     ],
+     "pos": {
+      "at": "now",
+      "tense": "past"
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#21",
+   "source": "grammar_corpus",
+   "text": "Ты сыграл 1...e5 — соперник ответил 2.Nc3, конь вышел на c3 и напал на твою пешку e5.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "c3",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "e5",
+       "piece": "P",
+       "owner": "you"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "e5",
+        "told": true
+       },
+       {
+        "san": "Nc3",
+        "told": true
+       }
+      ],
+      "tense": "past"
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#22",
+   "source": "grammar_corpus",
+   "text": "Ты сыграл 6...d6 — и это ошибка: белые ответили 7.Bb5, слон вышел на b5 и напал на твою пешку c6...",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "b5",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "c6",
+       "piece": "P",
+       "owner": "you"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "d6",
+        "told": true
+       },
+       {
+        "san": "Bb5",
+        "told": true
+       }
+      ],
+      "tense": "past"
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#23",
+   "source": "grammar_corpus",
+   "text": "А ещё твоя пешка f2 — её тоже бьёт эта же пешка f3, а защищена только королём.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "f3",
+      "piece": "P"
+     },
+     "objs": [
+      {
+       "sq": "f2",
+       "piece": "P",
+       "owner": "you",
+       "pronoun": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "corpus#24",
+   "source": "grammar_corpus",
+   "text": "c4 — идея понятная: ты хочешь отогнать коня c6, но пешку d4 ты так и не отыграл, и она остаётся под боем.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "chase",
+     "subj": {
+      "sq": "c4",
+      "piece": "P"
+     },
+     "objs": [
+      {
+       "sq": "c6",
+       "piece": "N"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "c4"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#25",
+   "source": "grammar_corpus",
+   "text": "3...Кf6 — конь вышел и прикрыл f7, это итальянская партия.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "f6",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "f7"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "Nf6",
+        "number": "3..."
+       }
+      ],
+      "tense": "past"
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#26",
+   "source": "grammar_corpus",
+   "text": "Обрати внимание: его пешка e5 теперь защищена, но зато d6 перекрыла дорогу слону c8.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "locked_by",
+     "subj": {
+      "sq": "c8",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "d6"
+      }
+     ]
+    },
+    {
+     "rel": "undefended",
+     "neg": true,
+     "objs": [
+      {
+       "sq": "e5",
+       "piece": "P",
+       "owner": "their"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "corpus#27",
+   "source": "grammar_corpus",
+   "text": "Соперник ответил 5...Be7: слон с f8 поднялся на e7 и прикрыл f7.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "e7",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "f7"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "Be7",
+        "frm": "f8",
+        "to": "e7",
+        "told": true
+       }
+      ],
+      "tense": "past"
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#28",
+   "source": "grammar_corpus",
+   "text": "Соперник ответил 2.e4 — пешка с e2 встала на e4 и подкрепила d4, так что теперь твоя e5 под боем двумя пешками сразу.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "e4",
+      "piece": "P"
+     },
+     "objs": [
+      {
+       "sq": "d4"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "frm": "e2",
+        "to": "e4",
+        "told": true
+       }
+      ],
+      "tense": "past"
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#29",
+   "source": "grammar_corpus",
+   "text": "h3 — чёрные ответили Nc6: конь с b8 встал на c6 и подкрепил пешку c5 в центре.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "c6",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "c5",
+       "piece": "P"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "corpus#30",
+   "source": "grammar_corpus",
+   "text": "Сейчас соперник закончил развитие и готов рокировать — а у тебя на c1 всё ещё сидит слон, запертый своими же пешками d3 и h3.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "locked_by",
+     "subj": {
+      "sq": "c1",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "d3"
+      },
+      {
+       "sq": "h3"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "corpus#31",
+   "source": "grammar_corpus",
+   "text": "Главная твоя проблема — слон на c1, запертый своими же пешками d3 и h3.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "locked_by",
+     "subj": {
+      "sq": "c1",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "d3"
+      },
+      {
+       "sq": "h3"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "corpus#33",
+   "source": "grammar_corpus",
+   "text": "Смотри, что делать: пешку e7 бьют и конь c6, и ферзь d8, и король e8 — но белые грозят взять ферзём на d8, и тогда ты останешься без ферзя.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "capture_with",
+     "subj": {
+      "piece": "Q",
+      "side": true
+     },
+     "objs": [
+      {
+       "sq": "d8"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "corpus#34",
+   "source": "grammar_corpus",
+   "text": "Рокировка невозможна — поле f8 прострелено твоей же пешкой...",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "hold",
+     "subj": {
+      "piece": "P",
+      "owner": "you"
+     },
+     "objs": [
+      {
+       "sq": "f8"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "corpus#35",
+   "source": "grammar_corpus",
+   "text": "И не забудь про их пешку d4: она под боем твоей пешки c3, но её защищает конь e4.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "e4",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "d4",
+       "piece": "P"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "corpus#36",
+   "source": "grammar_corpus",
+   "text": "d4 — и чёрные ответили Nf6: конь с g8 на f6 вышел в центр и сразу напал на твою пешку d4.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "f6",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "d4",
+       "piece": "P",
+       "owner": "you"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "d4",
+        "told": true
+       },
+       {
+        "san": "Nf6",
+        "frm": "g8",
+        "to": "f6",
+        "told": true
+       }
+      ],
+      "tense": "past"
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#37",
+   "source": "grammar_corpus",
+   "text": "Смотри на их коня: он на f6 ничем не прикрыт, так что за пешку d4 бояться нечего — если возьмут, ты возьмёшь коня.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "undefended",
+     "objs": [
+      {
+       "sq": "f6",
+       "piece": "N",
+       "owner": "their"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "corpus#38",
+   "source": "grammar_corpus",
+   "text": "Мой последний ход — Nf6: конь с g8 встал на f6, вышел в центр и напал на твою пешку d4.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "f6",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "d4",
+       "piece": "P",
+       "owner": "you"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "Nf6",
+        "frm": "g8",
+        "to": "f6",
+        "told": true
+       }
+      ],
+      "tense": "past"
+     }
+    }
+   ]
+  },
+  {
+   "id": "corpus#39",
+   "source": "grammar_corpus",
+   "text": "Конь на f6 ничем не прикрыт, так что за пешку d4 можно не бояться — возьмут, заберёшь коня.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "undefended",
+     "objs": [
+      {
+       "sq": "f6",
+       "piece": "N"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "puzzle#17",
+   "source": "puzzle_class",
+   "text": "Черные не могут спасти обоих: ферзь e5 атакован, а конь e4 защищён только ферзём, поэтому после отхода ферзя конь остаётся висеть.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attacked",
+     "objs": [
+      {
+       "sq": "e5",
+       "piece": "Q"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "puzzle#11",
+   "source": "puzzle_class",
+   "text": "Смысл в том, что конь с g5 нападает сразу на короля и на коня f6, а поле h7 защищено только тем самым конём f6 — забирая его, ты уводишь единственного защитника, и второй конь с h4 матует на g6.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "g5",
+      "piece": "N",
+      "from_sq": true
+     },
+     "objs": [
+      {
+       "piece": "K",
+       "sq": null
+      },
+      {
+       "sq": "f6",
+       "piece": "N"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "puzzle#12",
+   "source": "puzzle_class",
+   "text": "Другой конь с h6 держит поле g8, так что у короля нет выхода, а поле h8 под боем.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "hold",
+     "subj": {
+      "sq": "h6",
+      "piece": "N",
+      "from_sq": true
+     },
+     "objs": [
+      {
+       "sq": "g8"
+      }
+     ]
+    },
+    {
+     "rel": "attacked",
+     "objs": [
+      {
+       "sq": "h8"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "puzzle#8",
+   "source": "puzzle_class",
+   "text": "Король на d3 зажат своими же фигурами: поле d4 прикрыто твоей ладьёй с c8, а поля вокруг короля не дают ему уйти.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "c8",
+      "piece": "R",
+      "from_sq": true,
+      "owner": "you"
+     },
+     "objs": [
+      {
+       "sq": "d4"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prevent-real#1",
+   "source": "prevent_only_real",
+   "text": "Ферзь с поля c4 нападает на f7 и на c7 одновременно.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "c4",
+      "piece": "Q",
+      "from_sq": true
+     },
+     "objs": [
+      {
+       "sq": "f7"
+      },
+      {
+       "sq": "c7"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prevent-real#2",
+   "source": "prevent_only_real",
+   "text": "Своим конём на a3 ты вскрываешь диагональ b2–c2 для ферзя и заодно отвлекаешь пешку b2, которая прикрывала поле c2.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "b2",
+      "piece": "P"
+     },
+     "objs": [
+      {
+       "sq": "c2"
+      }
+     ],
+     "pos": {
+      "at": "now",
+      "tense": "past"
+     }
+    }
+   ]
+  },
+  {
+   "id": "prevent-real#3",
+   "source": "prevent_only_real",
+   "text": "Пешка на b7 не просто отрезает королю поля — она сама бьёт короля, а чёрные фигуры не могут её убрать: слон b8 прикрывает поле b7, но сам занят своим королём и не может ни побить пешку, ни освободить ему выход.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "b8",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "b7"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prevent-real#4",
+   "source": "prevent_only_real",
+   "text": "Ход ставит мат-угрозу Фg7#, и чёрные от неё не спасаются: слон h6 и король g1 надёжно прикрывают поле g7, а ферзь туда врывается.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "g1",
+      "piece": "K"
+     },
+     "objs": [
+      {
+       "sq": "g7"
+      }
+     ],
+     "pos": {
+      "at": "now"
+     }
+    },
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "h6",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "g7"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prevent-real#5",
+   "source": "prevent_only_real",
+   "text": "Играй Bxf7+ — слон бьёт пешку f7 с шахом, а конь e5 прикрывает поле d5.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "e5",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "d5"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "Bxf7+"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "prevent-real#6",
+   "source": "prevent_only_real",
+   "text": "Красота здесь в жертве: без неё конь f6 держал поле g6 и матовой сети не получалось.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "hold",
+     "subj": {
+      "sq": "f6",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "g6"
+      }
+     ],
+     "pos": {
+      "at": "now",
+      "tense": "past"
+     }
+    }
+   ]
+  },
+  {
+   "id": "prevent-real#7",
+   "source": "prevent_only_real",
+   "text": "С h3 белый король берёт под контроль g4 и g5, а потом забирает g5 и ведёт вторую пешку в ферзи.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "hold",
+     "subj": {
+      "sq": "h3",
+      "piece": "K",
+      "side": true,
+      "from_sq": true
+     },
+     "objs": [
+      {
+       "sq": "g4"
+      },
+      {
+       "sq": "g5"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prevent-real#8",
+   "source": "prevent_only_real",
+   "text": "Смотри, почему у чёрного короля нет ни одного выхода: конь с c2 бьёт сразу b4, a1 и a3 — сам король атакован, а его защитник конь b3 связан прикрытием поля b4, поэтому не может его спасти.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "defend",
+     "subj": {
+      "sq": "b3",
+      "piece": "N"
+     },
+     "objs": [
+      {
+       "sq": "b4"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prevent-real#9",
+   "source": "prevent_only_real",
+   "text": "Мат ставит слон с h2: он идёт на e5 и с этого поля держит g7 и f8 — у чёрного короля на h8 не остаётся ни одного свободного поля, а закрыть или забрать слон нечем.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "hold",
+     "subj": {
+      "sq": "e5",
+      "piece": "B"
+     },
+     "objs": [
+      {
+       "sq": "g7"
+      },
+      {
+       "sq": "f8"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "piece": "B",
+        "to": "e5"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "prevent-real#10",
+   "source": "prevent_only_real",
+   "text": "Поэтому и правильный способ защиты здесь — сначала убрать из-под удара коня c3: ход **1...d4** бьёт слона d3 и заставляет белых тратить время на отступление, а связка на c3 рвётся сама.",
+   "prev": [],
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "d4",
+      "piece": "P"
+     },
+     "objs": [
+      {
+       "sq": "d3",
+       "piece": "B"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "d4",
+        "number": "1..."
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "class/phase-verb-not-a-move",
+   "source": "class",
+   "prev": [],
+   "text": "После Bd7 и Qe2 чёрные вынуждены защищаться, а твой конь с g5 продолжает давить на f7 и h7.",
+   "expect": [
+    {
+     "rel": "aim",
+     "subj": {
+      "sq": "g5",
+      "piece": "N",
+      "from_sq": true
+     },
+     "objs": [
+      {
+       "sq": "f7"
+      },
+      {
+       "sq": "h7"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "san": "Bd7"
+       },
+       {
+        "san": "Qe2"
+       }
+      ]
+     }
+    }
+   ],
+   "note": "«с g5 … давить на f7»: a relation verb between the squares is no move told in words; «продолжает давить» holds now (not a modal infinitive)"
+  },
+  {
+   "id": "class/intrusion-verb-is-a-move",
+   "source": "class",
+   "prev": [],
+   "text": "Ладья врывается на e8 и создаёт угрозу Qg8# — мат, потому что ферзь с g3 бьёт по g8.",
+   "expect": [
+    {
+     "rel": "attack",
+     "subj": {
+      "sq": "g3",
+      "piece": "Q"
+     },
+     "objs": [
+      {
+       "sq": "g8"
+      }
+     ],
+     "pos": {
+      "at": "after",
+      "moves": [
+       {
+        "piece": "R",
+        "to": "e8"
+       }
+      ]
+     }
+    }
+   ],
+   "note": "«врывается/вторгается/приходит на X» is a move told in words; the threat Qg8# is not played"
+  }
+ ],
+ "negative": [
+  {
+   "id": "trap#1",
+   "source": "trap_list",
+   "text": "Это сицилианская защита, вариант Найдорфа — конкретно система B90.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "trap#2",
+   "source": "trap_list",
+   "text": "У тебя под ударом две вещи, и они связаны.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "trap#3",
+   "source": "trap_list",
+   "text": "А ферзь e2 связан защитой f1, поэтому не может одновременно прикрыть и короля, и поле вторжения.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "trap#4",
+   "source": "trap_list",
+   "text": "Если чёрные ответят d5, спокойно продолжай c4 — это и есть та самая идея с давлением на центр.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "trap#5",
+   "source": "trap_list",
+   "text": "Играй Ke4, это самая упорная защита.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "trap#6",
+   "source": "trap_list",
+   "text": "**Kc7** — единственный ход, который держит ничью.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "trap#7",
+   "source": "trap_list",
+   "text": "Кстати, вилка — это тот же двойной удар, только его делает конь или пешка.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "trap#8",
+   "source": "trap_list",
+   "text": "Связку ставят только дальнобойные фигуры — ферзь, ладья и слон.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "trap#9",
+   "source": "trap_list",
+   "text": "Белые давят на центр и готовят f4.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "trap#10",
+   "source": "trap_list",
+   "text": "Это защита Каро-Канн, вариант с продвижением.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "if-bishop",
+   "source": "plan",
+   "text": "Сравни: если бы слон был на другом цвете — например, стоял на d3 или g4, контролируя h8 — белый король подошёл бы к f7, и пешка прошла бы в ферзи.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "ambiguous-ego",
+   "source": "plan",
+   "text": "Конь на e2 хоть и защищён ферзём e3, но твой ферзь бьёт его с шахом — и белым некогда разбираться.",
+   "prev": [],
+   "forbid": [
+    {
+     "subj": {
+      "owner": "you",
+      "piece": "Q"
+     }
+    }
+   ],
+   "note": "«его» has two candidates (конь e2, ферзь e3): no claim about it"
+  },
+  {
+   "id": "yesno#1",
+   "source": "plan",
+   "text": "Защищает ли конь f3 пешку e5?",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "yesno#2",
+   "source": "plan",
+   "text": "Атакует ли слон c4 пешку f7?",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "yesno#3",
+   "source": "plan",
+   "text": "Пешка e4 под боем?",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "prevent-wrong#1",
+   "source": "prevent_only_wrong",
+   "text": "Смотри: на c6 он не просто уходит из-под удара — он бьёт по слону d6 через связку.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "prevent-wrong#2",
+   "source": "prevent_only_wrong",
+   "text": "Посмотри на доску: слон чёрных на c4 прикрывает своего короля на c7, и ходить им нельзя — откроется шах от ферзя белых на c2.",
+   "prev": [],
+   "none": true,
+   "note": "shielding the king is not a defence of a square"
+  },
+  {
+   "id": "pinned-and-attacks",
+   "source": "plan",
+   "text": "Белый конь на g5 ничем не связан и бьёт по f7.",
+   "prev": [],
+   "forbid": [
+    {
+     "rel": "attack",
+     "neg": true
+    }
+   ],
+   "note": "the negation belongs to the pin"
+  },
+  {
+   "id": "kazakh",
+   "source": "plan",
+   "text": "Ақтар e5 сарбазын ұсынып, орталықты ашуға тырысады.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "definition",
+   "source": "plan",
+   "text": "Взятие на проходе — это приём исключительно для пешек: пешка бьёт пешку, которая только что прошла два поля мимо неё.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "unnamed-place",
+   "source": "plan",
+   "text": "Начни с шаха ферзём по третьей горизонтали, туда, откуда он бьёт и по королю, и по коню на e4.",
+   "prev": [],
+   "none": true
+  },
+  {
+   "id": "narrated-capture",
+   "source": "plan",
+   "text": "Первый ход — **Rxh6+**: ладья бьёт пешку h6 с шахом.",
+   "prev": [],
+   "none": true,
+   "note": "the capture move itself, not an attack claim"
+  },
+  {
+   "id": "line-notation",
+   "source": "plan",
+   "text": "Начни с b3 — b3–c4 — белые сразу нападают на слона.",
+   "prev": [],
+   "forbid": [
+    {
+     "subj": {
+      "sq": "c4"
+     }
+    }
+   ],
+   "note": "«b3–c4» is the line b3 hits"
+  },
+  {
+   "id": "taken-piece",
+   "source": "plan",
+   "text": "Ладья берёт пешку c6, которая связана с королём: у чёрных всего два ответа.",
+   "prev": [],
+   "forbid": [
+    {
+     "rel": "pinned",
+     "pos": {
+      "at": "after"
+     }
+    }
+   ],
+   "note": "the piece taken is judged before the capture"
+  },
+  {
+   "id": "nbc#7",
+   "source": "eval_not_checkable",
+   "text": "Играй Ke4, это самая упорная защита.",
+   "prev": [],
+   "none": true,
+   "note": "'защита' = resistance; engine/eval claim, not geometry"
+  },
+  {
+   "id": "nbc#9",
+   "source": "eval_not_checkable",
+   "text": "Только не спеши с шах-погоней: без поддержки короля фигуры сами мат не дадут.",
+   "prev": [],
+   "none": true,
+   "note": "general principle"
+  },
+  {
+   "id": "nbc#12",
+   "source": "eval_not_checkable",
+   "text": "Он ведь сам залез под бой, а после ed ты играешь рокировку и у тебя спокойная, хорошая игра.",
+   "prev": [],
+   "none": true,
+   "note": "pronoun subject, line 'ed' not legal; cannot resolve"
+  },
+  {
+   "id": "nbc#17",
+   "source": "eval_not_checkable",
+   "text": "Чёрным здесь спокойнее всего сыграть a6 — слону приходится уходить на a4 (или меняться на c6), и защита пункта e5 немного расслабляется.",
+   "prev": [],
+   "none": true,
+   "note": "strategic wording, no single geometric relation"
+  },
+  {
+   "id": "nbc#19",
+   "source": "eval_not_checkable",
+   "text": "Кстати, вилка — это тот же двойной удар, только его делает конь или пешка.",
+   "prev": [],
+   "none": true,
+   "note": "definition"
+  },
+  {
+   "id": "nbc#20",
+   "source": "eval_not_checkable",
+   "text": "Лучшие фигуры для этого — конь и ферзь: они бьют в восьми направлениях.",
+   "prev": [],
+   "none": true,
+   "note": "general piece property"
+  },
+  {
+   "id": "nbc#28",
+   "source": "eval_not_checkable",
+   "text": "Посмотри на открытую линию «b» и на белого ферзя: чем связан твой первый ход?",
+   "prev": [],
+   "none": true,
+   "note": "'связан' as idiom, not a pin"
+  },
+  {
+   "id": "nbc#32",
+   "source": "eval_not_checkable",
+   "text": "exd4 5. O-O**, сохраняя перевес в развитии и контроль над центром.",
+   "prev": [],
+   "none": true,
+   "note": "strategic"
+  },
+  {
+   "id": "nbc#34",
+   "source": "eval_not_checkable",
+   "text": "b1 just has to be empty — even if the enemy attacks it, that doesn't matter.",
+   "prev": [],
+   "none": true,
+   "note": "rule statement"
+  },
+  {
+   "id": "nbc#47",
+   "source": "eval_not_checkable",
+   "text": "На 18-м ходу Андерсен отдаёт ладью — g1–a1 — и всё равно продолжает атаку.",
+   "prev": [],
+   "none": true,
+   "note": "'атака' = initiative, game history"
+  },
+  {
+   "id": "nbc#48",
+   "source": "eval_not_checkable",
+   "text": "Да, можно — атака на ладью рокировке не мешает.",
+   "prev": [],
+   "none": true,
+   "note": "rule"
+  },
+  {
+   "id": "nbc#49",
+   "source": "eval_not_checkable",
+   "text": "Особенно часто это правило решает судьбу ладейных и ферзевых эндшпилей, где слабейшая сторона держится именно за счёт того, что король соперника не может подойти.",
+   "prev": [],
+   "none": true,
+   "note": "general endgame statement"
+  },
+  {
+   "id": "nbc#53",
+   "source": "eval_not_checkable",
+   "text": "Это **испанская партия, Берлинская защита** — по коду **C65**.",
+   "prev": [],
+   "none": true,
+   "note": "'защита' as an opening name"
+  },
+  {
+   "id": "nbc#55",
+   "source": "eval_not_checkable",
+   "text": "Это **отказанный ферзевый гамбит**, вариант D35 — нормальная защита.",
+   "prev": [],
+   "none": true,
+   "note": "opening name"
+  },
+  {
+   "id": "nbc#59",
+   "source": "eval_not_checkable",
+   "text": "Хочешь продолжить партию или разобрать что-то из своих слабых мест — например, эндшпиль или связки?",
+   "prev": [],
+   "none": true,
+   "note": "topic word"
+  },
+  {
+   "id": "nbc#62",
+   "source": "eval_not_checkable",
+   "text": "From here you can develop your pieces and aim for a calm game with a small space edge.",
+   "prev": [],
+   "none": true,
+   "note": "no board relation ('aim')"
+  },
+  {
+   "id": "nbc#63",
+   "source": "eval_not_checkable",
+   "text": "Это вариант Дракона — сицилианская защита, система Дракона, ECO B70.",
+   "prev": [],
+   "none": true,
+   "note": "opening name"
+  },
+  {
+   "id": "nbc#65",
+   "source": "eval_not_checkable",
+   "text": "Это сицилианская защита, вариант Найдорфа — конкретно система, где белые пошли 6.Сс4 (вариант Фишера-Созина).",
+   "prev": [],
+   "none": true,
+   "note": "opening name"
+  },
+  {
+   "id": "nbc#69",
+   "source": "eval_not_checkable",
+   "text": "Открытый вариант сицилианской защиты, и у белых тут три главных пути.",
+   "prev": [],
+   "none": true,
+   "note": "opening name match on 'защиты'"
+  },
+  {
+   "id": "nbc#70",
+   "source": "eval_not_checkable",
+   "text": "Рядом стоят **2. Кc3** (спокойно, готовим тот же d4) и **2. c3** (система с последующим d4, любимая атака в стиле Алёхина).",
+   "prev": [],
+   "none": true,
+   "note": "opening/system name"
+  },
+  {
+   "id": "nbc#83",
+   "source": "eval_not_checkable",
+   "text": "У тебя в партиях это пригодится в эндшпиле — прежде чем гнать короля, посмотри, куда он может убежать, и отрежь эти поля.",
+   "prev": [],
+   "none": true,
+   "note": "advice"
+  },
+  {
+   "id": "nbc#85",
+   "source": "eval_not_checkable",
+   "text": "Ключ: каждая жертва убирает защитника с d8.",
+   "prev": [],
+   "none": true,
+   "note": "summary of a whole game line, shown board is the final position"
+  },
+  {
+   "id": "nbc#89",
+   "source": "eval_not_checkable",
+   "text": "Запомните это окончание раз и навсегда: слон и ладейная пешка — если поле превращения не под контролем слона, это всегда ничья.",
+   "prev": [],
+   "none": true,
+   "note": "general rule"
+  },
+  {
+   "id": "nbc#91",
+   "source": "eval_not_checkable",
+   "text": "Или, если интересно именно из того матча, назови идею, которую хочешь разобрать: например, как Карлсен давил в эндшпиле, — и я покажу похожий эндшпиль на доске.",
+   "prev": [],
+   "none": true,
+   "note": "'давил' = general pressure, history"
+  },
+  {
+   "id": "nbc#96",
+   "source": "eval_not_checkable",
+   "text": "Пройди урок целиком и реши его 34 задачи: «Двойной удар», курс «Шахматная тактика» — https://chesster.io/learn/chess-tactics/double-attack.",
+   "prev": [],
+   "none": true,
+   "note": "title/link"
+  },
+  {
+   "id": "nbc#102",
+   "source": "eval_not_checkable",
+   "text": "Твоя идея с d4 уже заняла центр, самое время подкрепить его: какой пешкой поставишь рядом вторую?",
+   "prev": [],
+   "none": true,
+   "note": "plan"
+  },
+  {
+   "id": "nbc#109",
+   "source": "eval_not_checkable",
+   "text": "Есть ли у коня ход, с которого он нападёт на что-то важное рядом с королём?",
+   "prev": [],
+   "none": true,
+   "note": "question"
+  },
+  {
+   "id": "nbc#113",
+   "source": "eval_not_checkable",
+   "text": "Отвлечение: матовая угроза важнее всего.",
+   "prev": [],
+   "none": true,
+   "note": "principle"
+  },
+  {
+   "id": "nbc#116",
+   "source": "eval_not_checkable",
+   "text": "Это задача 1 из 8 урока «Смешанные (рентген + мат) — Набор 13» — https://chesster.io/learn/deflection-luring/mixed-x-ray-checkmate-set-13. Проходите остальные задачи набора, там та же идея с рентгеном.",
+   "prev": [],
+   "none": true,
+   "note": "title/link"
+  },
+  {
+   "id": "nbc#117",
+   "source": "eval_not_checkable",
+   "text": "Связку делают только дальнобойные фигуры — ферзь, ладья и слон.",
+   "prev": [],
+   "none": true,
+   "note": "rule"
+  },
+  {
+   "id": "nbc#119",
+   "source": "eval_not_checkable",
+   "text": "Продолжение» — https://chesster.io/learn/chess-basics/pin-continued, там 12 задач, и все решаются именно матом по связанной пешке.",
+   "prev": [],
+   "none": true,
+   "note": "link"
+  },
+  {
+   "id": "nbc#122",
+   "source": "eval_not_checkable",
+   "text": "Поэтому правильный порядок — сначала снять защитника.",
+   "prev": [],
+   "none": true,
+   "note": "principle"
+  },
+  {
+   "id": "nbc#123",
+   "source": "eval_not_checkable",
+   "text": "Это урок из твоего курса — «Продвинутая тактика», модуль «Разрушение прикрытия короля», урок «Пример 1.» Там 12 задач на эту тему, пройди их: https://chesster.io/learn/advanced-tactics/destroying-kings-shelter-example-1. Скажи, когда разберёшь — дам похожую задачу на решение.",
+   "prev": [],
+   "none": true,
+   "note": "title"
+  },
+  {
+   "id": "nbc#125",
+   "source": "eval_not_checkable",
+   "text": "Это урок «Пример 1» (курс «Продвинутая тактика», модуль «Центр», 5 заданий) — пройди его и реши задачи: https://chesster.io/learn/advanced-tactics/center-control-example-1",
+   "prev": [],
+   "none": true,
+   "note": "title"
+  },
+  {
+   "id": "nbc#126",
+   "source": "eval_not_checkable",
+   "text": "А ферзь e2 связан защитой f1, поэтому не может одновременно прикрыть и короля, и поле вторжения.",
+   "prev": [],
+   "none": true,
+   "note": "'связан защитой' = overloaded, not a geometric pin"
+  },
+  {
+   "id": "nbc#127",
+   "source": "eval_not_checkable",
+   "text": "Ищи такие приёмы в своих партиях: если фигура соперника уходит на поле, которое ты контролируешь, — это шанс на решающий удар.",
+   "prev": [],
+   "none": true,
+   "note": "advice"
+  },
+  {
+   "id": "nbc#128",
+   "source": "eval_not_checkable",
+   "text": "Смотри: с e4 твой король стоит ближе к чёрному на h8 и отрезает ему поля — а это уже первый шаг к тому, чтобы оттеснить его к краю.",
+   "prev": [],
+   "none": true,
+   "note": "vague (no concrete squares)"
+  },
+  {
+   "id": "nbc#135",
+   "source": "eval_not_checkable",
+   "text": "А после этого Ng2# — конь с e1 закрывает королю выход, и это мат.",
+   "prev": [],
+   "none": true,
+   "note": "loose: the knight gives the check itself"
+  },
+  {
+   "id": "nbc#143",
+   "source": "eval_not_checkable",
+   "text": "Главное здесь — сначала убрать коня d5, который держит оборону, и только потом вскрывать позицию шахом.",
+   "prev": [],
+   "none": true,
+   "note": "vague 'держит оборону'"
+  },
+  {
+   "id": "nbc#144",
+   "source": "eval_not_checkable",
+   "text": "Здесь решает **Rd7** — ладья врывается на седьмую, и чёрный конь d6 связан защитой ферзя.",
+   "prev": [],
+   "none": true,
+   "note": "idiom; no geometric pin claim"
+  },
+  {
+   "id": "nbc#145",
+   "source": "eval_not_checkable",
+   "text": "Связка здесь работает не один ход, а всю комбинацию — важно только не сбиться и не отдать ферзя под бой.",
+   "prev": [],
+   "none": true,
+   "note": "general"
+  },
+  {
+   "id": "nbc#148",
+   "source": "eval_not_checkable",
+   "text": "**Kc7** — единственный ход, который держит ничью.",
+   "prev": [],
+   "none": true,
+   "note": "engine/eval claim"
+  },
+  {
+   "id": "nbc#150",
+   "source": "eval_not_checkable",
+   "text": "Запомни правило: в таком эндшпиле сначала бей ту пешку, которая даёт шах и держит твоего короля, а потом уже гонись за остальным.",
+   "prev": [],
+   "none": true,
+   "note": "rule of thumb"
+  },
+  {
+   "id": "nbc#152",
+   "source": "eval_not_checkable",
+   "text": "Ферзь на g4 держится только за счёт связки; как только пешка h делает ход, угроза hxg4 становится реальной, и чёрным приходится уводить ферзя (лучше всего на g5).",
+   "prev": [],
+   "none": true,
+   "note": "g2 is pinned by Qg4 to Kg1, meaning unclear"
+  },
+  {
+   "id": "nbc#153",
+   "source": "eval_not_checkable",
+   "text": "Поэтому король обязан уйти, и точнее всего Kb5: он держит ничью, а заодно не пускает белого короля в центр.",
+   "prev": [],
+   "none": true,
+   "note": "engine claim"
+  },
+  {
+   "id": "nbc#156",
+   "source": "eval_not_checkable",
+   "text": "А что ещё бьёт слон с c3 в этой позиции — видишь, куда он может отойти с темпом?",
+   "prev": [],
+   "none": true,
+   "note": "question"
+  },
+  {
+   "id": "nbc#157",
+   "source": "eval_not_checkable",
+   "text": "После того как он взял ферзя, он заперт в углу — вот зачем мы его туда и заманили.",
+   "prev": [],
+   "none": true,
+   "note": "line not given"
+  },
+  {
+   "id": "nbc#158",
+   "source": "eval_not_checkable",
+   "text": "Правила простые: никто из двоих — ни король, ни эта ладья — ещё не ходил, между ними пусто, королю не шах, и поля, через которое он перепрыгивает и на которое встаёт, не бьются.",
+   "prev": [],
+   "none": true,
+   "note": "rule"
+  },
+  {
+   "id": "nbc#159",
+   "source": "eval_not_checkable",
+   "text": "Именно поэтому твой король на d3 чувствует себя спокойно — у чёрных нет фигур, которые могли бы создать реальные угрозы.",
+   "prev": [],
+   "none": true,
+   "note": "eval claim (Black has two rooks)"
+  },
+  {
+   "id": "nbc#160",
+   "source": "eval_not_checkable",
+   "text": "На позиции белые загоняют чёрного короля на e4 в ловушку: ферзь с d1 бьёт по линии, кони прикрывают поля вокруг, а свой король на g2 сторожит выходы.",
+   "prev": [],
+   "none": true,
+   "note": "vague 'бьёт по линии'"
+  },
+  {
+   "id": "nbc#161",
+   "source": "eval_not_checkable",
+   "text": "В продолжении урока главное — не узнать связку, а научиться её использовать.",
+   "prev": [],
+   "none": true,
+   "note": "general"
+  },
+  {
+   "id": "nbc#165",
+   "source": "eval_not_checkable",
+   "text": "Теперь 2.Кg7xh — мат, путь отступления закрыт.",
+   "prev": [],
+   "none": true,
+   "note": "garbled notation"
+  },
+  {
+   "id": "nbc#168",
+   "source": "eval_not_checkable",
+   "text": "Отсюда вывод: центр — это d4, d5, e4, e5, и захватить его значит надёжно встать там пешками, а под их прикрытием уже активно расставить фигуры.",
+   "prev": [],
+   "none": true,
+   "note": "general"
+  },
+  {
+   "id": "nbc#169",
+   "source": "eval_not_checkable",
+   "text": "Связку ставят только дальнобойные фигуры — ферзь, ладья и слон.",
+   "prev": [],
+   "none": true,
+   "note": "rule"
+  },
+  {
+   "id": "nbc#172",
+   "source": "eval_not_checkable",
+   "text": "Запомни идею: сначала свой король подходит вплотную, потом ферзь ставит мат с защищённого поля.",
+   "prev": [],
+   "none": true,
+   "note": "principle"
+  },
+  {
+   "id": "nbc#177",
+   "source": "eval_not_checkable",
+   "text": "Хотите, дам похожую задачу на устранение защитника, чтобы закрепить приём?",
+   "prev": [],
+   "none": true,
+   "note": "offer"
+  },
+  {
+   "id": "nbc#180",
+   "source": "eval_not_checkable",
+   "text": "Начни с шаха — и у белых просто нет защиты.",
+   "prev": [],
+   "none": true,
+   "note": "eval claim"
+  },
+  {
+   "id": "nbc#181",
+   "source": "eval_not_checkable",
+   "text": "После Сb7 у чёрных выбор невелик: ферзь c8 уходит на b8 или ладья d7 должна думать о защите, а белый конь a5 тут же врывается на c6 — Nc6 — и связка по линии «c» вместе с прорывом e5–e6 даёт белым решающий перевес.",
+   "prev": [],
+   "none": true,
+   "note": "no pin on the c-file in any concrete line given; strategic soup"
+  },
+  {
+   "id": "nbc#184",
+   "source": "eval_not_checkable",
+   "text": "Заметь для себя: уходить на a4 надо было именно потому, что ферзь на a6 загораживал сам себя.",
+   "prev": [],
+   "none": true,
+   "note": "nonsense idiom"
+  },
+  {
+   "id": "nbc#188",
+   "source": "eval_not_checkable",
+   "text": "С этого и стоит начать в этом эндшпиле — сначала обезвредить связку и защитника, а уже потом трогать пешки.",
+   "prev": [],
+   "none": true,
+   "note": "advice"
+  },
+  {
+   "id": "nbc#190",
+   "source": "eval_not_checkable",
+   "text": "**Только Rf3 держит ничью — остальные ходы проигрывают.**",
+   "prev": [],
+   "none": true,
+   "note": "engine claim"
+  },
+  {
+   "id": "nbc#194",
+   "source": "eval_not_checkable",
+   "text": "Атака на ладью рокировку не запрещает — важно только, чтобы король не был под шахом, не проходил через битое поле и не вставал на него.",
+   "prev": [],
+   "none": true,
+   "note": "rule"
+  },
+  {
+   "id": "nbc#198",
+   "source": "eval_not_checkable",
+   "text": "Он ослабляет именно тот пункт, который король обязан защищать сам.",
+   "prev": [],
+   "none": true,
+   "note": "pronoun, vague"
+  },
+  {
+   "id": "nbc#199",
+   "source": "eval_not_checkable",
+   "text": "Это сицилианская защита, вариант Найдорфа — конкретно система B90, где чёрные уже поставили пешку на a6.",
+   "prev": [],
+   "none": true,
+   "note": "opening name"
+  },
+  {
+   "id": "nbc#201",
+   "source": "eval_not_checkable",
+   "text": "Если чёрные ответят d5, спокойно продолжай c4 — это и есть та самая идея с давлением на центр.",
+   "prev": [],
+   "none": true,
+   "note": "plan"
+  },
+  {
+   "id": "nbc#202",
+   "source": "eval_not_checkable",
+   "text": "Ход сделан: пешка с e2 на e4, и соперник ответил c7–c6 — это защита Каро-Канн.",
+   "prev": [],
+   "none": true,
+   "note": "opening name"
+  },
+  {
+   "id": "nbc#206",
+   "source": "eval_not_checkable",
+   "text": "Это защита Пирца–Уфимцева, вариант B07.",
+   "prev": [],
+   "none": true,
+   "note": "opening name"
+  },
+  {
+   "id": "nbc#209",
+   "source": "eval_not_checkable",
+   "text": "Не менее принципиально 2.Nc3 — это «закрытая сицилианка», белые сохраняют гибкость и часто играют на g3, Bg2, d3.",
+   "prev": [],
+   "none": true,
+   "note": "opening name"
+  },
+  {
+   "id": "nbc#215",
+   "source": "eval_not_checkable",
+   "text": "Чем ты собираешься его спасать или закрывать удар?",
+   "prev": [],
+   "none": true,
+   "note": "question with pronoun"
+  },
+  {
+   "id": "nbc#229",
+   "source": "eval_not_checkable",
+   "text": "У тебя под ударом две вещи, и они связаны.",
+   "prev": [],
+   "none": true,
+   "note": "'связаны' = related, not a pin"
+  },
+  {
+   "id": "nbc#252",
+   "source": "eval_not_checkable",
+   "text": "Но давление есть, и оно неприятное.",
+   "prev": [],
+   "none": true,
+   "note": "vague"
+  },
+  {
+   "id": "nbc#255",
+   "source": "eval_not_checkable",
+   "text": "Что у меня под ударом?",
+   "prev": [],
+   "none": true,
+   "note": "no claim"
+  },
+  {
+   "id": "nbc#260",
+   "source": "eval_not_checkable",
+   "text": "e4 — и вместо спокойной итальянской партии чёрные ответили c5: это сицилианская защита, самая боевая защита против 1.e4.",
+   "prev": [],
+   "none": true,
+   "note": "opening name"
+  },
+  {
+   "id": "nbc#262",
+   "source": "eval_not_checkable",
+   "text": "Сейчас самое время подумать о центре и рокировке — как думаешь, что важнее сначала: подкрепить центр пешкой или увести короля в безопасность?",
+   "prev": [],
+   "none": true,
+   "note": "plan question"
+  },
+  {
+   "id": "nbc#273",
+   "source": "eval_not_checkable",
+   "text": "Смотрю на позицию и проверяю, какие угрозы здесь действительно есть.",
+   "prev": [],
+   "none": true,
+   "note": "meta"
+  },
+  {
+   "id": "nbc#278",
+   "source": "eval_not_checkable",
+   "text": "Запомни правило: прежде чем ставить фигуру, проверь, не бьёт ли её пешка соперника.",
+   "prev": [],
+   "none": true,
+   "note": "rule"
+  },
+  {
+   "id": "nbc#294",
+   "source": "eval_not_checkable",
+   "text": "Подумай, как одним ходом решить обе заботы: чем можно и e4 прикрыть, и центр удержать?",
+   "prev": [],
+   "none": true,
+   "note": "question"
+  },
+  {
+   "id": "nbc#295",
+   "source": "eval_not_checkable",
+   "text": "Что у меня под ударом?",
+   "prev": [],
+   "none": true,
+   "note": "no claim"
+  },
+  {
+   "id": "nbc#300",
+   "source": "eval_not_checkable",
+   "text": "Разбор, если хочешь, короткий: ты играл нормально — e5 в ответ на e4, коня на c6 развил, центр держал.",
+   "prev": [],
+   "none": true,
+   "note": "retrospective, vague"
+  },
+  {
+   "id": "nbc#118",
+   "source": "eval_not_checkable",
+   "text": "В продолжении урока нам показывают, как из этого делают мат: белый слон b2 связывает пешку g7, за которой стоит король g8, и ферзь вторгается на h6 — поставить мат.",
+   "prev": [],
+   "none": true,
+   "note": "«в продолжении урока»: a later position of a line the words do not give"
+  },
+  {
+   "id": "class/threat-is-not-the-motion",
+   "source": "class",
+   "prev": [],
+   "none": true,
+   "text": "Ладья переходит на g-линию и грозит Qxg2# — пешка g2 связана, взять её нечем.",
+   "note": "the rook moved to a square the words do not give; the threat written after the motion verb is not its destination"
+  },
+  {
+   "id": "class/unnamed-from-square",
+   "source": "class",
+   "prev": [],
+   "none": true,
+   "text": "Потому что ладья бьёт ферзя с поля, где её саму никто не атакует, а ферзь a6 продолжает держать связку.",
+   "note": "«с поля, где …»: the square the piece acts from is not named"
+  },
+  {
+   "id": "class/blind-capture-with-check",
+   "source": "class",
+   "prev": [],
+   "text": "Конь на e2 хоть и защищён ферзём e3, но твой ферзь бьёт его с шахом — и белым некогда разбираться: король на g4 обязан ответить на шах, а ферзь e3 остаётся под ударом.",
+   "forbid": [
+    {
+     "rel": "attacked"
+    }
+   ],
+   "note": "a capture with check whose square we cannot place: the board after it is unknown"
+  }
+ ]
+}
