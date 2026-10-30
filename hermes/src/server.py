@@ -234,6 +234,10 @@ def _warm_up() -> None:
         shared_http()
     except Exception:  # noqa: BLE001
         logger.warning("warm-up: knowledge base failed", exc_info=True)
+    # The book's positions for «здесь белые пошли 6.Сс4» (src/answer_check_facts.py): 0.9–1.5 s on first use (30.10).
+    from src.answer_check_facts import warm_book_index
+
+    warm_book_index()
     _timings_log.info("warm-up done %s", json.dumps({**steps, "total": int((time.monotonic() - started) * 1000)}))
 
 
@@ -2702,6 +2706,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                                 board_moved["fen"] = new_fen or "?"
                                 # the engine's verdict was about the old board: no eval-based checks now
                                 check_ctx.engine_eval = check_ctx.tablebase = check_ctx.engine_mate = None
+                                check_ctx.board_moved = True  # nor claims about the old board's history (30.10)
                 except Exception:  # noqa: BLE001 — never break a turn on the bookkeeping
                     logger.debug("board move bookkeeping failed", exc_info=True)
             # What the tool put on the board (a topic example, a puzzle, a game)
@@ -4063,6 +4068,9 @@ class VoiceCheckRequest(CoachRequest):
     pgn: Optional[str] = None      # the moves on the board, if a game is loaded
     question: Optional[str] = None  # the student's words (moves it quoted are not claims)
     session_id: Optional[str] = None  # the coach session: in a game, «я пойду d3» must be the engine's move (25.10)
+    # What the coach said before this sentence in the same answer: «Больше ничего не висит» is read against what
+    # that named (src/answer_check_facts.seed_facts_state; 30.10). Older sites send none: the claim is skipped.
+    previous: Optional[str] = None
 
 
 class VoiceIdeaRequest(CoachRequest):
@@ -4341,6 +4349,10 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         # the check (src/game_intent.spoken_squares; Alexander's phone, 24.10).
         from src.game_intent import spoken_squares
 
+        if body.previous:
+            from src.answer_check_facts import seed_facts_state
+
+            seed_facts_state(ctx, spoken_squares(body.previous[-1500:]))
         spoken_text = spoken_squares(body.text[:1000])
         issues = check_sentence(spoken_text, ctx)
         if not issues and config.COACH_TABLEBASE_LINE_CHECKS > 0:

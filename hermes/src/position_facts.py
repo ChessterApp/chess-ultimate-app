@@ -9,6 +9,8 @@ engine, so the coach explains from them instead of inventing:
 
   * what hangs (attacked, not defended) and what a cheaper piece attacks;
   * what is attacked but defended, with the attackers and defenders by name;
+  * what is defended but still lost to the exchange on its square (two attackers
+    against one defender, a defender that is itself hanging);
   * pieces pinned to their king;
   * what the best move threatens — the engine's best move for the same side
     if the opponent passed;
@@ -50,9 +52,64 @@ def _pieces(board: chess.Board, squares) -> str:
     return ", ".join(names[:-1]) + (" and " if len(names) > 1 else "") + names[-1] if names else ""
 
 
+def exchange_gain(board: chess.Board, sq: chess.Square) -> Optional[int]:
+    """What the opponent of the piece on *sq* wins by starting the exchange there (0: nothing — the piece is
+    safe), in pawns. Played out with legal captures, the cheapest capturer first, so pins, x-rays and a king
+    that may not take into a defended square all count. None when it cannot be judged (the owner is in check
+    and not to move: its opponent could not be given the move)."""
+    piece = board.piece_at(sq)
+    if piece is None or piece.piece_type == chess.KING:
+        return None
+    attacker = not piece.color
+    b = board.copy(stack=False)
+    if b.turn != attacker:
+        if b.is_check():
+            return None
+        b.turn = attacker
+        b.ep_square = None
+    gains = []
+    value = VALUES[piece.piece_type]
+    while len(gains) < 32:
+        caps = [m for m in b.legal_moves if m.to_square == sq and m.promotion in (None, chess.QUEEN)]
+        if not caps:
+            break
+        move = min(caps, key=lambda m: VALUES[b.piece_type_at(m.from_square)])
+        gains.append(value)
+        value = VALUES[move.promotion] if move.promotion else VALUES[b.piece_type_at(move.from_square)]
+        b.push(move)
+    score = 0
+    for gain in reversed(gains):  # each side stops when going on loses
+        score = max(0, gain - score)
+    return score
+
+
+def exposed_pieces(board: chess.Board, color: Optional[chess.Color] = None) -> list[tuple]:
+    """The pieces (not kings) that are attacked and not safe: (square, kind, attackers, defenders) with kind
+    'hanging' (no defender), 'cheaper' (a cheaper piece attacks it) or 'outnumbered' (defended, but the
+    exchange on its square still wins material — «под ударом только слон c4» with the d5 pawn hit twice and
+    held once, by that very bishop: prod 29.10). The answer check reads «больше ничего не висит» against
+    this same list (src/answer_check_facts.py)."""
+    out = []
+    for sq, piece in board.piece_map().items():
+        if piece.piece_type == chess.KING or (color is not None and piece.color != color):
+            continue
+        attackers = board.attackers(not piece.color, sq)
+        if not attackers:
+            continue
+        defenders = board.attackers(piece.color, sq)
+        if not defenders:
+            out.append((sq, "hanging", attackers, defenders))
+        elif min(VALUES[board.piece_type_at(a)] for a in attackers) < VALUES[piece.piece_type]:
+            out.append((sq, "cheaper", attackers, defenders))
+        elif (exchange_gain(board, sq) or 0) > 0:
+            out.append((sq, "outnumbered", attackers, defenders))
+    return out
+
+
 def static_facts(board: chess.Board) -> list[str]:
     """Hanging, attacked and pinned pieces of both sides, as sentences."""
-    hanging, cheaper, defended, pinned = [], [], [], []
+    hanging, outnumbered, cheaper, defended, pinned = [], [], [], [], []
+    exposed = {sq: kind for sq, kind, _, _ in exposed_pieces(board)}
     for sq, piece in board.piece_map().items():
         if piece.piece_type == chess.KING:
             continue
@@ -63,14 +120,24 @@ def static_facts(board: chess.Board) -> list[str]:
             continue
         defenders = board.attackers(piece.color, sq)
         who = _pieces(board, attackers)
+        # A defender that is itself attacked and not safe holds nothing for long: the d5 pawn «defended by the
+        # bishop c4» while the knight a5 hit that bishop read as safe, and the answer left d5 out (prod 29.10).
+        weak = [d for d in defenders if d in exposed]
+        weak_note = (f" ({_pieces(board, weak)} {'is' if len(weak) == 1 else 'are'} itself attacked and not safe)"
+                     if weak else "")
         if not defenders:
             hanging.append(f"{_piece(board, sq)} is attacked by {who} and not defended")
-        elif min(VALUES[board.piece_type_at(a)] for a in attackers) < VALUES[piece.piece_type]:
+        elif exposed.get(sq) == "cheaper":
             cheaper.append(f"{_piece(board, sq)} is attacked by a cheaper piece: {who}")
+        elif exposed.get(sq) == "outnumbered":
+            outnumbered.append(f"{_piece(board, sq)} is attacked by {who} and defended only by "
+                               f"{_pieces(board, defenders)}{weak_note}: it is NOT safe, the exchange on "
+                               f"{chess.square_name(sq)} wins material for {_color(not piece.color)}")
         else:
-            defended.append(f"{_piece(board, sq)} is attacked by {who} and defended by {_pieces(board, defenders)}")
+            defended.append(f"{_piece(board, sq)} is attacked by {who} and defended by {_pieces(board, defenders)}"
+                            + weak_note)
     facts = []
-    for group in (hanging, cheaper, pinned, defended):
+    for group in (hanging, outnumbered, cheaper, pinned, defended):
         facts.extend(group[:MAX_ITEMS_PER_KIND])
     facts.extend(fork_facts(board))
     return facts

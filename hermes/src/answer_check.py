@@ -364,6 +364,13 @@ class CheckContext:
     # ECO codes a tool's result names (identify_opening, get_opening_stats): the coach repeating one says what the
     # tool said (src/answer_check_openings.py, prod check 29.10).
     text_codes: set = field(default_factory=set)
+    # Every line and game the turn has, as (its first position, its moves in SAN): what was played on the way to
+    # the board — «здесь белые пошли 6.Сс4» on the board after 5...a6, «после размена на e4» after 2.exd5 Qxd5
+    # (prod 29.10) are judged against it (src/answer_check_facts.py).
+    line_records: list = field(default_factory=list)
+    # A tool put another position on the board during this answer (src/server.py): the board the answer
+    # talks about may no longer be the one the turn began on.
+    board_moved: bool = False
     MAX_BOARDS = 400
 
     @classmethod
@@ -443,6 +450,8 @@ class CheckContext:
         pgn = re.sub(r"\{[^}]*\}", " ", pgn)
         self.add(board.fen(), line=True)
         captures = set()
+        record: list = []
+        self.line_records.append((board.copy(stack=False), record))
         for san in _split_moves(pgn):
             # A position on the way through a game or a line, not its end: a line told without move numbers is not
             # started from there (src/answer_check_scene.py).
@@ -455,6 +464,7 @@ class CheckContext:
             if board.is_capture(move):
                 captures.add((board.turn, move.to_square))
             board.push(move)
+            record.append(san)
             self.add(board.fen(), line=True)
         self.line_ends.add(self._key(board))
         self.line_captures.setdefault(self._key(board), set()).update(captures)
@@ -3761,6 +3771,9 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
               + _asked_motif_issues(lowered, text, ctx) + _composition_issues(lowered, text, ctx)
               # ECO codes, variations named after a person, «usually X» — by the ECO book (prod check 29.10)
               + opening_book_issues(text, ctx))
+    from src.answer_check_facts import record_fact_issues
+
+    issues += record_fact_issues(lowered, text, ctx)
     if not san_issues:
         issues += _announced_move_issues(text, ctx)
     squares = _SQ_RE.findall(lowered)

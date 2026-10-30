@@ -47,12 +47,22 @@ describe('voice lookups: what the site asks Hermes about on its own', () => {
   });
 });
 
-import { SPEECH_CHECKABLE_RE, SPEECH_SENTENCE_END_RE, correctionNote } from '../useGeminiLive';
+import { SPEECH_CHECKABLE_RE, SPEECH_EXHAUSTIVE_RE, SPEECH_SENTENCE_END_RE, correctionNote } from '../useGeminiLive';
 
 describe('voice check: what the coach said, read back when wrong', () => {
   it('only sentences with chess content are checked', () => {
     expect(SPEECH_CHECKABLE_RE.test('Конь с f3 прыгает на d5.')).toBe(true);
     expect(SPEECH_CHECKABLE_RE.test('Отличный вопрос, давай разберём.')).toBe(false);
+  });
+
+  it('«больше ничего не висит» is checked though it names no piece (with the sentences before it, 30.10)', () => {
+    for (const s of ['Больше ничего не висит.', 'Остальное защищено.', 'Всё остальное в безопасности.',
+      'Кроме него у тебя ничего не под ударом.', 'Nothing else is hanging.']) {
+      expect(SPEECH_EXHAUSTIVE_RE.test(s)).toBe(true);
+    }
+    for (const s of ['Отличный вопрос, давай разберём.', 'Больше всего мне нравится этот план.', 'Ничего страшного.']) {
+      expect(SPEECH_EXHAUSTIVE_RE.test(s)).toBe(false);
+    }
   });
 
   it('sentences end at . ! ? followed by a space', () => {
