@@ -174,20 +174,41 @@ _MOTIF_RX = {
     "skewer": r"сквозн\w+\s+(?:удар|атак)\w*|рентген\w*|skewers?",
     "discovered-attack": r"вскрыт\w+\s+(?:шах|нападени|атак)\w*|discovered\s+(?:attacks?|checks?)",
 }
+# The forms that name the piece MAKING the motif: the instrumental («вилка конём», «связка слоном»), the
+# adjective («коневая вилка», "knight fork") and "with/by the knight". Not the targets: «королевская вилка» is a
+# fork OF the king and queen (by a knight, usually), "pin the knight" / "fork the king and rook" name what is hit
+# (review 30.10) — so no adjective for the king, and an English piece only before the motif or after with/by.
 _BY_PIECE = ((chess.KNIGHT, r"кон[её]м", r"конев\w+|конск\w+", r"knight"),
              (chess.PAWN, r"пешкой", r"пешечн\w+", r"pawn"),
              (chess.BISHOP, r"слоном", r"слонов\w+", r"bishop"),
              (chess.ROOK, r"ладь[её]й", r"ладейн\w+", r"rook"),
              (chess.QUEEN, r"ферз[её]м", r"ферзев\w+", r"queen"),
-             (chess.KING, r"корол[её]м", r"королевск\w+", r"king"))
+             (chess.KING, r"корол[её]м", None, None))
+# A pin or a skewer is made by a slider: «связка конём» names no motif that exists — nothing to look for.
+_MAKERS = {"pin": SLIDERS, "skewer": SLIDERS}
+
+
+def motif_pieces(text: str) -> Optional[tuple]:
+    """(motif slug, the piece types named as making it) when *text* asks for a motif made by a named piece —
+    every piece named counts («чем вилка конём отличается от вилки пешкой?»: a knight and a pawn) — else None."""
+    low = (text or "").lower().replace("ё", "е")
+    for slug, motif in _MOTIF_RX.items():
+        found = set()
+        for piece, instr, adj, en in _BY_PIECE:
+            if piece not in _MAKERS.get(slug, (piece,)):
+                continue
+            by = rf"(?<![а-яa-z])(?:{motif})\s+(?:с\s+)?{instr}(?![а-яa-z])"
+            if en:
+                by += (rf"|(?<![а-яa-z])(?:{motif})\s+(?:by|with|using)\s+(?:(?:a|the|your|my)\s+)?{en}(?![a-z])"
+                       rf"|(?<![а-яa-z])(?:{adj}|{en}(?:'s)?)\s+(?:{motif})(?![а-яa-z])")
+            if re.search(by, low):
+                found.add(piece)
+        if found:
+            return slug, frozenset(found)
+    return None
 
 
 def motif_piece(text: str) -> Optional[tuple]:
-    """(motif slug, piece type) when *text* asks for a motif made by a named piece, else None."""
-    low = (text or "").lower().replace("ё", "е")
-    for slug, motif in _MOTIF_RX.items():
-        for piece, instr, adj, en in _BY_PIECE:
-            if re.search(rf"(?<![а-яa-z])(?:{motif})\s+(?:с\s+|by\s+|with\s+)?(?:(?:a|the|your|my)\s+)?(?:{instr}|{en})(?![а-яa-z])"
-                         rf"|(?<![а-яa-z])(?:{adj}|{en})\s+(?:{motif})(?![а-яa-z])", low):
-                return slug, piece
-    return None
+    """(motif slug, piece type) when *text* asks for a motif made by one named piece, else None."""
+    asked = motif_pieces(text)
+    return (asked[0], next(iter(asked[1]))) if asked and len(asked[1]) == 1 else None

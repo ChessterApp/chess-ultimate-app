@@ -3032,7 +3032,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 or (endgame and endgame["shown"]) or (game_step and (game_step.get("view") or game_step.get("actions"))) \
                 or (puzzle_step and puzzle_step.get("actions")) or (solution_step and solution_step.get("actions")) \
                 or (opening_plan and opening_plan.load):
-            gate.board_changed()  # the pre-step put a position up: «Покажу на доске» is about it
+            # The pre-step put a position up: «Покажу на доске» is about it — in the draft and in a rewrite of it alike
+            # (review 30.10: only the draft's gate knew, the rewrite's dropped a kept promise).
+            gate.board_changed()
+            fix_gate.board_changed()
 
         try:
             while not (main_done and quick["finished"] and not fix["running"]):

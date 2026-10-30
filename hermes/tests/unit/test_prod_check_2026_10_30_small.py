@@ -81,6 +81,22 @@ class TestMaterialNow:
         ctx = _game_ctx("1.e4 e5 2.d4 d6 3.c3 Be7 4.Nf3 Nf6 5.Bc4 exd4", question="Сc4")
         assert check_sentence("Так что теперь у чёрных на одну пешку больше, и это уже чуть в их пользу.", ctx) == []
 
+    def test_prod_st3_with_the_boards_the_server_passes(self):
+        # src/server.py: from_fens([hidden_fen, session.board_state, body.fen, …], [the game's pgn]) — body.fen is the
+        # board when the student typed «0-0» (one pawn down then), a position of the game's history, not a board now.
+        moves = [t.split(".")[-1] for t in ST3_LINE.split()]
+        board = chess.Board()
+        for san in moves[:-2]:
+            board.push_san(san)
+        before = board.fen()
+        for san in moves[-2:]:
+            board.push_san(san)
+        ctx = CheckContext.from_fens([None, board.fen(), before, board.fen()], [ST3_LINE], question="0-0",
+                                     student_color=chess.WHITE)
+        ctx.game_moves, ctx.game_engine_moves = moves, moves[1::2]
+        assert check_sentence("Так что теперь у чёрных на пешку больше, и позиция уже в их пользу.", ctx) == [
+            "material: Black has an extra 2 pawns (not: у черных на пешку больше)"]
+
     def test_outside_a_game_a_line_still_counts(self):
         # No game on the board: a line's positions stay boards a claim may be about (unchanged).
         ctx = CheckContext.from_fens([chess.STARTING_FEN], ["1.e4 d5 2.exd5 Nf6 3.c4 c6"])
@@ -105,7 +121,7 @@ class TestToldCapture:
         "Ты забрал пешку f4, и теперь у белых на пешку больше.",
     ])
     def test_paraphrases(self, sentence):
-        assert check_sentence(sentence, CheckContext.from_fens([KG])), sentence
+        assert check_sentence(sentence, CheckContext.from_fens([KG], question="Стоит ли брать пешку f4?")), sentence
 
     @pytest.mark.parametrize("sentence", [
         "Ты забрал f4 — теперь у тебя лишняя пешка.",
@@ -115,7 +131,36 @@ class TestToldCapture:
         "Белые взяли бы на f4 — материал равный.",
     ])
     def test_true_or_hypothetical(self, sentence):
-        assert check_sentence(sentence, CheckContext.from_fens([KG])) == [], sentence
+        assert check_sentence(sentence, CheckContext.from_fens([KG], question="Стоит ли брать пешку f4?")) == [], sentence
+
+    def test_a_bare_fen_has_no_record(self):
+        # Nothing tells whether «ты забрал f4» is still to come when the student did not ask about it: the move just
+        # made is as likely (review 30.10) — the claim is judged on the board as it is.
+        assert check_sentence("Ты забрал f4, и материал равный.", CheckContext.from_fens([KG])) == []
+
+    @pytest.mark.parametrize("line, student, sentence", [
+        # review 30.10: an exchange over a few moves ago — the side to move could take on that square again
+        ("1.d4 d5 2.c4 e6 3.Nc3 Nf6 4.cxd5 exd5 5.Bg5 Be7", chess.WHITE,
+         "Ты взял пешку d5, чёрные забрали обратно — материал равный."),
+        ("1.e4 e5 2.Nf3 Nc6 3.d4 exd4 4.Nxd4 Nf6 5.Nc3", chess.BLACK,
+         "Ты взял на d4, белые забрали обратно конём — материал равный."),
+        # 3.dxc6 is in the game: «ты забрал пешку c6» tells it, not 5.Bxc6 still to come
+        ("1.e4 d5 2.exd5 c6 3.dxc6 Nxc6 4.Bb5 e5", chess.WHITE, "Ты забрал пешку c6, и у тебя на пешку больше."),
+        ("1.e4 d5 2.exd5 c6 3.dxc6 Nxc6 4.Bb5 e5", chess.WHITE, "Ты взял на c6, так что у тебя на пешку больше."),
+    ])
+    def test_a_capture_made_in_the_game(self, line, student, sentence):
+        ctx = _game_ctx(line, student, question="Что с материалом?")
+        assert check_sentence(sentence, ctx) == [], sentence
+        # the same with the record as a line only, outside a game
+        assert check_sentence(sentence, CheckContext.from_fens([ctx.current.fen()], [line])) == [], sentence
+
+    @pytest.mark.parametrize("sentence", [
+        "Ты взял пешку d4, а белые отыграли её конём, поэтому материал равный.",
+        "You took on d4 and White took back, so material is equal.",
+    ])
+    def test_a_recapture_told(self, sentence):
+        fen = "r1bqkb1r/pppp1ppp/2n2n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R b KQkq - 2 5"  # Scotch after 5.Nc3
+        assert check_sentence(sentence, CheckContext.from_fens([fen], question="Взять на d4?")) == [], sentence
 
     def test_the_capture_just_played_is_on_the_board(self):
         # 1.e4 d5 2.exd5 Qxd5: «ты взял на d5, чёрные забрали обратно» — the recapture is the board now.
@@ -249,9 +294,30 @@ class TestMotifPiece:
         ("связка слоном", ("pin", chess.BISHOP)),
         ("Покажи пример вилки", None),
         ("вилка", None),
+        # review 30.10: the targets, not the piece making it
+        ("Покажи королевскую вилку", None),
+        ("How do I pin the knight?", None),
+        ("How can I fork the king and rook?", None),
+        ("Can I fork the queen and rook?", None),
+        ("связка конём", None),  # no knight pins anything
+        ("fork by the knight", ("fork", chess.KNIGHT)),
+        ("show me a knight's fork", ("fork", chess.KNIGHT)),
     ])
     def test_parse(self, text, want):
         assert motif_piece(text) == want
+
+    def test_every_piece_named(self):
+        from src.motifs import motif_pieces
+
+        assert motif_pieces("Чем вилка конём отличается от вилки пешкой?") == ("fork", frozenset({chess.KNIGHT, chess.PAWN}))
+        assert motif_piece("Чем вилка конём отличается от вилки пешкой?") is None  # no one piece to filter by
+
+    def test_royal_fork_keeps_the_example(self, monkeypatch):
+        from src import knowledge_base as kb
+        from src.tools.knowledge_topics import get_topic
+
+        out = get_topic("вилка", question="Покажи королевскую вилку", with_lessons=False, topics=kb.load_topics(force=True))
+        assert out.get("example") and "made by a" not in (out.get("board_hint") or "")
 
     def test_motif_by_the_piece(self):
         assert shows_motif(ROOK_FORK, "fork") is True
@@ -348,6 +414,23 @@ class TestAskedMotifSentence:
     def test_right_or_contrasted(self, sentence):
         assert check_sentence(sentence, self._ctx()) == [], sentence
 
+    @pytest.mark.parametrize("sentence, question", [
+        # review 30.10: the targets of the fork named in the nominative, the asked motif named, both pieces asked
+        ("Обрати внимание: ладья на a8 и король на e8 оказались под вилкой.", Q),
+        ("Король на e8 и ладья на a8 — идеальные цели для вилки конём.", Q),
+        ("Пешка идёт на e5 и бьёт сразу по двум фигурам — коню и слону.", "Чем вилка конём отличается от вилки пешкой?"),
+        ("Конь прыгает на c7 и бьёт сразу по двум — королю на e8 и ладье на a8.", "Покажи королевскую вилку"),
+        ("Nc7+ forks the king on e8 and the rook on a8.", "How can I fork the king and rook?"),
+        ("Bb5 pins the knight on c6 to the king.", "How do I pin the knight?"),
+        ("Ферзь и ладья чёрных стоят так, что конь с d5 может атаковать их сразу — вилка.", Q),
+    ])
+    def test_targets_and_the_pieces_asked(self, sentence, question):
+        ctx = self._ctx(question)
+        for fen in ("r3k2r/ppp2ppp/8/3N4/8/8/PPP2PPP/R3K2R w KQkq - 0 1",  # Nc7+ forks Ke8 and Ra8
+                    "r1bqkbnr/ppp2ppp/2np4/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 1 4"):  # Bb5 pins Nc6
+            ctx.add(fen)
+        assert check_sentence(sentence, ctx) == [], sentence
+
     def test_no_piece_asked(self):
         sentence = "Ход чёрных: ладья идёт на d4 — и сразу бьёт по двум незащищённым фигурам: коню на g4 и слону на b4."
         assert check_sentence(sentence, self._ctx("Покажи на доске пример вилки")) == []
@@ -361,7 +444,7 @@ KK = "7k/8/8/8/8/4K3/8/8 w - - 0 1"
 @pytest.mark.unit
 class TestComposition:
     @pytest.mark.parametrize("sentence, issue", [
-        ("Это позиция «король против короля» — ничья.", "not «король против короля»"),
+        ("Здесь позиция «король против короля» — ничья.", "not «король против короля»"),
         ("Позиция чистая: король и пешка против короля.", "not «король и пешка против короля»"),
         ("На доске ладья и король против короля.", "not «ладья и король против короля»"),
         ("Посмотри на доску — там только два короля.", "the board holds more than the two kings"),
@@ -376,13 +459,21 @@ class TestComposition:
         ctx = CheckContext.from_fens([chess.STARTING_FEN])
         ctx.add(KK)
         assert check_sentence("Посмотри на доску — там пустая доска, только два короля.", ctx) == []
-        assert check_sentence("Это позиция «король против короля» — ничья.", ctx) == []
+        assert check_sentence("Здесь позиция «король против короля» — ничья.", ctx) == []
 
     @pytest.mark.parametrize("fen, sentence", [
         ("8/8/4k3/8/4P3/4K3/8/8 w - - 0 1", "Позиция чистая: король и пешка против короля."),
         ("4k3/8/4K3/8/8/8/8/R7 w - - 0 1", "На доске ладья и король против короля."),
         ("8/8/8/8/8/2k5/8/K1N1N3 w - - 0 1", "Здесь два коня против короля, и мат не форсируется."),
         ("6k1/5pp1/7p/8/8/8/5PPP/3R2K1 w - - 0 1", "Здесь у тебя ладья против короля."),  # pawns not counted unless named
+        # review 30.10: the imbalance with the rest equal and cancelled out — not the whole board, not judged
+        ("4r1k1/pp3ppp/2n5/8/8/2B5/PP3PPP/4R1K1 w - - 0 25", "Здесь слон против коня, а пешки на обоих флангах."),
+        ("3q1rk1/pp2bppp/2n1pn2/3p4/3P4/2N1PN2/PP3PPP/R2Q1RK1 w - - 0 14",
+         "Сейчас у тебя ладья против слона — ты выиграл качество."),
+        ("r2q1rk1/pp3ppp/2n1pn2/8/8/2B1PB2/PP3PPP/R2Q1RK1 w - - 0 14",
+         "Тут два слона против двух коней — в открытой позиции это плюс."),
+        ("r1bqkbnr/1pp2ppp/p1p5/4p3/4P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 1 5", "Сейчас у чёрных два слона против слона и коня."),
+        (chess.STARTING_FEN, "Тут пешка против пешки, обе заблокированы."),
     ])
     def test_true(self, fen, sentence):
         assert check_sentence(sentence, CheckContext.from_fens([fen])) == [], sentence
@@ -401,9 +492,33 @@ class TestComposition:
         "Хочешь, разберём на доске ладью против короля?",
         "Это техника «ладья против короля»: сначала отрезаем короля.",
         "Здесь не эндшпиль «ладья против короля», а миттельшпиль.",
+        # review 30.10: a named position, another game
+        "Это позиция Филидора: ладья и пешка против ладьи.",
+        "Позиция Лусены: ладья и пешка против ладьи, и она выиграна.",
+        "В той партии на доске в конце остались только два короля, и её признали ничьей.",
     ])
     def test_not_about_the_board(self, sentence):
         assert check_sentence(sentence, CheckContext.from_fens([chess.STARTING_FEN])) == [], sentence
+
+    @pytest.mark.parametrize("sentence, question", [
+        ("Это эндшпиль, который обязан знать каждый шахматист.", "Что такое правило квадрата?"),
+        ("Здесь ладья и пешка против ладьи — белые выигрывают.", "Расскажи про эндшпиль ладья и пешка против ладьи"),
+    ])
+    def test_the_topic_asked(self, sentence, question):
+        assert check_sentence(sentence, CheckContext.from_fens([chess.STARTING_FEN], question=question)) == [], sentence
+
+    def test_a_game_imbalance(self):
+        ctx = _game_ctx("1.e4 e5 2.Nf3 Nc6 3.Bb5 a6 4.Bxc6 dxc6", question="Bxc6")
+        assert check_sentence("Сейчас у тебя конь против слона — чёрные получили двух слонов за коня.", ctx) == []
+
+    def test_no_backtracking_blowup(self):
+        # review 30.10: «это корольикороль…» took 6.6 s on 165 characters — a sentence check must stay instant
+        import time
+
+        start = time.perf_counter()
+        for text in ("здесь " + "корольи" * 40 + "король.", "сейчас " + "слонс" * 40 + "слон.", "тут " + "король+ферзь+" * 45):
+            check_sentence(text, CheckContext.from_fens([chess.STARTING_FEN]))
+        assert time.perf_counter() - start < 1.0
 
 
 # ── The voice check: the same sentence checks ─────────────────────────────────────────────────────────────────
