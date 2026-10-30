@@ -14,6 +14,7 @@ is checked against.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
 import chess
@@ -32,6 +33,24 @@ MATE_PAWNS = 100.0
 BLUNDER = 3.0
 MISTAKE = 1.5
 INACCURACY = 0.7
+# A position won by this much for the side to move (a mate included) is decided: a move or a line that keeps the
+# mover at least this far ahead is no mistake, however much bigger the number before it was. Out there a short
+# search's scores are coarse — a mate in 11 is a mate at 300 ms before Rh8+ and +7.6 after it, while Rh8+ is the
+# engine's own best move at depth 30 (replay 30.10, castle-long-b1: «about 92.4 pawns given away»).
+DECIDED = 5.0
+
+
+def _keeps_decided(before: float, after: float, mover: chess.Color) -> bool:
+    """The mover was decisively winning before (White-side pawns *before*) and still is after (*after*)."""
+    sign = 1 if mover == chess.WHITE else -1
+    return before * sign >= DECIDED and after * sign >= DECIDED
+
+
+def _given_away(before: float, loss: float) -> str:
+    """'about 2.3 pawns given away', or the mate thrown away when the position before was a forced mate."""
+    if abs(before) >= MATE_PAWNS - 0.5:
+        return "the forced mate is gone"
+    return f"about {loss:.1f} pawns given away"
 
 
 def _white_pawns(line: Optional[dict], turn: chess.Color) -> Optional[float]:
@@ -418,11 +437,12 @@ def verify_line(board: chess.Board, line: list[str], movetime_ms: int = 300, thr
         if before is None or after is None:
             return None
         loss = (before - after) if board.turn == chess.WHITE else (after - before)
-        if loss * 100 < threshold_cp:
+        if loss * 100 < threshold_cp or _keeps_decided(before, after, board.turn):
             return None
         side = "White" if board.turn else "Black"
-        return (f"the line {' '.join(played)} ends at {_fmt(after)} against {_fmt(before)} before it — about "
-                f"{loss:.1f} pawns worse for {side} (engine)")
+        worse = ("the forced mate is gone" if abs(before) >= MATE_PAWNS - 0.5
+                 else f"about {loss:.1f} pawns worse for {side}")
+        return f"the line {' '.join(played)} ends at {_fmt(after)} against {_fmt(before)} before it — {worse} (engine)"
     except Exception:  # noqa: BLE001
         logger.debug("verify_line failed", exc_info=True)
         return None
@@ -511,7 +531,7 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
         if before is None or after_pawns is None:
             return None
         loss = (before - after_pawns) if board.turn == chess.WHITE else (after_pawns - before)
-        if loss * 100 < threshold_cp:
+        if loss * 100 < threshold_cp or _keeps_decided(before, after_pawns, board.turn):
             # The move itself holds; a written line after it may still end badly.
             return verify_line(board, line_moves, movetime_ms, threshold_cp) if line_moves else None
         reply = _san_line(after, line.get("pv", ""), 3)
@@ -521,7 +541,7 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
             why = f"{san} is a blunder on this board (engine): it walks into a forced mate — {san} {' '.join(reply)}"
         else:
             why = (f"{san} is a mistake on this board (engine): after {san} {' '.join(reply)} the evaluation is "
-                   f"{_fmt(after_pawns)} against {_fmt(before)} before the move — about {loss:.1f} pawns given away")
+                   f"{_fmt(after_pawns)} against {_fmt(before)} before the move — {_given_away(before, loss)}")
         why += "; " + "; ".join(facts[:2])
         if reveal_best and best:
             why += f". The engine's move here is {best[0]}"
@@ -592,6 +612,10 @@ FORCED_MOVETIME_FACTOR = 2
 # depth — the same numbers on every run (the engine server caches by depth; trap-legal: 0.50 at depth 17), and a
 # search that does not reach that depth says nothing.
 FORCED_CONFIRM_DEPTH = 17
+# …bounded in time all the same (review 30.10: 1.6 s alone, 2.5 s with a second turn running, on top of the timed
+# look): the confirming searches of one reading share this budget, and a search that runs out of it says nothing —
+# the sentence stands. An unloaded host reaches depth 17 for trap-legal in about 0.9 s.
+FORCED_CONFIRM_MAX_MS = 1000
 FORCED_CONFIRM_BAND = (0.35, 1.1)
 FORCED_MISTAKE_BAND = 1.0
 
@@ -603,7 +627,8 @@ def _mover_value(line: dict) -> tuple:
     return float(line.get("score") or 0.0), None
 
 
-def _engine_lines(fen: str, multipv: int, movetime_ms: Optional[int], depth: Optional[int]) -> Optional[dict]:
+def _engine_lines(fen: str, multipv: int, movetime_ms: Optional[int], depth: Optional[int],
+                  deadline: Optional[float] = None) -> Optional[dict]:
     """A timed look (*movetime_ms*), or one to a fixed *depth* — None when a line of it stopped short of that
     depth (the host's time cap under load: its lines mix depths, and their gaps with them); a line that found a
     mate ends early and counts."""
@@ -613,16 +638,23 @@ def _engine_lines(fen: str, multipv: int, movetime_ms: Optional[int], depth: Opt
     # A search of its own, never the cache: a timed look that happened to reach the depth served it before, with
     # its gaps (trap-legal: 0.72 from the cache against 0.50 searched to depth 17 — the verdict flipped by what had
     # been looked at first; merge 30.10).
-    res = analyze_position(fen, depth=depth, multipv=multipv)
+    if deadline is None:
+        res = analyze_position(fen, depth=depth, multipv=multipv)
+    else:
+        left = int((deadline - time.monotonic()) * 1000)
+        if left < 100:
+            return None  # the confirming search's time is spent: it says nothing
+        res = analyze_position(fen, depth=depth, multipv=multipv, max_ms=left)
     lines = (res.get("lines") or []) if "error" not in res else []
     if not lines or any(int(ln.get("depth") or 0) < depth and ln.get("mate_in") is None for ln in lines):
         return None
     return res
 
 
-def _reply_rows(board: chess.Board, movetime_ms: Optional[int] = None, depth: Optional[int] = None) -> list:
+def _reply_rows(board: chess.Board, movetime_ms: Optional[int] = None, depth: Optional[int] = None,
+                deadline: Optional[float] = None) -> list:
     """The engine's three best replies on *board*: [(move, pawns for the mover, mate, pawns for White)]."""
-    res = _engine_lines(board.fen(), 3, movetime_ms, depth)
+    res = _engine_lines(board.fen(), 3, movetime_ms, depth, deadline)
     rows = []
     for ln in (res or {}).get("lines") or []:
         try:
@@ -634,7 +666,8 @@ def _reply_rows(board: chess.Board, movetime_ms: Optional[int] = None, depth: Op
     return rows
 
 
-def _forced_verdict(claim: dict, rows: list, reveal_best: bool, movetime_ms: Optional[int], depth: Optional[int]) -> tuple:
+def _forced_verdict(claim: dict, rows: list, reveal_best: bool, movetime_ms: Optional[int], depth: Optional[int],
+                    deadline: Optional[float] = None) -> tuple:
     """(why the claim is wrong or None, whether a gap sits near a line) on one engine look *rows*."""
     board, claimed = claim["board"], set(claim["moves"])
     inside = [r for r in rows if r[0] in claimed]
@@ -652,7 +685,7 @@ def _forced_verdict(claim: dict, rows: list, reveal_best: bool, movetime_ms: Opt
         after.push(next(iter(claimed)))
         if after.is_game_over():
             return None, False
-        res = _engine_lines(after.fen(), 1, movetime_ms, None if depth is None else depth - 1)
+        res = _engine_lines(after.fen(), 1, movetime_ms, None if depth is None else depth - 1, deadline)
         line = ((res or {}).get("lines") or [None])[0]
         if not line:
             return None, False
@@ -705,9 +738,10 @@ def _verify_one_reading(claim: dict, movetime_ms: int, reveal_best: bool) -> Opt
     issue, near = _forced_verdict(claim, _reply_rows(board, movetime_ms=movetime), reveal_best, movetime, None)
     if issue is None and not near:
         return None  # far from every line: the timed look is enough to let it stand
-    # Against the claim, or close to the line: only the fixed-depth search decides.
-    return _forced_verdict(claim, _reply_rows(board, depth=FORCED_CONFIRM_DEPTH), reveal_best, None,
-                           FORCED_CONFIRM_DEPTH)[0]
+    # Against the claim, or close to the line: only the fixed-depth search decides, within its time.
+    deadline = time.monotonic() + FORCED_CONFIRM_MAX_MS / 1000.0
+    return _forced_verdict(claim, _reply_rows(board, depth=FORCED_CONFIRM_DEPTH, deadline=deadline), reveal_best,
+                           None, FORCED_CONFIRM_DEPTH, deadline)[0]
 
 
 def verify_forced_reply(claim: dict, movetime_ms: int = 300, reveal_best: bool = True) -> Optional[str]:

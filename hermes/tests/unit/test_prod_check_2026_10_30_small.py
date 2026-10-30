@@ -133,6 +133,44 @@ class TestToldCapture:
     def test_true_or_hypothetical(self, sentence):
         assert check_sentence(sentence, CheckContext.from_fens([KG], question="Стоит ли брать пешку f4?")) == [], sentence
 
+    @pytest.mark.parametrize("question", ["Стоит ли брать пешку f4?", "Можно взять f4?", "Стоит ли бить f4?"])
+    def test_a_capture_asked_about_is_not_the_move_just_played(self, question):
+        # The bare «f4» was read as 2.f4 «already played», and the server made the student the side that had just
+        # moved — White — so the sentence above passed on production's path (replay 30.10).
+        from src.prompt_builder import question_moves
+
+        assert [(q["san"], q["verdict"]) for q in question_moves(question, KG)] == [("exf4", "legal")]
+
+    def test_the_move_just_played_still_is(self):
+        from src.prompt_builder import question_moves
+
+        assert question_moves("Я сыграл f4, это нормально?", KG)[0]["verdict"].startswith("already played")
+
+    @patch("src.server.config.COACH_ENGINE_NOTE", False)
+    @patch("src.server.config.COACH_OPENING_PRESTEP", False)
+    @patch("src.server.config.COACH_HYPOTHETICAL_NOTE", False)
+    @patch("src.server.config.COACH_ANSWER_FIX", False)
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_prod_can_kg_accept_in_the_text_turn(self, mock_profile, mock_agent):
+        mock_profile.return_value = UserProfile(user_id="kg-user")
+        draft = ("Материал пока равный — ты отдал пешку e5, но забрал f4, так что лишней пешки ни у кого нет. "
+                 "Это королевский гамбит.")
+        agent = MagicMock()
+
+        def chat(message, stream_callback=None):
+            stream_callback(draft)
+            return draft
+
+        agent.chat.side_effect = chat
+        mock_agent.return_value = agent
+        client, user = TestClient(app), {"X-User-Id": "kg-user"}
+        sid = client.post("/api/coach/sessions", headers=user).json()["id"]
+        resp = client.post("/api/coach/chat", headers=user,
+                           json={"message": "Стоит ли брать пешку f4?", "session_id": sid, "fen": KG})
+        text = "".join(json.loads(ln[6:]).get("delta", "") for ln in resp.text.splitlines() if ln.startswith("data: "))
+        assert "Материал пока равный" not in text and "королевский гамбит" in text
+
     def test_a_bare_fen_has_no_record(self):
         # Nothing tells whether «ты забрал f4» is still to come when the student did not ask about it: the move just
         # made is as likely (review 30.10) — the claim is judged on the board as it is.

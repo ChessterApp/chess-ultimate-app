@@ -589,3 +589,22 @@ def get_book() -> OpeningBook:
                 return OpeningBook(entries + list(TRAPS), directory)
     logger.warning("opening book: TSV directory not found, using the embedded fallback")
     return OpeningBook(list(_FALLBACK) + list(TRAPS), "embedded")
+
+
+_INDEX_LOCK = __import__("threading").Lock()
+
+
+def position_index_ready() -> bool:
+    """The book's position index (lineage, by_position, continuations) is built: using it costs microseconds."""
+    return get_book()._by_position is not None
+
+
+def warm_position_index() -> None:
+    """Build the position index (0.7–0.9 s for the full book) — at startup (src/server._warm_up) whatever the
+    engine does, or in the background when the text gate meets it unbuilt (review 30.10: the first sentence with an
+    ECO code after a restart spent 0.9 s on the event loop). Never raises."""
+    try:
+        with _INDEX_LOCK:
+            get_book()._build_position_index()
+    except Exception:  # noqa: BLE001 — the book is a bonus
+        logger.debug("opening book position index failed", exc_info=True)

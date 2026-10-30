@@ -1018,7 +1018,18 @@ def question_moves(message: str, fen: Optional[str]) -> list[dict]:
             _add(nm["san"], "match", nm["words"], None, nm["move"])
     except Exception:  # noqa: BLE001 — a bonus reading on top of the patterns above
         pass
-    return out
+    # «Стоит ли брать пешку f4?» on the board after 2.f4: the square is the capture's target, read as exf4 too — not
+    # 2.f4 «already played». That reading made the student the side that had just moved (White), and the material
+    # check let «ты отдал пешку e5, но забрал f4 — материал равный» through for Black (replay 30.10, can-kg-accept).
+    taken = {i["move"].to_square for i in out if i["move"] is not None and board.is_capture(i["move"])}
+    return [i for i in out if not (str(i["verdict"]).startswith("already played") and _target(i["san"]) in taken)]
+
+
+def _target(san: str) -> Optional[int]:
+    import chess
+
+    found = re.findall(r"[a-h][1-8]", san or "")
+    return chess.parse_square(found[-1]) if found else None
 
 
 _BARE_PAWN_CUE = re.compile(

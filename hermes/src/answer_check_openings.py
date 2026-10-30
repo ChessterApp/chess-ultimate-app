@@ -552,9 +552,29 @@ def _name_issues(text: str, ctx) -> list[str]:
     return out
 
 
+def _index_at_hand() -> bool:
+    """The book's position index is built, or may be built here. On the event loop (the text gate) it is never
+    waited for: until it is built — in the background — the sentence is not judged by the book; a worker thread
+    (POST voice/check) or a script builds it (as src/answer_check_facts._book_index does)."""
+    import asyncio
+    import threading
+
+    from src.openings_book import _INDEX_LOCK, position_index_ready, warm_position_index
+
+    if position_index_ready():
+        return True
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return True  # not the event loop's thread: waiting here blocks nobody
+    if not _INDEX_LOCK.locked():
+        threading.Thread(target=warm_position_index, name="openings-book-index", daemon=True).start()
+    return False
+
+
 def opening_book_issues(text: str, ctx) -> list[str]:
     """The opening facts of *text* (one sentence) the ECO book denies; [] when it denies none or cannot tell."""
-    if ctx is None:
+    if ctx is None or not _index_at_hand():
         return []
     try:
         return _eco_issues(text, ctx) + _name_issues(text, ctx)

@@ -569,7 +569,8 @@ def _owner(poss: str, verb: str, clause: str, ctx) -> Optional[bool]:
 
 def _candidate_boards(ctx) -> list:
     """The positions an advice may be about: the board, the end of each line and game, positions a tool gave —
-    not the moves inside a line (the game's past) nor the initial position standing in for an unknown one."""
+    not the moves inside a line (the game's past), the initial position standing in for an unknown one, nor, in a
+    game, the session's other boards."""
     inside = set()
     for start, sans in list(getattr(ctx, "line_records", None) or []) + (
             [(chess.Board(), list(ctx.game_moves))] if getattr(ctx, "game_moves", None) else []):
@@ -583,9 +584,11 @@ def _candidate_boards(ctx) -> list:
             keys.append(_key(board))
         inside.update(keys[:-1])
     out = [ctx.current]
+    # In a game on the board, not the session's other boards: an earlier game's position is not this one's.
+    elsewhere = set(getattr(ctx, "other_board_keys", None) or ()) if getattr(ctx, "game_moves", None) else set()
     for board in ctx.boards:
         key = _key(board)
-        if board is ctx.current or not ctx.is_given(board) or key in inside:
+        if board is ctx.current or not ctx.is_given(board) or key in inside or key in elsewhere:
             continue
         if board.board_fen() == chess.STARTING_BOARD_FEN and ctx.current.board_fen() != chess.STARTING_BOARD_FEN:
             continue

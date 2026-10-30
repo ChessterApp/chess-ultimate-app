@@ -11,7 +11,7 @@ import pytest
 
 from src import config, server
 from src.answer_check import CheckContext, check_sentence, proposed_move
-from src.hypothetical import verify_recommendation
+from src.hypothetical import verify_line, verify_recommendation
 from src.line_verdict import line_claims, verify_claims
 from src.tools.stockfish import STOCKFISH_PATH
 
@@ -333,6 +333,10 @@ FRIED_GAME = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Ng5 d5 5. exd5 Nxd5 6. Nxf7 Kxf7
 # 3...Nd4 on the board, White to move (Nxd4 is right, Nxe5? Qg5! the trap)
 BLACKBURNE = "r1bqkbnr/pppp1ppp/8/4p3/2BnP3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
 
+ROOKS = "1r2k3/8/8/8/8/8/8/R3K2R w KQ - 0 1"
+ROOKS_SENTENCE = ("Куда сильнее сразу врываться по открытым линиям — ладья идёт на h8 с шахом, чёрный король вынужден "
+                  "уйти с e8, и тогда ладьи забирают ладью на b8.")
+
 
 class TestReviewNoFalseCuts:
     """Each sentence is correct; the review of 30.10 found the first version cutting it."""
@@ -447,6 +451,47 @@ class TestReviewNoFalseCuts:
         [claims] = _sentences(_italian_ctx(), "Если сыграть Nd4, то на Nxe5 у чёрных есть Qg5, и белые проигрывают.")
         assert claims and verify_claims(claims, 150) is None
 
+
+    @staticmethod
+    def _mate_then(monkeypatch, after_score):
+        """Before Rh8+: a mate in 11 found by the short search; after it, *after_score* for Black to move."""
+        def _analyze(fen, movetime_ms, multipv=1, min_depth=10):
+            if fen.split()[0] == ROOKS.split()[0]:
+                return {"lines": [{"multipv": 1, "depth": 17, "pv": "h1h7 e8d8 a1a8", "score": 100.0, "mate_in": 11}]}
+            return {"lines": [{"multipv": 1, "depth": 13, "pv": "e8e7 h8b8 e7d7", "score": after_score}]}
+        monkeypatch.setattr("src.hypothetical.analyze_timed", _analyze)
+
+    def test_a_move_that_keeps_a_decided_win_is_no_mistake(self, monkeypatch):
+        # castle-long-b1 (replay 30.10): Rh8+ is the engine's best move at depth 30 (#11); the 300 ms search found
+        # the mate before it and +7.6 after it — «about 92.4 pawns given away» cut a true sentence.
+        self._mate_then(monkeypatch, -7.6)
+        found = proposed_move(ROOKS_SENTENCE, CheckContext.from_fens([ROOKS]))
+        assert found and found[2] == "Rh8+"
+        assert verify_recommendation(*found, 300, 150, True) is None
+        board = chess.Board(ROOKS)
+        assert verify_line(board, ["Rh8+", "Ke7", "Rxb8"], 300, 150) is None
+
+    def test_a_move_that_throws_the_mate_away_still_is(self, monkeypatch):
+        self._mate_then(monkeypatch, -1.0)
+        found = proposed_move(ROOKS_SENTENCE, CheckContext.from_fens([ROOKS]))
+        why = verify_recommendation(*found, 300, 150, True)
+        assert why and "the forced mate is gone" in why and "pawns given away" not in why
+
+    def test_a_dropped_sentences_line_is_not_the_next_ones(self):
+        # The first sentence is cut (no bishop on c4 attacks h7) and never shown: «В итоге ты выигрываешь фигуру»
+        # after it is about no line — not judged at the end of 4.Nxe5 Nxe5 (review 30.10, interplay).
+        ctx = CheckContext.from_fens(["r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"],
+                                     student_color=chess.WHITE)
+        before = (ctx._line_end, ctx._line_advice, ctx.forced_line, ctx.line_scene)
+        assert check_sentence("После 4.Nxe5 Nxe5 слон на c4 нападает на h7.", ctx)
+        assert (ctx._line_end, ctx._line_advice, ctx.forced_line, ctx.line_scene) == before
+        assert _sentences(ctx, "В итоге ты выигрываешь фигуру.") == [[]]
+
+    def test_a_shown_sentences_line_still_is(self):
+        ctx = CheckContext.from_fens(["r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"],
+                                     student_color=chess.WHITE)
+        [claims] = _sentences(ctx, "После 4.Nxe5 Nxe5 ход 5.d4 возвращает фигуру.", "В итоге ты выигрываешь фигуру.")[1:]
+        assert claims and [m.uci() for m in claims[0]["moves"]][:2] == ["f3e5", "c6e5"]
 
 @requires_sf
 class TestReviewTrapsWithThePriceNext:

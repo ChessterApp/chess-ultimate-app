@@ -100,29 +100,42 @@ def analyze_position(
     stockfish_path: str = STOCKFISH_PATH,
     timeout: int = TIMEOUT_SECONDS,
     movetime_ms: int | None = None,
+    max_ms: int | None = None,
 ) -> dict:
-    """Run Stockfish analysis on a FEN position — to *depth*, or for *movetime_ms* when given."""
+    """Run Stockfish analysis on a FEN position — to *depth*, or for *movetime_ms* when given.
+
+    *max_ms* bounds a search to *depth* in time, the engine server and the local fallback together: a search
+    stopped short of the depth returns its lines as deep as they got (the caller decides whether that says
+    anything), and no time is left → an error."""
     from src.fen_repair import repair_fen
 
     fen = repair_fen(fen)
     if not _validate_fen(fen):
         return {"error": f"Invalid FEN: {fen}"}
+    import time
+
+    deadline = time.monotonic() + max_ms / 1000.0 if max_ms and not movetime_ms else None
 
     # The site's own engine server (engine.chesster.io) when ENGINE_API_URL is set:
     # no Stockfish process on the coach host, its cache and pool instead. Any
     # failure falls back to the local engine, so the turn never waits in vain.
     if ENGINE_API_URL:
         try:
-            remote = _analyze_remote(fen, depth, multipv, movetime_ms)
+            remote = _analyze_remote(fen, depth, multipv, movetime_ms, wait_s=max_ms / 1000.0 if deadline else None)
             if remote and remote.get("lines"):
                 return remote
         except Exception as exc:  # noqa: BLE001
             logger.warning("engine server %s failed (%s); using the local engine", ENGINE_API_URL, exc)
+    cap = None
+    if deadline is not None:
+        cap = int((deadline - time.monotonic()) * 1000)
+        if cap < 100:
+            return {"error": "no time left for the search"}
     with _running_lock:
         global _running
         _running += 1
     try:
-        return _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms)
+        return _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms, cap)
     finally:
         with _running_lock:
             _running -= 1
@@ -134,7 +147,8 @@ ENGINE_API_MAX_MULTIPV = 4
 ENGINE_API_MAX_MOVETIME_S = 2.0
 
 
-def _analyze_remote(fen: str, depth: int, multipv: int, movetime_ms: int | None) -> dict | None:
+def _analyze_remote(fen: str, depth: int, multipv: int, movetime_ms: int | None,
+                    wait_s: float | None = None) -> dict | None:
     """POST /analyze on the engine server, in the shape analyze_position returns.
 
     The server answers from White's side with SAN lines; here the score is for
@@ -149,6 +163,8 @@ def _analyze_remote(fen: str, depth: int, multipv: int, movetime_ms: int | None)
     else:
         body["depth"] = max(1, min(int(depth or DEFAULT_DEPTH), 30))
     wait = (body.get("movetime") or 4.0) + 3.0
+    if wait_s is not None:
+        wait = min(wait, max(0.1, wait_s))  # a search bounded in time: not a second more on the network
     headers = {"X-Engine-Token": ENGINE_API_TOKEN} if ENGINE_API_TOKEN else {}
     resp = httpx.post(f"{ENGINE_API_URL}/analyze", json=body, headers=headers, timeout=wait)
     resp.raise_for_status()
@@ -194,7 +210,7 @@ def engines_running() -> int:
         return _running
 
 
-def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms) -> dict:
+def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms, cap_ms=None) -> dict:
     try:
         proc = subprocess.Popen(
             [stockfish_path],
@@ -211,10 +227,11 @@ def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms)
         proc.stdin.write("isready\n")
         proc.stdin.write(f"setoption name MultiPV value {multipv}\n")
         proc.stdin.write(f"position fen {fen}\n")
+        cap = min(c for c in (MAX_MS, cap_ms) if c and c > 0) if (MAX_MS > 0 or cap_ms) else 0
         if movetime_ms:
             proc.stdin.write(f"go movetime {movetime_ms}\n")
-        elif MAX_MS > 0:
-            proc.stdin.write(f"go depth {depth} movetime {MAX_MS}\n")
+        elif cap > 0:
+            proc.stdin.write(f"go depth {depth} movetime {cap}\n")
         else:
             proc.stdin.write(f"go depth {depth}\n")
         proc.stdin.flush()

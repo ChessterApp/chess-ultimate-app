@@ -666,9 +666,12 @@ def _remember(ctx, text: str, board: chess.Board, claim: dict, line: str) -> Non
 
 
 def _key(text: str) -> str:
-    """The sentence as check_sentence hands it to the rules (ё → е, Cyrillic files as Latin, lower case), so the
-    gate's own copy of it finds its claims."""
-    text = (text or "").replace("ё", "е")
+    """The sentence as check_sentence hands it to the rules (no Markdown emphasis, ё → е, Cyrillic files as Latin,
+    lower case), so the gate's own copy of it finds its claims: «После Kd2 Kg7 Kc3 — **ничья**.» is remembered by
+    its stripped text and popped by the raw one (review 30.10: every bold line-end claim stayed unjudged)."""
+    from src.answer_check import _EMPHASIS
+
+    text = _EMPHASIS.sub("", text or "").replace("ё", "е")
     text = re.sub(r"(?<![а-яА-Яa-zA-Z])([асебдфгхАСЕБДФГХ])(?=[1-8](?![0-9]))",
                   lambda m: {"а": "a", "с": "c", "е": "e", "б": "b", "д": "d", "ф": "f", "г": "g", "х": "h"}[m.group(1).lower()],
                   text)

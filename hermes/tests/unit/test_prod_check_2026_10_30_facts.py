@@ -127,6 +127,86 @@ def test_advice_legal_in_a_position_a_tool_gave_passes():
     assert not [i for i in check_sentence("Уведи ферзя на c7.", ctx) if "cannot go to" in i]
 
 
+# st1, the earlier game of the same chat on production: a Sicilian where Qc7 and Qb6 are legal for Black.
+ST1_MOVES = "e4 c5 Nf3 d6 Bc4 e6 O-O Nf6 d3 h6 h3 Nc6".split()
+ST1_PGN = "1. e4 c5 2. Nf3 d6 3. Bc4 e6 4. O-O Nf6 5. d3 h6 6. h3 Nc6"
+
+
+def _st1_fen() -> str:
+    board = chess.Board()
+    for san in ST1_MOVES:
+        board.push_san(san)
+    return board.fen()
+
+
+@pytest.mark.unit
+def test_an_earlier_game_of_the_chat_does_not_make_the_advice_legal():
+    # Production keeps every board of the session in the check: the st1 game's end, White to move, has Qc7 and Qb6
+    # for Black after any reply — the advice passed in the real session (replay 30.10, st1 then st2).
+    ctx = CheckContext.from_fens([_st2_fen(), _st1_fen()], [ST2_PGN, ST1_PGN], question="0-0",
+                                 student_color=chess.BLACK)
+    ctx.game_moves = list(ST2_MOVES)
+    assert not [i for i in check_sentence(PROD_ADVICE, ctx) if "cannot go to" in i]  # as before: «legal somewhere»
+    ctx = CheckContext.from_fens([_st2_fen(), _st1_fen()], [ST2_PGN, ST1_PGN], question="0-0",
+                                 student_color=chess.BLACK)
+    ctx.game_moves = list(ST2_MOVES)
+    ctx.other_board_keys = {CheckContext._key(chess.Board(_st1_fen()))}
+    assert any("queen on d8 cannot go to c7" in i for i in check_sentence(PROD_ADVICE, ctx))
+
+
+@pytest.mark.unit
+def test_an_earlier_board_counts_outside_a_game_or_when_a_tool_shows_it_again():
+    def ctx_(game: bool):
+        ctx = CheckContext.from_fens([_st2_fen(), _st1_fen()], [ST2_PGN, ST1_PGN], question="Куда увести ферзя?",
+                                     student_color=chess.BLACK)
+        ctx.game_moves = list(ST2_MOVES) if game else None
+        ctx.other_board_keys = {CheckContext._key(chess.Board(_st1_fen()))}
+        return ctx
+
+    assert not [i for i in check_sentence(PROD_ADVICE, ctx_(False)) if "cannot go to" in i]
+    ctx = ctx_(True)
+    ctx.add_text('{"fen": "%s"}' % _st1_fen())  # a tool put the old game up again this turn
+    assert not [i for i in check_sentence(PROD_ADVICE, ctx) if "cannot go to" in i]
+
+
+@pytest.mark.unit
+def test_the_text_turn_leaves_the_earlier_games_board_out(monkeypatch):
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from src import config
+    from src.sessions import session_store
+    from src.user_profile import UserProfile
+
+    for name, value in {"COACH_TWO_STAGE": False, "COACH_ENGINE_NOTE": False, "COACH_OPENING_PRESTEP": False,
+                        "COACH_HYPOTHETICAL_NOTE": False, "COACH_ANSWER_FIX": False, "COACH_ANSWER_CHECK": True}.items():
+        monkeypatch.setattr(config, name, value)
+    session = session_store.create(user_id="facts-game-user")
+    old = session.add_board(kind="game", pgn=ST1_PGN, fen=_st1_fen())
+    old.game_state = {"status": "playing", "moves": list(ST1_MOVES), "student_color": "white"}
+    new = session.add_board(kind="game", pgn=ST2_PGN, fen=_st2_fen())
+    new.game_state = {"status": "playing", "moves": list(ST2_MOVES), "student_color": "black"}
+    session.board_state = _st2_fen()
+    draft = PROD_ADVICE + " Это главное сейчас."
+    agent = MagicMock()
+    agent.tools, agent._api_call_count, agent.max_iterations = [], 1, 5
+    agent.session_prompt_tokens = agent.session_completion_tokens = 0
+
+    def chat(message, stream_callback=None):
+        stream_callback(draft)
+        return draft
+
+    agent.chat.side_effect = chat
+    with patch("src.server._create_agent", return_value=agent), \
+            patch("src.server.load_user_profile", return_value=UserProfile(user_id="facts-game-user")), \
+            patch("src.server.log_event"):
+        resp = TestClient(app_()).post("/api/coach/chat", headers={"X-User-Id": "facts-game-user"},
+                                       json={"message": "Что мне теперь делать?", "session_id": session.id,
+                                             "fen": _st2_fen()})
+    text = "".join(json.loads(ln[6:]).get("delta", "") for ln in resp.text.splitlines() if ln.startswith("data: "))
+    assert "увести ферзя" not in text and "Это главное сейчас." in text
+
+
 # ── (b) «what is attacked» answered as if complete ───────────────────────────────────────────────────────────
 
 @pytest.mark.unit

@@ -238,6 +238,11 @@ def _warm_up() -> None:
     from src.answer_check_facts import warm_book_index
 
     warm_book_index()
+    # …and the ECO book's position index for the openings check (src/answer_check_openings.py): engine_note above
+    # builds it only when its engine analysis succeeds (review 30.10).
+    from src.openings_book import warm_position_index
+
+    warm_position_index()
     _timings_log.info("warm-up done %s", json.dumps({**steps, "total": int((time.monotonic() - started) * 1000)}))
 
 
@@ -2564,6 +2569,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             student_color=student_color,
         )
         check_ctx.language = turn_language  # a sentence in the wrong language is rewritten like a wrong move
+        try:
+            # The session's other boards (an earlier game in the same chat): not the positions this turn is about.
+            this_turn = {CheckContext._key(chess.Board(f)) for f in
+                         [hidden_fen, session.board_state, body.fen, past["fen"] if past else None]
+                         + [q.get("after_fen") for q in named_moves] if f}
+            check_ctx.other_board_keys = {CheckContext._key(chess.Board(b.fen)) for b in session.boards
+                                          if b.id != active_board.id and b.fen} - this_turn
+        except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
+            check_ctx.other_board_keys = set()
         if puzzle_note:
             # The puzzle's verified solution: «the solution is X» / «X — мат» with another move is not shown (23.10).
             try:

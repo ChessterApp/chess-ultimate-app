@@ -272,3 +272,32 @@ def test_the_voice_check_reads_the_same_opening_facts():
         "text": "Рядом стоит 2. c3 — любимая атака в стиле Алёхина.", "fen": _board(SICILIAN).fen(),
     })
     assert any("named after Alekhine" in i for i in resp.json()["issues"])
+
+
+def test_the_position_index_is_never_built_on_the_event_loop(monkeypatch):
+    # Review 30.10: the first sentence with an ECO code after a restart built the book's position index (0.9 s) in
+    # the text gate, on the event loop. There it is built in the background; the sentence waits for nothing.
+    import asyncio
+    import threading
+
+    import src.openings_book as ob
+
+    book = ob.get_book()
+    built = threading.Event()
+    monkeypatch.setattr(book, "_by_position", None)
+    monkeypatch.setattr(ob, "warm_position_index", lambda: built.set())
+    ctx = _ctx("e4 c5")
+
+    async def turn():
+        return check_sentence("Это сицилианская защита, ECO C60.", ctx)
+
+    assert not [i for i in asyncio.run(turn()) if "ECO code" in i]  # not built yet: not judged
+    assert built.wait(5)  # built in the background meanwhile
+
+
+def test_off_the_event_loop_the_index_is_built_and_used(monkeypatch):
+    import src.openings_book as ob
+
+    monkeypatch.setattr(ob.get_book(), "_by_position", None)
+    issues = check_sentence("Это сицилианская защита, ECO C60.", _ctx("e4 c5"))
+    assert any(i.startswith("C60 is not the ECO code") for i in issues), issues

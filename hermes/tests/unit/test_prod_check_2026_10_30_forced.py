@@ -16,7 +16,7 @@ import shutil
 import chess
 import pytest
 
-from src import config, server
+from src import config, hypothetical, server
 from src.answer_check import CheckContext, check_sentence
 from src.hypothetical import FORCED_CONFIRM_DEPTH, verify_forced_reply
 
@@ -70,9 +70,9 @@ def _engine(monkeypatch, lines_by_fen: dict, deep_by_fen: dict = None, calls: li
     timed = _fake(lines_by_fen, calls)
     deep = _fake(lines_by_fen if deep_by_fen is None else deep_by_fen)
 
-    def _cached(fen, depth=16, multipv=1):
+    def _cached(fen, depth=16, multipv=1, max_ms=None):
         if calls is not None:
-            calls.append((fen, "depth", depth, multipv))
+            calls.append((fen, "depth", depth, multipv) + ((max_ms,) if max_ms is not None else ()))
         res = deep(fen, 0, multipv)
         for line in res.get("lines", []):
             line["depth"] = depth
@@ -207,9 +207,23 @@ class TestTheEngineJudges:
         after = _after(TRAP, "Nxe5").fen()
         _engine(monkeypatch, {after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]})
         shallow = _fake({after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]})
-        monkeypatch.setattr("src.hypothetical.analyze_cached", lambda fen, depth=16, multipv=1: shallow(fen, 0, multipv))
-        monkeypatch.setattr("src.hypothetical.analyze_position", lambda fen, depth=16, multipv=1: shallow(fen, 0, multipv))
+        monkeypatch.setattr("src.hypothetical.analyze_cached", lambda fen, depth=16, multipv=1, **_: shallow(fen, 0, multipv))
+        monkeypatch.setattr("src.hypothetical.analyze_position", lambda fen, depth=16, multipv=1, **_: shallow(fen, 0, multipv))
         assert verify_forced_reply(self._trap_claim(), 300, True) is None
+
+    def test_the_deep_look_is_bounded_in_time(self, monkeypatch):
+        # Review 30.10: the confirming search took 1.6 s alone and 2.5 s with a second turn running. Its searches
+        # share FORCED_CONFIRM_MAX_MS; with the time spent the engine is not asked and the sentence stands.
+        after = _after(TRAP, "Nxe5").fen()
+        calls = []
+        _engine(monkeypatch, {after: [("d6e5", -2.6), ("g4e6", -2.9), ("d6d5", -5.2)]}, calls=calls)
+        assert verify_forced_reply(self._trap_claim(), 300, True)
+        deep = [c for c in calls if c[1] == "depth"]
+        assert deep and all(0 < c[-1] <= hypothetical.FORCED_CONFIRM_MAX_MS for c in deep), deep
+        calls.clear()
+        monkeypatch.setattr("src.hypothetical.FORCED_CONFIRM_MAX_MS", 0)
+        assert verify_forced_reply(self._trap_claim(), 300, True) is None
+        assert not [c for c in calls if c[1] == "depth"]  # no time: not asked at all
 
     def test_the_named_reply_much_worse_than_the_best(self, monkeypatch):
         # mate2-no: the king «must» move, Qxd5 takes the queen back.
@@ -435,6 +449,29 @@ class TestWithStockfish:
         # No time cap on the fixed-depth search: a loaded test host would stop it short, and then the engine says
         # nothing (test_a_deep_look_short_of_its_depth_says_nothing) — the numbers here are the depth's own.
         monkeypatch.setattr("src.tools.stockfish.MAX_MS", 0, raising=False)
+        monkeypatch.setattr("src.hypothetical.FORCED_CONFIRM_MAX_MS", 60000)
+
+    def test_a_search_to_a_depth_bounded_in_time_stops_on_time(self, monkeypatch):
+        import time
+
+        import httpx
+
+        from src.tools.stockfish import analyze_position
+
+        waits = []
+
+        def _remote_down(url, json=None, headers=None, timeout=None):
+            waits.append(timeout)
+            raise httpx.ConnectError("down")
+
+        # The engine server first (down here), then the local engine with what is left of the same 400 ms.
+        monkeypatch.setattr("src.tools.stockfish.ENGINE_API_URL", "http://engine.invalid")
+        monkeypatch.setattr(httpx, "post", _remote_down)
+        started = time.monotonic()
+        res = analyze_position(chess.STARTING_FEN, depth=40, multipv=3, max_ms=400)
+        assert time.monotonic() - started < 1.5
+        assert waits and waits[0] <= 0.4
+        assert res.get("lines") and all(int(ln.get("depth") or 0) < 40 for ln in res["lines"])
 
     def test_trap_legal(self):
         issue = verify_forced_reply(_claim(TRAP_SENTENCE, TRAP, TRAP_Q), 300, True)

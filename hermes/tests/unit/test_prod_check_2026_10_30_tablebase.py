@@ -257,6 +257,25 @@ def test_a_draw_named_after_a_line_is_judged_for_both_sides():
                             "White wins with best play")
 
 
+@pytest.mark.parametrize("sentence", [
+    "После 1...Kd4 2.a6 — **ничья**.",
+    "После **1...Kd4 2.a6** — ничья.",
+    "**После 1...Kd4 2.a6 — ничья.**",
+])
+def test_a_bold_claim_after_a_line_reaches_the_tablebase(sentence):
+    """The server pops the gate's raw sentence, ** and all; check_sentence remembered the stripped text (review 30.10:
+    12 bold line-end claims of the production answers were never judged)."""
+    from src.answer_check import SentenceGate
+
+    ctx = _ctx(SQUARE, Q_SQUARE)
+    gate = SentenceGate(ctx)
+    out = gate.feed(sentence + " ") + gate.flush()
+    assert [issues for _text, issues, _s in out] == [[]]
+    issue = judge_pending(pop_pending(ctx, out[0][2]))
+    assert issue and issue.startswith("the sentence says it is a draw after Kd4 a6")
+    assert not ctx.outcome_pending
+
+
 def test_true_claim_after_a_line_passes():
     ctx = _ctx(SQUARE, Q_SQUARE)
     sentence = "После 1...Kd4? 2.a6 пешку уже не догнать."

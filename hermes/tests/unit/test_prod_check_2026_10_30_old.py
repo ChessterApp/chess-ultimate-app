@@ -107,6 +107,29 @@ def test_retreat_to_a_square_where_the_piece_is_lost(question, sentence, languag
 
 
 @pytest.mark.unit
+def test_the_retreat_after_the_asked_move_is_the_only_instruction():
+    # Row d1-b3 (review 30.10): the attack check read «ты нападаешь на слона c4» on the board before b3 and told the
+    # rewrite «the bishop is not attacked», while the retreat rule — rightly — read the sentence after b3.
+    sentence = ("Ты, правда, нападаешь на слона c4 — b3–c4 — и он вынужден отступить, но f1 всё равно останется под "
+                "боем: слон уйдёт на a6, b5, d3 или e2 и продолжит держать это поле.")
+    issues = check_sentence(sentence, _ctx(question="А если сначала сыграть b3, потом рокировка будет?"))
+    assert len(issues) == 1 and issues[0].startswith("after b3 the bishop on c4 has no retreat to b5"), issues
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("question", ["А если сначала сыграть b3?", "А если b3?", "Что будет после b3?"])
+def test_the_asked_moves_attack_is_not_a_claim_about_the_board_before_it(question):
+    assert check_sentence("Ты нападаешь на слона c4, и он должен уйти.", _ctx(question=question)) == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("question", ["", "Можно мне рокироваться?", "А если Nd5?"])
+def test_an_attack_no_asked_move_makes_is_still_wrong(question):
+    issues = check_sentence("Ты нападаешь на слона c4, и он должен уйти.", _ctx(question=question))
+    assert "the bishop on c4 is not attacked by anything in this position" in issues
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("fen,sentence", [
     (BISHOP_C4, "Прогнать слона мало — он отступит на a6 и всё равно будет бить по f1."),  # a6 is safe: true
     (BISHOP_C4, "Если слон c4 уйдёт на d5, рокировка станет доступна."),  # the move assumed, not a retreat

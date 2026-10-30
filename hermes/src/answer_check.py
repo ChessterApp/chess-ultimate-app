@@ -371,6 +371,11 @@ class CheckContext:
     # A tool put another position on the board during this answer (src/server.py): the board the answer
     # talks about may no longer be the one the turn began on.
     board_moved: bool = False
+    # The positions of the session's other boards (an earlier game, an earlier lesson's diagram), set by the server
+    # when the turn begins; a tool that puts one up again this turn takes it back out. In a game on the board advice
+    # is about the game, not about them (replay 30.10: an earlier Sicilian made «увести ферзя с d8 на c7 или b6»
+    # «legal somewhere» in st2).
+    other_board_keys: set = field(default_factory=set)
     # Claims that a reply is forced, by sentence, for the engine stage to judge (src/answer_check_rules.
     # forced_reply_claim → src/hypothetical.verify_forced_reply; prod 29.10, «обязаны ответить dxe5»).
     forced_claims: dict = field(default_factory=dict)
@@ -435,6 +440,7 @@ class CheckContext:
         if not derived:
             self.given.add(key)
             (self.line_keys if line else self.state_keys).add(key)
+            self.other_board_keys.discard(key)
         if shown:
             self.shown_keys.add(key)
         if len(self.boards) >= self.MAX_BOARDS:
@@ -1768,6 +1774,31 @@ def _actors(clause: str) -> set:
     return out
 
 
+def _attacked_after_asked_move(ctx: CheckContext, sq: int, color: bool) -> bool:
+    """The piece of *color* on *sq* is attacked after a move the question names, played by the other side: the answer
+    to «А если сначала b3?» tells what b3 does — «ты нападаешь на слона c4» — on the board the idea leads to, as the
+    retreat rule reads «он уйдёт на a6, b5…» there (src/answer_check_rules._chase_boards)."""
+    if not ctx.question:
+        return False
+    from src.answer_check_rules import _MOVE_LOW, _parse_lowered
+
+    mover = ctx.current.copy(stack=False)
+    mover.turn = not color
+    mover.ep_square = None
+    for m in _MOVE_LOW.finditer(ctx.question):
+        try:
+            move = _parse_lowered(mover, m.group(0))
+        except Exception:  # noqa: BLE001
+            move = None
+        if move is None:
+            continue
+        after = mover.copy(stack=False)
+        after.push(move)
+        if after.color_at(sq) == color and after.attackers(not color, sq):
+            return True
+    return False
+
+
 def _unattacked_object_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     if ctx.current is None:
         return []
@@ -1794,6 +1825,8 @@ def _unattacked_object_issues(text: str, original: str, ctx: CheckContext) -> li
                 continue  # a ghost: _object_ghost_issues says so
             if ctx.current.attackers(not piece.color, sq):
                 continue
+            if _attacked_after_asked_move(ctx, sq, piece.color):
+                continue  # «А если b3?» — «ты нападаешь на слона c4»: the asked move's attack (row d1-b3, review 30.10)
             if piece.piece_type == chess.PAWN and any(
                     ctx.current.is_en_passant(mv) and mv.to_square + (-8 if ctx.current.turn == chess.WHITE else 8) == sq
                     for mv in ctx.current.legal_moves):
@@ -3827,13 +3860,18 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     ctx = ctx or CheckContext.from_fens()
     # A sentence with issues is not shown, and its rewrite is checked on the same context (src/server.py: fix_gate
     # shares check_ctx): the line it wrote must not be the one the rewrite's «Тогда …» goes on with (review 30.10).
+    # Every record of «the line the sentence before wrote» goes back: the scene's walk, the line the engine judges a
+    # promised outcome at (line_verdict), and the line a forced reply may follow — «В итоге ты выигрываешь фигуру»
+    # after a hidden «после 4.Nxe5 Nxe5 …» is not about that line (review 30.10, interplay).
     line_before = ctx.line_scene
     age_before = line_before.get("age", 0) if line_before is not None else 0
+    kept = (ctx._line_end, ctx._line_advice, ctx.forced_line)
     issues = _check_sentence(sentence, ctx)
     if issues:
         ctx.line_scene = line_before
         if line_before is not None:
             line_before["age"] = age_before
+        ctx._line_end, ctx._line_advice, ctx.forced_line = kept
     return issues
 
 
