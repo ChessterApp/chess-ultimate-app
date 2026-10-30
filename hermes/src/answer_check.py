@@ -328,6 +328,10 @@ class CheckContext:
     # each: a claim before «Kxh7» in «…поэтому он обязан её взять: Kxh7» is about the board before it.
     scene_before: Optional[tuple] = None
     scene_trail: list = field(default_factory=list)
+    # The line the answer wrote, walked strictly from a given position (moves in words too) — what the next moves
+    # and «пешка на a7, ты на d6» are judged in (src/answer_check_scene.py; prod 29.10).
+    line_scene: Optional[dict] = None
+    passed_keys: set = field(default_factory=set)
     # Positions only named in a tool's text (a lesson's diagram, a list of tasks): a move legal only there is not
     # an answer about the student's board (production 08.10: «Первый ход чёрных — Qxg2+» passed on a diagram).
     text_keys: set = field(default_factory=set)
@@ -413,6 +417,9 @@ class CheckContext:
         pgn = re.sub(r"\{[^}]*\}", " ", pgn)
         self.add(board.fen())
         for san in _split_moves(pgn):
+            # A position on the way through a game or a line, not its end: a line told without move numbers is not
+            # started from there (src/answer_check_scene.py).
+            self.passed_keys.add(self._key(board))
             try:
                 board.push_san(san)
             except ValueError:
@@ -3340,6 +3347,9 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
         ctx.scene_age += 1  # the scene a move of this sentence sets is age 0; the explanation after it still sees it
         ctx.scene_before = (ctx.scene, ctx.scene_san, ctx.scene_age) if ctx.scene is not None else None
         ctx.scene_trail = []
+        from src.answer_check_scene import age_scene
+
+        age_scene(ctx)
     if is_meta(sentence):
         return [META_ISSUE]
     if _echoes_question(sentence, ctx):
@@ -3362,7 +3372,7 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
               + _opening_issues(text) + _opening_identity_issues(text, ctx) + _told_move_issues(lowered, text, ctx)
               + _fact_issues(lowered, text, ctx)
               + _plan_move_issues(lowered, text, ctx)
-              + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx))
+              + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx) + _scene_issues(text, ctx))
     if not san_issues:
         issues += _announced_move_issues(text, ctx)
     squares = _SQ_RE.findall(lowered)
@@ -3376,6 +3386,18 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     ctx._object = None
     ctx._subject = None
     return list(dict.fromkeys(issues))
+
+
+def _scene_issues(text: str, ctx: CheckContext) -> list[str]:
+    """The moves and the «piece on square» told after a written line, in the position the line reached
+    (src/answer_check_scene.py: «Kd6 — и белый король заходит через d5», prod 29.10)."""
+    from src.answer_check_scene import scene_issues
+
+    try:
+        return scene_issues(text, ctx)
+    except Exception:  # noqa: BLE001 — a broken walk must never block an answer
+        logger.debug("scene check failed", exc_info=True)
+        return []
 
 
 # The coach's private planning written out as the answer. On production
