@@ -46,14 +46,17 @@ def _ctx():
     return CheckContext.from_fens([chess.STARTING_FEN])
 
 
-def test_the_stubs_find_and_judge_nothing():
-    ctx = _ctx()
-    assert claim_grammar.extract("Конь f6 нападает на d4.", {}, "ru") == []
-    assert claim_rules.extract("Единственный ход — Qc1.", {}) == []
-    assert claim_rules.RULE_JUDGES == {}
-    assert claim_scene.boards_for(_claim(), ctx, {}) is None
+def test_the_merged_modules_find_and_judge():
+    """After the merge of WP-A/B/D (30.10) the stubs are real: the parser finds the claim, the rules have judges, the
+    resolver builds the board, and the judge decides on it (a false claim on the st4 board is false)."""
+    ctx = CheckContext.from_fens(["rnbqkb1r/pppppppp/5n2/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 2"])
+    got = claim_grammar.extract("Конь f6 нападает на d4.", {}, "ru")
+    assert [c.rel for c in got] == ["attack"]
+    assert claim_rules.RULE_JUDGES
+    boards = claim_scene.boards_for(got[0], ctx, {})
+    assert boards is not None and boards.primary is not None
+    assert claim_judge.decide(got[0], boards, ctx).status == "false"
     assert claim_scene.remember("x", [], ctx, {}) is None
-    assert claim_judge.decide(_claim(), BoardSet(primary=chess.Board(), where="now"), ctx).status == "undecided"
 
 
 def test_with_the_stubs_every_mode_leaves_the_answer_check_as_it_was(monkeypatch):

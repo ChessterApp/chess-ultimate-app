@@ -188,7 +188,8 @@ _THEN = re.compile(r"^\W*(?:тогда|после\s+этого|в\s+ответ|�
                    r"and\s+then|next)" + E)
 # «Но подумай, что дальше: …»: the position the line before reached
 _NEXT = re.compile(W + r"(?:что|а)\s+(?:будет\s+)?дальше" + E)
-_MOVE_CUE = re.compile(W + r"(?:лучше|ход\w*|сыграй\w*|играй\w*|играем|ответили|ответил[аи]?|ответ|ответь|после|через|"
+_ROUTES = re.compile(W + r"(?:через|via|through)\s+[a-h][1-8]\s*(?:,|и|или|либо|and|or)\s*[a-h][1-8]" + E)
+_MOVE_CUE = re.compile(W + r"(?:(?:лучше|сильнее|точнее|над[её]жнее|правильнее)(?:\s+всего)?|ход\w*|сыграй\w*|играй\w*|играем|ответили|ответил[аи]?|ответ|ответь|после|через|"
                        r"продолжени\w*|начни\s+с|начинай\s+с|идея|отвечай|пошли|пошел|сделали|сделал|play|after|move)"
                        r"\s*[:—–-]?\s*$")
 _SEP = re.compile(r"[.;:!?()\n]|\s[—–]\s|,\s*(?:но|а|зато|поэтому|потому\s+что|так\s+что|чтобы|хотя|что|если|когда|"
@@ -198,7 +199,11 @@ _UNPARSED_MOVE = re.compile(
     r"отступа\w*|отступит|прыгает|прыгнет|переходит|перейд[её]т|выходит|выйдет|входит|войд[её]т|заходит|зайд[её]т|"
     r"берет|берут|взять|возьм[её]т|забирает|забрать|заберет|съест|бь[её]т\s+(?:с\s+шахом\s+)?на|бить\s+на|ходит|"
     r"сделает\s+ход|пойдет|врыва\w+|ворвал\w*|ворв[её]тся|вторга\w+|вторгнет\w*|переводит\w*|перевед[её]т\w*|"
-    r"приходит|прид[её]т|подходит|подойд[её]т|бросается|бросит\w*|goes|moves|takes|captures|retreats|jumps)" + E)
+    r"приходит|прид[её]т|подходит|подойд[её]т|бросается|бросит\w*|goes|moves|takes|captures|retreats|jumps|"
+    # the past of a move the sentence tells without its square («мой конь на c6 отступил и прикрыл d5», «вышел мой слон
+    # и напал на f2»): the board after it is not the one before
+    r"вышел|вышла|вышли|отступил[аи]?|отош[её]л|отошла|отошли|вернул(?:ся|ась|ись)|прыгнул[аи]?|ушли|"
+    r"переш[её]л|перешла|перешли|went|moved|retreated|jumped)" + E)
 _THREAT_GOV = re.compile(W + r"(?:гроз\w*|угро\w*|threat\w*|иде[яюи]|хоч\w*|хотят|готов\w*|планиру\w*|собира\w*|"
                          r"мечта\w*)\s*[:—–-]?\s*$")
 _GENERIC_EN = re.compile(r"\b(?:a|an|any|every|each)\s+(?:\w+\s+)?(?:knight|bishop|rook|queen|king|pawn|piece)s?\b", re.I)
@@ -207,6 +212,7 @@ _MOTION = (r"(?:ид[её]т|пойд[её]т|вста[её]т|встал[аи]?
            r"прыгнет|встанет|поднимается|поднял(?:ся|ась)|спускается|спустил(?:ся|ась)|возвращается|вернул(?:ся|ась)|"
            r"врывается|ворвал(?:ся|ась)|вторгается|вторгся|вторглась|приходит|пришел|пришла|подходит|подошел|подошла|"
            r"lands|goes|jumps|moves)")
+_STRIKE_TO = re.compile(W + rf"(?:удар\w*|жертв\w*|прыж\w*|вторжени\w*)\s+(?P<p>{_PIECE_ALT}){E}\s+(?:на|в)\s+(?P<b>{SQ})(?![0-9])")
 _MOTION_TO = re.compile(rf"(?P<p>{_PIECE_ALT}|он|она){E}\s+(?:\S+\s+)?(?P<v>{_MOTION})\s+(?:на|в|to|on)\s+"
                         rf"(?P<b>{SQ})(?![0-9])")
 # «пешка с d7 пошла вперёд»: a motion verb right after a «с sq» piece — it left the square
@@ -309,6 +315,12 @@ def tokenize(t: str) -> list:
         if _free(taken, m.start("b"), m.end("b")):
             toks.append(Tok("MOVE", m.start("b"), m.end("b"), m.group(0), san=f"@{_LETTER[pt]}:{m.group('b')}", ptype=pt,
                             span=(m.start(), m.end()), told=bool(re.search(r"(?:л|ла|ли|лся|лась)$", m.group("v")))))
+            taken.append((m.start("b"), m.end("b")))
+    for m in _STRIKE_TO.finditer(low):  # «удар конём на f7», «жертва слоном на h7»: a move named by its blow
+        pt, cases = _P[m.group("p")][0], _P[m.group("p")][1]
+        if pt and "I" in cases and _free(taken, m.start("b"), m.end("b")):
+            toks.append(Tok("MOVE", m.start("b"), m.end("b"), m.group(0), san=f"@{_LETTER[pt]}:{m.group('b')}", ptype=pt,
+                            span=(m.start(), m.end())))
             taken.append((m.start("b"), m.end("b")))
     for m in filter(None, (_TOLD_PLAYED.match(low, a) for a in piece_at)):
         pt = _P[m.group("p")][0]
@@ -519,6 +531,7 @@ class _Raw:
     skip: str = ""  # a reason the words give no checkable claim («слон с пешкой держат» — joint agents)
     unresolved: bool = False  # a pronoun in a slot that has no single antecedent
     end: int = 0
+    cover: bool = False  # «не прикрыт»: to shield as well as to defend
 
 
 _PASSIVE = ("PASS_ATT", "PASS_DEF", "UNDEF", "PASS_PIN", "CTRL_G", "CTRL_I")
@@ -638,6 +651,13 @@ def bind(text: str, toks: list, focus: dict) -> list:
                 agentive.add(id(nxt))
     if _GENERIC_EN.search(low):
         return []
+    def agent_new_subject(before, r):
+        """The clause's last subject before the verb is a person or a side («а ты тут же и напал», «но белые, конечно,
+        нацелились»), not a piece."""
+        subj = [t for t in before if t.kind in ("SIDE", "PIECE", "PRON", "MOVE", "SQ", "WHICH")]
+        return bool(subj) and subj[-1].kind == "SIDE" and bool(re.fullmatch(
+            r"ты|вы|я|мы|белые|ч[её]рные|соперник|противник|you|white|black", subj[-1].text.strip().lower()))
+
     for r in [t for t in toks if t.kind == "REL"]:
         ca, cb = next(((a, b) for a, b in clauses if a <= r.start < b), (0, len(text)))
         # a list announced before a colon continues after it: «атакует две фигуры: пешку h6 и ладью»
@@ -669,11 +689,36 @@ def bind(text: str, toks: list, focus: dict) -> list:
         unresolved = []
         inverted_agent = False
 
+        # «ферзь бьёт по королю через f2 и g4»: two squares to pass through are the moves it would make, not a line
+        routes = bool(_ROUTES.search(low[r.end:cb]))
+        # «король успевает встать на b7 или b6, откуда поле a8 уже под контролем»: what holds from a square the piece
+        # would go to — a position the sentence only imagines
+        whence = bool(re.search(W + r"(?:откуда|оттуда|from\s+where|from\s+there)" + E, low[max(ca, r.start - 60):r.start]))
+        # «пешка h3 связана королём»: a king pins nothing — «связан + the king (instrumental)» is «tied to the king», held
+        # by it, not a pin
+        if r.rel in ("PIN", "PASS_PIN") and re.match(r"\s*(?:своим\s+|собственным\s+|его\s+|её\s+|ее\s+)?корол(?:ём|ем)" + E, low[r.end:r.end + 30]):
+            whence = True
+
+        # «поддержал слона c4 в атаке на f7»: joins the attack on f7, it does not defend the bishop
+        joins = r.rel in ("DEF", "PASS_DEF") and bool(re.search(
+            W + r"(?:в\s+(?:атаке|нападении|давлении|ударе)|in\s+the\s+attack)" + E, low[r.end:cb]))
+        # «Мой слон вернулся на f8, а ты тут же и напал на e5», «… но белые нацелились на h7»: a person or a side named
+        # as the subject of this clause is the verb's subject, not a piece of the clause before (a capture «грозят
+        # взять ферзём» names its piece as the instrument and stays)
+        if r.rel != "CAPW" and not intent and agent_new_subject(before, r) and \
+                not any(t.kind == "PIECE" and "I" in t.cases for t in after):
+            continue
+
         def add(rel, agent, pats, **kw):
             if intent and (agent is None or agent.what != "move"):
                 return  # «хочешь отогнать коня» is checkable only as the purpose of a named move
+            if joins:
+                return
+            if (routes or whence) and not kw.get("skip"):
+                kw["skip"] = "route" if routes else "whence or tied"
             claims.append(_Raw(rel, agent, [p for p in pats if p is not None], neg, tense, question, r.start, (ca, cb),
                                verb=verb, modal=modal and rel != "UNDEF", unresolved=bool(unresolved), end=r.end,
+                               cover="прикры" in r.text.lower(),
                                inverted=inverted_agent, **kw))
 
         def pron(t):
@@ -691,11 +736,17 @@ def bind(text: str, toks: list, focus: dict) -> list:
 
         if r.rel in _PASSIVE or r.rel == "UNDEF_A":
             pat = None
-            if r.rel in ("UNDEF", "UNDEF_A") and re.search(W + r"(?:кроме|except|but|только|only)" + E, low[r.end:cb]):
-                continue
+            if r.rel in ("UNDEF", "UNDEF_A") and re.search(
+                    W + r"(?:кроме|except|but|только|only|если\s+не\s+считать|не\s+считая|разве\s+что|за\s+исключением|"
+                    r"помимо|со\s+стороны|с\s+фланга|с\s+тыла|сбоку|сзади|спереди|from\s+the\s+side)" + E, low[r.end:cb]):
+                continue  # «ничем не прикрыт, если не считать короля», «… со стороны слона b4», «… с фланга»
             if r.rel == "UNDEF_A":
-                acc = [t for t in inside if t.kind == "PRON" and "A" in t.cases] + \
-                      [t for t in inside if t.kind == "PIECE" and "A" in t.cases]
+                # «nothing defends h4»: the object is what follows the verb — not a piece named earlier in the clause
+                nxt = next((t for t in after if (t.kind == "PRON" and "A" in t.cases) or (t.kind == "PIECE" and "A" in t.cases)
+                            or (t.kind == "SQ" and not t.move_cue and not t.route)), None)
+                acc = [nxt] if nxt is not None else \
+                    [t for t in inside if t.kind == "PRON" and "A" in t.cases] + \
+                    [t for t in inside if t.kind == "PIECE" and "A" in t.cases]
                 pat = pron(acc[0]) if acc and acc[0].kind == "PRON" else (_ref(acc[0]) if acc else None)
                 add("UNDEF", None, [pat])
                 continue
@@ -950,8 +1001,14 @@ def bind(text: str, toks: list, focus: dict) -> list:
             while k >= 0 and toks[k].kind in ("BOUND", "OWNER", "SIDE"):
                 nxt = min(nxt, toks[k].start) if toks[k].kind != "BOUND" else nxt
                 k -= 1
+            # A coordinated subject names its last member with «и» («конь, слон и ладья бьют …»); a bare comma before
+            # the agent is an enumeration of where things stand, the verb the last one's («чёрный король на a8, ладья
+            # на f8, ферзь чёрных на f2 давит на b2»).
+            joined = False
             while k >= 0 and toks[k].kind == "PIECE" and "N" in toks[k].cases and toks[k].start >= ca and \
-                    re.fullmatch(r"\s*(?:(?:на\s+)?[a-h][1-8]\s*)?(?:,|и|а\s+также)\s*", low[toks[k].end:nxt]):
+                    re.fullmatch(r"\s*(?:(?:на\s+)?[a-h][1-8]\s*)?(?:,|и|а\s+также)\s*" if joined else
+                                 r"\s*(?:(?:на\s+)?[a-h][1-8]\s*)?,?\s*(?:и|а\s+также)\s*", low[toks[k].end:nxt]):
+                joined = True
                 add(r.rel, _ref(toks[k]), pats, to=to)
                 nxt = toks[k].start
                 k -= 1
@@ -1071,9 +1128,15 @@ def _position(c: _Raw, text: str, toks: list, told_capture: Optional[tuple]) -> 
     for m in _UNPARSED_MOVE.finditer(low[:c.pos]):
         if told_capture is not None and told_capture[0] <= m.start() < told_capture[6]:
             continue  # the capture the sentence told, read
-        if any(a <= m.start() < b for a, b in spans) or \
+        # right after a move read («конь с g8 на f6 вышел», «… встал на f6, вышел в центр»): the same move told on, unless
+        # another piece follows as its mover («встал на f6, вышел мой слон»)
+        after_move = any(b <= m.start() and re.fullmatch(r"[\s,]*", low[b:m.start()]) for a, b in spans) and not (
+            (w2 := re.match(rf"\s+(?:\w+\s+)?({_PIECE_ALT}){E}", low[m.end():m.end() + 25]))
+            and _LETTER.get(_P[w2.group(1)][0]) not in movers) and not \
+            re.match(r"\s+(?:(?:на|в)\s+[a-h][1-8]|назад|обратно|back)" + E, low[m.end():m.end() + 12])  # «, вернулся на f3»
+        if any(a <= m.start() < b for a, b in spans) or after_move or \
                 any(t.kind == "MOVE" and not t.threat and m.end() <= t.start <= m.end() + 30 for t in toks):
-            continue
+            continue  # inside a move read, right after it («конь с g8 на f6 вышел»), or before the move it tells
         # «рокировка …: король уходит» — the motion of a move the sentence already told
         w = re.search(rf"({_PIECE_ALT})\s+(?:\w+\s+)?$", low[max(0, m.start() - 30):m.start()])
         if w and _LETTER.get(_P[w.group(1)][0]) in movers and any(t.start < m.start() for t in moves_seq):
@@ -1203,7 +1266,7 @@ def _convert(c: _Raw, pos: Pos, told_capture) -> Optional[Claim]:
     if rel in _PASSIVE:
         if rel == "UNDEF":
             return Claim("undefended", None, tuple(r for r in map(_out_ref, objs) if r is not None), pos=pos,
-                         question=question, span=span)
+                         question=question, span=span, kind="cover" if c.cover else "")
         if subj is None:
             if rel == "PASS_ATT":
                 # «… бьёт пешку e4 с шахом и создаёт вилку: под ударом остаются h2 и f1» — the fork is the capturer's

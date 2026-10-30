@@ -489,7 +489,9 @@ def test_an_attacker_named_does_not_hide_a_hanging_piece_of_its_type():
     assert any("the white knight g5" in i for i in check_sentence("Больше ничего не висит.", ctx))
     # the knight named as attacked does exclude it
     ctx = _study(G5_HANGS, "Что у меня сейчас под ударом?")
-    assert check_sentence("Под ударом слон c4, конь g5 и пешка d5.", ctx) == []
+    issues = check_sentence("Под ударом слон c4, конь g5 и пешка d5.", ctx)
+    # (no pawn stands on d5: the relation checker says so; this test is about the hanging check)
+    assert [i for i in issues if i not in set((ctx.relation_stats or {}).get("issued", []))] == []
     assert not [i for i in check_sentence("Больше ничего не висит.", ctx) if "under attack" in i]
 
 

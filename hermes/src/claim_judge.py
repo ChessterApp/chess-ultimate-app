@@ -161,6 +161,32 @@ def _xray(board: chess.Board, a: int, t: int, through: int = 1) -> bool:
     return sum(1 for s in _between(board, a, t) if board.color_at(s) != p.color) <= through
 
 
+def _shields(board: chess.Board, a: int, t: int) -> bool:
+    """The piece on *a* stands alone on an enemy line piece's line to *t*: it covers *t* from it («3...e6 — пешка
+    прикрыла поле f7 от твоего слона на c4»; «прикрывать» is both to defend and to shield)."""
+    p = board.piece_at(a)
+    if p is None or a == t:
+        return False
+    for e, q in board.piece_map().items():
+        if q.color == p.color or q.piece_type not in SLIDERS or not _on_line(q.piece_type, e, t):
+            continue
+        if _between(board, e, t) == [a] and a in chess.SquareSet(chess.between(e, t)):
+            return True
+    return False
+
+
+def _open_line_to(board: chess.Board, t: int) -> bool:
+    """An enemy bishop, rook or queen reaches the piece on *t* along an open line: nothing shields it from it."""
+    p = board.piece_at(t)
+    if p is None:
+        return False
+    for a, q in board.piece_map().items():
+        if q.color != p.color and q.piece_type in SLIDERS and _on_line(q.piece_type, a, t) and \
+                all(board.color_at(m) == q.color for m in _between(board, a, t)):
+            return True  # in the line's reach, or behind the attacker's own pieces (a discovered attack)
+    return False
+
+
 def defenders(board: chess.Board, t: int, color: bool) -> list:
     """The pieces of *color* that defend *t* (a battery counts)."""
     return [s for s, p in board.piece_map().items() if p.color == color and s != t and _battery(board, s, t)]
@@ -186,8 +212,12 @@ def pin_behind(board: chess.Board, a: int, t: int) -> Optional[int]:
             # the king or a more valuable piece behind (absolute and relative pins); or a piece behind a front piece
             # worth more than the attacker («ладья связывает ферзя e5 с ладьёй e8»: the queen must go and the rook
             # behind is lost — what coaches call a pin too)
+            # A piece behind worth as much as the front one and left undefended is lost when the front one steps
+            # aside — a pin too («ладья b5 связана — за ней на b8 стоит вторая ладья», nothing guards b8).
             if x.piece_type == chess.KING or VAL[x.piece_type] > VAL[pt.piece_type] or \
-                    (x.piece_type != chess.PAWN and VAL[pt.piece_type] > VAL[pa.piece_type]):
+                    (x.piece_type != chess.PAWN and VAL[pt.piece_type] > VAL[pa.piece_type]) or \
+                    (x.piece_type != chess.PAWN and VAL[x.piece_type] >= VAL[pt.piece_type] and
+                     not [d for d in board.attackers(x.color, q) if d != t]):
                 return q
             return None
         f, r = f + df, r + dr
@@ -243,6 +273,35 @@ def _moved_from(board: chess.Board, ref: Optional[Ref]) -> Optional[int]:
     if mv is not None and mv.from_square == chess.parse_square(ref.sq):
         return mv.to_square
     return None
+
+
+def _rebound(claim: Claim, board: chess.Board) -> Optional[Claim]:
+    """*claim* with a piece named by the square the last move took it from read as that piece where it went: «А почему
+    не bxa7? Тогда чёрный слон бьёт твою пешку b6» — the pawn from b6, now on a7; «после Rxb5 Rxb5 ладья b7 …» — the
+    rook from b7. Another reading of the words on the same board (the board just before the move is the other one,
+    claim_scene._before_last); None when no ref names the square the last move left."""
+    from dataclasses import replace
+
+    from src.claim_scene import last_move
+
+    mv = last_move(board)
+    if mv is None or board.piece_at(mv.from_square) is not None or mv.promotion is not None:
+        return None
+    moved = board.piece_at(mv.to_square)
+    if moved is None:
+        return None
+    left, went = chess.square_name(mv.from_square), chess.square_name(mv.to_square)
+
+    def fix(ref: Optional[Ref]) -> Optional[Ref]:
+        if ref is None or ref.sq != left or ref.from_sq or not ref.piece or PIECE_TYPE[ref.piece] != moved.piece_type \
+                or (ref.side is not None and ref.side != moved.color):
+            return ref
+        return replace(ref, sq=went)
+
+    subj, objs = fix(claim.subj), tuple(fix(o) for o in claim.objs)
+    if subj is claim.subj and all(a is b for a, b in zip(objs, claim.objs)):
+        return None
+    return replace(claim, subj=subj, objs=objs)
 
 
 def _ref_square(board: chess.Board, ref: Ref) -> int:
@@ -311,7 +370,7 @@ def _judge_attack(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
         for o in objs:
             if not o.sq:
                 raise _Undecided
-            t = chess.parse_square(o.sq)
+            t = _ref_square(board, o)
             tp = board.piece_at(t)
             if tp is not None and tp.piece_type == chess.KING and rel == "hold" and o.piece:
                 raise _Undecided
@@ -336,7 +395,7 @@ def _judge_attack(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
         return False, f"there is no {what} on the board"
     for o in objs:
         if o.sq:
-            t = chess.parse_square(o.sq)
+            t = _ref_square(board, o)
             tp = board.piece_at(t)
             if tp is not None and tp.piece_type == chess.KING and rel == "hold" and o.piece:
                 raise _Undecided
@@ -411,7 +470,7 @@ def _judge_defend(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
     if s is None:
         raise _Undecided
     for o in objs:
-        t = chess.parse_square(o.sq)
+        t = _ref_square(board, o)
         tp = board.piece_at(t)
         if tp is not None and tp.piece_type == chess.KING:
             raise _Undecided  # «прикрывает короля» is about lines and checks, not the attack map
@@ -433,7 +492,7 @@ def _judge_defend(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
                 continue
             if tp is not None and ap.color != tp.color:
                 continue  # a piece never defends the enemy's
-            if _battery(board, a, t) or (tp is None and _through_king(board, a, t)):
+            if _battery(board, a, t) or (tp is None and _through_king(board, a, t)) or _shields(board, a, t):
                 ok = True
         if not ok:
             occupant = board.piece_at(t)
@@ -443,6 +502,10 @@ def _judge_defend(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
                 a = subj[0]
                 ap = board.piece_at(a)
                 if tp is not None and ap is not None and ap.color != tp.color:
+                    if o.pronoun or s.pronoun:
+                        # «А защищают его только чёрная ладья с f7 и ферзь с d8» with «его» read as White's bishop: a
+                        # defender of the other side says the pronoun means another piece — not a board fact.
+                        raise _Undecided
                     return False, f"{who(board, a)} is {_side(ap.color)}'s — it cannot defend {who(board, t)}; " + \
                         (f"{who(board, t)} is defended by {_names(board, dfs)}" if dfs else f"nothing defends {who(board, t)}")
                 if tp is None:
@@ -472,11 +535,13 @@ def _judge_undefended(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
     for r in refs:
         if not r.piece and not r.pronoun:
             raise _Undecided  # «поле f7 не защищено»: a square, defended by whom the words do not say
-        t = chess.parse_square(r.sq)
+        t = _ref_square(board, r)
         tp = board.piece_at(t)
         if tp is None or tp.piece_type == chess.KING:
             raise _Undecided
         dfs = defenders(board, t, tp.color)
+        if claim.kind == "cover" and not claim.neg and _open_line_to(board, t):
+            continue  # «ферзь e3 ничем не прикрыт: ладья e8 смотрит прямо на него» — nothing stands in the line's way
         if claim.rel == "hanging":
             att = board.attackers(not tp.color, t)
             if not att:
@@ -492,7 +557,7 @@ def _judge_attacked(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
         raise _Undecided
     s = claim.subj
     for r in refs:
-        t = chess.parse_square(r.sq)
+        t = _ref_square(board, r)
         tp = board.piece_at(t)
         if tp is None:
             raise _Undecided
@@ -517,12 +582,14 @@ def _judge_pinned(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
     r = _target_square(claim) if claim.rel == "pinned" else None
     if r is None:
         raise _Undecided
-    t = chess.parse_square(r.sq)
+    t = _ref_square(board, r)
     tp = board.piece_at(t)
     if tp is None:
         raise _Undecided
     pinners = _pinners(board, t)
     s = claim.subj if (claim.subj is not None and claim.objs) else None
+    if s is not None and s.piece == "K":
+        raise _Undecided  # «пешка h3 связана королём»: a king pins nothing — tied to the king, guarded by it
     if s is not None and (s.sq or s.piece):
         pinners = [a for a in pinners if a in _candidates(board, s, not tp.color)]
     if claim.to is not None and claim.to.sq:
@@ -534,8 +601,8 @@ def _judge_pinned(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
 
 def _judge_pins(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
     s = claim.subj
-    if s is None or (not s.sq and not s.piece):
-        raise _Undecided
+    if s is None or (not s.sq and not s.piece) or s.piece == "K":
+        raise _Undecided  # a king pins nothing: «связан королём» is «tied to the king»
     objs = [o for o in _targets(claim) if o.sq]
     subj = _candidates(board, s, _colour(s, ctx, board))
     if not subj:
@@ -550,7 +617,7 @@ def _judge_pins(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
         a = subj[0]
         return False, f"{who(board, a)} pins nothing; it attacks {_hits(board, a)}"
     for o in objs:
-        t = chess.parse_square(o.sq)
+        t = _ref_square(board, o)
         if board.piece_at(t) is None:
             return False, f"{o.sq} is empty: there is nothing to pin"
         ok = False
@@ -854,6 +921,14 @@ def decide(claim: Claim, boards: BoardSet, ctx: Any) -> Verdict:
     # False on the primary board only because a named piece is not there: the words may mean another board where it
     # is — a board on which the claim binds but cannot be judged leaves the claim undecided, not false.
     unbound = rule is None and ghosted(claim, boards.primary)
+    # Not one of the pieces the claim names stands where it names them («Удар конём на f7: конь на f7 бьёт ферзя d8 и
+    # ладью h8» on a board with none of them): the words describe another position — a line explained, not this board.
+    gone = rule is None and _all_gone(claim, boards.primary)
+    other = _rebound(claim, boards.primary) if rule is None else None
+    if other is not None and _on(other, boards.primary, ctx, rule)[0]:
+        return Verdict("true", "")
+    if rule is None and any(_on(c, boards.primary, ctx, rule)[0] for c in _from_home(claim, boards.primary)):
+        return Verdict("true", "")
     for alt in boards.alternatives:
         if alt is None:
             continue
@@ -862,6 +937,38 @@ def decide(claim: Claim, boards: BoardSet, ctx: Any) -> Verdict:
             return Verdict("true", "")
         if av is None and unbound and not ghosted(claim, alt):
             return UNDECIDED
+    if gone and not any(alt is not None and _binds(claim, alt) for alt in boards.alternatives):
+        return UNDECIDED
     if claim.question == "which" and truth:
         truth += " (the question takes this for granted)"
     return Verdict("false", boards.where, truth)
+
+
+def _from_home(claim: Claim, board: chess.Board) -> list:
+    """«Конь с g8 сразу бьёт в e4» with no knight on g8 and no move told: the piece of that kind that came from g8 —
+    one standing a move away from it (the knight f6) — read in its place."""
+    from dataclasses import replace
+
+    s = claim.subj
+    if s is None or not s.from_sq or not s.sq or not s.piece or claim.pos.moves or not ghost(board, s):
+        return []
+    pt = PIECE_TYPE[s.piece]
+    if pt == chess.PAWN:
+        return []
+    sq = chess.parse_square(s.sq)
+    out = []
+    for a, p in board.piece_map().items():
+        if p.piece_type == pt and (s.side is None or p.color == s.side) and sq in board.attacks(a):
+            out.append(replace(claim, subj=replace(s, sq=chess.square_name(a), from_sq=False)))
+    return out[:4]
+
+
+def _binds(claim: Claim, board: chess.Board) -> bool:
+    """Every piece the claim names on a square stands there."""
+    return not any(ghost(board, r) for r in [claim.subj] + list(claim.objs) if r is not None and r.sq and r.piece)
+
+
+def _all_gone(claim: Claim, board: chess.Board) -> bool:
+    """Two or more pieces named on their squares, and none of them is there."""
+    refs = [r for r in [claim.subj] + list(claim.objs) if r is not None and r.sq and r.piece]
+    return len(refs) >= 2 and all(ghost(board, r) for r in refs)

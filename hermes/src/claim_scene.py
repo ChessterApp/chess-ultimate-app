@@ -62,6 +62,9 @@ _ASKS_MOVE = re.compile(r"как(?:ой|ая|ие)\s+(?:здесь\s+|тут\s+|
                         r"what\s+(?:should\s+i\s+|to\s+)?play|first\s+move|which\s+move|solve|puzzle", re.IGNORECASE)
 
 
+_CHOICE = re.compile(r"(?<![\w-])(?:или|либо|or)(?![\w-])|/", re.IGNORECASE)
+
+
 # ── boards with their story ────────────────────────────────────────────────────────────────────────────────────
 def _after(board: chess.Board, move: chess.Move) -> chess.Board:
     """The board after *move*, without a move stack (cheap to copy), remembering the move and the board before it
@@ -139,7 +142,10 @@ def to_move(board: chess.Board, m: MoveRef) -> Optional[chess.Move]:
     if m.san:
         san = _clean_san(m.san)
         try:
-            return board.parse_san(san)
+            mv = board.parse_san(san)
+            if m.frm and chess.square_name(mv.from_square) != m.frm:
+                return None  # «Nd5: конь с f3 прыгает на d5» — the square the words start it from is part of the move
+            return mv
         except ValueError:
             pass
         if re.fullmatch(r"[a-h][1-8][-–]?[a-h][1-8]", san):  # «e4-e5», «g8f6»
@@ -545,22 +551,32 @@ def _implicit(board: chess.Board, claim: Claim) -> list:
     """«слон на g7 целится в c3» with no bishop on g7 but exactly one legal move putting one there (for either side):
     the board after that move — a plan told as a fact. Never the primary board. The subject only: an object that
     arrives later («ферзь g1 нападает на коня g7» before Ng7) is the very error the claim makes."""
-    got = _ref_square(claim.subj)
-    if got is None or claim.rel in ("occupied",):
+    if claim.rel in ("occupied",):
         return []
-    sq, pt = got
-    p = board.piece_at(sq)
-    if p is not None and p.piece_type == pt:
-        return []
-    side = claim.subj.side
-    for b in (board, _passed(board)):
-        if b is None or (side is not None and b.turn != side):
+    refs = [claim.subj]
+    if claim.pos.at == "now" and not claim.pos.moves:
+        # With no move told, an object may stand where the move the question is about puts it too («пешку d6 никто
+        # не защищает» answering about exd6 e.p.): a move told in the sentence already places its pieces.
+        refs += list(claim.objs)
+    out = []
+    for ref in refs:
+        got = _ref_square(ref)
+        if got is None:
             continue
-        ms = [m for m in b.legal_moves if m.to_square == sq and b.piece_type_at(m.from_square) == pt
-              and m.promotion in (None, chess.QUEEN)]
-        if len(ms) == 1:
-            return [_after(b, ms[0])]
-    return []
+        sq, pt = got
+        p = board.piece_at(sq)
+        if p is not None and p.piece_type == pt:
+            continue
+        side = ref.side
+        for b in (board, _passed(board)):
+            if b is None or (side is not None and b.turn != side):
+                continue
+            ms = [m for m in b.legal_moves if m.to_square == sq and b.piece_type_at(m.from_square) == pt
+                  and m.promotion in (None, chess.QUEEN)]
+            if len(ms) == 1:
+                out.append(_after(b, ms[0]))
+                break
+    return out
 
 
 def _from_square(board: chess.Board, claim: Claim) -> list:
@@ -690,6 +706,12 @@ def _resolve_now(pos: Pos, ctx: Any, state: dict) -> Optional[tuple]:
     if not pos.moves:
         return board, where, []
     branches = _walk(board, where, pos.moves, ctx, history)
+    if branches is not None and len(branches[0]) == 1 and pos.at in ("now", "after") and \
+            any(board is b for b in _shown_boards(ctx)) and _bare_start(getattr(ctx, "current", None), ctx):
+        # Every move told is "already on" a lesson's example board, which has no story: the board cannot say whether
+        # the move was played on it or the words propose it on another diagram of the lesson («Сравните варианты за
+        # белых: … Ла1 защищает коня … Кс3 нападает на слона» on a board where Ra1 and Nc3 already stand).
+        return None
     if branches is None and pos.at in ("now", "after"):
         # The move is not playable on the board now but is on the board shown (or after the line before): the
         # sentence is about that board.
@@ -781,6 +803,10 @@ def boards_for(claim: Claim, ctx: Any, state: dict) -> Optional[BoardSet]:
         if other is not None:
             alts.append(other[0])
             alts.extend(other[2])
+        elif any(m.number for m in alt_pos.moves):
+            # «The knight on f7 attacks the queen on d8 …, so Black takes it: 6...Kxf7» with no 6...Kxf7 on any board
+            # of the turn: the sentence is about a line the turn does not have.
+            return None
     cur = getattr(ctx, "current", None)
     shown = _shown_boards(ctx)
     shown_board = None
@@ -788,6 +814,15 @@ def boards_for(claim: Claim, ctx: Any, state: dict) -> Optional[BoardSet]:
         shown_board = primary
     if _diagram_only(claim, primary, cur, shown, ctx) or _words_only_diagram(claim, primary, cur, shown, ctx):
         return None
+    if cur is not None and primary is cur and pos.at in ("now", "after") and _earlier_moment(ctx, primary):
+        from src.claim_judge import _binds, ghosted
+
+        if ghosted(claim, primary) and \
+                not any(_binds(claim, b) for b in _question_boards(ctx) + (_past_boards(ctx, primary) or [])):
+            # «А что было бы, если бы на 8-м ходу я взял слоном на g5?», «А что надо было играть на 5-м ходу?» on a board
+            # without that moment: a piece the claim names and the board now lacks stands on the board the question
+            # is about, which the turn does not have.
+            return None
     if pos.at == "now" and not pos.moves:
         if pos.tense == "past":
             past = _past_boards(ctx, primary)
@@ -799,6 +834,18 @@ def boards_for(claim: Claim, ctx: Any, state: dict) -> Optional[BoardSet]:
         shown_board = shown[0] if shown else None
         if cur is not None and primary is not cur and pos.at == "now":
             alts.append(cur)
+        then = _then_board(ctx, state)
+        if then is not None:
+            # «Да, есть — Nc7+. Это вилка: конь бьёт и короля на e8, и ладью на a8»: the sentence after a told move may
+            # describe the board after it.
+            alts.append(then[0])
+        if pos.tense != "past":
+            from src.claim_judge import ghosted
+
+            if ghosted(claim, primary):
+                # A piece the claim names is not on the board now but the game's last positions may have it: the
+                # words describe the move just made («его пешка d5 бьёт по e4 и по твоему слону» told about ...dxc4).
+                alts.extend(_past_boards(ctx, primary) or [])
         alts.extend(_question_boards(ctx))
         if cur is not None and primary is cur:
             sol = _solution_boards(ctx, cur)
@@ -830,6 +877,8 @@ def remember(text: str, claims: list[Claim], ctx: Any, state: dict) -> None:
             if got is not None:
                 prev, last = board_before(got[0]), last_move(got[0])
                 told = (got[0].fen(), got[1], 0, prev.fen() if prev is not None else "", last.uci() if last else "")
+    if told is None:
+        told = _told_line(text, ctx, state)
     if told is not None:
         state[THEN_KEY] = told
     elif state.get(THEN_KEY):
@@ -841,3 +890,41 @@ def remember(text: str, claims: list[Claim], ctx: Any, state: dict) -> None:
 
 
 __all__ = ["boards_for", "remember", "to_move", "last_move", "board_before", "THEN_KEY"]
+
+
+def _told_line(text: str, ctx: Any, state: dict) -> Optional[tuple]:
+    """The end of the line a sentence with no claim writes («Да, есть — но только одна: Nc7+.», «Чёрные вынуждены
+    взять: Kxh7»), as remember() keeps it; None when it writes none or it cannot be played. A bare square is no move
+    here: only what is written as a move (a piece letter, a capture, a check, castling, a move number)."""
+    from src.claim_types import find_moves
+
+    try:
+        moves = tuple(m for m in find_moves(text) if m.piece not in (None, "P") or m.capture or m.castle or m.number
+                      or (m.san or "").endswith(("+", "#")))
+    except Exception:  # noqa: BLE001
+        return None
+    if not moves or len(moves) > 8:
+        return None
+    if len(moves) > 1 and _CHOICE.search(text):
+        return None  # «У чёрных всего два ответа: Крg5 или Л:h7» — choices, not a line
+    got = _resolve(Pos(at="now", moves=moves), ctx, state)
+    if got is None or not last_move(got[0]):
+        return None
+    prev, last = board_before(got[0]), last_move(got[0])
+    return got[0].fen(), got[1], 0, prev.fen() if prev is not None else "", last.uci() if last else ""
+
+
+_EARLIER = re.compile(r"(?<![\w-])(?:если\s+бы|было\s+бы|what\s+if|would\s+have|had\s+i)(?![\w-])|"
+                      r"(?<![\w-])на\s+(?P<n>\d{1,3})-?\w*\s+ходу(?![\w-])|(?<![\w-])(?:on|at)\s+move\s+(?P<m>\d{1,3})(?![\w-])",
+                      re.IGNORECASE)
+
+
+def _earlier_moment(ctx: Any, board: chess.Board) -> bool:
+    """The question is about another moment than the board: a counterfactual («если бы …», "what if I had …") or an
+    earlier move of the game («на 5-м ходу» with the board past move 5)."""
+    q = getattr(ctx, "question_raw", "") or getattr(ctx, "question", "") or ""
+    for m in _EARLIER.finditer(q):
+        n = m.group("n") or m.group("m")
+        if n is None or int(n) < board.fullmove_number:
+            return True
+    return False

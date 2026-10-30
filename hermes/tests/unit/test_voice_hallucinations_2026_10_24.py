@@ -41,7 +41,6 @@ def test_the_phone_sentences_are_caught(sentence, wrong):
     "Конь на d4 напал на коня на f3.",                      # true: the f3 knight is attacked
     "Он нападает на пешку на c2.",                           # the c2 pawn is attacked by the d4 knight
     "Слон на c4 ничем не атакован.",
-    "После Nb5 конь нападёт на пешку c7.",                   # a line, not the board as it is
     "Конь на d4 не нападает на слона c4.",
 ])
 def test_true_and_hypothetical_sentences_pass(sentence):
@@ -77,3 +76,10 @@ def test_voice_arrows_a_piece_cannot_draw_are_dropped_and_the_model_is_told():
     assert out["result"]["arrows_dropped"] == ["d4c4: a knight cannot go there"]
     assert "NOT drawn" in out["result"]["arrows_note"]
     assert chess.Board(FEN).piece_at(chess.D4).piece_type == chess.KNIGHT
+
+
+def test_a_knight_that_would_attack_its_own_pawn_is_caught():
+    # Nb5 here is Black's Nd4–b5 (no White knight reaches b5): it would stand next to its own c7 pawn, not attack it
+    # (the relation checker, integration 30.10; the same reading as eval row #114).
+    issues = check_sentence(spoken_squares("После Nb5 конь нападёт на пешку c7."), _ctx())
+    assert any("own pawn on c7" in i for i in issues), issues

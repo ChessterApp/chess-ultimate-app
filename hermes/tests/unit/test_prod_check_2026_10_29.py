@@ -274,7 +274,7 @@ ROUND5_CASES = [
  ("e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 g6 Be3 Bg7", W, "Мой слон с f8 на g7 ушёл и смотрит на твоего коня d4.", False),
  ("e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Be7 Re1 b5 Bb3 d6 c3 O-O h3 Bb7", W, "Мой слон с c8 на b7 вышел и давит на e4.", False),
  ("e4 e5 Nf3 d6 d4 exd4 Qxd4 Nc6 Qe3 Nf6 Nc3 Be7 Bd2 O-O O-O-O Re8", W,
-  "Твой ферзь на e3 ничем не прикрыт: моя ладья e8 смотрит прямо на него, а дальше король.", False),
+  "Твой ферзь на e3 ничем не прикрыт: моя ладья e8 смотрит прямо на него, а дальше король.", True),  # integration 30.10: f2 and Bd2 defend it, White's e4 pawn stands between
  ("e4 e5 Nf3 Nc6", W, "В другой игре я забрал твоего ферзя.", False),
  ("e4 e5 Nf3 Nc6", W, "Тогда мой последний ход был Nf6, а теперь Nc6.", False),
 ]

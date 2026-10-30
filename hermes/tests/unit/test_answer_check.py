@@ -67,10 +67,14 @@ class TestWrong:
         "Лg1 нападает на ферзя h4.",
     ])
     def test_a_hypothetical_attack_against_the_pattern(self, sentence):
-        issues = check_sentence(sentence, _ctx(self.ROOK_G1))
+        ctx = _ctx(self.ROOK_G1)
+        issues = check_sentence(sentence, ctx)
         assert "a rook on g1 does not attack h4" in issues, (sentence, issues)
-        # "Your rook on g1" with no rook of the side to move there is a second, true complaint.
-        assert all(i == "a rook on g1 does not attack h4" or "no rook of the student's on g1" in i for i in issues), issues
+        # "Your rook on g1" with no rook of the side to move there is a second, true complaint; the relation checker
+        # (src/answer_check_relations.py) may add its own board truth for the same claim.
+        issued = set((ctx.relation_stats or {}).get("issued", []))
+        assert all(i == "a rook on g1 does not attack h4" or "no rook of the student's on g1" in i or i in issued
+                   for i in issues), issues
 
 
 @pytest.mark.unit
@@ -364,7 +368,10 @@ class TestFactsWrong:
         fen = "rnbqkb1r/pppp1ppp/5n2/4p1B1/4P3/8/PPPP1PPP/RN1QKBNR b KQkq - 2 3"
         assert check_sentence("Конь на f6 связан.", CheckContext.from_fens([fen])) == []
         assert check_sentence("Слон g5 связывает коня f6.", CheckContext.from_fens([fen])) == []
-        assert check_sentence("Конь на b8 связан.", CheckContext.from_fens([fen])) == ["the knight on b8 is not pinned"]
+        ctx = CheckContext.from_fens([fen])
+        issues = check_sentence("Конь на b8 связан.", ctx)
+        issued = set((ctx.relation_stats or {}).get("issued", []))  # the relation checker's own line on the same claim
+        assert [i for i in issues if i not in issued] == ["the knight on b8 is not pinned"]
 
     def test_a_written_line_is_followed_from_its_last_move(self):
         start = CheckContext.from_fens(["rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"])
@@ -518,7 +525,6 @@ class TestLiveRunMisses:
         "Если чёрные ответят конём на e6, ты бьёшь его ладьёй с f5, отгоняя фигуру.",
         "Конь на c5 не связан — он сам нападает: бьёт пешку e4 и поле b3.",
         "Your c3 queen eyes the c5 knight, and your b3 pawn guards a4.",
-        "If Black now plays ...Nxa4, the pawn on b3 is attacked by the knight on a4.",
         "Пешка e4 под боем: её бьют конь c5 и ферзь h4, а защищают пешка f3 и ладья e1.",
         "Your f2 pawn is under attack from the queen on h4 and pinned to the rook on e1.",
         "So if ...Nxa4, you recapture with bxa4 and you're fine.",
@@ -554,9 +560,12 @@ def test_the_topic_is_what_the_sentence_hits_not_who_hits():
 def test_a_short_claim_free_start_waits_for_its_sentence():
     """«А вот твоя ладья d5 под боем…» was cut, but «А вот твоя » had already gone
     out and dangled before the rewrite (stand, 2026-10-04)."""
-    gate = SentenceGate(_ctx(ROOK_G1_W), release_starts=True)
+    ctx = _ctx(ROOK_G1_W)
+    gate = SentenceGate(ctx, release_starts=True)
     assert gate.feed("А вот твоя ладья ") == []
-    assert gate.feed("d5 под боем, защищать её нечем. ") == [
+    got = gate.feed("d5 под боем, защищать её нечем. ")
+    issued = set((ctx.relation_stats or {}).get("issued", []))  # the relation checker's own line on the same claim
+    assert [(a, [i for i in b if i not in issued], c) for a, b, c in got] == [
         ("А вот твоя ладья d5 под боем, защищать её нечем. ",
          ["the rook on d5 is not attacked, so it is not hanging"], "А вот твоя ладья d5 под боем, защищать её нечем. ")]
     # A longer start still streams at once (when starts stream at all).
@@ -601,7 +610,6 @@ class TestHypotheticalPhrasings:
         "If you play Nd5, the knight attacks the pawn on c7.",
         "Rxh4 после h3 не проходит.",  # the move is being refuted
         "А если Rxh4? Нет: пешка h2 мешает.",
-        "Ладья и слон бьют по h4.",  # two pieces: not one piece's claim
         "Ладья может пойти на g1, а ферзь — на e2.",
         "Ход Rg1 создаёт угрозу ферзю h4.",  # «создаёт угрозу Кf6» names a move, not a square: not judged
         "После Kxf7 белые бьют ферзём с шахом — Qf3+ — и король обязан идти на e6.",  # «ферзём» is the instrument
@@ -643,7 +651,6 @@ class TestNotAttacked:
         "It's not a real threat yet (nothing attacks f7 a second time).",
         "The pawn on a4 is not attacked by the queen.",  # a named attacker is another claim
         "Пешку a4 никто не атакует, кроме коня.",
-        "После Rg1 пешка a4 не под боем.",  # hypothetical
         "Ничто не угрожает твоему королю на g2.",  # true
         "Your king on g2 is safe.",
     ])
@@ -812,3 +819,22 @@ def test_a_self_correction_after_an_ellipsis_is_thinking_aloud():
     gate = SentenceGate(_ctx())
     out = gate.feed("Второй — сразу сыграть Be3, блокируя... нет, точнее защищая f1 и готовя O-O. ")
     assert any(o[1] == [META_ISSUE] for o in out)
+
+
+# Sentences the tests above once let through as unjudged and the relation checker (integration 30.10) judges on the
+# board the words name — each is false there.
+@pytest.mark.unit
+@pytest.mark.parametrize("fen, question, student, sentence, truth", [
+    # a knight on a4 hits b2, c3, c5 and b6 — not b3
+    (ROOK_G1_W, "Могу ли я сыграть Rg1 сейчас? А Qxg7?", chess.WHITE,
+     "If Black now plays ...Nxa4, the pawn on b3 is attacked by the knight on a4.", "nothing attacks White's pawn on b3"),
+    # neither White rook nor bishop reaches h4 (h2 blocks the h-file)
+    (TestHypotheticalPhrasings.H4, "что если поставить ладью на g1?", chess.WHITE, "Ладья и слон бьют по h4.", "h4"),
+    # after Rg1 the knight c5 still hits a4
+    (TestNotAttacked.T, "Is my pawn on a4 hanging?", chess.WHITE, "После Rg1 пешка a4 не под боем.",
+     "attacked by Black's knight on c5"),
+])
+def test_relation_checker_judges_what_was_left_unjudged(fen, question, student, sentence, truth):
+    ctx = CheckContext.from_fens([fen], question=question, student_color=student)
+    issues = check_sentence(sentence, ctx)
+    assert any(truth in i for i in issues), issues

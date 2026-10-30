@@ -125,10 +125,29 @@ def pct(xs: list, q: float) -> float:
 
 
 # ── contexts (mirror src/server.py: the board, the shown board, the game and its line, the question, the student) ──
-def make_ctx(fen, shown=None, game_moves=None, question="", student=None, puzzle_solution=None, solution_lines=None):
+def make_ctx(fen, shown=None, game_moves=None, question="", student=None, puzzle_solution=None, solution_lines=None,
+             lines=None, puzzle=None):
+    """*lines*: the move lines the turn has besides the game (a PGN the coach or the session loaded — server.py passes
+    active_board.pgn, the famous game, the session boards' PGNs); *puzzle*: (fen, solution) of a puzzle the session set,
+    which server.py turns into ctx.puzzle_solution and a solution line from the board now."""
     color = {"w": chess.WHITE, "b": chess.BLACK}.get(student) if isinstance(student, str) else student
-    lines = [" ".join(game_moves)] if game_moves else []
-    ctx = ac.CheckContext.from_fens([fen, shown], lines=lines, question=question or "", student_color=color)
+    loaded = [x for x in (lines or []) if x]
+    lines = ([" ".join(game_moves)] if game_moves else []) + loaded
+    fens = [fen, shown]
+    if loaded and not game_moves:
+        # server.py: «А что надо было играть на 5-м ходу?» on a loaded game — the moment the question names is a board
+        # of the turn (src/past_move.past_position), and the moves the question names are played there.
+        try:
+            from src.past_move import past_position
+            from src.prompt_builder import question_moves
+
+            past = past_position(question or "", loaded[0])
+            fens += [past["fen"]] if past else []
+            fens += [q["after_fen"] for q in question_moves(question or "", past["fen"] if past else fen)
+                     if q.get("after_fen")]
+        except Exception:  # noqa: BLE001
+            pass
+    ctx = ac.CheckContext.from_fens(fens, lines=lines, question=question or "", student_color=color)
     if game_moves is not None:
         ctx.game_moves = list(game_moves) or None
         if game_moves and color is not None:
@@ -138,6 +157,9 @@ def make_ctx(fen, shown=None, game_moves=None, question="", student=None, puzzle
         ctx.puzzle_solution = list(puzzle_solution)
     if solution_lines:
         ctx.solution_lines = [list(x) for x in solution_lines]
+    if puzzle and puzzle[1]:
+        ctx.puzzle_solution = list(puzzle[1])
+        acr.add_solution_line(ctx, acr.line_from(puzzle[0], puzzle[1], ctx.current))
     return ctx
 
 
@@ -183,6 +205,13 @@ def run_eval(rows, recorded, mode, parser, judge):
         r["shadow_eq_on"] = (runs["shadow"]["rel"] == runs["on"]["rel"]) if mode != "off" else True
         out.append(r)
     return out
+
+
+# The findings of the plan's WP-A list (§4: its table and «plus»): the integration must catch all of them (§5.3).
+GRAMMAR_IDS = ("name-winawer", "move-najdorf", "trap-fried-liver", "plan-caro-adv#c2", "pawn-b3-words", "square-no",
+               "d3-which", "st1#10/Nc6-c5", "st1#10/c1-locked", "st2#5/Qxd8-threat", "st2#1/e5-defender",
+               "st2#7/f8-own-pawn", "st3#9/d4-by-Ne4", "st4#7/he-on-f6-undefended", "black-best", "x-wc2021-g6", "d4-move5",
+               "g3-hint", "g3-draw")
 
 
 # ── TRIAGE and NEGATIVES ──────────────────────────────────────────────────────────────────────────────────────
@@ -231,7 +260,7 @@ def run_answers(tri, recorded, eval_rows, mode, parser, judge):
         for m in (["off"] if mode == "off" else ["off", "shadow", "on"]):
             set_mode(m)
             ctx = make_ctx(a["fen"] or chess.STARTING_FEN, a["shown"], a["game_moves"], a["question"], a["student"],
-                           a.get("puzzle_solution"), a.get("solution_lines"))
+                           a.get("puzzle_solution"), a.get("solution_lines"), a.get("lines"), a.get("puzzle"))
             said = ""
             per[m] = []
             for i, s in enumerate(sents):
@@ -270,7 +299,8 @@ def score_triage(tri, results):
                      "legacy": any(out[i]["legacy"] for i in idx), "relation": any(out[i]["relation"] for i in idx),
                      "legacy_issues": [x for i in idx for x in out[i]["legacy_issues"]][:2],
                      "relation_issues": [x for i in idx for x in out[i]["relation_issues"]][:2],
-                     "whitelisted": n["source"] in tri.get("whitelist", {})})
+                     "whitelisted": n["source"] in tri.get("whitelist", {})
+                     or any(norm(q) in norm(n["quote"]) for q in tri.get("whitelist_quotes", {}))})
     return found, negs
 
 
@@ -286,7 +316,23 @@ def corpus_items(L: Path):
             o = json.loads(f.read_text())
         except Exception:  # noqa: BLE001
             continue
+        session: dict = {}  # per session: the PGN and the puzzle its board actions loaded so far (server.py has them)
         for r in (o.get("rows") if isinstance(o, dict) else o) or []:
+            if isinstance(r, dict):
+                acts = r.get("board")
+                if isinstance(acts, str):
+                    try:
+                        import ast
+
+                        acts = ast.literal_eval(acts)
+                    except Exception:  # noqa: BLE001
+                        acts = []
+                got = session.setdefault(r.get("sessionId") or id(r), {})
+                for act in acts if isinstance(acts, list) else []:
+                    if isinstance(act, dict) and act.get("type") == "load_pgn" and act.get("pgn"):
+                        got["lines"] = [act["pgn"]]
+                    elif isinstance(act, dict) and act.get("type") == "set_puzzle" and act.get("solution"):
+                        got["puzzle"] = (act.get("fen"), list(act["solution"]))
             if not (isinstance(r, dict) and r.get("fen") and r["fen"] != "@prev" and isinstance(r.get("text"), str)):
                 continue
             if (r["fen"], r["text"][:200]) in seen:
@@ -306,7 +352,7 @@ def corpus_items(L: Path):
                     ba = None
             ba = ba.get("fen") if isinstance(ba, dict) else None
             yield ("pos", f.name, r.get("id"), dict(fen=r["fen"], shown=ba if ba and ba != r["fen"] else None,
-                                                     question=r.get("message") or ""), r["text"])
+                                                     question=r.get("message") or "", **got), r["text"])
     game_files = [L / "t1.json", L / "t2.json"] + sorted(Path(p) for p in glob.glob(str(L / "stand*" / "st*.json"))) + \
         sorted(Path(p) for p in glob.glob(str(P / "st*.json")))
     for f in game_files:
@@ -349,7 +395,8 @@ def run_corpus(L: Path, mode: str, parser: str, judge: str):
         legacy = []
         for m in ("off", mode) if mode != "off" else ("off",):
             set_mode(m)
-            ctx = make_ctx(kw["fen"], kw.get("shown"), kw.get("game_moves"), kw.get("question"), kw.get("student"))
+            ctx = make_ctx(kw["fen"], kw.get("shown"), kw.get("game_moves"), kw.get("question"), kw.get("student"),
+                           lines=kw.get("lines"), puzzle=kw.get("puzzle"))
             said = ""
             for i, s in enumerate(sents):
                 CUR["claims"], CUR["env"], CUR["text"] = [], env, said[-300:] + " " + s + " " + (kw.get("question") or "")
@@ -479,6 +526,10 @@ def main(argv=None) -> int:
     nq = [f["id"] for f in found if not f["quote_found"]]
     if nq:
         print(f"         quote not found in its answer: {nq}")
+    gids = [g for g in GRAMMAR_IDS if any(f["id"] == g for f in found)]
+    gmiss = [g for g in gids if g not in uni]
+    m.update(grammar_ids_caught=len(gids) - len(gmiss))
+    print(f"GRAMMAR IDS {len(gids)} (plan §4 WP-A list) | caught {len(gids) - len(gmiss)}" + (f" | missed {gmiss}" if gmiss else ""))
     buckets = defaultdict(lambda: [0, 0, 0, 0])
     for f in found:
         b = buckets[f["bucket"]]

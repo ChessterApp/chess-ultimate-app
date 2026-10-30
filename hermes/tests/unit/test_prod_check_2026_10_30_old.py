@@ -362,7 +362,9 @@ def test_a_retreat_without_a_named_chase_is_judged_after_every_chase():
     # b5 is lost after every move that attacks the bishop (Nc3 covers it); d3 and e2 not after Qd3 / Qe2
     issues = check_sentence("Прогнать слона не выйдет — он отступит на a6, b5, d3 или e2 и всё равно будет бить f1.",
                             _ctx(BISHOP_C4, "Как мне рокироваться?"))
-    assert issues == ["the bishop on c4 has no retreat to b5 — there it is simply lost (Nxb5); a6 is a real retreat"]
+    # every losing square named, judged on the main chase board (WP-D, 30.10)
+    assert issues == ["the bishop on c4 has no retreat to b5, d3, e2 — there it is simply lost (Nxb5, cxd3, Nxe2); of the "
+                      "squares named only a6 is a real retreat"]
 
 
 @pytest.mark.unit
