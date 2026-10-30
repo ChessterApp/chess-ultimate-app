@@ -1,0 +1,4729 @@
+{
+ "meta": {
+  "what": "WP-B judge and resolver cases: hand-written claims (src/claim_types JSON) on fixed boards and on the contexts of tests/fixtures/relations/triage.json answers; each with the verdict the board gives",
+  "expect": "true | false | undecided (decide's status) | not_false (true or undecided) | none (boards_for → None)",
+  "ctx": "{answer: triage answer key} or {fen, shown, lines, question, student, game_moves, solution_lines}; state_from: a claim whose line the sentence before told (remember → then)",
+  "built_by": "scratchpad wpb/build_judge_cases.py (30.10)"
+ },
+ "cases": [
+  {
+   "id": "attack-true",
+   "group": "relation",
+   "ctx": {
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "true"
+  },
+  {
+   "id": "attack-false",
+   "group": "relation",
+   "ctx": {
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f1",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "false",
+   "where": "on the board now",
+   "truth": "White's bishop on f1"
+  },
+  {
+   "id": "attack-own-piece",
+   "group": "relation",
+   "ctx": {
+    "fen": "3rk1nr/1pp2pbp/p7/3Pp3/2N3pq/8/PPP2PPP/R1BQR1K1 b k - 0 1",
+    "question": "Задача из урока «Пример». Какой здесь первый ход и почему?"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "h4",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "g3",
+       "piece": "P",
+       "to": "g3"
+      }
+     ]
+    }
+   },
+   "expect": "false",
+   "truth": "Black's own queen on h4",
+   "note": "eval #114: the puzzle asks for Black's move, so g3 is Black's g4-g3"
+  },
+  {
+   "id": "attack-own-piece/both-ways",
+   "group": "resolver",
+   "ctx": {
+    "fen": "3rk1nr/1pp2pbp/p7/3Pp3/2N3pq/8/PPP2PPP/R1BQR1K1 b k - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "h4",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "g3",
+       "piece": "P",
+       "to": "g3"
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "note": "no move asked for: «g3» may be White's g2-g3, which does hit the queen"
+  },
+  {
+   "id": "attack-bare-square-own-piece",
+   "group": "relation",
+   "ctx": {
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e1"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "«бьёт по e1»: a bare square is control; its own king standing there does not make it false"
+  },
+  {
+   "id": "attack-en-passant",
+   "group": "relation",
+   "ctx": {
+    "fen": "8/8/8/1Pp4k/8/7K/8/8 w - c6 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "b5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c5",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "true"
+  },
+  {
+   "id": "attack-en-passant-typed",
+   "group": "relation",
+   "ctx": {
+    "fen": "8/8/8/1Pp4k/8/7K/8/8 w - c6 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "b5",
+     "piece": "P",
+     "owner": "you"
+    },
+    "objs": [
+     {
+      "piece": "P",
+      "pronoun": true
+     }
+    ]
+   },
+   "expect": "true"
+  },
+  {
+   "id": "attack-no-en-passant",
+   "group": "relation",
+   "ctx": {
+    "fen": "8/8/8/1Pp4k/8/7K/8/8 w - - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "b5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c5",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "false"
+  },
+  {
+   "id": "attack-through-enemy-king",
+   "group": "relation",
+   "ctx": {
+    "fen": "8/8/8/8/8/5q2/6K1/k7 w - - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f3",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "g2"
+     },
+     {
+      "sq": "h1"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "the king on g2 cannot stand on the line behind itself: h1 is controlled"
+  },
+  {
+   "id": "attack-typed-object",
+   "group": "relation",
+   "ctx": {
+    "fen": "3r2k1/5pp1/7p/8/1B4NP/8/5PP1/7K b - - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g4",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "h6",
+      "piece": "P"
+     },
+     {
+      "piece": "R"
+     }
+    ]
+   },
+   "expect": "false",
+   "truth": "no rook"
+  },
+  {
+   "id": "attack-unbound-subject-moved",
+   "group": "relation",
+   "ctx": {
+    "fen": "r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w KQkq - 0 8"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c4",
+      "piece": "B"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "b3",
+       "piece": "P",
+       "to": "b3"
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "note": "«b3 — пешка бьёт слона»: the pawn meant is the one that moved"
+  },
+  {
+   "id": "attack-capture-told",
+   "group": "relation",
+   "ctx": {
+    "answer": "st2#4"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "piece": "N",
+      "owner": "you"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "exf6",
+       "piece": "P",
+       "to": "f6",
+       "capture": true,
+       "told": true
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "note": "«пешка с e5 на f6 бьёт твоего коня»: «бьёт» right after the capture is the capture"
+  },
+  {
+   "id": "attack-from-sq-mover",
+   "group": "relation",
+   "ctx": {
+    "fen": "8/6pp/8/1N6/2n2P2/4k1P1/P1Kp3P/8 b - - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "c4",
+     "piece": "N",
+     "from_sq": true
+    },
+    "objs": [
+     {
+      "sq": "b5",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Na3+",
+       "piece": "N",
+       "to": "a3"
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "note": "«Na3+, конь с c4 бьёт с шахом и нападает на коня b5»: the «с c4» piece is the one the move took from c4"
+  },
+  {
+   "id": "attack-subject-on-target",
+   "group": "relation",
+   "ctx": {
+    "fen": "rnb1kb1r/ppp2ppp/2qp4/3N4/4PQn1/8/PPP2PPP/R1B1KBNR w KQkq - 0 1"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "c6"
+     }
+    ]
+   },
+   "expect": "undecided",
+   "note": "«c6 прикрыт только ферзём» with the queen on c6"
+  },
+  {
+   "id": "attack-unresolved-pronoun",
+   "group": "relation",
+   "ctx": {
+    "fen": "r1b2rk1/5ppp/pq1b4/3Pp3/B3N3/P7/1P1Q1PPP/R4RK1 w - - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "pronoun": true,
+     "text": "он"
+    },
+    "objs": [
+     {
+      "sq": "d6",
+      "piece": "B"
+     }
+    ]
+   },
+   "expect": "undecided"
+  },
+  {
+   "id": "aim-through-one",
+   "group": "relation",
+   "ctx": {
+    "fen": "rnbqkb1r/pp3pp1/3ppn1p/2p5/2B1P3/3P1N2/PPP2PPP/RNBQ1RK1 w kq - 0 6"
+   },
+   "claim": {
+    "rel": "aim",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f7"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "«слон c4 смотрит на f7» through e6"
+  },
+  {
+   "id": "aim-through-two",
+   "group": "relation",
+   "ctx": {
+    "fen": "4k3/5p2/4p3/3p4/2B5/8/8/4K3 w - - 0 1"
+   },
+   "claim": {
+    "rel": "aim",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f7",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "false"
+  },
+  {
+   "id": "aim-own-piece-steps-aside",
+   "group": "relation",
+   "ctx": {
+    "fen": "rnbqk2r/pp2ppbp/3p1np1/8/3NP3/2N5/PPP2PPP/R1BQKB1R w KQkq - 0 7"
+   },
+   "claim": {
+    "rel": "aim",
+    "subj": {
+     "sq": "g7",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "c3",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "the Dragon bishop through its own Nf6 and the enemy Nd4"
+  },
+  {
+   "id": "defend-battery",
+   "group": "relation",
+   "ctx": {
+    "fen": "4k3/8/8/8/4N3/8/2B5/1Q2K3 w - - 0 1"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "b1",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "true"
+  },
+  {
+   "id": "defend-wrong-line-battery",
+   "group": "relation",
+   "ctx": {
+    "fen": "4k3/8/8/8/4N3/8/2B5/1R2K3 w - - 0 1"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "b1",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "false"
+  },
+  {
+   "id": "defend-colour-rule",
+   "group": "relation",
+   "ctx": {
+    "fen": "5rk1/3Q3p/4nPp1/2pp2N1/4q3/2P4P/6P1/5R1K b - - 1 1"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "g5",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "h7",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "false",
+   "truth": "cannot defend",
+   "note": "a piece never defends the enemy's"
+  },
+  {
+   "id": "defend-bare-square-is-control",
+   "group": "relation",
+   "ctx": {
+    "fen": "5rk1/3Q3p/4nPp1/2pp2N1/4q3/2P4P/6P1/5R1K b - - 1 1"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "g5",
+     "piece": "N",
+     "from_sq": true
+    },
+    "objs": [
+     {
+      "sq": "h7"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "«конь с g5 прикрывает h7» (Qxh7 threat): control"
+  },
+  {
+   "id": "defend-king-object",
+   "group": "relation",
+   "ctx": {
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "f1",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "e1",
+      "piece": "K"
+     }
+    ]
+   },
+   "expect": "undecided"
+  },
+  {
+   "id": "hold-colour-free",
+   "group": "relation",
+   "ctx": {
+    "answer": "st1#12"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "«пешку e4 держит конь f6»: hold is colour-free"
+  },
+  {
+   "id": "hold-king-typed",
+   "group": "relation",
+   "ctx": {
+    "fen": "kbK5/p7/pP6/8/8/8/8/8 w - - 0 1"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "b6",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "piece": "K",
+      "pronoun": true
+     }
+    ]
+   },
+   "expect": "undecided"
+  },
+  {
+   "id": "hold-side-any",
+   "group": "relation",
+   "ctx": {
+    "fen": "8/8/8/P4k2/8/8/8/7K b - - 0 1"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d6"
+     }
+    ]
+   },
+   "expect": "false",
+   "truth": "what reaches it: nothing"
+  },
+  {
+   "id": "undefended-false",
+   "group": "relation",
+   "ctx": {
+    "answer": "st4#7"
+   },
+   "claim": {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "f6",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "false",
+   "truth": "defended by"
+  },
+  {
+   "id": "undefended-bare-square",
+   "group": "relation",
+   "ctx": {
+    "fen": "r2qkb1r/pp2nBpp/3p4/2pNN3/3nP3/3P4/PPP2PPP/R2bK2R b KQkq - 0 8"
+   },
+   "claim": {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "f7"
+     }
+    ]
+   },
+   "expect": "undecided",
+   "note": "«поле f7 не защищено»: defended by whom the words do not say"
+  },
+  {
+   "id": "undefended-king",
+   "group": "relation",
+   "ctx": {
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+   },
+   "claim": {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e1",
+      "piece": "K"
+     }
+    ]
+   },
+   "expect": "undecided"
+  },
+  {
+   "id": "attacked-count",
+   "group": "relation",
+   "ctx": {
+    "answer": "st3#10"
+   },
+   "claim": {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "count": 3
+   },
+   "expect": "true"
+  },
+  {
+   "id": "attacked-count-wrong",
+   "group": "relation",
+   "ctx": {
+    "answer": "st3#10"
+   },
+   "claim": {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "count": 2
+   },
+   "expect": "false",
+   "truth": "3 times"
+  },
+  {
+   "id": "hanging-true",
+   "group": "relation",
+   "ctx": {
+    "answer": "st3#10"
+   },
+   "claim": {
+    "rel": "hanging",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "true"
+  },
+  {
+   "id": "pin-absolute",
+   "group": "relation",
+   "ctx": {
+    "fen": "4k3/8/8/1b6/8/3N4/8/5K2 w - - 0 1"
+   },
+   "claim": {
+    "rel": "pinned",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d3",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "true"
+  },
+  {
+   "id": "pin-absolute-pins-to",
+   "group": "relation",
+   "ctx": {
+    "fen": "4k3/8/8/1b6/8/3N4/8/5K2 w - - 0 1"
+   },
+   "claim": {
+    "rel": "pins",
+    "subj": {
+     "sq": "b5",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "d3",
+      "piece": "N"
+     }
+    ],
+    "to": {
+     "sq": "f1",
+     "piece": "K"
+    }
+   },
+   "expect": "true"
+  },
+  {
+   "id": "pin-relative",
+   "group": "relation",
+   "ctx": {
+    "fen": "4k3/3q4/2n5/1B6/8/8/8/4K3 w - - 0 1"
+   },
+   "claim": {
+    "rel": "pins",
+    "subj": {
+     "sq": "b5",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "c6",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "true"
+  },
+  {
+   "id": "pin-nothing-behind",
+   "group": "relation",
+   "ctx": {
+    "fen": "4k3/3p4/2n5/1B6/8/8/8/4K3 w - - 0 1"
+   },
+   "claim": {
+    "rel": "pins",
+    "subj": {
+     "sq": "b5",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "c6",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "false",
+   "truth": "pins it to nothing"
+  },
+  {
+   "id": "pin-skewer-reading",
+   "group": "relation",
+   "ctx": {
+    "fen": "4r1k1/5p1p/6pB/4q3/8/6P1/PrP2PKP/4R3 w - - 0 1"
+   },
+   "claim": {
+    "rel": "pins",
+    "subj": {
+     "sq": "e1",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "Q"
+     }
+    ],
+    "to": {
+     "sq": "e8",
+     "piece": "R"
+    }
+   },
+   "expect": "true",
+   "note": "«ладья связывает ферзя e5 с ладьёй e8»: the queen must go, the rook behind is lost"
+  },
+  {
+   "id": "pin-negated",
+   "group": "relation",
+   "ctx": {
+    "fen": "4k3/8/8/1b6/8/3N4/8/5K2 w - - 0 1"
+   },
+   "claim": {
+    "rel": "pinned",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d3",
+      "piece": "N"
+     }
+    ],
+    "neg": true
+   },
+   "expect": "false",
+   "truth": "pinned by"
+  },
+  {
+   "id": "locked-by-true",
+   "group": "relation",
+   "ctx": {
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+   },
+   "claim": {
+    "rel": "locked_by",
+    "subj": {
+     "sq": "c1",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "b2",
+      "piece": "P"
+     },
+     {
+      "sq": "d2",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "true"
+  },
+  {
+   "id": "locked-by-king",
+   "group": "relation",
+   "ctx": {
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+   },
+   "claim": {
+    "rel": "locked_by",
+    "subj": {
+     "sq": "e1",
+     "piece": "K"
+    },
+    "objs": [
+     {
+      "sq": "d1",
+      "piece": "Q"
+     },
+     {
+      "sq": "f1",
+      "piece": "B"
+     }
+    ]
+   },
+   "expect": "undecided",
+   "note": "kings are excluded"
+  },
+  {
+   "id": "blocks-true",
+   "group": "relation",
+   "ctx": {
+    "fen": "rnbqk1nr/pppp1ppp/4p3/8/1b1PP3/2N5/PPP2PPP/R1BQKBNR w KQkq - 2 4"
+   },
+   "claim": {
+    "rel": "blocks",
+    "subj": {
+     "sq": "c3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "b4",
+      "piece": "B"
+     }
+    ]
+   },
+   "expect": "true"
+  },
+  {
+   "id": "capture-with-true",
+   "group": "relation",
+   "ctx": {
+    "fen": "3qk3/8/8/8/8/8/8/3QK3 w - - 0 1"
+   },
+   "claim": {
+    "rel": "capture_with",
+    "subj": {
+     "piece": "Q",
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "d8"
+     }
+    ]
+   },
+   "expect": "true"
+  },
+  {
+   "id": "capture-with-false",
+   "group": "relation",
+   "ctx": {
+    "answer": "st2#5"
+   },
+   "claim": {
+    "rel": "capture_with",
+    "subj": {
+     "piece": "Q",
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "d8"
+     }
+    ]
+   },
+   "expect": "false",
+   "truth": "no queen of White can take on d8",
+   "note": "st2#5: «белые грозят взять ферзём на d8»"
+  },
+  {
+   "id": "which-exists",
+   "group": "relation",
+   "ctx": {
+    "fen": "r1bqkbnr/pppp1ppp/2n5/4P3/8/5N2/PPP1PPPP/RNBQKB1R b KQkq - 2 3"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "question": "which"
+   },
+   "expect": "true"
+  },
+  {
+   "id": "yesno-question",
+   "group": "relation",
+   "ctx": {
+    "answer": "st2#1"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "question": "yesno"
+   },
+   "expect": "none"
+  },
+  {
+   "id": "plan-reach-true",
+   "group": "relation",
+   "ctx": {
+    "answer": "g3-hint"
+   },
+   "claim": {
+    "rel": "plan_reach",
+    "subj": {
+     "sq": "g2",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "d5"
+     }
+    ],
+    "pos": {
+     "at": "plan"
+    }
+   },
+   "expect": "true"
+  },
+  {
+   "id": "check-true",
+   "group": "relation",
+   "ctx": {
+    "answer": "mate1-no"
+   },
+   "claim": {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rd8+",
+       "piece": "R",
+       "to": "d8"
+      }
+     ]
+    }
+   },
+   "expect": "true"
+  },
+  {
+   "id": "check-false",
+   "group": "relation",
+   "ctx": {
+    "answer": "mate1-no"
+   },
+   "claim": {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rd7",
+       "piece": "R",
+       "to": "d7"
+      }
+     ]
+    }
+   },
+   "expect": "false"
+  },
+  {
+   "id": "aim-typed-object-through-own-piece",
+   "group": "relation",
+   "ctx": {
+    "fen": "r2qkb1r/pppn2pp/5n2/3p4/5P2/2N4P/PPP1B1P1/R3R2K w - - 0 1"
+   },
+   "claim": {
+    "rel": "aim",
+    "subj": {
+     "sq": "e1",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "piece": "K"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "«ладья на e1 смотрит на короля по линии e» through its own Be2"
+  },
+  {
+   "id": "aim-typed-object-through-enemy-piece",
+   "group": "relation",
+   "ctx": {
+    "fen": "7k/p5p1/1p5p/8/1P4Pq/5P1P/P2r4/2R2Q1K b - - 0 1"
+   },
+   "claim": {
+    "rel": "aim",
+    "subj": {
+     "sq": "h4",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "piece": "K",
+      "side": true
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "«ферзь h4 смотрит на белого короля» through h3"
+  },
+  {
+   "id": "aim-typed-object-false",
+   "group": "relation",
+   "ctx": {
+    "fen": "8/7k/5q2/8/2Q5/4R3/3K4/8 w - - 0 1"
+   },
+   "claim": {
+    "rel": "aim",
+    "subj": {
+     "sq": "e3",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "piece": "K",
+      "side": false
+     }
+    ]
+   },
+   "expect": "false",
+   "truth": "no king"
+  },
+  {
+   "id": "hold-square-of-the-king",
+   "group": "relation",
+   "ctx": {
+    "fen": "5k2/p4Q2/5K2/8/8/8/8/8 b - - 0 1"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "f7",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "f8"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "«ферзь f7 держит поле f8» with the king on f8: the square is hit"
+  },
+  {
+   "id": "hold-named-king-undecided",
+   "group": "relation",
+   "ctx": {
+    "fen": "5k2/p4Q2/5K2/8/8/8/8/8 b - - 0 1"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "f7",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "f8",
+      "piece": "K"
+     }
+    ]
+   },
+   "expect": "undecided",
+   "note": "«держит короля» (confines it) is not the attack map"
+  },
+  {
+   "id": "ghost-bound-elsewhere-undecided",
+   "group": "resolver",
+   "ctx": {
+    "fen": "6K1/8/5Rkq/8/8/8/8/8 b - - 0 1"
+   },
+   "claim": {
+    "rel": "locked_by",
+    "subj": {
+     "sq": "g6",
+     "piece": "K"
+    },
+    "objs": [
+     {
+      "sq": "h6"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Kxf6",
+       "piece": "K",
+       "to": "f6",
+       "capture": true
+      }
+     ]
+    }
+   },
+   "expect": "not_false",
+   "note": "«после Kxf6 … король на g6 заперт ферзём h6»: the king left g6; on the board before it the claim binds and is not judgeable (kings excluded), so it is undecided, not false"
+  },
+  {
+   "id": "words-only-diagram",
+   "group": "resolver",
+   "ctx": {
+    "fen": null,
+    "shown": "8/2k5/8/8/2b5/8/2Q4K/8 w - - 0 1",
+    "question": "Объясни тему «Связка» и покажи пример."
+   },
+   "claim": {
+    "rel": "pinned",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "g7",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "none",
+   "note": "a concept lesson, the board now the default: «пешка g7 связана — её держит слон b2» describes another diagram"
+  },
+  {
+   "id": "words-only-diagram/wrong-side-judged",
+   "group": "resolver",
+   "ctx": {
+    "fen": null,
+    "shown": "3rkr2/1Qpb4/p1B1pq2/7p/3PN1p1/B1P3P1/P4nKP/R4R2 b - - 3 24"
+   },
+   "claim": {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "g2",
+      "piece": "K",
+      "side": false
+     }
+    ]
+   },
+   "expect": "false",
+   "truth": "White's, not Black's",
+   "note": "«у чёрного короля на g2»: the king stands there, White's — judged"
+  },
+  {
+   "id": "words-only-diagram/board-pointed-at",
+   "group": "resolver",
+   "ctx": {
+    "fen": null,
+    "shown": "rn1q1bnr/ppp1kB1p/3p2p1/3NN3/4P3/8/PPPP1PPP/R1BbK2R b KQ - 2 7"
+   },
+   "claim": {
+    "rel": "trapped",
+    "subj": {
+     "sq": "h5",
+     "piece": "N"
+    },
+    "objs": [],
+    "pos": {
+     "at": "shown"
+    }
+   },
+   "expect": "false",
+   "truth": "no knight on h5",
+   "note": "«Смотри на доску: у чёрных конь забрался на h5»: the words point at the board shown"
+  },
+  {
+   "id": "negated-hold-truth-names-the-holder",
+   "group": "relation",
+   "ctx": {
+    "fen": "r3kn1r/pp1b1ppp/4p3/q2pP3/1n1P1P2/5NP1/P2B1K1P/3Q1BNR w kq - 0 2"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "a2"
+     }
+    ],
+    "neg": true
+   },
+   "expect": "false",
+   "truth": "Black's queen on a5 reaches White's pawn on a2"
+  },
+  {
+   "id": "pin-by-own-piece-truth",
+   "group": "relation",
+   "ctx": {
+    "fen": "8/1Q3pk1/7p/p7/P5KP/6P1/4p1N1/2R2qb1 b - - 0 1"
+   },
+   "claim": {
+    "rel": "pins",
+    "subj": {
+     "sq": "f1",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "f7",
+      "piece": "P"
+     }
+    ],
+    "to": {
+     "sq": "g7"
+    }
+   },
+   "expect": "false",
+   "truth": "it is pinned by White's queen on b7"
+  },
+  {
+   "id": "name-winawer",
+   "group": "finding",
+   "ctx": {
+    "answer": "name-winawer"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "e5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "g8",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "e5",
+       "piece": "P",
+       "to": "e5"
+      }
+     ]
+    }
+   },
+   "expect": "false",
+   "where": "after 4.e5",
+   "truth": "attacks d6 and f6"
+  },
+  {
+   "id": "move-najdorf",
+   "group": "finding",
+   "ctx": {
+    "answer": "move-najdorf"
+   },
+   "claim": {
+    "rel": "pin_after",
+    "subj": {
+     "sq": "g4",
+     "piece": "B"
+    },
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bg4",
+       "piece": "B",
+       "to": "g4",
+       "side": false
+      }
+     ]
+    }
+   },
+   "expect": "false",
+   "where": "6...Bg4",
+   "truth": "pins nothing"
+  },
+  {
+   "id": "trap-fried-liver",
+   "group": "finding",
+   "ctx": {
+    "answer": "trap-fried-liver"
+   },
+   "claim": {
+    "rel": "chase",
+    "subj": {
+     "sq": "b5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "g5",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "b5",
+       "piece": "P",
+       "to": "b5"
+      }
+     ]
+    }
+   },
+   "expect": "false",
+   "truth": "not White's knight on g5"
+  },
+  {
+   "id": "plan-caro-adv#c2",
+   "group": "finding",
+   "ctx": {
+    "answer": "plan-caro-adv"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "c2",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nc3",
+       "piece": "N",
+       "to": "c3"
+      }
+     ],
+     "alts": [
+      {
+       "at": "after",
+       "moves": [
+        {
+         "san": "Nd2",
+         "piece": "N",
+         "to": "d2"
+        }
+       ]
+      }
+     ]
+    },
+    "question": "which"
+   },
+   "expect": "false",
+   "truth": "defended by White's queen on d1"
+  },
+  {
+   "id": "pawn-b3-words",
+   "group": "finding",
+   "ctx": {
+    "answer": "pawn-b3-words"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "a4",
+      "piece": "B",
+      "pronoun": true
+     }
+    ]
+   },
+   "expect": "false",
+   "truth": "nothing defends it",
+   "note": "«пока держится» does not skip"
+  },
+  {
+   "id": "square-no",
+   "group": "finding",
+   "ctx": {
+    "answer": "square-no"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "d6"
+     }
+    ]
+   },
+   "expect": "false"
+  },
+  {
+   "id": "d3-which",
+   "group": "finding",
+   "ctx": {
+    "answer": "d3-which"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g4",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "h6",
+      "piece": "P"
+     },
+     {
+      "piece": "R"
+     }
+    ]
+   },
+   "expect": "false"
+  },
+  {
+   "id": "st1#10/Nc6-c5",
+   "group": "finding",
+   "ctx": {
+    "answer": "st1#10"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "c5",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nc6",
+       "piece": "N",
+       "to": "c6",
+       "told": true
+      }
+     ]
+    }
+   },
+   "expect": "false",
+   "where": "right after 6...Nc6 was played",
+   "truth": "defended by Black's pawn on d6"
+  },
+  {
+   "id": "st1#10/c1-locked",
+   "group": "finding",
+   "ctx": {
+    "answer": "st1#10"
+   },
+   "claim": {
+    "rel": "locked_by",
+    "subj": {
+     "sq": "c1",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "d3",
+      "piece": "P"
+     },
+     {
+      "sq": "h3",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "false",
+   "truth": "not on any line"
+  },
+  {
+   "id": "st1#10/development",
+   "group": "finding",
+   "ctx": {
+    "answer": "st1#11"
+   },
+   "claim": {
+    "rel": "locked_by",
+    "subj": {
+     "sq": "c1",
+     "piece": "B",
+     "owner": "you"
+    },
+    "objs": [
+     {
+      "sq": "d3",
+      "piece": "P",
+      "owner": "own"
+     },
+     {
+      "sq": "h3",
+      "piece": "P",
+      "owner": "own"
+     }
+    ]
+   },
+   "expect": "false",
+   "truth": "it can go to d2"
+  },
+  {
+   "id": "st2#1/e5-defender",
+   "group": "finding",
+   "ctx": {
+    "answer": "st2#1"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "question": "which"
+   },
+   "expect": "false",
+   "truth": "takes this for granted"
+  },
+  {
+   "id": "st2#5/Qxd8-threat",
+   "group": "finding",
+   "ctx": {
+    "answer": "st2#5"
+   },
+   "claim": {
+    "rel": "capture_with",
+    "subj": {
+     "piece": "Q",
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "d8"
+     }
+    ]
+   },
+   "expect": "false"
+  },
+  {
+   "id": "st2#7/f8-own-pawn",
+   "group": "finding",
+   "ctx": {
+    "answer": "st2#7"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "piece": "P",
+     "owner": "you"
+    },
+    "objs": [
+     {
+      "sq": "f8"
+     }
+    ]
+   },
+   "expect": "false"
+  },
+  {
+   "id": "st3#9/d4-by-Ne4",
+   "group": "finding",
+   "ctx": {
+    "answer": "st3#9"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "e4",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P",
+      "pronoun": true
+     }
+    ]
+   },
+   "expect": "false",
+   "truth": "Black's knight on e4 does not defend"
+  },
+  {
+   "id": "st4#7/Nf6-d4",
+   "group": "finding",
+   "ctx": {
+    "answer": "st4#7"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P",
+      "owner": "you"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nf6",
+       "piece": "N",
+       "to": "f6",
+       "told": true
+      }
+     ]
+    }
+   },
+   "expect": "false",
+   "where": "right after 1...Nf6",
+   "truth": "not White's pawn on d4"
+  },
+  {
+   "id": "st4#7/he-on-f6-undefended",
+   "group": "finding",
+   "ctx": {
+    "answer": "st4#7"
+   },
+   "claim": {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "f6",
+      "piece": "N",
+      "pronoun": true
+     }
+    ]
+   },
+   "expect": "false"
+  },
+  {
+   "id": "st4#8/Nf6-d4",
+   "group": "finding",
+   "ctx": {
+    "answer": "st4#8"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P",
+      "owner": "you"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nf6",
+       "piece": "N",
+       "to": "f6",
+       "told": true
+      }
+     ]
+    }
+   },
+   "expect": "false"
+  },
+  {
+   "id": "st4#8/f6-undefended",
+   "group": "finding",
+   "ctx": {
+    "answer": "st4#8"
+   },
+   "claim": {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "f6",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "false"
+  },
+  {
+   "id": "black-best",
+   "group": "finding",
+   "ctx": {
+    "answer": "black-best"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "e4",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "h2",
+      "piece": "P"
+     },
+     {
+      "sq": "f1",
+      "piece": "R"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qxe4+",
+       "piece": "Q",
+       "to": "e4",
+       "capture": true
+      }
+     ]
+    }
+   },
+   "expect": "false",
+   "where": "after 6...Qxe4+",
+   "truth": "not White's pawn on h2"
+  },
+  {
+   "id": "x-wc2021-g6",
+   "group": "finding",
+   "ctx": {
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "shown": "3k4/5RN1/4P3/5P2/7K/8/8/6q1 b - - 2 136",
+    "lines": [
+     "[FEN \"3k4/q4R2/4P3/5P1N/7K/8/8/8 b - - 0 135\"] 135... Qg1 136. Ng7"
+    ]
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g1",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "g7",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qg1",
+       "piece": "Q",
+       "to": "g1",
+       "number": "135...",
+       "side": false,
+       "told": true
+      }
+     ],
+     "tense": "past"
+    }
+   },
+   "expect": "false",
+   "where": "right after 135...Qg1",
+   "truth": "no knight on g7",
+   "note": "the board right after 135...Qg1, not the final board"
+  },
+  {
+   "id": "x-wc2021-g6/shown-plies-back",
+   "group": "finding",
+   "ctx": {
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "shown": "3k4/5RN1/4P3/5P2/7K/8/8/6q1 b - - 2 136",
+    "lines": [
+     "[FEN \"3k4/q4R2/4P3/5P1N/7K/8/8/8 b - - 0 135\"] 135... Qg1 136. Ng7"
+    ]
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g1",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "g7",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "shown",
+     "plies_back": 1
+    }
+   },
+   "expect": "false"
+  },
+  {
+   "id": "x-wc2021-g6/final-board-true",
+   "group": "negative",
+   "ctx": {
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "shown": "3k4/5RN1/4P3/5P2/7K/8/8/6q1 b - - 2 136",
+    "lines": [
+     "[FEN \"3k4/q4R2/4P3/5P1N/7K/8/8/8 b - - 0 135\"] 135... Qg1 136. Ng7"
+    ]
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "f7",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "g7",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "«136.Ng7 — конь защищён ладьёй f7» on the final board"
+  },
+  {
+   "id": "d4-move5",
+   "group": "finding",
+   "ctx": {
+    "fen": "r1b1kbnr/pppp1Npp/8/8/4q3/5n2/PPPPBP1P/RNBQKR2 w Qkq - 2 8",
+    "lines": [
+     "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nd4 4. Nxe5 Qg5 5. Nxf7 Qxg2 6. Rf1 Qxe4+ 7. Be2 Nf3#"
+    ]
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "g2"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "castle": "short",
+       "piece": "K",
+       "san": "O-O",
+       "number": "5."
+      }
+     ]
+    }
+   },
+   "expect": "false",
+   "where": "after 5.O-O",
+   "truth": "does not reach g2",
+   "note": "after 5.O-O the castling rook (f1) does not defend g2"
+  },
+  {
+   "id": "g3-hint",
+   "group": "finding",
+   "ctx": {
+    "answer": "g3-hint"
+   },
+   "claim": {
+    "rel": "plan_reach",
+    "subj": {
+     "sq": "g2",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "e6"
+     }
+    ],
+    "pos": {
+     "at": "plan"
+    }
+   },
+   "expect": "false",
+   "truth": "never reaches e6"
+  },
+  {
+   "id": "g3-draw",
+   "group": "finding",
+   "ctx": {
+    "answer": "g3-draw"
+   },
+   "claim": {
+    "rel": "aim",
+    "subj": {
+     "sq": "g2",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "e6"
+     }
+    ],
+    "pos": {
+     "at": "plan"
+    }
+   },
+   "expect": "false"
+  },
+  {
+   "id": "resolver/or-branches",
+   "group": "resolver",
+   "ctx": {
+    "answer": "plan-caro-adv"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "c2",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nb3",
+       "piece": "N",
+       "to": "b3"
+      }
+     ],
+     "alts": [
+      {
+       "at": "after",
+       "moves": [
+        {
+         "san": "Nc3",
+         "piece": "N",
+         "to": "c3"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": "none",
+   "note": "Nb3 cannot be played: the primary reading is unplayable"
+  },
+  {
+   "id": "resolver/or-one-true",
+   "group": "resolver",
+   "ctx": {
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nf3",
+       "piece": "N",
+       "to": "f3"
+      }
+     ],
+     "alts": [
+      {
+       "at": "after",
+       "moves": [
+        {
+         "san": "Nc3",
+         "piece": "N",
+         "to": "c3"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "note": "«Nf3 или Nc3 защищает e4?»: true after Nc3, so not reported"
+  },
+  {
+   "id": "resolver/pawn-both-ways",
+   "group": "resolver",
+   "ctx": {
+    "fen": "4k3/8/8/1p6/8/P7/8/4K3 w - - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "a4",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "b5",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "a4",
+       "piece": "P",
+       "to": "a4"
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "note": "White a3-a4 hits b5; the words do not say whose a4"
+  },
+  {
+   "id": "resolver/pawn-side-fixed",
+   "group": "resolver",
+   "ctx": {
+    "fen": "4k3/p7/8/1p6/8/P7/8/4K3 b - - 0 1",
+    "question": "Задача из урока «Пример». Какой здесь первый ход и почему?"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "a5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "b4"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "a5",
+       "piece": "P",
+       "to": "a5"
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "note": "the puzzle asks for Black's move: a5 is Black's (a7-a5 hits b4)"
+  },
+  {
+   "id": "resolver/move-repeated-in-words",
+   "group": "resolver",
+   "ctx": {
+    "answer": "st1#10"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "h3",
+       "piece": "P",
+       "to": "h3",
+       "told": true
+      },
+      {
+       "san": "Nc6",
+       "piece": "N",
+       "to": "c6",
+       "told": true
+      },
+      {
+       "piece": "N",
+       "frm": "b8",
+       "to": "c6",
+       "told": true
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "note": "«h3 — чёрные ответили Nc6: конь с b8 встал на c6»: one move told twice"
+  },
+  {
+   "id": "resolver/already-on-board",
+   "group": "resolver",
+   "ctx": {
+    "fen": "rnb1kbnr/pppp1ppp/1q6/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "b6",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "b2",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qb6",
+       "piece": "Q",
+       "to": "b6"
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "note": "«Я сыграл Qb6»: the queen is already there"
+  },
+  {
+   "id": "resolver/game-move",
+   "group": "resolver",
+   "ctx": {
+    "answer": "st4#7"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nf6",
+       "piece": "N",
+       "to": "f6"
+      }
+     ]
+    }
+   },
+   "expect": "true"
+  },
+  {
+   "id": "resolver/numbered-line-move",
+   "group": "resolver",
+   "ctx": {
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "shown": "3k4/5RN1/4P3/5P2/7K/8/8/6q1 b - - 2 136",
+    "lines": [
+     "[FEN \"3k4/q4R2/4P3/5P1N/7K/8/8/8 b - - 0 135\"] 135... Qg1 136. Ng7"
+    ]
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g1",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "h5",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qg1",
+       "piece": "Q",
+       "to": "g1",
+       "number": "135...",
+       "side": false
+      }
+     ]
+    }
+   },
+   "expect": "false",
+   "note": "right after 135...Qg1 the queen does not reach h5 (g1-h2? no): judged on that board"
+  },
+  {
+   "id": "resolver/numbered-elsewhere",
+   "group": "resolver",
+   "ctx": {
+    "answer": "st4#7"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nf6",
+       "piece": "N",
+       "to": "f6",
+       "number": "12...",
+       "side": false
+      }
+     ]
+    }
+   },
+   "expect": "none",
+   "note": "a numbered move from a line the turn does not have"
+  },
+  {
+   "id": "resolver/unplayable",
+   "group": "resolver",
+   "ctx": {
+    "answer": "st4#7"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "e5",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Ne5",
+       "piece": "N",
+       "to": "e5"
+      }
+     ]
+    }
+   },
+   "expect": "none"
+  },
+  {
+   "id": "resolver/past-no-history",
+   "group": "resolver",
+   "ctx": {
+    "fen": "5N1k/6p1/5n1p/8/4Q3/2q5/6B1/7K w - - 0 1"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "g6"
+     }
+    ],
+    "pos": {
+     "at": "now",
+     "tense": "past"
+    }
+   },
+   "expect": "false",
+   "where": "in any position",
+   "note": "prevent real #6: «конь f6 держал поле g6» — a knight never reaches an adjacent square"
+  },
+  {
+   "id": "resolver/past-no-history-geometry-true",
+   "group": "resolver",
+   "ctx": {
+    "fen": "5N1k/6p1/5n1p/8/4Q3/2q5/6B1/7K w - - 0 1"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "g8"
+     }
+    ],
+    "pos": {
+     "at": "now",
+     "tense": "past"
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "resolver/idea-null-move",
+   "group": "resolver",
+   "ctx": {
+    "answer": "move-najdorf"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "d1",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bg4",
+       "piece": "B",
+       "to": "g4"
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "where": "after the idea 6...Bg4"
+  },
+  {
+   "id": "resolver/skip",
+   "group": "resolver",
+   "ctx": {
+    "answer": "st4#7"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "skip",
+     "skip_reason": "if"
+    }
+   },
+   "expect": "none"
+  },
+  {
+   "id": "resolver/before-capture",
+   "group": "resolver",
+   "ctx": {
+    "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "piece": "K"
+    },
+    "objs": [
+     {
+      "sq": "f7",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qxf7#",
+       "piece": "Q",
+       "to": "f7",
+       "capture": true
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "note": "«Qxf7# — … пешка f7 прикрыта только королём»: the claim names the captured square: the board before it"
+  },
+  {
+   "id": "resolver/before-move-left-square",
+   "group": "resolver",
+   "ctx": {
+    "fen": "r1bqkbnr/pppp1ppp/8/4p3/2BnP3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "f3",
+      "piece": "N",
+      "owner": "you"
+     },
+     {
+      "sq": "c2",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nxd4",
+       "piece": "N",
+       "to": "d4",
+       "capture": true
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "note": "«Nxd4: ты забираешь коня, который нападал на твоего коня f3»"
+  },
+  {
+   "id": "resolver/numbered-instead",
+   "group": "resolver",
+   "ctx": {
+    "fen": "r1b1kbnr/pppp1Npp/8/8/4q3/5n2/PPPPBP1P/RNBQKR2 w Qkq - 2 8",
+    "lines": [
+     "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nd4 4. Nxe5 Qg5 5. Nxf7 Qxg2 6. Rf1 Qxe4+ 7. Be2 Nf3#"
+    ]
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "piece": "Q",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "N"
+     },
+     {
+      "sq": "g2",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qg5",
+       "piece": "Q",
+       "to": "g5",
+       "number": "4...",
+       "side": false
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "note": "d4-move5 negative: «После 4... Qg5 чёрные бьют сразу по двум целям»"
+  },
+  {
+   "id": "resolver/start-position-diagram",
+   "group": "resolver",
+   "ctx": {
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "question": "Объясни тему «Связка» и покажи пример."
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "c4",
+     "piece": "B",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "c7",
+      "piece": "K"
+     }
+    ]
+   },
+   "expect": "none",
+   "note": "prevent wrong #4: a lesson diagram the turn does not have"
+  },
+  {
+   "id": "resolver/start-position-line",
+   "group": "resolver",
+   "ctx": {
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "e4",
+       "piece": "P",
+       "to": "e4",
+       "number": "1.",
+       "side": true
+      },
+      {
+       "san": "e5",
+       "piece": "P",
+       "to": "e5"
+      },
+      {
+       "san": "Nf3",
+       "piece": "N",
+       "to": "f3",
+       "number": "2.",
+       "side": true
+      }
+     ]
+    }
+   },
+   "expect": "true"
+  },
+  {
+   "id": "resolver/start-with-shown",
+   "group": "resolver",
+   "ctx": {
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "shown": "r2q1rk1/ppp2ppp/2npbn2/2b1p1B1/4P3/1BNP1N2/PPP2PPP/R2Q1RK1 b - - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g5",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f6",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "true",
+   "where": "on the board shown",
+   "note": "the board now is only the default start: the board shown is the one the answer is about"
+  },
+  {
+   "id": "resolver/question-move",
+   "group": "resolver",
+   "ctx": {
+    "fen": "rnbqkb1r/pp3pp1/3ppn1p/2p5/2B1P3/3P1N2/PPP2PPP/RNBQ1RK1 w kq - 0 6",
+    "question": "А если бы я сейчас сыграл Кg5, что бы было?"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g5",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "f7",
+      "piece": "P"
+     },
+     {
+      "sq": "e6",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "the student's idea board"
+  },
+  {
+   "id": "resolver/then",
+   "group": "resolver",
+   "ctx": {
+    "fen": "6k1/5pp1/7p/8/8/8/5PPP/3R2K1 w - - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "d8",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "g8",
+      "piece": "K"
+     }
+    ],
+    "pos": {
+     "at": "then"
+    }
+   },
+   "expect": "true",
+   "note": "«Тогда …» goes on from the end of the line the sentence before told (state)",
+   "state_from": {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rd8+",
+       "piece": "R",
+       "to": "d8"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "resolver/then-nothing-before",
+   "group": "resolver",
+   "ctx": {
+    "fen": "6k1/5pp1/7p/8/8/8/5PPP/3R2K1 w - - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "d8",
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "g8",
+      "piece": "K"
+     }
+    ],
+    "pos": {
+     "at": "then"
+    }
+   },
+   "expect": "none"
+  },
+  {
+   "id": "resolver/implicit-move",
+   "group": "resolver",
+   "ctx": {
+    "fen": "3rkr2/1Qpb4/p1B1pq2/7p/3PN1p1/B1P3P1/P4nKP/R4R2 b - - 3 24"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f3",
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "g2"
+     },
+     {
+      "sq": "h1"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "eval #99: no queen on f3 now, but exactly one move puts one there; on that board h1 is hit through the king"
+  },
+  {
+   "id": "resolver/from-square",
+   "group": "resolver",
+   "ctx": {
+    "fen": "r4k2/ppq3pp/2p1Qn2/6N1/3P1P1N/8/PPPn2PP/R5K1 w - - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g5",
+     "piece": "N",
+     "from_sq": true
+    },
+    "objs": [
+     {
+      "piece": "K"
+     },
+     {
+      "sq": "f6",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "puzzle #11: «конь с g5 нападает на короля и на коня f6» — true after Nxh7+ (one-move board of that piece)"
+  },
+  {
+   "id": "puzzle#17",
+   "group": "puzzle",
+   "ctx": {
+    "fen": "3Rn1k1/1b3ppp/p1p5/4q3/2B1n3/P6P/2Q2PP1/6K1 w - - 0 1",
+    "question": "Задача из урока «Пример». Какой здесь первый ход и почему?",
+    "solution_lines": [
+     [
+      "f4"
+     ]
+    ]
+   },
+   "claim": {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "Q"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "«ферзь e5 атакован» after the unnamed 1.f4"
+  },
+  {
+   "id": "puzzle#17/no-solution-known",
+   "group": "puzzle",
+   "ctx": {
+    "fen": "3Rn1k1/1b3ppp/p1p5/4q3/2B1n3/P6P/2Q2PP1/6K1 w - - 0 1",
+    "question": "Задача из урока «Пример». Какой здесь первый ход и почему?"
+   },
+   "claim": {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "Q"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "no solution line: any move of the side to move"
+  },
+  {
+   "id": "puzzle#17/not-a-puzzle",
+   "group": "puzzle",
+   "ctx": {
+    "fen": "3Rn1k1/1b3ppp/p1p5/4q3/2B1n3/P6P/2Q2PP1/6K1 w - - 0 1",
+    "question": "Опиши позицию"
+   },
+   "claim": {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e5",
+      "piece": "Q"
+     }
+    ]
+   },
+   "expect": "false",
+   "note": "without a move asked for, the board now is the board"
+  },
+  {
+   "id": "puzzle#11",
+   "group": "puzzle",
+   "ctx": {
+    "fen": "r4k2/ppq3pp/2p1Qn2/6N1/3P1P1N/8/PPPn2PP/R5K1 w - - 0 1",
+    "question": "Задача из урока «Пример». Какой здесь первый ход и почему?",
+    "solution_lines": [
+     [
+      "Nxh7+",
+      "Nxh7",
+      "Ng6#"
+     ]
+    ]
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g5",
+     "piece": "N",
+     "from_sq": true
+    },
+    "objs": [
+     {
+      "piece": "K"
+     },
+     {
+      "sq": "f6",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "true after Nxh7+, via the solution line"
+  },
+  {
+   "id": "puzzle#11/from-square",
+   "group": "puzzle",
+   "ctx": {
+    "fen": "r4k2/ppq3pp/2p1Qn2/6N1/3P1P1N/8/PPPn2PP/R5K1 w - - 0 1",
+    "question": "Опиши позицию"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g5",
+     "piece": "N",
+     "from_sq": true
+    },
+    "objs": [
+     {
+      "piece": "K"
+     },
+     {
+      "sq": "f6",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "no move asked for, no solution line: true after Nxh7+ via the from-square boards of the knight on g5"
+  },
+  {
+   "id": "puzzle#11/from-square-false",
+   "group": "puzzle",
+   "ctx": {
+    "fen": "r4k2/ppq3pp/2p1Qn2/6N1/3P1P1N/8/PPPn2PP/R5K1 w - - 0 1",
+    "question": "Опиши позицию"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g5",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "piece": "K"
+     },
+     {
+      "sq": "f6",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "false",
+   "note": "the same words without «с»: the knight on g5 attacks neither the king nor f6 now"
+  },
+  {
+   "id": "puzzle#12",
+   "group": "puzzle",
+   "ctx": {
+    "fen": "5r1k/3n2pp/p1q4N/1pb3N1/5Q1P/5PPK/P7/3R4 w - - 0 1",
+    "question": "Задача из урока «Пример». Какой здесь первый ход и почему?",
+    "solution_lines": [
+     [
+      "Qxf8+",
+      "Nxf8",
+      "Ngf7#"
+     ]
+    ]
+   },
+   "claim": {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "h8"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "«поле h8 под боем» after Qxf8+"
+  },
+  {
+   "id": "puzzle#12/hold",
+   "group": "puzzle",
+   "ctx": {
+    "fen": "5r1k/3n2pp/p1q4N/1pb3N1/5Q1P/5PPK/P7/3R4 w - - 0 1",
+    "question": "Задача из урока «Пример». Какой здесь первый ход и почему?",
+    "solution_lines": [
+     [
+      "Qxf8+",
+      "Nxf8",
+      "Ngf7#"
+     ]
+    ]
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "h6",
+     "piece": "N",
+     "from_sq": true
+    },
+    "objs": [
+     {
+      "sq": "g8"
+     }
+    ]
+   },
+   "expect": "true"
+  },
+  {
+   "id": "puzzle#8",
+   "group": "puzzle",
+   "ctx": {
+    "fen": "2r5/4kp2/3p1p2/3RpP2/1p2P2P/1P1K1QP1/r5B1/8 b - - 0 1",
+    "question": "Задача из урока «Пример». Какой здесь первый ход и почему?",
+    "solution_lines": [
+     [
+      "Rc3#"
+     ]
+    ]
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "c8",
+     "piece": "R",
+     "owner": "you",
+     "from_sq": true
+    },
+    "objs": [
+     {
+      "sq": "d4"
+     }
+    ]
+   },
+   "expect": "true",
+   "note": "«поле d4 прикрыто твоей ладьёй с c8»: after ...Rc4 (the from-square board)"
+  },
+  {
+   "id": "prevent-wrong/if-counterfactual",
+   "group": "prevent_wrong",
+   "ctx": {
+    "fen": "7k/8/8/7P/4K3/8/4B3/8 w - - 0 1"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "g4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "h8"
+     }
+    ],
+    "pos": {
+     "at": "skip",
+     "skip_reason": "if"
+    }
+   },
+   "expect": "none"
+  },
+  {
+   "id": "prevent-wrong/through-pin-pronoun",
+   "group": "prevent_wrong",
+   "ctx": {
+    "fen": "r1b2rk1/5ppp/pq1b4/3Pp3/B3N3/P7/1P1Q1PPP/R4RK1 w - - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "pronoun": true,
+     "text": "он"
+    },
+    "objs": [
+     {
+      "sq": "d6",
+      "piece": "B"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "to": "c6"
+      }
+     ]
+    }
+   },
+   "expect": "not_false",
+   "note": "«на c6 он … бьёт по слону d6 через связку»: who goes to c6 is not told"
+  },
+  {
+   "id": "prevent-wrong/lesson-start-only-1",
+   "group": "prevent_wrong",
+   "ctx": {
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "question": "Объясни тему «Польза ходов» и покажи пример."
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "d3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c5",
+      "piece": "B"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "d3",
+       "piece": "P",
+       "to": "d3"
+      }
+     ]
+    }
+   },
+   "expect": "none"
+  },
+  {
+   "id": "prevent-wrong/lesson-start-only-2",
+   "group": "prevent_wrong",
+   "ctx": {
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "question": "Объясни тему «Связка» и покажи пример."
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "c4",
+     "piece": "B",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "c7",
+      "piece": "K",
+      "owner": "own"
+     }
+    ]
+   },
+   "expect": "none"
+  },
+  {
+   "id": "prevent-wrong/capture-told",
+   "group": "prevent_wrong",
+   "ctx": {
+    "answer": "trap-fried-liver"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "h8",
+      "piece": "R"
+     },
+     {
+      "sq": "d8",
+      "piece": "Q"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nxf7",
+       "piece": "N",
+       "to": "f7",
+       "capture": true
+      }
+     ]
+    }
+   },
+   "expect": "true",
+   "note": "«конь g5 … забирает f7 и нападает на h8 и d8» after Nxf7"
+  },
+  {
+   "id": "prevent-real/queen-from-c4",
+   "group": "prevent_real",
+   "ctx": {
+    "fen": "8/2p2ppk/2q4p/p1b1pN2/Pp2P3/1P4P1/2P1QP1P/6K1 w - - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "c4",
+     "piece": "Q",
+     "from_sq": true
+    },
+    "objs": [
+     {
+      "sq": "f7"
+     },
+     {
+      "sq": "c7",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "false",
+   "note": "c5 blocks the c-file"
+  },
+  {
+   "id": "prevent-real/b2-held-c2",
+   "group": "prevent_real",
+   "ctx": {
+    "fen": "2r4k/p5pp/8/1p6/2nQ4/8/PP4qP/RK1R4 b - - 0 1"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "b2",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c2"
+     }
+    ],
+    "pos": {
+     "at": "now",
+     "tense": "past"
+    }
+   },
+   "expect": "false",
+   "where": "in any position"
+  },
+  {
+   "id": "prevent-real/b8-covers-b7",
+   "group": "prevent_real",
+   "ctx": {
+    "fen": "kbK5/p7/pP6/8/8/8/8/8 w - - 0 1",
+    "question": "Задача из урока «Пример». Какой здесь первый ход и почему?"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "b8",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "b7"
+     }
+    ]
+   },
+   "expect": "false"
+  },
+  {
+   "id": "prevent-real/king-g1-covers-g7",
+   "group": "prevent_real",
+   "ctx": {
+    "fen": "1rb1r1k1/2q1pp1p/p2p2pB/2pP4/1pP2Q2/1P1n3P/P4PP1/2R1R1K1 w - - 0 1"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "g1",
+     "piece": "K"
+    },
+    "objs": [
+     {
+      "sq": "g7"
+     }
+    ]
+   },
+   "expect": "false"
+  },
+  {
+   "id": "prevent-real/e5-covers-d5",
+   "group": "prevent_real",
+   "ctx": {
+    "fen": "rn1qkbnr/ppp2p1p/3p2p1/4N3/2B1P3/2N5/PPPP1PPP/R1BbK2R w KQkq - 0 6"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "e5",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d5"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Bxf7+",
+       "piece": "B",
+       "to": "f7",
+       "capture": true
+      }
+     ]
+    }
+   },
+   "expect": "false"
+  },
+  {
+   "id": "prevent-real/f6-held-g6",
+   "group": "prevent_real",
+   "ctx": {
+    "fen": "5N1k/6p1/5n1p/8/4Q3/2q5/6B1/7K w - - 0 1"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "g6"
+     }
+    ],
+    "pos": {
+     "at": "now",
+     "tense": "past"
+    }
+   },
+   "expect": "false"
+  },
+  {
+   "id": "prevent-real/king-from-h3",
+   "group": "prevent_real",
+   "ctx": {
+    "fen": "8/8/6k1/6P1/8/8/6PK/8 w - - 0 1"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "h3",
+     "piece": "K",
+     "from_sq": true
+    },
+    "objs": [
+     {
+      "sq": "g4"
+     },
+     {
+      "sq": "g5"
+     }
+    ]
+   },
+   "expect": "false"
+  },
+  {
+   "id": "prevent-real/b3-covers-b4",
+   "group": "prevent_real",
+   "ctx": {
+    "fen": "8/8/8/8/p7/kn6/8/NK6 w - - 0 1"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "b3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "b4"
+     }
+    ]
+   },
+   "expect": "false"
+  },
+  {
+   "id": "prevent-real/e5-holds-f8",
+   "group": "prevent_real",
+   "ctx": {
+    "fen": "7k/8/6K1/8/8/8/B6B/8 w - - 0 1"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "g7"
+     },
+     {
+      "sq": "f8"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Be5",
+       "piece": "B",
+       "to": "e5"
+      }
+     ]
+    }
+   },
+   "expect": "false",
+   "where": "after 1.Be5"
+  },
+  {
+   "id": "prevent-real/d4-hits-d3",
+   "group": "prevent_real",
+   "ctx": {
+    "fen": "r1b1k2r/pp1nbppp/2n1p3/q2pP3/8/2NB1N2/PPP1QPPP/R1B1K2R b kq - 0 1"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "d4",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "d3",
+      "piece": "B"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "d4",
+       "piece": "P",
+       "to": "d4",
+       "number": "1...",
+       "side": false
+      }
+     ]
+    }
+   },
+   "expect": "false",
+   "truth": "not White's bishop on d3"
+  },
+  {
+   "id": "negative/name-winawer/0",
+   "group": "negative",
+   "ctx": {
+    "answer": "name-winawer"
+   },
+   "claim": {
+    "rel": "pins",
+    "subj": {
+     "piece": "B",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "c3",
+      "piece": "N"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/name-winawer/1",
+   "group": "negative",
+   "ctx": {
+    "answer": "name-winawer"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "d5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e4"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/name-winawer/2",
+   "group": "negative",
+   "ctx": {
+    "answer": "name-winawer"
+   },
+   "claim": {
+    "rel": "pinned",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "c3",
+      "piece": "N"
+     }
+    ],
+    "to": {
+     "piece": "K",
+     "owner": "you"
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/move-najdorf/3",
+   "group": "negative",
+   "ctx": {
+    "answer": "move-najdorf"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "d4"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Be3",
+       "piece": "B",
+       "to": "e3",
+       "number": "6.",
+       "side": true
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/trap-fried-liver/4",
+   "group": "negative",
+   "ctx": {
+    "answer": "trap-fried-liver"
+   },
+   "claim": {
+    "rel": "attacked",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "d5",
+      "piece": "N"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nxd5",
+       "piece": "N",
+       "to": "d5",
+       "capture": true
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/trap-fried-liver/5",
+   "group": "negative",
+   "ctx": {
+    "answer": "trap-fried-liver"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f7",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d8",
+      "piece": "Q"
+     },
+     {
+      "sq": "h8",
+      "piece": "R"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nxd5",
+       "piece": "N",
+       "to": "d5",
+       "capture": true
+      },
+      {
+       "san": "Nxf7",
+       "piece": "N",
+       "to": "f7",
+       "capture": true
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/plan-caro-adv/6",
+   "group": "negative",
+   "ctx": {
+    "answer": "plan-caro-adv"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "b3",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4"
+     },
+     {
+      "sq": "c5"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Nd2",
+       "piece": "N",
+       "to": "d2"
+      },
+      {
+       "san": "Nb3",
+       "piece": "N",
+       "to": "b3"
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/castle-ru/7",
+   "group": "negative",
+   "ctx": {
+    "answer": "castle-ru"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "c4",
+     "piece": "B",
+     "from_sq": true
+    },
+    "objs": [
+     {
+      "sq": "f1"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/castle-ru/8",
+   "group": "negative",
+   "ctx": {
+    "answer": "castle-ru"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "piece": "P",
+     "side": true
+    },
+    "objs": [
+     {
+      "piece": "B",
+      "pronoun": true
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "b3",
+       "piece": "P",
+       "to": "b3"
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/castle-00/9",
+   "group": "negative",
+   "ctx": {
+    "answer": "castle-00"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "c4",
+     "piece": "B",
+     "from_sq": true
+    },
+    "objs": [
+     {
+      "sq": "f1"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/castle-00/10",
+   "group": "negative",
+   "ctx": {
+    "answer": "castle-00"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "a2",
+      "owner": "you"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/pawn-b3-words/11",
+   "group": "negative",
+   "ctx": {
+    "answer": "pawn-b3-words"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P",
+      "pronoun": true
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/pawn-b3-words/12",
+   "group": "negative",
+   "ctx": {
+    "answer": "pawn-b3-words"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Re1",
+       "piece": "R",
+       "to": "e1"
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/d1-why/13",
+   "group": "negative",
+   "ctx": {
+    "answer": "d1-why"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "c4",
+     "piece": "B",
+     "side": false,
+     "from_sq": true
+    },
+    "objs": [
+     {
+      "sq": "f1"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/opera/14",
+   "group": "negative",
+   "ctx": {
+    "answer": "opera"
+   },
+   "claim": {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qb8+",
+       "piece": "Q",
+       "to": "b8"
+      },
+      {
+       "san": "Nxb8",
+       "piece": "N",
+       "to": "b8",
+       "capture": true
+      },
+      {
+       "san": "Rd8#",
+       "piece": "R",
+       "to": "d8"
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/mate1-no/15",
+   "group": "negative",
+   "ctx": {
+    "answer": "mate1-no"
+   },
+   "claim": {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rd8+",
+       "piece": "R",
+       "to": "d8"
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/black-best/16",
+   "group": "negative",
+   "ctx": {
+    "answer": "black-best"
+   },
+   "claim": {
+    "rel": "capture_with",
+    "subj": {
+     "piece": "N",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "e2"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Qxe4+",
+       "piece": "Q",
+       "to": "e4",
+       "capture": true
+      },
+      {
+       "san": "Qe2",
+       "piece": "Q",
+       "to": "e2"
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/op-ruy/17",
+   "group": "negative",
+   "ctx": {
+    "answer": "op-ruy"
+   },
+   "claim": {
+    "rel": "attacked",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "b5",
+      "piece": "B"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/op-ruy/18",
+   "group": "negative",
+   "ctx": {
+    "answer": "op-ruy"
+   },
+   "claim": {
+    "rel": "aim",
+    "subj": {
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "c6"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Ba4",
+       "piece": "B",
+       "to": "a4"
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/d2-solution/19",
+   "group": "negative",
+   "ctx": {
+    "answer": "d2-solution"
+   },
+   "claim": {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rb1+",
+       "piece": "R",
+       "to": "b1"
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/d2-solution/20",
+   "group": "negative",
+   "ctx": {
+    "answer": "d2-solution"
+   },
+   "claim": {
+    "rel": "capture_with",
+    "subj": {
+     "piece": "R",
+     "side": false
+    },
+    "objs": [
+     {
+      "sq": "c1"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rb1+",
+       "piece": "R",
+       "to": "b1"
+      },
+      {
+       "san": "Qc1",
+       "piece": "Q",
+       "to": "c1"
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/d3-example/21",
+   "group": "negative",
+   "ctx": {
+    "answer": "d3-example"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "piece": "R"
+    },
+    "objs": [
+     {
+      "sq": "g4",
+      "piece": "N"
+     },
+     {
+      "sq": "b4",
+      "piece": "B"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rd4",
+       "piece": "R",
+       "to": "d4"
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/d3-example/22",
+   "group": "negative",
+   "ctx": {
+    "answer": "d3-example"
+   },
+   "claim": {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "g4",
+      "piece": "N"
+     },
+     {
+      "sq": "b4",
+      "piece": "B"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Rd4",
+       "piece": "R",
+       "to": "d4"
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/d3-which/23",
+   "group": "negative",
+   "ctx": {
+    "answer": "d3-which"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g4",
+     "piece": "N",
+     "from_sq": true
+    },
+    "objs": [
+     {
+      "sq": "e5"
+     },
+     {
+      "sq": "f6"
+     },
+     {
+      "sq": "h6"
+     },
+     {
+      "sq": "e3"
+     },
+     {
+      "sq": "f2"
+     },
+     {
+      "sq": "h2"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/d3-which/24",
+   "group": "negative",
+   "ctx": {
+    "answer": "d3-which"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "g7",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "h6",
+      "piece": "P",
+      "pronoun": true
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/square-no/25",
+   "group": "negative",
+   "ctx": {
+    "answer": "square-no"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "piece": "K",
+     "owner": "you"
+    },
+    "objs": [
+     {
+      "sq": "c6"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "Ke5",
+       "piece": "K",
+       "to": "e5"
+      },
+      {
+       "san": "a6",
+       "piece": "P",
+       "to": "a6"
+      },
+      {
+       "san": "Kd6",
+       "piece": "K",
+       "to": "d6"
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st1#11/26",
+   "group": "negative",
+   "ctx": {
+    "answer": "st1#11"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "c5",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "d4"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st1#11/27",
+   "group": "negative",
+   "ctx": {
+    "answer": "st1#11"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "c6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "d4"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st1#11/28",
+   "group": "negative",
+   "ctx": {
+    "answer": "st1#11"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P",
+      "owner": "you"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st1#11/29",
+   "group": "negative",
+   "ctx": {
+    "answer": "st1#11"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "d3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P",
+      "pronoun": true
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st1#11/30",
+   "group": "negative",
+   "ctx": {
+    "answer": "st1#11"
+   },
+   "claim": {
+    "rel": "aim",
+    "subj": {
+     "sq": "c4",
+     "piece": "B"
+    },
+    "objs": [
+     {
+      "sq": "f7"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st1#11/31",
+   "group": "negative",
+   "ctx": {
+    "answer": "st1#11"
+   },
+   "claim": {
+    "rel": "blocks",
+    "subj": {
+     "sq": "e6",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c4",
+      "piece": "B"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st1#12/32",
+   "group": "negative",
+   "ctx": {
+    "answer": "st1#12"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "f6",
+     "piece": "N"
+    },
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st1#12/33",
+   "group": "negative",
+   "ctx": {
+    "answer": "st1#12"
+   },
+   "claim": {
+    "rel": "hanging",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P"
+     }
+    ],
+    "neg": true
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st2#4/34",
+   "group": "negative",
+   "ctx": {
+    "answer": "st2#4"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "f6",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "piece": "N",
+      "owner": "you"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "exf6",
+       "piece": "P",
+       "to": "f6",
+       "capture": true,
+       "told": true
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st2#4/35",
+   "group": "negative",
+   "ctx": {
+    "answer": "st2#4"
+   },
+   "claim": {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "f6",
+      "piece": "P",
+      "pronoun": true
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st2#4/36",
+   "group": "negative",
+   "ctx": {
+    "answer": "st2#4"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "g7",
+     "piece": "P",
+     "owner": "you"
+    },
+    "objs": [
+     {
+      "sq": "f6",
+      "piece": "P",
+      "pronoun": true
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st2#5/37",
+   "group": "negative",
+   "ctx": {
+    "answer": "st2#5"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "e7",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "d8",
+      "piece": "Q",
+      "owner": "you"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st2#5/38",
+   "group": "negative",
+   "ctx": {
+    "answer": "st2#5"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "e7",
+     "piece": "P",
+     "pronoun": true
+    },
+    "objs": [
+     {
+      "sq": "f8"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st2#5/39",
+   "group": "negative",
+   "ctx": {
+    "answer": "st2#5"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "e8",
+     "piece": "K"
+    },
+    "objs": [
+     {
+      "sq": "e7",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st2#7/40",
+   "group": "negative",
+   "ctx": {
+    "answer": "st2#7"
+   },
+   "claim": {
+    "rel": "hold",
+    "subj": {
+     "sq": "e7",
+     "piece": "P",
+     "side": true
+    },
+    "objs": [
+     {
+      "sq": "f8"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st2#7/41",
+   "group": "negative",
+   "ctx": {
+    "answer": "st2#7"
+   },
+   "claim": {
+    "rel": "gives_check",
+    "subj": null,
+    "objs": [],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "exd8=Q+",
+       "piece": "P",
+       "to": "d8",
+       "capture": true
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st2#7/42",
+   "group": "negative",
+   "ctx": {
+    "answer": "st2#7"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "piece": "Q"
+    },
+    "objs": [
+     {
+      "sq": "c8",
+      "piece": "B"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "exd8=Q+",
+       "piece": "P",
+       "to": "d8",
+       "capture": true
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st3#8/43",
+   "group": "negative",
+   "ctx": {
+    "answer": "st3#8"
+   },
+   "claim": {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "e4",
+      "piece": "P",
+      "owner": "you"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st3#8/44",
+   "group": "negative",
+   "ctx": {
+    "answer": "st3#8"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "d1",
+     "piece": "Q",
+     "owner": "you"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st3#10/45",
+   "group": "negative",
+   "ctx": {
+    "answer": "st3#10"
+   },
+   "claim": {
+    "rel": "attack",
+    "subj": {
+     "sq": "d4",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "c3",
+      "piece": "P",
+      "owner": "you"
+     }
+    ]
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st3#10/46",
+   "group": "negative",
+   "ctx": {
+    "answer": "st3#10"
+   },
+   "claim": {
+    "rel": "undefended",
+    "subj": null,
+    "objs": [
+     {
+      "sq": "f2",
+      "piece": "P"
+     },
+     {
+      "sq": "c3",
+      "piece": "P"
+     }
+    ],
+    "neg": true
+   },
+   "expect": "not_false"
+  },
+  {
+   "id": "negative/st4#7/47",
+   "group": "negative",
+   "ctx": {
+    "answer": "st4#7"
+   },
+   "claim": {
+    "rel": "defend",
+    "subj": {
+     "sq": "c3",
+     "piece": "P"
+    },
+    "objs": [
+     {
+      "sq": "d4",
+      "piece": "P"
+     }
+    ],
+    "pos": {
+     "at": "after",
+     "moves": [
+      {
+       "san": "c3",
+       "piece": "P",
+       "to": "c3"
+      }
+     ]
+    }
+   },
+   "expect": "not_false"
+  }
+ ]
+}
