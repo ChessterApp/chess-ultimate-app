@@ -551,10 +551,12 @@ def _key(board: chess.Board) -> str:
 
 def _told_trail(converted: str, ctx) -> list:
     """The scene's moves of this sentence, each with where the text writes it: [(match or None, san, after)] —
-    aligned the way _written_moves aligns them, without its filters."""
+    aligned the way _written_moves aligns them, without its filters. Every written move the walk followed counts —
+    the scene's and those read as a plan on the start position (CheckContext.written_trail; start_scene sets no
+    scene for those, yet a name next to them may be about their line)."""
     from src.answer_check import _MOVE
 
-    trail = list(ctx.scene_trail or [])
+    trail = list(getattr(ctx, "written_trail", None) or ctx.scene_trail or [])
     out, k, line_end = [], 0, -1
     for m in _MOVE.finditer(converted):
         if k >= len(trail):

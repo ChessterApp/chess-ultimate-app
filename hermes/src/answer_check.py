@@ -330,6 +330,10 @@ class CheckContext:
     # each: a claim before «Kxh7» in «…поэтому он обязан её взять: Kxh7» is about the board before it.
     scene_before: Optional[tuple] = None
     scene_trail: list = field(default_factory=list)
+    # Every move this sentence wrote and the walk followed, in order (san, board after, move): the scene's moves and
+    # the moves read as a plan on the start position (start_scene sets no scene for them, yet they are written moves —
+    # a name next to them may be about their line, src/answer_check_openings._told_trail).
+    written_trail: list = field(default_factory=list)
     # The line the answer wrote, walked strictly from a given position (moves in words too) — what the next moves
     # and «пешка на a7, ты на d6» are judged in (src/answer_check_scene.py; prod 29.10).
     line_scene: Optional[dict] = None
@@ -1289,7 +1293,9 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
                     # turn's, for the lenient "some board allows it" checks), but it sets no scene (prod plan-kid
                     # 29.10: «...f5» read on the start position, then «бить на e4» judged there).
                     legal_somewhere = True
+                    plan_san = trial.san(move)
                     trial.push(move)
+                    ctx.written_trail.append((plan_san, trial.copy(stack=False), move))
                     prev, prev_trusted, ghost_now = trial, False, True
                     ctx.add(trial.fen(), derived=True)
                     break
@@ -1301,6 +1307,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
                     ctx.add(trial.fen(), derived=True)  # a line written in the answer goes on from here
                     ctx.scene, ctx.scene_san, ctx.scene_age = trial.copy(stack=False), scene_san, 0
                     ctx.scene_trail.append((scene_san, ctx.scene, move))
+                    ctx.written_trail.append((scene_san, ctx.scene, move))
                 if suffix_ok or not m["check"]:
                     break
             if legal_somewhere and (suffix_ok or not m["check"]):
@@ -4396,6 +4403,7 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
         ctx.scene_age += 1  # the scene a move of this sentence sets is age 0; the explanation after it still sees it
         ctx.scene_before = (ctx.scene, ctx.scene_san, ctx.scene_age) if ctx.scene is not None else None
         ctx.scene_trail = []
+        ctx.written_trail = []
         from src.answer_check_scene import age_scene
 
         age_scene(ctx)
