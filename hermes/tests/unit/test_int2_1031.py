@@ -21,7 +21,8 @@ def _fake_engine(monkeypatch, before: float, after: float):
     monkeypatch.setattr(hypothetical, "analyze_timed", fake)
 
 
-@pytest.mark.parametrize("keeping,cut", [(["Rd1+", "Rc4"], False), (["Rc4"], True), (None, True)])
+# (None: no tablebase answer — undecided while the engine still has White winning, stage 3: _ending_unproven)
+@pytest.mark.parametrize("keeping,cut", [(["Rd1+", "Rc4"], False), (["Rc4"], True), (None, False)])
 def test_a_move_the_tablebase_says_keeps_the_win_is_no_mistake(monkeypatch, keeping, cut):
     # lucena «Сейчас лучший ход — Rd1+»: the engine's number drops +6.1 → +4.3, yet Rd1+ is the textbook win
     _fake_engine(monkeypatch, 6.1, 4.3)

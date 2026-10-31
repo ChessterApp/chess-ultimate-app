@@ -78,6 +78,31 @@ def _tablebase_keeps(board: chess.Board, san: str) -> bool:
         return False
 
 
+# An ending of ≤ 7 pieces is decided by its result, which the tablebase knows and a 300 ms engine number does not:
+# lucena «Rd1+» read +6.5 → +4.4 in one run and +6.1 → +4.3 in another — the textbook win either way. When the
+# tablebase cannot be asked (unreachable, switched off, backing off), a move after which the engine still has the
+# mover clearly winning is undecided, not a mistake (stage-3 integration 31.10). A move the engine sees dropping the
+# win (below ENDING_WON) is still judged, and a tablebase answer always decides (_tablebase_keeps).
+ENDING_WON = 2.0
+
+
+def _ending_unproven(board: chess.Board, before: float, after: float) -> bool:
+    """≤ 7 pieces, no tablebase answer, and the mover clearly winning before and after the move (White-side
+    pawns *before* / *after*, ≥ ENDING_WON for the mover): the engine's drop proves no mistake. Fail-closed."""
+    try:
+        if len(board.piece_map()) > 7 or board.castling_rights:
+            return False
+        sign = 1 if board.turn == chess.WHITE else -1
+        if before * sign < ENDING_WON or after * sign < ENDING_WON:
+            return False
+        from src import board_rules
+
+        tb = board_rules.tablebase(board)
+        return not (tb and tb.get("keeping"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _given_away(before: float, loss: float) -> str:
     """'about 2.3 pawns given away', or the mate thrown away when the position before was a forced mate."""
     if abs(before) >= MATE_PAWNS - 0.5:
@@ -566,7 +591,7 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
             return None
         loss = (before - after_pawns) if board.turn == chess.WHITE else (after_pawns - before)
         if loss * 100 < threshold_cp or _keeps_decided(before, after_pawns, board.turn) \
-                or _tablebase_keeps(board, san):
+                or _tablebase_keeps(board, san) or _ending_unproven(board, before, after_pawns):
             # The move itself holds; a written line after it may still end badly.
             return verify_line(board, line_moves, movetime_ms, threshold_cp) if line_moves else None
         reply = _san_line(after, line.get("pv", ""), 3)

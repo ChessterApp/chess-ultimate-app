@@ -40,3 +40,51 @@ def test_pool_hash_defaults_to_stockfishs_own():
     """16 MB: the lines a process per search gave on main, and the depth-17 confirm inside its 1 s budget."""
     if "STOCKFISH_HASH_MB" not in os.environ:
         assert config.STOCKFISH_HASH_MB == 16
+
+
+LUCENA = "1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1"
+
+
+def _fake_engine(monkeypatch, before: float, after: float):
+    import chess
+
+    from src import hypothetical
+
+    def fake(fen, movetime_ms, multipv=1, min_depth=None, **kw):
+        if chess.Board(fen).turn == chess.WHITE:
+            return {"lines": [{"score": before, "pv": "c1c4"}]}
+        return {"lines": [{"score": -after, "pv": "d8e7"}]}
+
+    monkeypatch.setattr(hypothetical, "analyze_timed", fake)
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("before,after,tb,cut", [
+    (6.5, 4.4, None, False),                                                       # no tablebase: still winning
+    (6.5, 1.0, None, True),                                                        # the engine sees the win go
+    (6.5, 4.4, {"category": "win", "best_san": "Rc4", "keeping": ["Rc4"]}, True),  # the tablebase decides
+    (6.5, 4.4, {"category": "win", "best_san": "Rc4", "keeping": ["Rc4", "Rd1+"]}, False),
+])
+def test_an_ending_without_a_tablebase_answer_is_undecided_while_the_win_stays(monkeypatch, before, after, tb, cut):
+    import chess
+
+    from src import board_rules, hypothetical
+
+    _fake_engine(monkeypatch, before, after)
+    monkeypatch.setattr(board_rules, "tablebase", lambda b: tb)
+    board = chess.Board(LUCENA)
+    issue = hypothetical.verify_recommendation(board, board.parse_san("Rd1+"), "Rd1+", 300)
+    assert bool(issue) is cut, issue
+
+
+def test_more_than_seven_pieces_keep_the_engine_verdict(monkeypatch):
+    import chess
+
+    from src import board_rules, hypothetical
+
+    _fake_engine(monkeypatch, 6.5, 4.4)
+    monkeypatch.setattr(board_rules, "tablebase", lambda b: None)
+    board = chess.Board("1K1k4/1P6/8/8/8/2p5/rpp5/2R5 w - - 0 1")
+    assert hypothetical._ending_unproven(board, 6.5, 4.4) is False
