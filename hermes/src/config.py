@@ -524,11 +524,14 @@ COACH_TURN_FACTS = _env_flag("COACH_TURN_FACTS", True)
 # positions analysed while the student thinks. Each has its own off switch (0 = today's behaviour).
 #   STOCKFISH_POOL             — the pool on/off (default on).
 #   STOCKFISH_POOL_SIZE        — processes (default min(2, CPUs)), one thread each.
-#   STOCKFISH_HASH_MB          — hash per process (default 32).
+#   STOCKFISH_HASH_MB          — hash per process (default 16, Stockfish's own default and what a process per
+#                                search had on main: a depth search from an empty hash then gives the very lines a
+#                                new process gives, and trap-legal's depth-17 confirm needs 21 % fewer nodes than at
+#                                32 MB — 0.7–0.9 s against 1.04 s, over its 1 s budget; stage-3 integration 31.10).
 #   STOCKFISH_RECYCLE_SEARCHES — a process is restarted after this many searches (default 5000).
 #   COACH_PRECOMPUTE           — the board-change listener's precompute (default on).
 STOCKFISH_POOL = _env_flag("STOCKFISH_POOL", True)
 STOCKFISH_POOL_SIZE = max(1, int(os.environ.get("STOCKFISH_POOL_SIZE") or min(2, os.cpu_count() or 1)))
-STOCKFISH_HASH_MB = max(1, int(os.environ.get("STOCKFISH_HASH_MB", "32")))
+STOCKFISH_HASH_MB = max(1, int(os.environ.get("STOCKFISH_HASH_MB", "16")))
 STOCKFISH_RECYCLE_SEARCHES = max(1, int(os.environ.get("STOCKFISH_RECYCLE_SEARCHES", "5000")))
 COACH_PRECOMPUTE = _env_flag("COACH_PRECOMPUTE", True)

@@ -573,6 +573,18 @@ def record_shadow(ctx, name: str, issues, text: Optional[str] = None) -> None:
         pass
 
 
+def shadow_event_payload(ctx, limit: int = 12) -> Optional[dict]:
+    """The payload of the turn's ``detector_shadow`` event (src/server.py), or None when no shadow detector flagged
+    anything: the first *limit* records as {detector, sentence, issues} and the total. Plan §7: a shadow detector is
+    switched on only after ≥ 20 graded prod flags at ≥ 90 % precision — this is what gets graded."""
+    rows = [r for r in list(getattr(ctx, "detector_shadow", None) or []) if isinstance(r, (tuple, list)) and len(r) >= 3]
+    if not rows:
+        return None
+    return {"records": [{"detector": str(r[0]), "sentence": " ".join(str(r[1] or "").split())[:300],
+                         "issues": [str(i)[:300] for i in list(r[2] or [])[:4]]} for r in rows[:limit]],
+            "total": len(rows)}
+
+
 def _detector(name: str, ctx: Optional["CheckContext"], issues: list) -> list:
     """The issues of the plan-31.10 detector *name* as its switch says (src/config.detector_mode): 'on' returns
     them, 'shadow' records them in ctx.detector_shadow and logs them (never shown), 'off' drops them."""

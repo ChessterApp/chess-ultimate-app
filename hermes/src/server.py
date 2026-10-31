@@ -2971,6 +2971,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 from src.endgame_claims import tablebase_from_cache
 
                 tablebase_from_cache(check_ctx)
+                # The typed facts the model was given on this board (src/turn_facts, plan 31.10 P8): with the engine's
+                # lines when they came in, else the board-only ones — what a detector may quote («you were given: …»).
+                try:
+                    from src import turn_facts
+
+                    if note_fen:
+                        check_ctx.facts = (turn_facts.recent(note_fen, engine=True) or turn_facts.recent(note_fen)
+                                           or [])
+                except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
+                    logger.debug("turn facts for the check failed", exc_info=True)
                 hypo = _await_engine_note(hypo_future, engine_started, hypo_state)
                 if hypo:
                     old_board_blocks.append(
@@ -3505,6 +3515,22 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 turn_id=turn_id,
                 model=model,
                 payload=relation_record,
+            )
+        # The plan-31.10 detectors in shadow (src/answer_check.record_shadow: (name, sentence, issues)): one event per
+        # turn, so a detector's prod flags can be graded before it is switched on (plan §7: ≥ 20 at ≥ 90 %).
+        # Collect: jq -c 'select(.event_type=="detector_shadow")' hermes/metrics/coach-events-*.jsonl
+        from src.answer_check import shadow_event_payload
+
+        shadow_record = shadow_event_payload(check_ctx)
+        if shadow_record:
+            log_event(
+                "detector_shadow",
+                surface="text",
+                user_id=user_id,
+                session_id=session.id,
+                turn_id=turn_id,
+                model=model,
+                payload=shadow_record,
             )
         # The answer check: what was stopped and how the rest was written.
         fix_reply = fix["reply"]

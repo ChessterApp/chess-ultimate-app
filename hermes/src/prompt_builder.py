@@ -1149,17 +1149,29 @@ _ideas_cache: dict = {}
 
 
 def opening_ideas() -> dict:
-    """{book name: idea} from content/openings/ideas.yaml (read once; {} when it is missing or broken)."""
+    """{book name: idea} from content/openings/ideas.yaml, plus the `idea` of every opening of
+    content/openings/lines.yaml (P2's curated lines, read by the opening checks) that ideas.yaml does not name — one
+    set of opening notes for the prompt and the checks (stage-3 integration 31.10). Read once; {} when both are
+    missing or broken."""
     if "ideas" not in _ideas_cache:
+        ideas: dict = {}
         try:
             import yaml
 
             data = yaml.safe_load(_IDEAS_PATH.read_text(encoding="utf-8")) or {}
-            _ideas_cache["ideas"] = {e["book"]: " ".join(str(e["idea"]).split()) for e in data.get("ideas") or []
-                                     if e.get("book") and e.get("idea")}
+            ideas = {e["book"]: " ".join(str(e["idea"]).split()) for e in data.get("ideas") or []
+                     if e.get("book") and e.get("idea")}
         except Exception:  # noqa: BLE001 — the ideas are a bonus on top of the name
             logger.debug("opening ideas failed to load", exc_info=True)
-            _ideas_cache["ideas"] = {}
+        try:
+            from src.answer_check_openings import opening_lines
+
+            for o in opening_lines().get("openings") or []:
+                if o.get("book") and o.get("idea") and o["book"] not in ideas:
+                    ideas[o["book"]] = " ".join(str(o["idea"]).split())
+        except Exception:  # noqa: BLE001
+            logger.debug("lines.yaml ideas failed to load", exc_info=True)
+        _ideas_cache["ideas"] = ideas
     return _ideas_cache["ideas"]
 
 
