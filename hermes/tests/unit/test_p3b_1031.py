@@ -68,7 +68,7 @@ def _row(rid):
 
 
 def _shadowed(ctx, name):
-    return [line for n, line in getattr(ctx, "detector_shadow", []) if n == name]
+    return [line for n, _text, lines in getattr(ctx, "detector_shadow", []) if n == name for line in lines]
 
 
 # ── start_cue ────────────────────────────────────────────────────────────────────────────────────────────────────

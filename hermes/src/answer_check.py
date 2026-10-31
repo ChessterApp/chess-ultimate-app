@@ -407,8 +407,10 @@ class CheckContext:
     # may quote the one it relied on («(you were given: …)»). Empty until a provider fills it.
     facts: list = field(default_factory=list)
     # The issues of plan-31.10 detectors switched to shadow (COACH_DETECTORS_SHADOW, or a game move comment): logged,
-    # never shown — [(detector name, issues)].
+    # never shown — [(detector name, sentence, issues)], one shape for every package (record_shadow).
     detector_shadow: list = field(default_factory=list)
+    # The sentence _check_sentence is judging now (the sentence a shadow record names).
+    sentence_now: str = ""
     MAX_BOARDS = 400
 
     @classmethod
@@ -552,6 +554,25 @@ def _fail_open(fn, *args) -> list:
         return []
 
 
+def record_shadow(ctx, name: str, issues, text: Optional[str] = None) -> None:
+    """One shadow record for every plan-31.10 detector: (name, sentence, issues) on ctx.detector_shadow, and logged —
+    never shown or cut. *text* defaults to the sentence being judged (ctx.sentence_now). Fail-open."""
+    issues = [issues] if isinstance(issues, str) else list(issues or [])
+    if not issues or ctx is None:
+        return
+    try:
+        if text is None:
+            text = getattr(ctx, "sentence_now", "") or ""
+        logger.info("detector %s (shadow): %r -> %s", name, " ".join(text.split())[:300], "; ".join(issues)[:300])
+        sink = getattr(ctx, "detector_shadow", None)
+        if sink is None:
+            sink = []
+            ctx.detector_shadow = sink
+        sink.append((name, text, issues))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _detector(name: str, ctx: Optional["CheckContext"], issues: list) -> list:
     """The issues of the plan-31.10 detector *name* as its switch says (src/config.detector_mode): 'on' returns
     them, 'shadow' records them in ctx.detector_shadow and logs them (never shown), 'off' drops them."""
@@ -563,8 +584,7 @@ def _detector(name: str, ctx: Optional["CheckContext"], issues: list) -> list:
     if mode == "on":
         return list(issues)
     if mode == "shadow" and ctx is not None:
-        ctx.detector_shadow.append((name, list(issues)))
-        logger.info("detector %s (shadow): %s", name, "; ".join(issues)[:300])
+        record_shadow(ctx, name, issues)
     return []
 
 
@@ -612,7 +632,7 @@ def _is_hypothetical(text: str, original: str, upto: int, whole: bool = False, p
         if mode == "on":
             return False
         if mode == "shadow":
-            ctx.detector_shadow.append(("recap_scope", [f"recap to now read as the board now: {text[:upto][-80:]}"]))
+            record_shadow(ctx, "recap_scope", [f"recap to now read as the board now: {text[:upto][-80:]}"])
         return True
     if _HYPO.search(text if whole else text[:upto]):
         return True
@@ -3234,7 +3254,7 @@ def _plan_place_move(text: str, ctx: CheckContext) -> Optional[tuple]:
 
         mode = detector_mode("plan_place", ctx)
         if mode == "shadow":
-            ctx.detector_shadow.append(("plan_place", [f"plan places {board.san(moves[0])}: proposed to the engine"]))
+            record_shadow(ctx, "plan_place", [f"plan places {board.san(moves[0])}: proposed to the engine"])
         if mode != "on":
             return None
         return board, moves[0], board.san(moves[0])
@@ -3416,7 +3436,7 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
         if mode == "on":
             starts = sorted(starts + vocab, key=lambda x: x.start())
         elif mode == "shadow":
-            ctx.detector_shadow.append(("propose_vocab", [f"advice «{v.group(0).strip()}» proposed to the engine" for v in vocab]))
+            record_shadow(ctx, "propose_vocab", [f"advice «{v.group(0).strip()}» proposed to the engine" for v in vocab])
     you_play = _YOU_PLAY.match(text)
     if you_play and "?" not in text and not _FAILS.search(text) and not _REPLY.search(text) \
             and student_side(ctx, text) == ctx.current.turn and not _tells_line(text[you_play.end():]) \
@@ -4404,6 +4424,7 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
         ctx.scene_before = (ctx.scene, ctx.scene_san, ctx.scene_age) if ctx.scene is not None else None
         ctx.scene_trail = []
         ctx.written_trail = []
+        ctx.sentence_now = sentence
         from src.answer_check_scene import age_scene
 
         age_scene(ctx)

@@ -1109,11 +1109,9 @@ def _log_shadow(ctx: Any, name: str, claim: Claim, verdict: Verdict) -> None:
 
         line = issue_text(claim, verdict)
         ctx.relation_shadow.append((text, [line]))
-        names = getattr(ctx, "detector_shadow", None)
-        if names is None:
-            names = []
-            ctx.detector_shadow = names
-        names.append((name, line))
+        from src.answer_check import record_shadow
+
+        record_shadow(ctx, name, [line], text or None)
         stats = getattr(ctx, "relation_stats", None)
         if isinstance(stats, dict):
             stats["flags"] = stats.get("flags", 0) + 1

@@ -945,17 +945,9 @@ def _mode(name: str, ctx) -> str:
 
 def _shadow(ctx, name: str, text: str, issues: list) -> None:
     """A shadow detector's issues: logged and kept on ``ctx.detector_shadow`` as (name, sentence, issues), never shown."""
-    if not issues:
-        return
-    logger.info("detector %s (shadow): %r -> %s", name, " ".join(text.split())[:300], issues)
-    try:
-        sink = getattr(ctx, "detector_shadow", None)
-        if sink is None:
-            sink = []
-            setattr(ctx, "detector_shadow", sink)
-        sink.append((name, text, list(issues)))
-    except Exception:  # noqa: BLE001
-        pass
+    from src.answer_check import record_shadow
+
+    record_shadow(ctx, name, issues, text)
 
 
 def _names_by_mode(text: str, ctx) -> list[str]:

@@ -589,15 +589,9 @@ def _mode(name: str, ctx) -> str:
 
 def _shadow(name: str, text: str, issues: list, ctx) -> None:
     """A shadow detector's issue: logged and kept on ctx.detector_shadow, never shown or cut."""
-    logger.info("detector %s (shadow): %r -> %s", name, text[:160], issues)
-    try:
-        log = getattr(ctx, "detector_shadow", None)
-        if log is None:
-            log = []
-            ctx.detector_shadow = log
-        log.append((name, text, list(issues)))
-    except Exception:  # noqa: BLE001
-        pass
+    from src.answer_check import record_shadow
+
+    record_shadow(ctx, name, issues, text)
 
 
 def _gated(name: str, text: str, issues: list, ctx) -> list:
