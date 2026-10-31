@@ -1159,6 +1159,21 @@ def _presupposed(claim: Claim, boards: BoardSet) -> tuple:
             where = f"before {_san_where(primary, mv)}"
         elif claim.presup == "no_longer":
             return replace(claim, presup=""), None  # no move told: what held before is unknown
+        if claim.presup == "before_move" and primary is not boards.primary and mv is not None:
+            # «Nd2: конь уходит из-под связки» names the piece by kind only (claim_grammar pin_escape): it is the piece
+            # that made the told move, read on its square before the move. A told move other than the board's last
+            # one leaves the claim unbound (undecided).
+            if claim.move is not None and claim.move.to and claim.move.to != chess.square_name(mv.to_square):
+                return claim, None
+            mover = boards.primary.piece_at(mv.to_square)
+
+            def bind(r):
+                if r is None or r.sq or not r.piece or mover is None or PIECE_TYPE.get(r.piece) != mover.piece_type \
+                        or (r.side is not None and r.side != mover.color):
+                    return r
+                return replace(r, sq=chess.square_name(mv.from_square), side=mover.color)
+
+            claim = replace(claim, objs=tuple(bind(o) for o in claim.objs))
         boards = BoardSet(primary=primary, where=where, alternatives=tuple(back(b) for b in boards.alternatives),
                           shown=None)
     if claim.presup == "no_longer" or (claim.neg and detector_of(boards.primary) == "loaded_line"):

@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "pin_escape",
- "status": "missed",
+ "status": "caught",
  "sentence": "Играй Nd2: конь уходит из-под связки, а слон чёрных на f5 остаётся «в воздухе».",
  "sentence_index": 1,
  "prefix": [

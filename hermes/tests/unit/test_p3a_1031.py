@@ -7,11 +7,10 @@
   cover_cause  «поле f6 держала пешка g7, и конь там потерялся» → cover_cause(g7, f6, the knight lost there)
 
 The judges of these claims are P3B's (claim_judge): WP-0's judge leaves pin_exists, cover_cause and the before_move
-pin undecided, so on its own this package cuts nothing new. ``ref_judges`` below stands in for P3B's semantics
-(PLAN §3: pin_exists true on any board of the scene; before_move judged on the board before the told move; locked =
-at most one legal move or one square of reach; cover_cause false when the holder is the lost piece's colour) to
-show the claims carry what those judges need — the rows plan-caro-adv and op-ruy are caught with it, the true
-controls stay clean.
+pin undecided, so on its own this package cut nothing new. Since the integration P3B's judges decide them
+(before_move: the piece that made the told move, on the board before it; pin_exists; locked = at most one legal move
+or one square of reach; cover_cause false when the holder is the lost piece's colour); ``ref_judges`` only forces a
+shadow detector on — the rows plan-caro-adv and op-ruy (pin_noun on) are caught, the true controls stay clean.
 """
 from __future__ import annotations
 
@@ -44,93 +43,21 @@ def _one(text: str) -> Claim:
     return got[0]
 
 
-# ── the stand-in for P3B's judges (test only) ────────────────────────────────────────────────────────────────────
+# ── P3B's judges (merged at integration) ─────────────────────────────────────────────────────────────────────────
 @pytest.fixture
 def ref_judges(monkeypatch):
-    """P3B's semantics of P3A's claims, patched into claim_judge for the test; 'shadow' detectors are undecided."""
+    """P3B's real judges (claim_judge) decide P3A's claims since the integration; the fixture only lets a test judge
+    a detector that ships in shadow as if it were on (add its name to the returned set)."""
     from src import config
-    from src.claim_scene import board_before, last_move
-    from src.game_record import captures
 
     forced: set = set()
+    orig = config.detector_mode
 
-    def live(claim):
-        return claim.kind not in config.DETECTOR_DEFAULTS or claim.kind in forced or \
-            config.detector_mode(claim.kind) == "on"
+    def mode(name, ctx=None):
+        got = orig(name, ctx)
+        return "on" if name in forced and got == "shadow" else got
 
-    def matches(board, claim):
-        for t in board.piece_map():
-            for a in J._pinners(board, t):
-                b = J.pin_behind(board, a, t)
-                s, o, k = claim.subj, next((x for x in claim.objs if x is not None), None), claim.to
-                if s is not None and ((s.sq and chess.parse_square(s.sq) != a) or
-                                      (s.piece and board.piece_type_at(a) != J.PIECE_TYPE[s.piece]) or
-                                      (s.side is not None and board.color_at(a) != s.side)):
-                    continue
-                if o is not None and ((o.sq and chess.parse_square(o.sq) != t) or
-                                      (o.piece and board.piece_type_at(t) != J.PIECE_TYPE[o.piece]) or
-                                      (o.side is not None and board.color_at(t) != o.side)):
-                    continue
-                if k is not None and ((k.piece and board.piece_type_at(b) != J.PIECE_TYPE[k.piece]) or
-                                      (k.side is not None and board.color_at(b) != k.side)):
-                    continue
-                return True
-        return False
-
-    def pin_exists(claim, board, ctx):
-        if not live(claim):
-            raise J._Undecided
-        if claim.presup == "before_move":
-            board = board_before(board)
-            if board is None:
-                raise J._Undecided
-        return (True, "") if matches(board, claim) else (False, "nothing is pinned")
-
-    orig_pinned, orig_locked = J._JUDGES["pinned"], J._JUDGES["locked"]
-
-    def pinned(claim, board, ctx):
-        if claim.presup != "before_move" or claim.move is None:
-            return orig_pinned(claim, board, ctx)
-        if not live(claim):
-            raise J._Undecided
-        mv, prev = last_move(board), board_before(board)
-        if mv is None or prev is None or chess.square_name(mv.to_square) != claim.move.to:
-            raise J._Undecided
-        c = replace(claim, objs=(Ref(sq=chess.square_name(mv.from_square), piece=claim.objs[0].piece),), presup="",
-                    move=None)
-        v, truth = orig_pinned(c, prev, ctx)
-        return v, (f"before {prev.san(mv)}: {truth}" if v is False else truth)
-
-    def locked(claim, board, ctx):
-        if claim.rel != "locked" or claim.objs:
-            return orig_locked(claim, board, ctx)
-        if not live(claim):
-            raise J._Undecided
-        a = chess.parse_square(claim.subj.sq)
-        moves = J._moves_of(board, a)
-        if moves is None or board.piece_type_at(a) in (None, chess.KING, chess.PAWN):
-            raise J._Undecided
-        if len(moves) <= 1 or len(board.attacks(a)) <= 1:
-            return True, ""
-        return False, f"{J.who(board, a)} can go to {J._sqnames({m.to_square for m in moves})}"
-
-    def cover_cause(claim, board, ctx):
-        if not live(claim):
-            raise J._Undecided
-        z = claim.objs[0].sq
-        hp = board.piece_at(chess.parse_square(claim.subj.sq))
-        caps = [c for c in captures(ctx) if chess.square_name(c.square) == z]
-        if hp is None or not caps:
-            raise J._Undecided
-        if hp.color != caps[-1].mover:
-            return False, f"{J.who(board, chess.parse_square(claim.subj.sq))} is {J._side(hp.color)}'s own piece; " \
-                          f"the {J.NAME[caps[-1].captured]} on {z} was taken by {caps[-1].label}"
-        return True, ""
-
-    monkeypatch.setitem(J._JUDGES, "pin_exists", pin_exists)
-    monkeypatch.setitem(J._JUDGES, "pinned", pinned)
-    monkeypatch.setitem(J._JUDGES, "locked", locked)
-    monkeypatch.setitem(J._JUDGES, "cover_cause", cover_cause)
+    monkeypatch.setattr(config, "detector_mode", mode)
     return forced
 
 
@@ -222,10 +149,10 @@ def test_switches_turn_each_detector_off(monkeypatch):
 
 
 # ── locked ───────────────────────────────────────────────────────────────────────────────────────────────────────
-def test_locked_waits_for_the_judge_of_no_way_out():
-    # WP-0's judge reads «locked» as «no legal move at all» and would cut the French bishop: nothing is emitted
-    assert not cg._locked_judge_ready()
-    assert not _mine("Слон c8 заперт.")
+def test_locked_is_emitted_now_that_the_judge_reads_no_way_out():
+    # P3B's judge reads «locked» as «at most one legal move or one square of reach»: the probe passes, the claim comes
+    assert cg._locked_judge_ready()
+    assert [c.rel for c in _mine("Слон c8 заперт.")] == ["locked"]
 
 
 def test_locked_is_emitted_once_the_judge_reads_no_way_out(ref_judges):
@@ -272,7 +199,7 @@ def test_no_cover_cause(text):
 def test_plan_caro_adv_is_caught_by_the_pin_before_nd2(ref_judges):
     sentence, issues, stage = _run_row("plan-caro-adv")[-1]
     assert stage == "sync" and len(issues) == 1
-    assert "before Nd2" in issues[0] and "knight on b1 is not pinned" in issues[0]
+    assert "before 4.Nd2" in issues[0] and "knight on b1 is not pinned" in issues[0]
 
 
 def test_op_ruy_is_caught_when_pin_noun_is_on(ref_judges):
@@ -284,7 +211,7 @@ def test_op_ruy_is_caught_when_pin_noun_is_on(ref_judges):
 
 def test_st2_4_cover_cause_names_the_real_capture(ref_judges):
     issues = _run_row("st2_4-attack")[-1][1]
-    assert any("g7 is Black's own piece" in i and "4.exf6" in i for i in issues)
+    assert any("g7 is Black's own" in i and "4.exf6" in i for i in issues)
 
 
 def _control_ctx(c: dict):

@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "M6 free_capture",
- "status": "missed",
+ "status": "caught",
  "sentence": "Это была ошибка: поле f6 держала пешка g7, и конь там просто потерялся — белые забирают фигуру бесплатно, и теперь у них лишний конь и большой перевес. ",
  "sentence_index": 1,
  "prefix": [
