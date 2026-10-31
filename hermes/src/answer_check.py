@@ -66,21 +66,23 @@ _STOP_MID = r"[^.!?;:,\n()|]"
 # после перевода на g3…» is not a jump b1-g3).
 _STOP_MOVE = r"[^.!?;:,\n—–()|]"
 
-# «конь с f3 прыгает на d5», «слон уходит с c5 на a7», «knight from f3 to d5»
+# «конь с f3 прыгает на d5», «слон уходит с c5 на a7», «knight from f3 to d5». The words between are one optional
+# stretch of clause text (its characters include spaces): «(\s+X+?){0,2}?» meant the same strings but let a run of
+# piece words split between the repeats in polynomially many ways — 5.5 s on «конь »×200 (review 30.10, wiring).
 _MOVE_CLAIMS = []
 for _ptype, _pat in _RU_PIECES:
     _MOVE_CLAIMS.append((_ptype, re.compile(
-        _W + "(?:" + _pat + ")" + _E + rf"(?P<mid1>(?:\s+{_STOP_MOVE}+?){{0,2}}?)\s+(?:с|со|из)\s+(?:пол[яе]\s+)?(?P<a>{SQ})"
-        rf"(?P<mid2>(?:\s+{_STOP_MOVE}+?){{0,3}}?)\s+на\s+(?P<b>{SQ})(?![0-9])")))
+        _W + "(?:" + _pat + ")" + _E + rf"(?P<mid1>(?:\s+{_STOP_MOVE}+?)??)\s+(?:с|со|из)\s+(?:пол[яе]\s+)?(?P<a>{SQ})"
+        rf"(?P<mid2>(?:\s+{_STOP_MOVE}+?)??)\s+на\s+(?P<b>{SQ})(?![0-9])")))
     _MOVE_CLAIMS.append((_ptype, re.compile(
         _W + "(?:" + _pat + ")" + _E + rf"\s+(?:с\s+)?(?P<a>{SQ})\s*[-–]\s*(?P<b>{SQ})(?![0-9])")))
     _MOVE_CLAIMS.append((_ptype, re.compile(
-        _W + "(?:" + _pat + ")" + _E + rf"(?P<mid1>(?:\s+{_STOP_MOVE}+?){{0,3}}?)\s+на\s+(?P<b>{SQ})"
-        rf"(?P<mid2>(?:\s+{_STOP_MOVE}+?){{0,1}}?)\s+(?:с|со)\s+(?:пол[яе]\s+)?(?P<a>{SQ})(?![0-9])")))
+        _W + "(?:" + _pat + ")" + _E + rf"(?P<mid1>(?:\s+{_STOP_MOVE}+?)??)\s+на\s+(?P<b>{SQ})"
+        rf"(?P<mid2>(?:\s+{_STOP_MOVE}+?)??)\s+(?:с|со)\s+(?:пол[яе]\s+)?(?P<a>{SQ})(?![0-9])")))
 for _ptype, _pat in _EN_PIECES:
     _MOVE_CLAIMS.append((_ptype, re.compile(
-        _W + "(?:" + _pat + ")" + _E + rf"(?P<mid1>(?:\s+{_STOP_MOVE}+?){{0,2}}?)\s+(?:from|on)\s+(?P<a>{SQ})"
-        rf"(?P<mid2>(?:\s+{_STOP_MOVE}+?){{0,3}}?)\s+(?:to|onto)\s+(?P<b>{SQ})(?![0-9])")))
+        _W + "(?:" + _pat + ")" + _E + rf"(?P<mid1>(?:\s+{_STOP_MOVE}+?)??)\s+(?:from|on)\s+(?P<a>{SQ})"
+        rf"(?P<mid2>(?:\s+{_STOP_MOVE}+?)??)\s+(?:to|onto)\s+(?P<b>{SQ})(?![0-9])")))
 
 # «конь на c7 бьёт a8 и d8», «слон c4 держит f7», «the knight on f7 attacks d8 and h8».
 # The attacker is the subject: nominative («конь») or instrumental («конём на
@@ -393,6 +395,10 @@ class CheckContext:
     relation_shadow: list = field(default_factory=list)
     relation_stats: dict = field(default_factory=dict)
     solution_lines: list = field(default_factory=list)
+    # Where the answer is shown: 'text' (the coach), 'voice', 'lesson' (the /learn tutor — the relation checker does
+    # not run there, Асан 19.10: the lesson tutor is the team's), 'game' (a move comment — recorded, never cut, until
+    # its flags are reviewed). src/answer_check_relations.mode reads it.
+    relation_surface: str = "text"
     MAX_BOARDS = 400
 
     @classmethod
@@ -3866,8 +3872,10 @@ _WS_RUN = re.compile(r"\s{2,}")
 _EMPHASIS = re.compile(r"\*{1,3}|(?<![A-Za-zА-Яа-яЁё0-9])__|__(?![A-Za-zА-Яа-яЁё0-9])")
 
 
-def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[str]:
-    """The reasons *sentence* is wrong on the board; [] when nothing checkable is wrong."""
+def check_sentence(sentence: str, ctx: Optional[CheckContext] = None, *, spoken: bool = False) -> list[str]:
+    """The reasons *sentence* is wrong on the board; [] when nothing checkable is wrong. *spoken*: the sentence was
+    already said (the voice check replaying the answer so far) — what it named stays the antecedent of the next
+    sentence's «он/она» even when it has issues, since the listener heard it."""
     ctx = ctx or CheckContext.from_fens()
     # A sentence with issues is not shown, and its rewrite is checked on the same context (src/server.py: fix_gate
     # shares check_ctx): the line it wrote must not be the one the rewrite's «Тогда …» goes on with (review 30.10).
@@ -3886,7 +3894,8 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
         if line_before is not None:
             line_before["age"] = age_before
         ctx._line_end, ctx._line_advice, ctx.forced_line = kept
-        ctx.relation_state = relation_kept
+        if not spoken:
+            ctx.relation_state = relation_kept
     return issues
 
 

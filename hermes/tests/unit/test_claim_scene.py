@@ -181,7 +181,19 @@ def test_solution_lines_and_the_puzzle_fallback():
     assert len(bs.alternatives) == 2  # after f4, after f4 Qd6
     ctx = ctx_for(fen, question="Какой здесь первый ход?")
     bs = claim_scene.boards_for(claim(), ctx, {})
-    assert len(bs.alternatives) == ctx.current.legal_moves.count()  # unknown solution: every move
+    # Unknown solution: the forcing moves of the side to move (checks, captures, promotions) — not every move, which
+    # would make any claim some quiet move makes true unreportable (review 30.10, miss F1).
+    b = ctx.current
+    forcing = [m for m in b.legal_moves if b.is_capture(m) or b.gives_check(m) or m.promotion]
+    assert len(bs.alternatives) == len(forcing) < b.legal_moves.count()
+    # …plus the moves the answer named in the sentences before
+    state = {}
+    claim_scene.remember("Лучший ход — Qc3.", [], ctx, state)
+    named = claim_scene.boards_for(claim(), ctx, state)
+    assert len({x.fen() for x in named.alternatives}) == len(forcing) + 1
+    assert any(x.piece_at(chess.C3) == chess.Piece(chess.QUEEN, chess.WHITE) for x in named.alternatives)
+    # a denial or a «which» presupposition is about the board now
+    assert claim_scene.boards_for(claim(neg=True), ctx, {}).alternatives == ()
     assert claim_scene.boards_for(claim(), ctx_for(fen, question="Опиши позицию"), {}).alternatives == ()
 
 

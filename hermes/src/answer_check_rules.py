@@ -1514,7 +1514,11 @@ def _retreat_square_issues(text: str, ctx) -> list[str]:
     def opens_all(b: chess.Board) -> bool:
         return all(chess.Move(frm, t) in b.legal_moves and b.piece_at(t) is None for t in squares)
 
-    main = [b for b in chases if opens_all(b)]
+    # With the relation checker off this is not applied either: off is the whole rollback to the checks of 6eb7b972
+    # (review 30.10, wiring).
+    from src.answer_check_relations import mode as relation_mode
+
+    main = [b for b in chases if opens_all(b)] if relation_mode(ctx) != "off" else []
     if main:
         chases = main
     lost, safe = [], []

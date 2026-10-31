@@ -312,8 +312,35 @@ _ONLY_LEGAL_MOVE = re.compile(_W + r"(?:единственн\w+\s+(?:легал�
                               r"|других\s+ходов\s+(?:у\s+[а-я]+\s+)?(?:нет|не\s+было)|нет\s+других\s+ходов)" + _E)
 
 
+# «Король может пойти только на f8», «королю можно уйти только на f8»: the piece's moves go to that square only
+_PIECE_ONLY_TO = re.compile(_PIECE.pattern + r"\s+(?:[а-я]+\s+){0,2}?(?:может|можно|мог|могла|сможет)\s+(?:[а-я]+\s+)?"
+                            r"(?:пойти|уйти|отойти|встать|отступить|сходить|шагнуть|двинуться|пройти)\s+только\s+на\s+"
+                            r"(?P<sq>" + _SQ + ")")
+# «Единственная защита от шаха — Kf8», «Единственный способ уйти от шаха — Kf8»: the move after it parries the check
+_PARRY_MOVE = re.compile(_W + r"единственн\w+\s+(?:защит\w*|спасени\w*|способ\w*(?:\s+уйти|\s+защититься)?)\s+от\s+шах\w*"
+                         r"\s*(?:[—–:-]|это)\s*")
+# «Есть только один легальный ход: Kf8», «только один возможный ход — …»: the legal sense said in words
+_ONE_LEGAL = re.compile(_W + r"только\s+один\s+(?:легальн\w+|возможн\w+|законн\w+|допустим\w+)\s+ход\w*" + _E)
+
+
 def _only_move(conv, low, moves, state):
     out = []
+    for m in _PIECE_ONLY_TO.finditer(low):
+        if _skip(low, m.start(), any(s < m.start() for s, _, _ in moves)):
+            continue
+        piece = _piece_at(low, m)
+        side = _side_word(low, max(0, m.start() - 20), m.start() + 1)
+        target = MoveRef(piece=piece, to=m.group("sq"), side=side)
+        out.append(_claim("only_move", Ref(piece=piece, side=side, text=m.group(0)), pos=_pos(moves, m.start(), low, state),
+                          span=(m.start(), m.end()), move=target, kind="piece"))
+    for rx, kind in ((_PARRY_MOVE, "parry"), (_ONE_LEGAL, "any")):
+        for m in rx.finditer(low):
+            near = [(s, e, mv) for s, e, mv in moves if 0 <= s - m.end() <= 12 or 0 <= m.start() - e <= 12]
+            if not near or _skip(low, m.start(), True):
+                continue
+            s, e, mv = min(near, key=lambda x: abs(x[0] - m.end()))
+            pos = _pos_for_move(mv, moves, s, low, state)
+            out.append(_claim("only_move", None, pos=pos, span=(min(s, m.start()), max(e, m.end())), move=mv, kind=kind))
     for rx in (_BLOCK_ONLY, _BLOCK_ONLY2):
         for m in rx.finditer(low):
             moves_before = any(s < m.start() for s, _, _ in moves)
@@ -894,7 +921,15 @@ def judge_no_flight(claim: Claim, board: chess.Board, ctx) -> Verdict:
         return UNDECIDED
     color = board.color_at(k)
     if board.turn != color and not board.is_check():
-        return UNDECIDED  # the opponent moves first: the words may be about after its move
+        # The opponent moves first: the words may be about after its move — but «у короля нет выхода» of a king on
+        # its edge in the back-rank sense is false when it has a legal step off that edge (an air hole on h7)
+        edge = chess.square_rank(k) in (0, 7)
+        if claim.neg or claim.kind or not edge:
+            return UNDECIDED
+        off = [s for s in _flights(board, k) if chess.square_rank(s) != chess.square_rank(k)]
+        if off:
+            return Verdict("false", "", f"{_who(board, k)} has a way out: " + _join([chess.square_name(s) for s in off], "or"))
+        return UNDECIDED
     fl = _flights(board, k)
     has_none = not fl
     if has_none != claim.neg:
@@ -1027,6 +1062,15 @@ def judge_only_move(claim: Claim, board: chess.Board, ctx) -> Verdict:
     pt = PIECE_TYPE.get(claim.subj.piece) if claim.subj is not None and claim.subj.piece else None
     if claim.subj is not None and claim.subj.side is not None and claim.subj.side != board.turn:
         return UNDECIDED
+    if claim.kind == "piece":
+        # «Король может пойти только на f8»: every legal move of that piece goes to that square
+        if mv is None or pt is None or board.piece_type_at(mv.from_square) != pt:
+            return UNDECIDED
+        dest = sorted({m.to_square for m in board.legal_moves if m.from_square == mv.from_square})
+        if dest == [mv.to_square]:
+            return Verdict("true")
+        return Verdict("false", "", f"{_who(board, mv.from_square)} can also go to "
+                       + _join([chess.square_name(x) for x in dest if x != mv.to_square], "or"))
     if claim.kind in ("block", "parry"):
         if not board.is_check():
             return UNDECIDED

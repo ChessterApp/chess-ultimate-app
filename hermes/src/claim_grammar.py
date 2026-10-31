@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Optional
 
 import chess
@@ -103,7 +104,8 @@ _PRON = {"он": ("N", "m"), "она": ("N", "f"), "они": ("N", "p"), "его
          "he": ("N", "m"), "she": ("N", "f"), "him": ("A", "m")}
 # «пешку b2, которая прикрывала поле c2»: the relative pronoun stands for the noun right before it
 _WHICH = {"который": ("N", "m"), "которая": ("N", "f"), "которое": ("N", "n"), "которые": ("N", "p"),
-          "которого": ("AG", "m"), "которую": ("A", "f"), "которым": ("I", "m"), "которой": ("GDIP", "f")}
+          "которого": ("AG", "m"), "которую": ("A", "f"), "которым": ("I", "m"), "которой": ("GDIP", "f"),
+          "which": ("NA", "x"), "who": ("NA", "x")}
 
 # Nouns a pronoun may stand for that are not pieces («это уязвимый пункт, ведь его прикрывает король»): one of them
 # between a piece and the pronoun makes the pronoun ambiguous.
@@ -130,29 +132,36 @@ _SIDE = [(re.compile(W + r"(?:белые|white)" + E), chess.WHITE), (re.compile
 # Relation words (order matters: the first alternative wins at a position).
 _REL = [
     ("UNDEF", r"(?:ничем\s+|никем\s+)?не\s+(?:защищ[её]н[аоы]?|прикрыт[аоы]?|поддержан[аоы]?)" + E
-     + r"|без\s+защиты|undefended|unprotected"),
+     + r"|незащищ[её]нн?(?:ый|ая|ое|ые|а|о|ы)?" + E + r"|беззащитн\w*|без\s+(?:защиты|прикрытия)"
+     + r"|undefended|unprotected|(?:is|are)\s+not\s+(?:defended|protected)"),
+    ("HANG", r"вис(?:ит|ят|ел[аио]?)" + E + r"|(?:is|are)\s+hanging|hangs|en\s+prise"),
     ("UNDEF_A", r"(?:никто|ничто|ничего|ничем|nothing|nobody)\s+(?:(?:ее|его|их|it)\s+)?(?:не\s+)?"
      r"(?:защища\w*|прикрыва\w*|defends|protects)"),
     ("HOLD", r"держ(?:ит|ат|ал\w*)\s+под\s+(?:ударом|боем|прицелом|контролем)|бер(?:ет|ут)\s+под\s+контроль|"
      r"брал\w*\s+под\s+контроль|взял\w*\s+под\s+контроль"),
-    ("PASS_ATT", r"под\s+(?:ударом|боем|атакой)|атакован[аоы]?" + E + r"|(?:is|are)\s+attacked|under\s+attack"),
+    ("PASS_ATT", r"под\s+(?:ударом|боем|атакой|прицелом)|в\s+зоне\s+(?:удара|атаки|поражения)|атакован[аоы]?" + E +
+     r"|(?:is|are)\s+(?:not\s+)?attacked|(?:is|are)\s+(?:not\s+)?under\s+attack|under\s+attack"),
     ("CTRL_G", r"под\s+контролем"),
     ("CTRL_I", r"прострелен[аоы]?" + E + r"|простреливаем\w*"),
     ("PASS_DEF", r"защищ[её]н[аоы]?" + E + r"|прикрыт[аоы]?" + E + r"|под\s+защитой|поддержан[аоы]?" + E
      + r"|(?:is|are)\s+(?:defended|protected)"),
-    ("PASS_PIN", r"связан[аоы]?" + E + r"|(?:is|are)\s+pinned"),
-    ("PIN", r"связыва\w*|связал\w*|pins|pinning"),
+    ("PASS_PIN", r"связан[аоы]?" + E + r"|(?:is|are)\s+(?:not\s+)?pinned"),
+    ("PIN", r"связыва\w*|связал\w*|связав\w*|pins|pinning"),
     ("PIN_N", r"связк\w*|pin" + E),
     ("LOCK", r"заперт\w*|запер(?:ла|ли|л)?" + E + r"|запира\w*|перекры\w*|загород\w*|загоражива\w*"),
     ("SOFT", r"смотр(?:ит|ят|ел\w*)\s+(?:на|в)|целит\w*|целя\w*|нацел\w*|дав(?:ит|ят|ил\w*|ить)\s+(?:на|по)|"
+             r"мет(?:ит|ят|ил\w*)\s+в|"
              r"давлени\w*\s+на|eyes|aims?\s+at|press(?:es|ing)?\s+on"),
     ("CHASE", r"отгоня\w*|отгон(?:ит|ишь|ят|я|ять)|отогна\w*|прогоня\w*|прогна\w*|выгоня\w*|kicks?|chases?|chasing"),
     ("THREAT", r"гроз(?:ит|ят|ил\w*)|угрожа\w*|threatens?"),
     ("CAPW", r"возьм\w*|заберут|забирают|бьют|бьет|бьешь|берут|берет|берешь|забирает|забираешь"),
-    ("ATT", r"бь[её]т|бьют|бил[аи]?|бить|атакует|атакуют|атакуя|атаковал\w*|атаковать|напада\w*|напал\w*|напав|"
+    ("ATT", r"бь[её]т|бьют|бил[аи]?|бить|атаку(?:ет|ют|ешь|ете|ем|я|ющ\w*)|атакова(?:л|в|ть)\w*|напада\w*|напал\w*|напав|"
+            r"удар(?:ил|ит|яет|яют)\w*\s+по|"
             r"нападет|нападут|с\s+ударом\s+по|с\s+(?:нападением|атакой)\s+на|attacks?|attacking|hits"),
-    ("DEF", r"защища\w*|защитит\w*|защитил\w*|защитить|прикрыва\w*|прикрыл\w*|поддержива\w*|поддерж(?:ит|ал\w*|ать)|"
-            r"подкреп\w*|охраня\w*|defends?|defending|protects?|guards?|(?:вста[её]т|встал\w*)\s+на\s+защиту|"
+    ("DEF", r"защища\w*|защитит\w*|защитил\w*|защитить|защитив\w*|прикрыва\w*|прикрыл\w*|прикрыв(?:ш\w*)?|"
+            r"поддержива\w*|поддерж(?:ит|ал\w*|ать|ав)|подкреп\w*|укреп(?:ил|ля)\w*|охраня\w*|стереж\w*|стерег\w*|"
+            r"оберега\w*|страху\w*|бер(?:ет|ут|[её]т)\s+под\s+защиту|взял\w*\s+под\s+защиту|"
+            r"defends?|defending|protects?|guards?|(?:вста[её]т|встал\w*)\s+на\s+защиту|"
             r"прикрыти\w*\s+пол[яюе]"),
     ("HOLD", r"держ(?:ит|ат|ал\w*|ать)|удержива\w*|контролиру\w*|простреливает|простреливают|holds|controls|covers"),
 ]
@@ -175,7 +184,7 @@ _IDIOM = re.compile(
     r"связан\w*(?=\s+(?:защитой|прикрытием|охраной)" + E + r")|"
     r"связаны\s+между|защит\w*\s+(?:позици\w*|центр\w*|фланг\w*)|"
     r"держ\w*\s+(?:ничью|оппозици\w*|удар|позици\w*|оборону|баланс|центр)|"
-    r"упорн\w*\s+защит\w*|нет\s+защиты|"
+    r"упорн\w*\s+защит\w*|нет\s+защиты|вис\w*\s+в\s+воздухе|"
     r"связан\w*(?=\s*[:—–]\s*(?:\w+\s+){0,2}(?:должн\w*|обязан\w*|прикрыва\w*|защища\w*|держ\w*))|"
     r"закрыт\w*\s+(?:позици\w*|центр\w*|систем\w*|вариант\w*)|"
     r"(?:сицилианск|французск|скандинавск|голландск|славянск|индийск|английск|испанск|итальянск|русск|шотландск|"
@@ -189,8 +198,9 @@ _THEN = re.compile(r"^\W*(?:тогда|после\s+этого|в\s+ответ|�
 # «Но подумай, что дальше: …»: the position the line before reached
 _NEXT = re.compile(W + r"(?:что|а)\s+(?:будет\s+)?дальше" + E)
 _ROUTES = re.compile(W + r"(?:через|via|through)\s+[a-h][1-8]\s*(?:,|и|или|либо|and|or)\s*[a-h][1-8]" + E)
-_MOVE_CUE = re.compile(W + r"(?:(?:лучше|сильнее|точнее|над[её]жнее|правильнее)(?:\s+всего)?|ход\w*|сыграй\w*|играй\w*|играем|ответили|ответил[аи]?|ответ|ответь|после|через|"
-                       r"продолжени\w*|начни\s+с|начинай\s+с|идея|отвечай|пошли|пошел|сделали|сделал|play|after|move)"
+_MOVE_CUE = re.compile(W + r"(?:(?:лучше|сильнее|точнее|над[её]жнее|правильнее)(?:\s+всего)?|ход\w*|сыграй\w*|сыграл\w*|играй\w*|играем|ответили|ответил[аи]?|ответ|ответь|после|через|"
+                       r"продолжени\w*|начни\s+с|начинай\s+с|начинаем\s+с|идея|отвечай|пошли|пош[её]л|пошла|сделали|сделал\w*|play|played|after|move|"
+                       r"(?:move|reply|answer|idea|continuation|choice)\s+(?:is|was|would\s+be)|(?:best|strongest)\s+is)"
                        r"\s*[:—–-]?\s*$")
 _SEP = re.compile(r"[.;:!?()\n]|\s[—–]\s|,\s*(?:но|а|зато|поэтому|потому\s+что|так\s+что|чтобы|хотя|что|если|когда|"
                   r"but|so|because|while|if|when)" + E + r"|" + W + r"потому,?\s+что" + E + r"|" + W + r"так\s+как" + E)
@@ -213,7 +223,7 @@ _MOTION = (r"(?:ид[её]т|пойд[её]т|вста[её]т|встал[аи]?
            r"врывается|ворвал(?:ся|ась)|вторгается|вторгся|вторглась|приходит|пришел|пришла|подходит|подошел|подошла|"
            r"lands|goes|jumps|moves)")
 _STRIKE_TO = re.compile(W + rf"(?:удар\w*|жертв\w*|прыж\w*|вторжени\w*)\s+(?P<p>{_PIECE_ALT}){E}\s+(?:на|в)\s+(?P<b>{SQ})(?![0-9])")
-_MOTION_TO = re.compile(rf"(?P<p>{_PIECE_ALT}|он|она){E}\s+(?:\S+\s+)?(?P<v>{_MOTION})\s+(?:на|в|to|on)\s+"
+_MOTION_TO = re.compile(rf"(?P<p>{_PIECE_ALT}|он|она){E}\s+(?:(?P<mid>\S+)\s+)?(?P<v>{_MOTION})\s+(?:на|в|to|on)\s+"
                         rf"(?P<b>{SQ})(?![0-9])")
 # «пешка с d7 пошла вперёд»: a motion verb right after a «с sq» piece — it left the square
 _LEFT = re.compile(r"[^.;:!?]{0,12}?(?:пол[яе]\s+[a-h][1-8]\s+)?" + W + r"(?:пош[её]л|пошла|пошли|двинул\w*|продвинул\w*|"
@@ -238,6 +248,7 @@ _RU_SAN = re.compile(r"(?<![А-Яа-яЁёA-Za-z])(Кр|[КСЛФ])(?=[a-h]?[1-8
 _CYR_FILE = {"а": "a", "б": "b", "в": "c", "с": "c", "ц": "c", "д": "d", "е": "e", "э": "e", "ф": "f", "г": "g", "х": "h"}
 # a word that may carry a claim; a sentence without one is only read for its antecedents
 _CLAIMWORD = re.compile(r"бь|бит|атак|напа|удар|бо[ейю]|защи|прикры|поддерж|подкреп|охран|держ|контрол|простре|связ|"
+                        r"вис[ия]|hang|prise|стере|оберег|страху|мет[ия]|прицел|укреп|зоне|"
                         r"запер|перекры|загор|смотр|цел|дав|гон|гроз|угро|взя|забр|бер|attack|hit|defend|protect|pin|"
                         r"aim|eye|press|chase|threat|hold|control|cover|guard", re.I)
 _TAKE = re.compile(r"бь[её]т|бьют|берет|забирает|взял\w*|забрал\w*|съел\w*|takes|captures")
@@ -278,6 +289,17 @@ class Tok:
     told: bool = False  # MOVE narrated as already made
     from_sq: bool = False  # PIECE: «конь с g5» — the square it stands (stood) on, not where it went
     route: bool = False  # SQ: «через f2», «по диагонали a1–h8» — not a target
+    attr: object = False  # PIECE in the genitive of another noun or after a genitive preposition («из-под удара пешки
+    # d5», «гамбит слона», «у коня»): neither a subject nor an antecedent
+
+
+# A noun or a preposition that takes the next piece word in the genitive («из-под удара пешки d5», «гамбит слона», «у
+# коня», «для ладьи»): that piece is no subject and no antecedent of a pronoun.
+_GEN_HEAD = re.compile(W + r"(?:удар[ау]?|атак[иу]|защит[ыу]|бо[яю]|давлени[яе]|гамбит|размен[ау]?|жертв[ыу]|развити[яе]|"
+                       r"выход[ау]?|отступлени[яе]|ход[ау]?|позици[ияю]|диагонал[иь]|лини[ия]|вертикал[иь]|поле|пол[яю]|"
+                       r"место|места|потер[иья]|выигрыш[ау]?|взяти[яе]|маневр[ау]?|перевод[ау]?|продвижени[яе]|"
+                       r"(?P<prep>у|от|из|без|для|до|против|возле|около|кроме|вместо|из-под|из-за|после|вокруг|мимо|ради))\s+"
+                       r"(?:(?:бел|черн|тво|сво|мо|ваш|ег|е|их|чуж|лишн|одн|последн|вражеск)\w*\s+){0,2}$")
 
 
 def _free(taken, a, b):
@@ -313,7 +335,10 @@ def tokenize(t: str) -> list:
             if not (pt and "N" in _P[word][1]):
                 continue
         if _free(taken, m.start("b"), m.end("b")):
-            toks.append(Tok("MOVE", m.start("b"), m.end("b"), m.group(0), san=f"@{_LETTER[pt]}:{m.group('b')}", ptype=pt,
+            # «конь e6 идёт на c7»: the square between the piece and the motion verb is where it goes from
+            frm = m.group("mid") if m.group("mid") and re.fullmatch(SQ, m.group("mid")) else None
+            toks.append(Tok("MOVE", m.start("b"), m.end("b"), m.group(0),
+                            san=(frm + m.group("b")) if frm else f"@{_LETTER[pt]}:{m.group('b')}", ptype=pt,
                             span=(m.start(), m.end()), told=bool(re.search(r"(?:л|ла|ли|лся|лась)$", m.group("v")))))
             taken.append((m.start("b"), m.end("b")))
     for m in _STRIKE_TO.finditer(low):  # «удар конём на f7», «жертва слоном на h7»: a move named by its blow
@@ -332,7 +357,16 @@ def tokenize(t: str) -> list:
         toks.append(Tok("MOVE", m.start(), m.end(), m.group(0), san="O-O-O" if m.group("long") else "O-O", soft=True,
                         ptype=chess.KING))
         taken.append((m.start(), m.end()))
-    for m in _REL_RE.finditer(low):
+    # every relation word starts a word: try the (long) alternation only there — the same leftmost non-overlapping
+    # matches finditer gives, at a fraction of the cost
+    upto = -1
+    for a, _w in words:
+        if a < upto:
+            continue
+        m = _REL_RE.match(low, a)
+        if m is None:
+            continue
+        upto = m.end()
         if not _free(taken, m.start(), m.end()):
             continue
         toks.append(Tok("REL", m.start(), m.end(), m.group(0), rel=m.lastgroup.split("__")[0]))
@@ -364,6 +398,9 @@ def tokenize(t: str) -> list:
             tk.sq = chess.parse_square(san)
             tk.move_cue = bool(_MOVE_CUE.search(before)) or not low[:m.start()].strip(" «\"")
             tk.route = bool(_ROUTE.search(before))
+            if re.search(r"(?:^|[.;:!?(—–,]\s*)(?:(?:своим|последним|этим|первым|следующим|вторым)\s+)?ходом\s*$",
+                         low[:m.start()]):
+                tk.move_cue, tk.route = True, False  # «Ходом d4 ты отгоняешь коня»: a move, not a route
         toks.append(tk)
         taken.append((m.start(), m.end()))
     for start, w in words:
@@ -374,16 +411,24 @@ def tokenize(t: str) -> list:
             continue
         if w in _P:
             pt, cs = _P[w]
-            toks.append(Tok("PIECE", start, end, w, ptype=pt, cases="".join(sorted(cs)), gender=_gender(w)))
+            tk = Tok("PIECE", start, end, w, ptype=pt, cases="".join(sorted(cs)), gender=_gender(w))
+            gh = _GEN_HEAD.search(low[max(0, start - 30):start]) if "G" in cs and len(cs) > 1 else None
+            if gh:
+                # after a preposition («у чёрного короля»): not a subject, still an antecedent; after a noun
+                # («гамбит слона», «из-под удара пешки d5»): neither
+                tk.attr = "prep" if gh.group("prep") else "noun"
+            toks.append(tk)
         elif w in _PRON:
             cs, g = _PRON[w]
             tk = Tok("PRON", start, end, w, cases=cs, gender=g)
             sm = re.match(r"\s+(?:уже\s+|теперь\s+|сейчас\s+)?(?:на|on)\s+([a-h][1-8])(?![0-9])", low[end:end + 20])
-            if sm and "N" in cs:  # «он на f6 ничем не прикрыт»: the square the pronoun's piece stands on
+            if sm:  # «он на f6 ничем не прикрыт», «его на f6 никто не защищает»: the square the pronoun's piece stands on
                 tk.sq = chess.parse_square(sm.group(1))
             toks.append(tk)
         elif w in _WHICH:
             cs, g = _WHICH[w]
+            if g == "x" and not re.search(r",\s*$", low[:start]):
+                continue  # English «which/who» relative only after a comma («Which piece …?» asks)
             toks.append(Tok("WHICH", start, end, w, cases=cs, gender=g))
         else:
             toks.append(Tok("NOUN", start, end, w, gender=_NOUNS[w]))
@@ -396,6 +441,9 @@ def tokenize(t: str) -> list:
             if _free(taken, m.start(), m.end()):
                 toks.append(Tok("SIDE", m.start(), m.end(), m.group(0), owner=val))
     for m in _NEG.finditer(low):
+        # «Нет, конь f6 нападает на e4», «Нет-нет, …»: the answer word to the question, not a negation of the verb
+        if m.group(0) == "нет" and re.match(r"\s*[,—–:!.?-]", low[m.end():m.end() + 3]):
+            continue
         if _free(taken, m.start(), m.end()):
             toks.append(Tok("NEG", m.start(), m.end(), m.group(0)))
     seps = [0] + sorted(t.end for t in toks if t.kind == "SEP") + [len(low)]
@@ -409,6 +457,7 @@ def tokenize(t: str) -> list:
     moves = [(t.start, t.end) for t in toks if t.kind == "MOVE"]
     toks = [t for t in toks if not (t.kind == "SEP" and any(a <= t.start < b for a, b in moves))]
     toks.sort(key=lambda x: (x.start, -x.end))
+    _bare_moves_in_lines(toks, low)
     # a move narrated as made, and every move before a past «ответили/сыграл» in the sentence («h3 — чёрные ответили Nc6»)
     told_cue = [m.end() for m in _TOLD_CUE.finditer(low)]
     told_upto = max((m.start() for m in _TOLD_CUE.finditer(low) if re.search(r"л[аи]?$|шли$", m.group(0))), default=-1)
@@ -440,12 +489,20 @@ def tokenize(t: str) -> list:
                      r"(?:пол[еяю]\s+)?([a-h][1-8])(?![0-9])", low[tk.end:tk.end + 28]) or \
             re.match(r"\s+(?:уже\s+|все\s+еще\s+|теперь\s+)?(?:забрал\w*|залез\w*|стоит|стоят|находится|оказал\w*|сидит|"
                      r"расположен\w*|stands|sits|is)\s+(?:on\s+|на\s+)([a-h][1-8])(?![0-9])", low[tk.end:tk.end + 40])
+        if m and m.groupdict().get("prep") in ("на", "on") and "A" in tk.cases and \
+                re.search(W + r"(?:нацел|направ|навел|наводит)\w*\s+(?:\w+\s+)?$", low[max(0, tk.start - 30):tk.start]):
+            m = None  # «нацелил слона на f7»: the piece aimed and its target, not the piece on f7
         if m:
             tk.sq = chess.parse_square(m.group(m.lastindex))
             tk.from_sq = bool(m.groupdict().get("prep") in ("с", "со", "из", "from"))
             for o in toks:
                 if o.kind == "SQ" and o.start == tk.end + m.start(m.lastindex):
                     o.kind = "BOUND"
+                    if not tk.from_sq and tk.ptype and m.lastindex == 2 and _proposed(toks, low, tk, o):
+                        # «c4 или конь f3, который берёт под контроль e5», «Лучше всего конь f3»: a move proposed in
+                        # words — the piece there after it (none when it already stands there)
+                        o.kind, o.san, o.ptype, o.span = "MOVE", f"@{_LETTER[tk.ptype]}:{chess.square_name(tk.sq)}", \
+                            tk.ptype, (tk.start, o.end)
         else:
             m = re.search(r"(?:на|on)\s+([a-h][1-8])\s+(?:\w+\s+){0,2}(?:сидит|стоит|стоят|находится|sits|stands)\s+(?:\w+\s+)?$",
                           low[max(0, tk.start - 40):tk.start])
@@ -453,13 +510,18 @@ def tokenize(t: str) -> list:
                 tk.sq = chess.parse_square(m.group(1))
             elif "N" in tk.cases:
                 # «С h3 белый король берёт под контроль g5»: the square it acts from, before it
-                m = re.search(r"(?:^|[,:—–]\s*|^\W*)(с|со|от|from|на)\s+(?:пол[яе]\s+)?([a-h][1-8])\s+(?:\w+\s+){0,2}$",
+                m = re.search(r"(?:^|[,:—–]\s*|^\W*)(с|со|от|from|на|on)\s+(?:пол[яе]\s+)?([a-h][1-8])\s+(?:\w+\s+){0,2}$",
                               low[max(0, tk.start - 30):tk.start])
                 if m and not any(o.kind in ("PIECE", "MOVE", "REL") and o.end <= tk.start and o.start >= tk.start - 30 for o in toks):
-                    tk.sq, tk.from_sq = chess.parse_square(m.group(2)), m.group(1) != "на"
+                    tk.sq, tk.from_sq = chess.parse_square(m.group(2)), m.group(1) not in ("на", "on")
                     for o in toks:
                         if o.kind == "SQ" and o.start == max(0, tk.start - 30) + m.start(2):
                             o.kind = "BOUND"
+                            if not tk.from_sq and tk.ptype:
+                                # «На b5 конь нападает на d6 и c7», "On f5 the knight attacks g7": the piece placed on
+                                # the square — a move there when it is not on it yet (none when it already is)
+                                o.kind, o.san, o.ptype, o.span = "MOVE", f"@{_LETTER[tk.ptype]}:{m.group(2)}", tk.ptype, \
+                                    (o.start, tk.end)
         mv = next((o for o in toks if o.kind == "MOVE" and o.ptype and o.text.startswith(tk.text) and o.start > tk.start
                    and o.start - tk.end < 40), None)
         if mv is not None:  # the piece of a move told in words stands on its destination after it
@@ -470,7 +532,9 @@ def tokenize(t: str) -> list:
                     o.kind = "BOUND"
         prev = low[max(0, tk.start - 22):tk.start]
         for rx, val in _OWNER_BEFORE:
-            if rx.search(prev):
+            om = rx.search(prev)
+            # «слон b3 у белых атакован пешкой e6»: an owner word before a verb is not the next piece's owner
+            if om and not any(o.kind == "REL" and max(0, tk.start - 22) + om.start() <= o.start < tk.start for o in toks):
                 tk.owner = val
         if tk.owner is None and j > 0 and toks[j - 1].kind == "POSS" and tk.start - toks[j - 1].end <= 20:
             tk.owner = "opp"  # «их пешку d4», «его пешка e5»: the other side's
@@ -489,6 +553,52 @@ def tokenize(t: str) -> list:
             tk.sq = chess.parse_square(mine.pop()) if len(mine) == 1 else None
             tk.from_sq = False
     return toks
+
+
+_LINE_GAP = re.compile(r"[\s,]*(?:\d{1,3}\s?(?:\.\.\.|…|\.)\s?)?")
+
+
+def _bare_moves_in_lines(toks, low) -> None:
+    """«После e4 e5 Nf3 Nc6 конь f3 нападает на пешку e5», «e4 e6 d4 d5 Nc3», «1...a6 2.Ba4 b5: …», «После d4 d5 c4 пешка
+    c4 …»: a line written without move numbers. In a run of moves and squares (only spaces, commas, move numbers
+    between) that a move or a move cue opens, a bare square is a pawn move of the line when a written move follows it in
+    the run — or, for the run's last ones, when the run is three long and ends the clause or comes right before a
+    piece word (the piece the line just moved)."""
+    seq = [t for t in toks if t.kind in ("MOVE", "SQ") and not t.route]
+    runs, cur = [], []
+    for t in seq:
+        if cur and _LINE_GAP.fullmatch(low[cur[-1].end:t.start]):
+            cur.append(t)
+        else:
+            if cur:
+                runs.append(cur)
+            cur = [t]
+    if cur:
+        runs.append(cur)
+    for run in runs:
+        if len(run) < 2 or not (run[0].kind == "MOVE" or run[0].move_cue):
+            continue
+        written = [i for i, t in enumerate(run) if i and t.kind == "MOVE" and not t.span]
+        upto = written[-1] if written else 0
+        tail = len(run) >= 3 and bool(re.match(r"\s*(?:[:;.!?)—–]|$|(?:" + _PIECE_ALT + r")" + E + ")", low[run[-1].end:run[-1].end + 12]))
+        for i, t in enumerate(run):
+            if t.kind == "SQ" and (i < upto or tail):
+                t.move_cue = True
+
+
+def _proposed(toks, low, piece, bound) -> bool:
+    """«c4 или конь f3», «конь f3 или c4», «Лучше всего конь f3»: the piece on the square is a move the words propose
+    (an alternative of «или» to a written move or square, or right after a move cue)."""
+    if re.search(W + r"(?:или|либо|or)\s+$", low[max(0, piece.start - 8):piece.start]):
+        k = low.rfind(" ", 0, max(0, low.rfind(" ", 0, piece.start - 1)))
+        if any(o.kind in ("MOVE", "SQ") and o.end <= piece.start and o.end >= k - 2 for o in toks):
+            return True
+    if re.match(r"\s+(?:или|либо|or)\s+", low[bound.end:bound.end + 8]):
+        nxt = re.match(r"\s+(?:или|либо|or)\s+", low[bound.end:bound.end + 8]).end() + bound.end
+        if any(o.kind in ("MOVE", "SQ") and o.start == nxt for o in toks):
+            return True
+    return bool(_MOVE_CUE.search(low[max(0, piece.start - 30):piece.start])) and \
+        not re.search(W + r"(?:после|через|after)\s*$", low[max(0, piece.start - 30):piece.start])
 
 
 def _pronoun_mover(toks, low, at, gender):
@@ -532,9 +642,11 @@ class _Raw:
     unresolved: bool = False  # a pronoun in a slot that has no single antecedent
     end: int = 0
     cover: bool = False  # «не прикрыт»: to shield as well as to defend
+    count: Optional[int] = None  # «атакована дважды», «две белые фигуры атакуют»: how many attackers/defenders
+    plan: bool = False  # «поставить коня на e5, откуда он будет бить по e7»: geometry of the square the plan names
 
 
-_PASSIVE = ("PASS_ATT", "PASS_DEF", "UNDEF", "PASS_PIN", "CTRL_G", "CTRL_I")
+_PASSIVE = ("PASS_ATT", "PASS_DEF", "UNDEF", "PASS_PIN", "CTRL_G", "CTRL_I", "HANG")
 
 
 def _clauses(text, toks):
@@ -584,12 +696,44 @@ def _antecedents(toks, focus, text_low=""):
         if t.kind == "PRON":
             g = "m" if t.gender == "x" else t.gender
             cands = cur.get(g) or focus.get(g) or []
+            if t.gender == "x":
+                # English «it» has no gender: every piece named before is a candidate (a pawn is «she» to the
+                # Russian gender table, not to «it») — but not the subject of the verb it is the object of («The
+                # knight on f6 defends it»: «it» is not the knight; that would be «itself»).
+                verb = max((o for o in toks if o.kind == "REL" and o.end <= t.start), key=lambda o: o.start, default=None)
+                subj = max((o for o in toks if o.kind == "PIECE" and verb is not None and o.end <= verb.start),
+                           key=lambda o: o.start, default=None)
+                skip = (subj.ptype, subj.sq) if subj is not None and subj.sq is not None else None
+                nxt = next((o for o in toks if o.start >= t.end and o.kind not in ("NEG", "BOUND")), None)
+                as_subject = nxt is not None and nxt.kind == "REL" and bool(_CLAUSE_GAP.match(text_low[t.end:nxt.start]))
+                if as_subject:
+                    # "…, and it also eyes c2": the subject goes on — the previous verb's subject
+                    cands = [(_R("piece", subj.ptype, subj.sq, subj.owner, text=subj.text), True)] \
+                        if subj is not None and subj.sq is not None else []
+                else:
+                    here = [x for gg in ("m", "f") for x in cur.get(gg, []) if (x[0].ptype, x[0].sq) != skip]
+                    cands = here or [x for gg in ("m", "f") for x in focus.get(gg, []) if (x[0].ptype, x[0].sq) != skip]
+                    # "The knight on c3 defends e4, and the knight on f6 attacks it": a bare square named before is a
+                    # candidate too
+                    cands = cands + [(_R("square", sq=o.sq), False) for o in toks
+                                     if o.kind == "SQ" and o.end <= t.start and not o.move_cue and not o.route]
             distinct = {key(r): r for r, _ in cands}
             r = None
             if last_move is not None and "N" in t.cases and 0 <= t.start - last_move.end <= 3:
                 r = last_move_ref  # «Bb5+ он и слона уводит …»: the pronoun is the move's piece
+            elif len(distinct) == 1 and t.gender == "x":
+                r = next(iter(distinct.values()))
             elif len(distinct) == 1 and (noun_at.get(g, -1) < last_piece_at[g] if cur.get(g) else g not in noun_at):
                 r = next(iter(distinct.values()))
+            if r is not None and t.gender != "x" and "N" not in t.cases and r is not last_move_ref:
+                # «Ферзь d1 не достаёт до f3 — его защищает пешка g2»: an object pronoun after a bare square named
+                # since its antecedent may stand for what stands on that square («поле f3», the knight there) as well
+                # — two readings, no verdict.  A square some piece of the sentence stands on is that piece's.
+                since = last_piece_at.get(g, -1) if cur.get(g) else -1
+                held = {o.sq for o in toks if o.kind == "PIECE" and o.sq is not None}
+                if any(o.kind == "SQ" and since < o.start and o.end <= t.start and not o.move_cue and not o.route
+                       and o.sq not in held and o.sq != r.sq for o in toks):
+                    r = None
             out[id(t)] = r
             if r is not None:
                 cur.setdefault(g, []).append((r, "N" in t.cases))
@@ -597,9 +741,11 @@ def _antecedents(toks, focus, text_low=""):
         elif t.kind == "WHICH":
             r = None
             if last_noun is not None and t.start - last_noun[1] <= 4 and \
-                    (last_noun[0].what == "square" or last_noun[2] == t.gender or t.gender == "p"):
+                    (last_noun[0].what == "square" or last_noun[2] == t.gender or t.gender in ("p", "x")):
                 r = last_noun[0]
             out[id(t)] = r
+        elif t.kind == "PIECE" and t.ptype and t.attr == "noun":
+            last_noun = (_R("piece", t.ptype, t.sq, t.owner, text=t.text, from_sq=t.from_sq), t.end + (3 if t.sq is not None else 0), t.gender)
         elif t.kind == "PIECE" and t.ptype:
             agentive = last_rel is not None and set(t.cases) & set("GI") and t.start - last_rel.end < 30
             ref = _R("piece", t.ptype, t.sq, t.owner, text=t.text, from_sq=t.from_sq)
@@ -616,6 +762,12 @@ def _antecedents(toks, focus, text_low=""):
             if mr.piece and mr.to and not mr.castle:
                 last_move = t
                 last_move_ref = _R("piece", _PTYPE[mr.piece], chess.parse_square(mr.to), text=t.text)
+                if not t.threat:
+                    # «Чёрные сыграли Nf6. Он нападает на …»: the piece a written move moved is an antecedent, where it
+                    # went
+                    g = "f" if _PTYPE[mr.piece] in _FEMININE else "m"
+                    cur.setdefault(g, []).append((last_move_ref, True))
+                    last_piece_at[g] = t.start
         elif t.kind == "SQ" and re.search(r"(?:^|[:—–.!?(])\s*[«\"]?$", text_low[:t.start]):
             last_move, last_move_ref = t, _R("piece", None, t.sq, text=t.text)  # «d3: d3 он защищает e4»: the piece on d3
         if t.kind == "REL":
@@ -629,7 +781,20 @@ _FIRST_GAP = re.compile(
     r"^[\s:,]*(?:(?:же|эт\w+|тот|того|ту|та|this|that|две|два|три|обе|оба|two|three|both|на|по|в|во|сразу|прямо|еще|и|уже|"
     r"также|тоже|сам|сама|само|только|одновременно|заодно|теперь|сейчас|всё|все|ещё|целых|the|a|an|on|at|already|also|"
     r"only|directly|just|now|ваш\w*|тво\w*|сво\w*|мо[йюяе]\w*|их|его|ее|бел\w+|черн\w+|your|his|their|white'?s?|"
-    r"black'?s?|enemy|opponent'?s|надежно|прочно|спокойно|просто|пол[еяю]|пункт\w*|клетк\w*)\s+)*$")
+    r"black'?s?|enemy|opponent'?s|надежно|прочно|спокойно|просто|пол[еяю]|пункт\w*|клетк\w*|"
+    # «грозит взять пешку d4», "threatens to take the pawn": the capture the threat names
+    r"взять|забрать|съесть|побить|выиграть|to|take|capture|win)\s+)*$")
+# Up to two attributive adjectives before a piece noun («атакует слабую пешку d4», «напал на центральную пешку»): words
+# whose ending is an adjective's (the case agreement is the noun's); not a relation word, not a pronoun.
+_ADJ = re.compile(W + r"[а-я]{2,}(?:ую|юю|ой|ей|ого|его|ый|ий|ая|яя|ое|ее|ые|ие|ых|их|ым|им|ыми|ими)" + E)
+
+
+def _strip_adj(gap: str) -> str:
+    """*gap* without up to two adjective-form words (for a gap that ends at a piece noun)."""
+    words = list(_ADJ.finditer(gap))
+    if not words or len(words) > 2 or any(_REL_RE.match(gap, w.start()) for w in words):
+        return gap
+    return _ADJ.sub(" ", gap)
 _LIST_GAP = re.compile(r"^[\s,:]*(?:(?:и|а\s+также|and|or|или|на|по|the|a|еще|также|both|пол[еяю]|пункт\w*)\s*,?\s*)*$")
 
 
@@ -658,6 +823,7 @@ def bind(text: str, toks: list, focus: dict) -> list:
         return bool(subj) and subj[-1].kind == "SIDE" and bool(re.fullmatch(
             r"ты|вы|я|мы|белые|ч[её]рные|соперник|противник|you|white|black", subj[-1].text.strip().lower()))
 
+    spans = _relative_spans(toks, low, clauses)
     for r in [t for t in toks if t.kind == "REL"]:
         ca, cb = next(((a, b) for a, b in clauses if a <= r.start < b), (0, len(text)))
         # a list announced before a colon continues after it: «атакует две фигуры: пешку h6 и ладью»
@@ -666,12 +832,25 @@ def bind(text: str, toks: list, focus: dict) -> list:
         inside = [t for t in toks if ca <= t.start < cb and t is not r and t.kind != "SEP"]
         before = [t for t in inside if t.end <= r.start]
         after = [t for t in inside if t.start >= r.end]
+        # A relative clause («конь f6, который нападает на e4, сам защищён …», «пешка e4, которую атакует конь f6, …»)
+        # is a clause of its own: the main verb's words skip it, and its own verb sees only its words.
+        own = next(((a, b) for a, b in spans if a <= r.start < b), None)
+        if own is None:
+            before = [t for t in before if not any(a <= t.start < b for a, b in spans)]
+        else:
+            before = [t for t in before if own[0] <= t.start]
+            after = [t for t in after if t.start < own[1]]
+        # A negation stands next to its verb: never across a comma or a dash («Нет, конь f6 нападает на e4»).
         neg = any(t.kind == "NEG" and 0 <= r.start - t.end <= 12 and not any(o.kind == "REL" and t.end <= o.start < r.start for o in toks)
+                  and not re.search(r"[,;:—–]", low[t.end:r.start])
                   for t in before) and r.rel not in ("UNDEF", "UNDEF_A")
         if r.rel not in ("UNDEF", "UNDEF_A"):
             subj = [t for t in before if t.kind in ("PIECE", "PRON", "WHICH", "MOVE", "SQ", "SIDE")]
             neg = neg or any(t.kind == "NEG" and (not subj or t.start > subj[-1].start)
+                             and not re.search(r"[,;:—–]", low[t.end:r.start])
                              and not any(o.kind == "REL" and t.end <= o.start < r.start for o in toks) for t in before)
+        if r.rel not in ("UNDEF", "UNDEF_A") and re.search(r"(?<![a-z])not(?![a-z])", r.text.lower()):
+            neg = True  # "is not pinned", "is not attacked": the negation inside the words of the relation
         verb = r.text.split()[0]
         intent = bool(re.search(W + r"(?:хоч\w*|хотел\w*|хотят|чтобы)\s+(?:\w+\s+)?$", low[ca:r.start]))
         modal = not intent and (bool(re.search(
@@ -705,7 +884,17 @@ def bind(text: str, toks: list, focus: dict) -> list:
         # «Мой слон вернулся на f8, а ты тут же и напал на e5», «… но белые нацелились на h7»: a person or a side named
         # as the subject of this clause is the verb's subject, not a piece of the clause before (a capture «грозят
         # взять ферзём» names its piece as the instrument and stays)
-        if r.rel != "CAPW" and not intent and agent_new_subject(before, r) and \
+        # «(Своим) ходом Bc5 чёрные защитили пешку e5», «Ходом d4 ты отгоняешь коня c6»: the move named by «ходом» is
+        # what does it
+        by_move = next((t for t in before if (t.kind == "MOVE" or (t.kind == "SQ" and t.move_cue)) and not t.threat
+                        and re.search(W + r"ходом\s*$", low[max(ca, t.start - 12):t.start])), None)
+        # «Чем белые защищают пешку e4?», «Кто защищает слона c4?», «Какой фигурой чёрные защищают f7?»: the question
+        # takes for granted that some piece (of that side) does it
+        wh_any = question == "wh" and r.rel in ("ATT", "DEF", "HOLD", "SOFT") and bool(re.search(
+            # (not «кто/что защищает …?»: a teacher's question whose answer may be «никто»)
+            W + r"(?:чем|кем|как(?:ой|ими)\s+(?:\w+\s+)?фигур(?:ой|ами)|как(?:ая|ую|ие)\s+из|котор(?:ая|ую|ые)\s+из|"
+            r"which\s+(?:\w+\s+)?piece)" + E, low[ca:r.start]))
+        if r.rel != "CAPW" and not intent and agent_new_subject(before, r) and by_move is None and not wh_any and \
                 not any(t.kind == "PIECE" and "I" in t.cases for t in after):
             continue
 
@@ -714,8 +903,15 @@ def bind(text: str, toks: list, focus: dict) -> list:
                 return  # «хочешь отогнать коня» is checkable only as the purpose of a named move
             if joins:
                 return
-            if (routes or whence) and not kw.get("skip"):
+            if whence and not routes and tense == "future" and rel in ("ATT", "SOFT", "HOLD") and agent is not None and \
+                    agent.what == "piece" and agent.sq is not None and agent.ptype and agent.ptype != chess.PAWN:
+                wm = re.search(r"([a-h][1-8])\s*,?\s*(?:откуда|оттуда)" + E, low[max(ca, r.start - 60):r.start])
+                if wm and chess.parse_square(wm.group(1)) == agent.sq:
+                    kw["plan"] = True  # the square the plan puts the piece on, named right before «откуда»
+            if (routes or whence) and not kw.get("skip") and not kw.get("plan"):
                 kw["skip"] = "route" if routes else "whence or tied"
+            if "count" not in kw and rel in ("PASS_ATT", "PASS_DEF", "ATT", "DEF"):
+                kw["count"] = _count(low, ca, cb, r, agent)
             claims.append(_Raw(rel, agent, [p for p in pats if p is not None], neg, tense, question, r.start, (ca, cb),
                                verb=verb, modal=modal and rel != "UNDEF", unresolved=bool(unresolved), end=r.end,
                                cover="прикры" in r.text.lower(),
@@ -750,7 +946,14 @@ def bind(text: str, toks: list, focus: dict) -> list:
                 pat = pron(acc[0]) if acc and acc[0].kind == "PRON" else (_ref(acc[0]) if acc else None)
                 add("UNDEF", None, [pat])
                 continue
-            for t in before[::-1]:
+            # «Конь f3 прыгает на g5, и под ударом оказывается пешка f7», «…, а под боем уже f7»: the inverted passive
+            # names its object after the cue — the list after it comes first, and the backward search never crosses a
+            # move told in words (its piece is the subject of the other predicate).
+            conj_first = r.rel == "PASS_ATT" and bool(re.search(
+                r"(?:^|[,—–]\s*)(?:и|а|и\s+тогда|тогда|теперь|сразу)\s+(?:\w+\s+)?$", low[ca:r.start].strip(" ") + " "))
+            for t in ([] if conj_first else before[::-1]):
+                if t.kind == "MOVE" and t.span:
+                    break
                 if t.kind in ("PRON", "WHICH") and "N" in t.cases:
                     pat = pron(t)
                     break
@@ -764,26 +967,30 @@ def bind(text: str, toks: list, focus: dict) -> list:
                     break
             pats = [pat]
             if pat is None and r.rel == "PASS_ATT":
+                pats = []
+                if conj_first and not _forward_list(after, low, r, pats):
+                    for t in before[::-1]:  # nothing after the cue: the object before it after all
+                        if t.kind == "MOVE" and t.span:
+                            break
+                        if t.kind == "PIECE" and "N" in t.cases and id(t) not in agentive:
+                            pats.append(_ref(t))
+                            break
+                        if t.kind == "SQ" and not t.move_cue and not t.route:
+                            pats.append(_ref(t))
+                            break
+                        if t.kind == "REL":
+                            break
+            if pat is None and r.rel == "PASS_ATT" and not pats:
                 # «под ударом остаются и пешка h2, и ладья f1»: the list right after (not «…, и её защищает пешка g7»)
                 pats = []
-                last = r.end
-                for t in after:
-                    if t.kind in ("BOUND", "OWNER", "NEG", "NOUN"):
-                        last = t.end if t.kind == "BOUND" else last
-                        continue
-                    gap = low[last:t.start]
-                    if not (_LIST_GAP.match(gap) or (not pats and _FIRST_GAP.match(re.sub(W + r"(?:остают\w*|оста[её]тся|оказ\w+|сразу|одна|один|два|две)" + E, " ", gap)))):
-                        break
-                    if t.kind == "PIECE" and t.cases in ("N", "NA") and t.sq is not None:
-                        pats.append(_ref(t))
-                    elif t.kind == "SQ" and not t.move_cue and not t.route and not pats:
-                        pats.append(_ref(t))
-                    else:
-                        break
-                    last = t.end
-            want = {"PASS_ATT": "G", "CTRL_G": "G", "CTRL_I": "I"}.get(r.rel, "I")
-            ag = [t for t in after if t.kind == "PIECE" and want in t.cases and t.start - r.end < 30
-                  and ("N" not in t.cases or t.sq is not None)
+                _forward_list(after, low, r, pats)
+            # the agent: genitive after «под ударом/боем/защитой/контролем» (под ударом коня), instrumental after a
+            # participle (атакован пешкой, защищён конём, прострелено слоном)
+            want = "G" if re.match(r"под\s", r.text.lower()) else "I"
+            by = lambda t: "A" in t.cases and re.search(r"(?<![a-z])by\s+(?:\w+\s+){0,2}$", low[r.end:t.start])  # noqa: E731
+            ag = [t for t in after if t.kind == "PIECE" and t.start - r.end < 30
+                  and (want in t.cases or by(t))  # "is attacked by the queen": English has no case, «by» says it
+                  and ("N" not in t.cases or t.sq is not None or by(t))
                   and not (r.rel == "PASS_PIN" and t.ptype == chess.KING)
                   and not re.search(r"(?:^|\s)(?:с|со|to)\s+(?:\w+\s+)?$", low[r.end:t.start])]
             to = None
@@ -793,6 +1000,17 @@ def bind(text: str, toks: list, focus: dict) -> list:
                 to = _ref(bk[0]) if bk else None
             if r.rel == "PASS_ATT" and re.match(r"\s*не\s+(?:стоит|стоят|находится|оказыва\w+|оста[её]тся)" + E, low[r.end:r.end + 30]):
                 neg = True  # «под боем не стоит»
+            if not [p for p in pats if p is not None] and not unresolved:
+                pats = _elided(claims, ca, low, r) or pats  # «… атакована пешкой c3, но защищена конём e4»
+            if not [p for p in pats if p is not None] and not unresolved and r.rel in ("UNDEF", "HANG", "PASS_ATT", "PASS_DEF") \
+                    and re.search(r"\s[—–]\s*$", low[max(0, ca - 3):ca]) and r.start - ca < 12:
+                # «Конь на f6 — без прикрытия», «Пешка e5 — под ударом»: the piece the clause before names, with no
+                # verb of its own
+                pa = next((a for a, b in clauses if b == ca), None)
+                ptoks = [t for t in toks if pa is not None and pa <= t.start < ca]
+                noms = [t for t in ptoks if t.kind == "PIECE" and "N" in t.cases and t.sq is not None]
+                if noms and not any(t.kind in ("REL", "MOVE") for t in ptoks):
+                    pats = [_ref(noms[-1])]
             add(r.rel, _ref(ag[0]) if ag else None, pats, to=to)
             continue
         if r.rel == "CAPW":
@@ -844,7 +1062,7 @@ def bind(text: str, toks: list, focus: dict) -> list:
         # ── active relations ──  agent: nominative / move / pronoun / «с sq» before the verb, or after it when an
         # accusative stands before (object first: «её защищает конь e4»); patients: accusative, «на/по»+…, bare squares
         def is_agent(t):
-            return (t.kind == "PIECE" and "N" in t.cases and not re.search(r"(?:\s|^)(?:с|со)\s*$", low[max(0, t.start - 4):t.start])) or \
+            return (t.kind == "PIECE" and "N" in t.cases and not t.attr and not re.search(r"(?:\s|^)(?:с|со)\s*$", low[max(0, t.start - 4):t.start])) or \
                 t.kind == "MOVE" or (t.kind == "SQ" and t.move_cue) or (t.kind in ("PRON", "WHICH") and "N" in t.cases) or \
                 t.kind == "SIDE"
 
@@ -860,9 +1078,13 @@ def bind(text: str, toks: list, focus: dict) -> list:
             return _ref(t)
 
         to = None
-        cand = [t for t in before if is_agent(t)]
+        # a piece named right after an earlier verb of the clause is its object, not this verb's subject ("b3 hits the
+        # bishop and threatens to win it"), unless a verb of its own follows it
+        cand = [t for t in before if is_agent(t) and not (
+            t.kind == "PIECE" and "A" in t.cases and any(o.kind == "REL" and o.end <= t.start for o in before)
+            and not _heads_clause(toks, t, low, cb))]
         agent_t = cand[-1] if cand else None
-        acc_before = [t for t in before if (t.kind in ("PIECE", "PRON") and "A" in t.cases and "N" not in t.cases)
+        acc_before = [t for t in before if (t.kind in ("PIECE", "PRON", "WHICH") and "A" in t.cases and "N" not in t.cases)
                       and (agent_t is None or t.start > agent_t.start)]
         n_after = next((t for t in after if t.kind == "PIECE" and t.cases in ("N",) and t.start - r.end < 25
                         and _FIRST_GAP.match(re.sub(r"\b(?:и|both)\b", " ", low[r.end:t.start])) and "," not in low[r.end:t.start]), None)
@@ -871,8 +1093,9 @@ def bind(text: str, toks: list, focus: dict) -> list:
         elif acc_before and (agent_t is None or agent_t.kind == "SIDE"):
             # «её прикрывают d6 и конь c6»: the object first, the agents after the verb — a bare square names one
             first = next((t for t in after if t.kind in ("PIECE", "SQ") and t.start - r.end < 25), None)
-            if first is not None and _FIRST_GAP.match(low[r.end:first.start]) and \
-                    ((first.kind == "PIECE" and first.cases == "N") or (first.kind == "SQ" and not first.move_cue and not first.route)):
+            if first is not None and _FIRST_GAP.match(re.sub(r"(?:бел|черн)\w*", " ", low[r.end:first.start])) and \
+                    ((first.kind == "PIECE" and (first.cases == "N" or (not first.ptype and _COUNT_PIECES.search(low[r.end:first.end]))))
+                     or (first.kind == "SQ" and not first.move_cue and not first.route)):
                 agent_t = first
         if agent_t is not None and agent_t.start < r.start and agent_t.kind != "WHICH" and \
                 re.search(r",\s*(?:где|куда|откуда|когда|если|пока|чтобы|раз|where|when|if)" + E, low[agent_t.end:r.start]):
@@ -900,6 +1123,26 @@ def bind(text: str, toks: list, focus: dict) -> list:
             if len(named) == 1:
                 agent_t = named[0]
                 agent = _ref(agent_t)
+        if (agent is None or agent.what == "side") and by_move is not None:
+            agent_t = by_move
+            agent = to_ref(by_move)
+        if (agent is None or agent.what == "side") and r.rel not in ("TAKE", "CAPW"):
+            # «Белые защищают пешку e4 конём f3»: a side (or nobody) as the subject, the piece in the instrumental —
+            # that piece does it
+            ins = next((t for t in after if t.kind == "PIECE" and "I" in t.cases and t.sq is not None and t.ptype
+                        and t.start - r.end < 40
+                        and not re.search(r"(?:^|\s)(?:с|со|вместе\s+с|together\s+with|with)\s+(?:\w+\s+)?$",
+                                          low[max(r.end, t.start - 25):t.start])), None)
+            if ins is not None:
+                side = agent.owner if agent is not None else None
+                agent_t = ins
+                agent = _R("piece", ins.ptype, ins.sq, ins.owner if ins.owner is not None else side, text=ins.text)
+        if wh_any and (agent is None or agent.what == "side"):
+            side = agent.owner if agent is not None else next((t.owner for t in before if t.kind == "SIDE"), None)
+            if side is None:
+                om = re.search(W + r"из\s+(бел|черн)\w*" + E, low[ca:r.start])
+                side = {"бел": chess.WHITE, "черн": chess.BLACK}.get(om.group(1)) if om else None
+            agent = _R("piece", 0, None, side if side in (chess.WHITE, chess.BLACK) else None, text="")
         if r.rel == "TAKE" and (agent is None or agent.what == "side"):
             add("TAKE", agent, [])  # «Чёрные забирают пешку e4»: a capture we cannot place — what follows is unknown
             continue
@@ -908,6 +1151,8 @@ def bind(text: str, toks: list, focus: dict) -> list:
         pats, last = [], r.end
         inverted = agent_t is not None and agent_t.start > r.start
         for t in ([] if inverted else after):
+            if t is not agent_t and t.kind in ("PIECE", "PRON", "SQ") and _heads_clause(toks, t, low, cb):
+                break  # «… attacks e5, and the knight on c6 defends it»: the subject of the next clause, not an object
             if t is agent_t or t.kind in ("OWNER", "NEG", "BOUND", "NOUN"):
                 if t.kind == "OWNER" and pats and not _LIST_GAP.match(low[last:t.start]):
                     break
@@ -924,6 +1169,8 @@ def bind(text: str, toks: list, focus: dict) -> list:
             if t.kind == "SQ" and t.route:
                 last = t.end  # «бьёт через f2», «по диагонали a1–h8»: a route, not a target
                 continue
+            if t.kind == "PIECE":
+                gap = _strip_adj(gap)
             if pats and not _LIST_GAP.match(gap):
                 break
             if not pats and (t.start - r.end > 40 or not _FIRST_GAP.match(gap)):
@@ -977,7 +1224,7 @@ def bind(text: str, toks: list, focus: dict) -> list:
                 if t.kind == "PIECE" and t.cases in ("A", "AG") and t.sq is not None:
                     pats.append(_ref(t))
                     break
-                if t.kind == "PRON" and "A" in t.cases:
+                if t.kind in ("PRON", "WHICH") and "A" in t.cases:
                     pats.append(pron(t))
                     break
         joint = agent_t is not None and agent_t.kind == "PIECE" and bool(re.match(
@@ -987,12 +1234,23 @@ def bind(text: str, toks: list, focus: dict) -> list:
             bk = [t for t in after if t.kind == "PIECE" and "I" in t.cases and t.sq is not None
                   and re.search(r"(?:^|\s)(?:с|со)\s+(?:\w+\s+)?$", low[r.end:t.start])]
             to = _ref(bk[0]) if bk else None
+        if re.match(r"(?:нацел|направ|навел|наводит)", verb) and len(pats) >= 2 and pats[0] is not None and \
+                pats[0].what == "piece" and pats[1] is not None and pats[1].what == "square":
+            # «ты нацелил слона на f7», «Ходом 3.Bc4 ты нацелил слона на f7»: the piece aimed is the subject (the move's
+            # piece when the move moved one of that kind), the square its target
+            if agent.what == "move" and _move_ref(agent.move).piece == _LETTER.get(pats[0].ptype):
+                pass
+            else:
+                agent = pats[0]
+            pats = pats[1:]
         own_sq = agent.sq if agent.what == "piece" else (
             chess.parse_square(_move_ref(agent.move).to) if agent.what == "move" and _move_ref(agent.move).to else None)
         if own_sq is not None:  # «слона на g7, откуда он будет давить», «после ...exd5 — давление на d5»: not its own target
             pats = [p for p in pats if p is None or p.sq != own_sq]
         if not [p for p in pats if p is not None] and not unresolved:
-            continue
+            pats = _elided(claims, ca, low, r, inverted)  # «Пешку d4 атакует пешка c3, а защищает конь e4»
+            if not pats:
+                continue
         inverted_agent = inverted
         add(r.rel, agent, pats, skip="joint" if joint else "", to=to)  # two pieces together: neither alone is claimed
         if not inverted and agent_t is not None and agent_t.kind == "PIECE" and not joint:
@@ -1030,6 +1288,138 @@ def bind(text: str, toks: list, focus: dict) -> list:
                 add(r.rel, _ref(t), pats)
                 last = t.end
     return claims
+
+
+_CLAUSE_GAP = re.compile(r"^\s*(?:(?:also|already|now|only|still|then|too|тоже|также|уже|сразу|теперь|сам|сама|"
+                         r"же|в\s+свою\s+очередь),?\s*)*$")
+
+
+_NUM = {"дв": 2, "тр": 3, "четыр": 4, "обе": 2, "оба": 2, "обоих": 2, "two": 2, "three": 3, "four": 4, "both": 2}
+_COUNT_ADV = re.compile(W + r"(?:(?P<adv>дважды|трижды|четырежды|twice)|(?P<n>два|две|три|четыре|two|three|four)\s+(?:раза|times))" + E)
+_COUNT_PIECES = re.compile(W + r"(?P<n>две|два|двумя|двух|три|тремя|трех|четыре|четырьмя|обе|оба|обоих|two|three|four|both)\s+"
+                           r"(?:(?:бел|черн)\w*\s+|(?:white|black)\s+)?(?:фигур\w*|pieces)" + E)
+
+
+def _numval(word: str) -> Optional[int]:
+    word = word.replace("ё", "е")
+    if word in ("дважды", "twice"):
+        return 2
+    if word == "трижды":
+        return 3
+    if word == "четырежды":
+        return 4
+    return next((v for k, v in _NUM.items() if word.startswith(k)), None)
+
+
+def _count(low, ca, cb, r, agent) -> Optional[int]:
+    """How many attackers or defenders a passive or a generic subject names: «атакована дважды», «защищён три раза»,
+    «защищена двумя фигурами», «две белые фигуры атакуют пешку e5»; None when no count is said."""
+    clause = low[ca:cb]
+    m = _COUNT_ADV.search(clause)
+    if m and r.rel in ("PASS_ATT", "PASS_DEF"):
+        return _numval(m.group("adv") or m.group("n"))
+    m = _COUNT_PIECES.search(clause)
+    if m and (r.rel in ("PASS_ATT", "PASS_DEF") or (agent is not None and agent.what == "piece" and not agent.ptype)):
+        return _numval(m.group("n"))
+    return None
+
+
+_GENDER_END = (("ы", "p"), ("а", "f"), ("о", "n"), ("н", "m"), ("т", "m"))
+
+
+def _elided(claims, ca, low, r, inverted: bool = True) -> list:
+    """«Пешка d4 атакована пешкой c3, но защищена конём e4», «Пешку d4 атакует пешка c3, а защищает конь e4»: a clause
+    after «но/а/зато/и» whose verb has no object of its own goes on with the object of the clause right before it
+    (its gender agreeing with a participle's ending)."""
+    head = low[max(0, ca - 14):r.start]
+    # nothing between the conjunction and the verb but adverbs: «но та теперь защищена», «но этот пункт прикрыт», «а
+    # слон бьёт …» name their own subject
+    if not re.search(r"(?:,|—|–)\s*(?:но|а|зато|и|but|and)\s+(?:(?:тоже|также|уже|теперь|сейчас|сразу|еще|при\s+этом|"
+                     r"зато|still|also|already|now)\s+)*$", head):
+        return []
+    if r.rel not in _PASSIVE and not inverted:
+        return []  # an active verb with its object elided names its agent after it («а защищает конь e4»)
+    prev = [c for c in claims if c.clause[1] == ca and c.patients and all(p is not None for p in c.patients)]
+    if not prev:
+        return []
+    last = prev[-1]
+    pats = list(last.patients)
+    if r.rel in _PASSIVE and last.rel not in _PASSIVE and not last.inverted:
+        # «Конь e4 атакует пешку c3, но защищён пешкой d6»: the second predicate's subject is the first one's (after
+        # an object-first clause — «пешка f2 — её бьёт пешка f3, а защищена только королём» — the object is the topic)
+        if last.agent is None or last.agent.what != "piece":
+            return []
+        pats = [last.agent]
+    word = r.text.lower().split()[-1]
+    if r.rel in ("PASS_DEF", "PASS_ATT", "PASS_PIN", "UNDEF") and re.search(r"(?:н|т)[аоы]?$", word):
+        g = next((g for end, g in _GENDER_END if word.endswith(end)), None)
+        for p in pats:
+            pg = None if p.what != "piece" or not p.ptype else ("f" if p.ptype in _FEMININE else "m")
+            if g is not None and pg is not None and g != pg and g != "p":
+                return []
+    return pats
+
+
+def _forward_list(after, low, r, pats) -> bool:
+    """«под ударом остаются и пешка h2, и ладья f1», «под боем оказывается пешка f7»: the objects named right after
+    an inverted passive cue, appended to *pats*; True when there is one."""
+    last = r.end
+    for t in after:
+        if t.kind in ("BOUND", "OWNER", "NEG", "NOUN"):
+            last = t.end if t.kind == "BOUND" else last
+            continue
+        gap = _strip_adj(low[last:t.start]) if t.kind == "PIECE" else low[last:t.start]
+        if not (_LIST_GAP.match(gap) or (not pats and _FIRST_GAP.match(re.sub(
+                W + r"(?:остают\w*|оста[её]тся|оказ\w+|сразу|одна|один|два|две|уже|теперь|сейчас)" + E, " ", gap)))):
+            break
+        if t.kind == "PIECE" and t.cases in ("N", "NA", "GNA") and t.sq is not None:
+            pats.append(_ref(t))
+        elif t.kind == "SQ" and not t.move_cue and not t.route and not pats:
+            pats.append(_ref(t))
+        else:
+            break
+        last = t.end
+    return bool(pats)
+
+
+def _relative_spans(toks, low, clauses) -> list:
+    """The relative clauses of the sentence, (start, end): from the comma before «который/которую/на которую/which»
+    to the comma that closes it (or the end of its clause)."""
+    out = []
+    for w in toks:
+        if w.kind != "WHICH":
+            continue
+        m = re.search(r",\s*(?:(?:на|в|по|с|со|за|под|от|к|из|у|для|of|on|to|by|from)\s+)?$", low[max(0, w.start - 8):w.start])
+        if not m:
+            continue
+        start = max(0, w.start - 8) + m.start()
+        cb = next((b for a, b in clauses if a <= w.start < b), len(low))
+        close = low.find(",", w.end, cb)
+        out.append((start, close if close >= 0 else cb))
+    return out
+
+
+def _heads_clause(toks, t, low, cb) -> bool:
+    """The mention *t* is the subject of a clause of its own: an active relation word follows it (its square and a
+    negation may come between) — «The knight on f3 attacks e5 and the knight on c6 defends it»: «the knight on c6» is
+    not a second object of «attacks». English has no case to tell the subject from the object, so the order does."""
+    i = toks.index(t)
+    end = t.end
+    for o in toks[i + 1:]:
+        if o.start >= cb:
+            return False
+        if o.kind == "BOUND" or (o.kind == "OWNER" and o.start - end <= 2):
+            end = o.end
+            continue
+        if o.kind == "NEG":
+            if not _CLAUSE_GAP.match(low[end:o.start]):
+                return False
+            end = o.end
+            continue
+        if o.kind != "REL" or not _CLAUSE_GAP.match(low[end:o.start]):
+            return False
+        return o.rel not in _PASSIVE or bool(re.match(r"(?:is|are)\s", o.text))
+    return False
 
 
 def _there_square(toks, low, at, agent, focus):
@@ -1087,7 +1477,18 @@ def _merge(a: MoveRef, b: MoveRef) -> MoveRef:
 _SKIP = "skip"
 
 
-def _position(c: _Raw, text: str, toks: list, told_capture: Optional[tuple]) -> Pos:
+def _unread_number(low: str, toks: list) -> Optional[int]:
+    """Where the sentence writes a move number whose move the tokenizer did not read («1.e4e5»), or None."""
+    if not re.search(r"\d\s?\.", low):
+        return None
+    spans = [(t.start, t.end) for t in toks if t.kind in ("MOVE", "SQ", "BOUND")]
+    for m in re.finditer(r"(?<![\w.])\d{1,3}\s?(?:\.\.\.|…|\.)\s?(?=[a-hkqrbnoа-я0])", low):
+        if not any(a <= m.start() < b for a, b in spans):
+            return m.start()
+    return None
+
+
+def _position(c: _Raw, text: str, toks: list, told_capture: Optional[tuple], unread_at: Optional[int] = None) -> Pos:
     """The position *c* is about, as the words say it."""
     low = text.lower()
     tense = c.tense
@@ -1109,9 +1510,15 @@ def _position(c: _Raw, text: str, toks: list, told_capture: Optional[tuple]) -> 
                 r"(?:где|откуда|куда|которое|where|from\s+which)" + E, low[c.end:c.clause[1]]):
         return Pos(at=_SKIP, tense=tense, skip_reason="unnamed place")
     clause = low[c.clause[0]:c.clause[1]]
-    if tense == "future" and _PLAN_CUE.search(low[:c.end]) and c.rel in ("ATT", "SOFT", "HOLD") and \
+    if tense == "future" and (c.plan or _PLAN_CUE.search(low[:c.end])) and c.rel in ("ATT", "SOFT", "HOLD") and \
             c.agent is not None and c.agent.what == "piece" and c.agent.sq is not None and c.agent.ptype:
         return Pos(at="plan", tense=tense)  # «фианкетто: слон с g2 будет бить по e6» — the geometry of the set-up
+    if tense == "future" and c.rel in ("ATT", "SOFT", "HOLD") and c.agent is not None and c.agent.what == "piece" and \
+            c.agent.sq is not None and c.agent.ptype and c.agent.ptype != chess.PAWN and not c.neg and \
+            not c.agent.from_sq and not re.search(W + r"(?:после|after|если|когда|if|when)" + E, clause):
+        # «Слон на b2 будет давить на h7», «Конь на f5 будет атаковать e6»: what a piece on that square will reach is
+        # its geometry — false in every position when the square is off its lines
+        return Pos(at="plan", tense=tense)
     if tense == "future" and not re.search(W + r"(?:после|after)" + E, clause):
         return Pos(at=_SKIP, tense=tense, skip_reason="future")
     upto = c.pos
@@ -1141,6 +1548,10 @@ def _position(c: _Raw, text: str, toks: list, told_capture: Optional[tuple]) -> 
         w = re.search(rf"({_PIECE_ALT})\s+(?:\w+\s+)?$", low[max(0, m.start() - 30):m.start()])
         if w and _LETTER.get(_P[w.group(1)][0]) in movers and any(t.start < m.start() for t in moves_seq):
             continue
+        return Pos(at=_SKIP, tense=tense, skip_reason="unparsed move")
+    # «после 1.e4e5 2.Nf3 …»: a numbered move the words write but the parser cannot read — the line is not the one it
+    # reads, the board after it is unknown
+    if unread_at is not None and unread_at < c.pos:
         return Pos(at=_SKIP, tense=tense, skip_reason="unparsed move")
     seq = [t if t.kind == "MOVE" else Tok("MOVE", t.start, t.end, t.text, san=t.text, told=t.told) for t in moves_seq]
     seq = [t for t in seq if not (len(t.san) == 2 and any(o is not t and len(o.san) == 4 and o.san[2:] == t.san for o in seq))]
@@ -1267,6 +1678,11 @@ def _convert(c: _Raw, pos: Pos, told_capture) -> Optional[Claim]:
         if rel == "UNDEF":
             return Claim("undefended", None, tuple(r for r in map(_out_ref, objs) if r is not None), pos=pos,
                          question=question, span=span, kind="cover" if c.cover else "")
+        if rel == "HANG":  # «пешка e5 висит»: attacked (and not enough defended) — at least attacked
+            return Claim("hanging", None, tuple(r for r in map(_out_ref, objs) if r is not None), neg=c.neg, pos=pos,
+                         question=question, span=span)
+        if subj is not None and c.count and subj.what == "piece" and not subj.ptype and subj.sq is None:
+            subj = None  # «защищена двумя фигурами»: a count, not a piece
         if subj is None:
             if rel == "PASS_ATT":
                 # «… бьёт пешку e4 с шахом и создаёт вилку: под ударом остаются h2 и f1» — the fork is the capturer's
@@ -1277,10 +1693,10 @@ def _convert(c: _Raw, pos: Pos, told_capture) -> Optional[Claim]:
                     rel = "ATT"
                 else:
                     return Claim("attacked", None, tuple(r for r in map(_out_ref, objs) if r is not None), neg=c.neg,
-                                 pos=pos, question=question, span=span)
+                                 pos=pos, question=question, span=span, count=None if c.neg else c.count)
             elif rel == "PASS_DEF":  # «пешка e5 защищена» = not undefended
                 return Claim("undefended", None, tuple(r for r in map(_out_ref, objs) if r is not None), neg=not c.neg,
-                             pos=pos, question=question, span=span)
+                             pos=pos, question=question, span=span, count=None if c.neg else c.count)
             elif rel == "PASS_PIN":
                 return Claim("pinned", None, tuple(r for r in map(_out_ref, objs) if r is not None), neg=c.neg,
                              to=_out_ref(to), pos=pos, question=question, span=span)
@@ -1294,6 +1710,17 @@ def _convert(c: _Raw, pos: Pos, told_capture) -> Optional[Claim]:
         ins = c.instrument
         return Claim("capture_with", Ref(piece=_LETTER.get(ins.ptype) if ins and ins.ptype else None, side=side, owner=owner),
                      tuple(r for r in map(_out_ref, objs) if r is not None), neg=c.neg, pos=pos, question=question, span=span)
+    if rel in ("ATT", "DEF") and c.count and not c.neg and subj is not None and subj.what == "piece" and not subj.ptype \
+            and subj.sq is None:
+        # «Пешку e5 атакуют две белые фигуры»: how many pieces (of that side) attack / defend it
+        side, owner = _side_owner(subj.owner)
+        objs_out = tuple(r for r in map(_out_ref, objs) if r is not None and r.sq)
+        if not objs_out:
+            return None
+        if rel == "ATT":
+            return Claim("attacked", Ref(side=side, owner=owner, text=subj.text), objs_out, pos=pos, question=question,
+                         span=span, count=c.count)
+        return Claim("undefended", None, objs_out, neg=True, pos=pos, question=question, span=span, count=c.count)
     if rel == "LOCK":
         return Claim("locked_by", _out_ref(subj), tuple(Ref(sq=chess.square_name(b)) for b in c.blockers), neg=c.neg,
                      pos=pos, question=question, span=span)
@@ -1305,10 +1732,16 @@ def _convert(c: _Raw, pos: Pos, told_capture) -> Optional[Claim]:
                 and (m.frm is None or subj.sq is None or m.frm == chess.square_name(subj.sq))]
         other = {m.to for p in pos.alts for m in p.moves if m.piece == _LETTER[subj.ptype]} - {m.to for m in mine}
         targets = {chess.square_name(o.sq) for o in objs if o is not None and o.sq is not None}
-        if len(mine) == 1 and not other and mine[0].to not in targets:  # («Nc3 или Nd2 защищает»: the mover of each alternative — left to the scene)
+        # (not when a reading without that move stands beside it — «Ферзь бьёт пешку d6 и давит на f7»: «бьёт» is
+        # «attacks» too, and on the board without the capture the queen is where it stands)
+        if len(mine) == 1 and not other and mine[0].to not in targets and all(mine[0] in p.moves for p in pos.alts):  # («Nc3 или Nd2 защищает»: the mover of each alternative — left to the scene)
             subj = _R("piece", subj.ptype, chess.parse_square(mine[0].to), subj.owner, text=subj.text)
     cap = told_capture[1] if told_capture is not None and told_capture[0] < c.pos else None
-    if cap is not None and cap in pos.moves and subj is not None and subj.what == "piece" and \
+    # «бьёт» is «attacks» too: when a board without the capture is a reading as well («Ферзь бьёт пешку d6 и давит на
+    # f7»), the subject keeps the words' square — on the board after the capture the judge reads the piece that just
+    # moved (claim_judge._candidates, _rebound), on the board without it the piece where it stands
+    unsure = any(cap not in p.moves for p in pos.alts) if cap is not None else False
+    if cap is not None and cap in pos.moves and not unsure and subj is not None and subj.what == "piece" and \
             _LETTER.get(subj.ptype) == cap.piece and (subj.sq is None or chess.square_name(subj.sq) == cap.frm):
         subj = _R("piece", subj.ptype, chess.parse_square(cap.to), subj.owner, text=subj.text)  # it stands where it took
     s = _out_ref(subj, mover=not (subj is not None and subj.what == "move" and pos.alts and pos.at != "now"))
@@ -1324,8 +1757,9 @@ def _convert(c: _Raw, pos: Pos, told_capture) -> Optional[Claim]:
         rel_name = "plan_reach"
     else:
         rel_name = _REL_NAME[rel]
+    # «прикрывает» is to shield as well as to defend (kind 'cover'); «защищает», «поддерживает», «охраняет» only defend
     return Claim(rel_name, s, tuple(r for r in map(_out_ref, objs) if r is not None), to=_out_ref(to), neg=c.neg,
-                 question=question, pos=pos, span=span)
+                 question=question, pos=pos, span=span, kind="cover" if c.cover and rel_name == "defend" else "")
 
 
 def _narrates_capture(c: _Raw, toks: list, text: str) -> bool:
@@ -1406,6 +1840,46 @@ def _remember(toks, text, state, focus, cur):
     state[SQUARES_KEY] = tuple(free)
 
 
+_TOK_CACHE: dict = {}
+
+
+def _tokens(t: str) -> list:
+    """tokenize(t), kept for the few sentences checked last (extract and written_moves read the same sentence; the
+    tokens are read, never changed, after tokenize)."""
+    got = _TOK_CACHE.get(t)
+    if got is None:
+        got = tokenize(t)
+        if len(_TOK_CACHE) >= 32:
+            try:
+                _TOK_CACHE.pop(next(iter(_TOK_CACHE)), None)
+            except (RuntimeError, StopIteration):  # another thread changed it: start afresh
+                _TOK_CACHE.clear()
+        _TOK_CACHE[t] = got
+    return got
+
+
+@lru_cache(maxsize=256)
+def written_moves(text: str) -> tuple:
+    """The moves *text* writes, in order, as the parser reads them: SAN, «e4-e5», a move told in words, castling, a bare
+    square only where the words make it a move («Сыграй d3», «Лучший ход — d3», «После e4 e5 Nf3»). Not a move named
+    as a threat or an idea. A move written twice («Nc6: конь с b8 встал на c6») is one."""
+    t = normalize(text)
+    if not re.search(r"[a-h][1-8]|o-o|0-0|рокировк", t.lower()):
+        return ()
+    toks = _tokens(t)
+    seq = [x if x.kind == "MOVE" else Tok("MOVE", x.start, x.end, x.text, san=x.text, told=x.told)
+           for x in toks if (x.kind == "MOVE" or (x.kind == "SQ" and x.move_cue)) and not x.threat]
+    seq = [x for x in seq if not (len(x.san) == 2 and any(o is not x and len(o.san) == 4 and o.san[2:] == x.san for o in seq))]
+    out: list = []
+    for x in seq:
+        mr = _move_ref(x)
+        if out and _same_move(out[-1], mr) and not out[-1].castle:
+            out[-1] = _merge(out[-1], mr)
+        else:
+            out.append(mr)
+    return tuple(out)
+
+
 def extract(text: str, state: dict, language: Optional[str] = None) -> list[Claim]:
     """The claims *text* makes. *state* is ``ctx.relation_state`` (immutable values only: the previous
     sentence's antecedents for pronouns, «тогда»); *language* is the answer's language when known."""
@@ -1419,7 +1893,7 @@ def extract(text: str, state: dict, language: Optional[str] = None) -> list[Clai
     if not has_claim_word and not re.search(rf"{W}(?:{_PIECE_ALT}){E}|[a-h][1-8]", low):
         state[SQUARES_KEY] = ()
         return []
-    toks = tokenize(t)
+    toks = _tokens(t)
     focus = _focus_from(state)
     focus["_squares"] = state.get(SQUARES_KEY) or ()
     _, cur = _antecedents(toks, focus, low)
@@ -1428,6 +1902,7 @@ def extract(text: str, state: dict, language: Optional[str] = None) -> list[Clai
         idioms = [(m.start(), m.end()) for m in _IDIOM.finditer(low)]
         raws = [c for c in bind(t, toks, focus) if not any(a <= c.pos < b for a, b in idioms)]
         told = None
+        unread_at = _unread_number(low, toks)
         # «Конь бьёт с шахом и …»: a capture/check told with no square — the board after it is unknown
         blind_from = next((m.start() for m in re.finditer(W + r"(?:бь[её]т|бьют|берет|берут|забирает|забирают)\s+с\s+шахом" + E, low)), None)
         for c in raws:
@@ -1440,7 +1915,7 @@ def extract(text: str, state: dict, language: Optional[str] = None) -> list[Clai
                 elif told is None:
                     told = cap
                 continue
-            pos = _position(c, t, toks, told)
+            pos = _position(c, t, toks, told, unread_at)
             claim = _convert(c, pos, told)
             if claim is not None and (claim.subj is not None or claim.objs) and not _narrates_capture(c, toks, t):
                 claims.append(claim)

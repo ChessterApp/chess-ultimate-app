@@ -4008,6 +4008,7 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
     if book:
         fens += [d["fen"] for d in book.get("diagrams") or []]
     check_ctx = CheckContext.from_fens([f for f in fens if f], question=body.message)
+    check_ctx.relation_surface = "lesson"  # the relation checker stays out of the lesson tutor (the team's; 19.10)
     lang = (body.locale or "").lower()
     check_ctx.language = {"kz": "kk"}.get(lang, lang) if lang in _LESSON_LANG else None
     note = facts["note"]
@@ -4524,7 +4525,8 @@ def _replay_previous(ctx, said: str) -> None:
     about («…после Ke5 белые играют a6, и ты обязан идти Kd6» → «пешка на a7, ты на d6»), the move a reply is
     claimed forced after («Qxd5+.» → «Король вынужден уйти с e6»), what «больше ничего не висит» excludes (review
     30.10, voice). Their own issues are not this sentence's: a sentence with issues leaves the line state as it was
-    (check_sentence), and the claims they recorded for the engine are dropped. Never raises."""
+    (check_sentence) — but not the relation checker's antecedents: the sentence was heard, so «он» in the next one
+    means what it named — and the claims they recorded for the engine are dropped. Never raises."""
     from src.answer_check import _split_sentences, check_sentence
     from src.answer_check_facts import seed_facts_state
 
@@ -4532,7 +4534,8 @@ def _replay_previous(ctx, said: str) -> None:
         done, rest = _split_sentences(said.strip() + " ")
         for sentence in (done + [rest])[-12:]:
             if sentence.strip():
-                check_sentence(sentence, ctx)
+                # spoken: what a flagged sentence named is still what the listener's «он» refers to (review 30.10)
+                check_sentence(sentence, ctx, spoken=True)
     except Exception:  # noqa: BLE001 — the sentence is still checked on the board alone
         logger.debug("voice check: replaying the answer so far failed", exc_info=True)
     ctx.forced_claims.clear()
@@ -4990,6 +4993,7 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
     student = chess.WHITE if state.get("student_color") == "white" else chess.BLACK
     check_ctx = CheckContext.from_fens([board.fen], [board.pgn] if board.pgn else [], student_color=student)
     check_ctx.language = comment_language
+    check_ctx.relation_surface = "game"  # the relation checker records here (shadow), never cuts, until reviewed
     gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
 
     async def event_stream():
@@ -5048,6 +5052,16 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
         if dropped:
             log_event("answer_check", surface="game", user_id=user_id, session_id=session.id, model=model,
                       payload={"path": "game/comment", "dropped": dropped[:3], "fallback": not shown})
+        try:  # what the relation checker recorded in the comment (shadow) — for review, as the text turn's event
+            from src.answer_check_relations import log_record as relation_log_record
+
+            relation_record = relation_log_record(check_ctx)
+            if relation_record:
+                log_event("relation_check", severity="warn" if relation_record["relation_errors"] else "info",
+                          surface="game", user_id=user_id, session_id=session.id, model=model,
+                          payload={"path": "game/comment", **relation_record})
+        except Exception:  # noqa: BLE001 — bookkeeping never breaks a comment
+            logger.debug("relation check: the game comment's record failed", exc_info=True)
         if reply is not None and reply.error and not text:
             log_event("llm_error", severity="warn", surface="game", user_id=user_id, session_id=session.id,
                       model=model, ok=False, error_code=str(reply.error)[:80],

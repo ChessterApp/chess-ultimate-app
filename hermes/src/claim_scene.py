@@ -25,12 +25,20 @@ Alternatives (each a reading the words leave open):
   - the board shown, the start position it stands in for, the boards the student's message leads to (a line it
     spells out, a move it names), and the told line played from each of them;
   - in a turn that asks for the solution: the boards after the first one and two moves of the solution lines (or of
-    the line the answer tells); with no solution known, the boards after each move of the side to move — a puzzle
-    answer describes the board after its unnamed first move;
+    the line the answer tells); with no solution known (voice, a late engine), the boards after the moves the answer
+    named so far and after each forcing move of the side to move (a check, a capture, a promotion) — a puzzle answer
+    describes the board after its unnamed first move; never for a denial or a «which» presupposition, never every
+    legal move (any claim some quiet move makes true would go unreported — review 30.10, miss F1);
   - for a «с sq» subject with no move told, the boards after each legal move of that piece;
   - for the past tense, the game's last two positions;
   - the board just before a told move, when the claim names the square it captured on or the square it left;
-  - an implicit move: the named piece is absent but exactly one legal move puts it on the named square.
+  - an implicit move: the named piece is absent and one move (at most MAX_READINGS) puts it on the named square — for
+    the subject only when the words tell an intent (aim, threat, chase, the future) or the turn asks for a move; for an
+    object only by a capture of the side to move (en passant). A present attack or defence by a piece that is not
+    there is the error itself («Пешку d4 защищает конь f3» with Nf3 a move away — review 30.10, miss F2).
+A move the words leave ambiguous («конь идёт на b5» with two knights that can) is played every way (MAX_READINGS),
+the first the primary board — never as the other side's idea move. The line a sentence without a claim writes is
+remembered lazily (played when a later sentence needs it, on the board it was told on).
 
 No BoardSet (None, never reported): an unplayable move, a numbered move from no line the turn has, a «then» with
 nothing before it, a skipped Pos, a yes/no question, a claim on the default initial position with no line written
@@ -131,9 +139,27 @@ def _clean_san(san: str) -> str:
     return t.rstrip("+#!?")
 
 
+_TO_MOVE: dict = {}  # (position, MoveRef) → move: the same told line is read again sentence after sentence
+
+
 def to_move(board: chess.Board, m: MoveRef) -> Optional[chess.Move]:
     """*m* as a legal move on *board* (the side to move's), or None: SAN first, then the piece, its square and its
-    destination as the words gave them; ambiguous (two knights can go to f6, none named) → None."""
+    destination as the words gave them; ambiguous (two knights can go to f6, none named) → None. Memoised by the
+    position (pieces, side, castling, en passant) and the MoveRef."""
+    try:
+        key = (board._transposition_key(), m)
+        if key in _TO_MOVE:
+            return _TO_MOVE[key]
+    except Exception:  # noqa: BLE001 — an unhashable ref: no memo
+        return _to_move(board, m)
+    got = _to_move(board, m)
+    if len(_TO_MOVE) >= 4096:
+        _TO_MOVE.clear()
+    _TO_MOVE[key] = got
+    return got
+
+
+def _to_move(board: chess.Board, m: MoveRef) -> Optional[chess.Move]:
     if m.castle:
         try:
             return board.parse_san("O-O" if m.castle == "short" else "O-O-O")
@@ -168,10 +194,52 @@ def to_move(board: chess.Board, m: MoveRef) -> Optional[chess.Move]:
     return (queen or ms)[0]
 
 
+MAX_READINGS = 4  # a move the words leave ambiguous («конь идёт на b5» with two knights): each reading, up to this many
+
+
+def move_readings(board: chess.Board, m: MoveRef) -> list:
+    """Every legal move of the side to move *m* can name on *board*: one when the words say which, several when they
+    do not («Nb5», «конь на b5» with knights on c3 and d4 — each is a reading), [] when none. Ambiguous is not
+    illegal: the other side's idea move is no reading of an ambiguous move."""
+    one = to_move(board, m)
+    if one is not None:
+        return [one]
+    if m.castle or not m.to:
+        return []
+    if m.san:
+        san = _clean_san(m.san)
+        mm = re.fullmatch(r"([KQRBN])?([a-h])?([1-8])?(x)?([a-h][1-8])(?:=([QRBN]))?", san)
+        if not mm or (mm.group(2) and mm.group(3)):
+            return []
+    try:
+        to = chess.parse_square(m.to)
+        frm = chess.parse_square(m.frm) if m.frm else None
+    except ValueError:
+        return []
+    pt = PIECE_TYPE.get(m.piece or "") if m.piece else None
+    out, seen = [], set()
+    for x in board.legal_moves:
+        if x.to_square != to or (pt is not None and board.piece_type_at(x.from_square) != pt) or \
+                (frm is not None and x.from_square != frm) or (m.capture and not board.is_capture(x)) or \
+                x.promotion not in (None, chess.QUEEN):
+            continue
+        if (x.from_square, x.to_square) not in seen:
+            seen.add((x.from_square, x.to_square))
+            out.append(x)
+    return out
+
+
 def _same_move(board: chess.Board, m: MoveRef, move: chess.Move) -> bool:
     """*m* names *move* played on *board*."""
     if m.castle:
         return board.is_castling(move) and (chess.square_file(move.to_square) > 4) == (m.castle == "short")
+    # cheap rejections first (to_move parses SAN against the legal moves)
+    if m.to and m.to != chess.square_name(move.to_square):
+        return False
+    if m.piece and PIECE_TYPE.get(m.piece) != board.piece_type_at(move.from_square):
+        return False
+    if m.frm and m.frm != chess.square_name(move.from_square):
+        return False
     found = to_move(board, m)
     return found is not None and (found == move or (found.from_square, found.to_square) == (move.from_square, move.to_square))
 
@@ -273,6 +341,11 @@ def _numbered(ctx: Any, m: MoveRef) -> Optional[tuple]:
     return None
 
 
+def _has_number(ctx: Any, n: int, side: bool) -> bool:
+    """A line or game of the turn has a move numbered *n* for *side*."""
+    return any(before.fullmove_number == n and before.turn == side for _s, steps, _e in _records(ctx) for before, _mv in steps)
+
+
 def _shown_boards(ctx: Any) -> list:
     """The boards the coach showed this turn other than the board now: positions given as positions (not a line's
     passing positions, not a tool's text, not another session's board, not the start position the context adds)."""
@@ -363,7 +436,7 @@ def _side_fixed(ctx: Any) -> bool:
     bare pawn move in the answer is that side's."""
     if getattr(ctx, "puzzle_solution", None) or getattr(ctx, "solution_lines", None):
         return True
-    return bool(_ASKS_MOVE.search(getattr(ctx, "question_raw", "") or getattr(ctx, "question", "") or ""))
+    return _asks_move(ctx)
 
 
 # ── playing a line ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -371,7 +444,7 @@ class _Unplayable(Exception):
     pass
 
 
-def _play(board: chess.Board, m: MoveRef, ctx: Any, history: list, first: bool) -> list:
+def _play(board: chess.Board, m: MoveRef, ctx: Any, history: list, first: bool, loose: bool = False) -> list:
     """The boards after *m* from *board*: [(board, where)], the first the reading the words name, the rest the other
     readings (a bare pawn move both sides can make). [] when the move is already on the board (skipped). Raises
     _Unplayable when no reading plays it."""
@@ -395,15 +468,28 @@ def _play(board: chess.Board, m: MoveRef, ctx: Any, history: list, first: bool) 
         mm = re.fullmatch(r"(\d{1,3})(\.\.\.|\.)", m.number)
         if mm and (int(mm.group(1)) != board.fullmove_number
                    or (chess.BLACK if mm.group(2) == "..." else chess.WHITE) != board.turn):
-            raise _Unplayable(f"{m.number} is from a line the turn does not have")
+            n, side = int(mm.group(1)), chess.BLACK if mm.group(2) == "..." else chess.WHITE
+            # «После 3.Bg5» on move 2: a move number off by one (models miscount) is the move on this board, when no
+            # line of the turn has that move number and the move is legal here
+            if not loose or side != board.turn or abs(n - board.fullmove_number) > 1 or _has_number(ctx, n, side):
+                raise _Unplayable(f"{m.number} is from a line the turn does not have")
     out = []
-    mine = None if (m.side is not None and m.side != board.turn) else to_move(board, m)
+    readings = [] if (m.side is not None and m.side != board.turn) else move_readings(board, m)
+    if len(readings) > MAX_READINGS:
+        raise _Unplayable(f"{m.san or m.to}: too many readings")
+    if len(readings) > 1:
+        # «конь идёт на b5» with two knights that can: each move is a reading (the first the primary board) — never
+        # the other side's idea move instead
+        return [(_after(board, x), "after " + _san_where(board, x)) for x in readings]
+    mine = readings[0] if readings else None
     if mine is not None:
         out.append((_after(board, mine), "after " + _san_where(board, mine)))
     other_side = _passed(board)
     theirs = None
     if other_side is not None and (m.side is None or m.side == other_side.turn):
         theirs = to_move(other_side, m)
+        if theirs is None and mine is None and len(move_readings(other_side, m)) > 1:
+            raise _Unplayable(f"{m.san or m.to}: whose and which piece the words do not say")
     if mine is None and theirs is not None:
         out.append((_after(other_side, theirs), "after the idea " + _san_where(other_side, theirs)))
     elif mine is not None and theirs is not None and _bare_pawn(m) and not _side_fixed(ctx):
@@ -421,7 +507,7 @@ def _bare_pawn(m: MoveRef) -> bool:
         bool(m.to) and not m.frm and bool(m.san) and re.fullmatch(r"[a-h][1-8]", _clean_san(m.san) or "") is not None
 
 
-def _walk(base: chess.Board, where: str, moves: tuple, ctx: Any, history: list) -> Optional[list]:
+def _walk(base: chess.Board, where: str, moves: tuple, ctx: Any, history: list, loose: bool = False) -> Optional[list]:
     """Every reading of *moves* played from *base*: [[(board, where), …] per branch, its positions in order], the
     first branch the words' own reading; None when the line cannot be played."""
     branches = [[(base, where)]]
@@ -434,7 +520,7 @@ def _walk(base: chess.Board, where: str, moves: tuple, ctx: Any, history: list) 
                 continue
             try:
                 steps = _play(board, m, ctx, history if i == 0 or w.startswith("right after") else
-                              _history_from(board, history), i == 0)
+                              _history_from(board, history), i == 0, loose)
             except _Unplayable:
                 if path is branches[0]:
                     return None
@@ -459,9 +545,62 @@ def _history_from(board: chess.Board, history: list) -> list:
 
 
 # ── the base board of each position kind ────────────────────────────────────────────────────────────────────────
+class _Frozen:
+    """The context as it was when a told line was remembered: the answer's scene then, not now (a lazy told line is
+    played only when a later sentence needs it — most never do)."""
+
+    def __init__(self, ctx: Any):
+        object.__setattr__(self, "_ctx", ctx)
+
+    def __getattr__(self, name):
+        if name in ("forced_line", "scene_before"):
+            return None
+        return getattr(object.__getattribute__(self, "_ctx"), name)
+
+    def __setattr__(self, name, value):  # the caches go to the real context
+        setattr(object.__getattribute__(self, "_ctx"), name, value)
+
+
+def _materialize(then: tuple, ctx: Any) -> Optional[tuple]:
+    """A lazy told line ``(None, 'lazy', age, moves, base, before)`` as the concrete memory ``(fen, where, age, fen
+    before, uci)``: the line played on the board it was told on (*base*, frozen as FEN when it was told), its age
+    the lazy record's; when it cannot be played, the memory there was before it (*before*), aged as if kept. Cached
+    on the context."""
+    cache = getattr(ctx, "_rel_lazy", None)
+    if cache is None:
+        cache = {}
+        try:
+            ctx._rel_lazy = cache
+        except Exception:  # noqa: BLE001
+            pass
+    key = then[3:5]
+    if key in cache:
+        got = cache[key]
+    else:
+        moves, base = then[3], then[4]
+        got = None
+        try:
+            res = _resolve(Pos(at="now", moves=moves), ctx if base else _Frozen(ctx), {THEN_KEY: base} if base else {})
+        except Exception:  # noqa: BLE001
+            res = None
+        if res is not None and last_move(res[0]):
+            prev, last = board_before(res[0]), last_move(res[0])
+            got = (res[0].fen(), res[1], 0, prev.fen() if prev is not None else "", last.uci())
+        if len(cache) < 64:
+            cache[key] = got
+    if got is not None:
+        return got[:2] + (then[2],) + tuple(got[3:])
+    before = then[5]
+    if not before:
+        return None
+    return before[:2] + (before[2] + then[2] + 1,) + tuple(before[3:])
+
+
 def _then_board(ctx: Any, state: dict) -> Optional[tuple]:
     """The end of the line the sentence before told: this module's memory, else the answer's scene."""
     then = state.get(THEN_KEY) if isinstance(state, dict) else None
+    if then and then[1] == "lazy":
+        then = _materialize(then, ctx)
     if then:
         fen, where, age = then[:3]
         if age <= THEN_MAX_AGE:
@@ -547,19 +686,27 @@ def _ref_square(ref) -> Optional[tuple]:
         return None
 
 
-def _implicit(board: chess.Board, claim: Claim) -> list:
-    """«слон на g7 целится в c3» with no bishop on g7 but exactly one legal move putting one there (for either side):
-    the board after that move — a plan told as a fact. Never the primary board. The subject only: an object that
-    arrives later («ферзь g1 нападает на коня g7» before Ng7) is the very error the claim makes."""
+# Relations that tell what a piece is set to do (an aim, a threat, a chase, a plan): the words may place the piece
+# where its move puts it. Present-tense attack/defence of a piece that is not there is the very error the claim makes
+# («Пешку d4 защищает конь f3» with no knight on f3, Nf3 a move away).
+_INTENT_RELATIONS = ("aim", "threat", "chase", "plan_reach")
+
+
+def _implicit(board: chess.Board, claim: Claim, ctx: Any = None) -> list:
+    """The named piece is absent and one move (at most MAX_READINGS legal moves) puts it on the named square: the
+    boards after them — alternatives, never the primary board. For the subject only when the words tell an intent (an
+    aim, a threat, a chase, the future) or the turn asks for the move (the answer may describe the board after the
+    move it recommends: «Конь на b5 атакует d6 и c7» answering «Куда пойти конём?»). For an object only when a
+    capture of the side to move puts it there («пешку d6 никто не защищает» answering about exd6 e.p.)."""
     if claim.rel in ("occupied",):
         return []
-    refs = [claim.subj]
+    refs = []
+    if claim.rel in _INTENT_RELATIONS or claim.pos.tense == "future" or (ctx is not None and _asks_move(ctx)):
+        refs.append((claim.subj, False))
     if claim.pos.at == "now" and not claim.pos.moves:
-        # With no move told, an object may stand where the move the question is about puts it too («пешку d6 никто
-        # не защищает» answering about exd6 e.p.): a move told in the sentence already places its pieces.
-        refs += list(claim.objs)
+        refs += [(o, True) for o in claim.objs]
     out = []
-    for ref in refs:
+    for ref, capture_only in refs:
         got = _ref_square(ref)
         if got is None:
             continue
@@ -569,12 +716,12 @@ def _implicit(board: chess.Board, claim: Claim) -> list:
             continue
         side = ref.side
         for b in (board, _passed(board)):
-            if b is None or (side is not None and b.turn != side):
+            if b is None or (side is not None and b.turn != side) or (capture_only and b is not board):
                 continue
             ms = [m for m in b.legal_moves if m.to_square == sq and b.piece_type_at(m.from_square) == pt
-                  and m.promotion in (None, chess.QUEEN)]
-            if len(ms) == 1:
-                out.append(_after(b, ms[0]))
+                  and m.promotion in (None, chess.QUEEN) and (not capture_only or b.is_capture(m))]
+            if 1 <= len(ms) <= MAX_READINGS:
+                out.extend(_after(b, m) for m in ms)
                 break
     return out
 
@@ -625,20 +772,80 @@ def _solution_boards(ctx: Any, cur: chess.Board) -> list:
 
 
 def _asks_move(ctx: Any) -> bool:
-    """The student's message asks for the move (a puzzle, «какой здесь первый ход», «что играть»)."""
-    return bool(_ASKS_MOVE.search(getattr(ctx, "question_raw", "") or getattr(ctx, "question", "") or ""))
+    """The student's message asks for the move (a puzzle, «какой здесь первый ход», «что играть», «Белые начинают и
+    выигрывают», «Найди двойной удар»): this module's words and the wiring's (one notion of «asks for a move»)."""
+    q = getattr(ctx, "question_raw", "") or getattr(ctx, "question", "") or ""
+    if _ASKS_MOVE.search(q):
+        return True
+    from src.answer_check_relations import asks_for_a_move
+
+    return asks_for_a_move(q)
 
 
-def _one_move_boards(board: chess.Board) -> list:
-    """The board after each legal move of the side to move (under-promotions left out)."""
-    out = []
-    for m in board.legal_moves:
-        if m.promotion not in (None, chess.QUEEN):
-            continue
-        out.append(_after(board, m))
-        if len(out) >= MAX_ONE_MOVE_ALTS:
-            break
+NAMED_KEY = "scene.named"  # (UCI, …): the moves of the board now the answer's sentences named so far
+MAX_NAMED = 8
+
+
+def _unnamed_solution_boards(board: chess.Board, state: dict, ctx: Any = None) -> list:
+    """With the solution unknown, the boards an answer about its unnamed first move may describe: after each move of
+    the board now the answer named so far («Лучший ход — Nf3. Конь там …»), and after each forcing move of the side to
+    move (a check, a capture, a promotion — the first move of a tactic). Not every legal move: any claim some quiet
+    move makes true would never be reported. Cached on the context per board and named moves."""
+    named = tuple((state.get(NAMED_KEY) or ()) if isinstance(state, dict) else ())
+    cache = getattr(ctx, "_rel_unnamed", None) if ctx is not None else None
+    if cache is not None and cache[0] == (id(board), named):
+        return cache[1]
+    out = _unnamed_now(board, named)
+    if ctx is not None:
+        try:
+            ctx._rel_unnamed = ((id(board), named), out)
+        except Exception:  # noqa: BLE001
+            pass
     return out
+
+
+def _unnamed_now(board: chess.Board, named: tuple) -> list:
+    out, seen = [], set()
+    for uci in named:
+        try:
+            mv = chess.Move.from_uci(uci)
+        except ValueError:
+            continue
+        if mv in board.legal_moves and mv not in seen:
+            seen.add(mv)
+            out.append(_after(board, mv))
+    for m in board.legal_moves:
+        if m in seen or m.promotion not in (None, chess.QUEEN):
+            continue
+        if m.promotion or board.is_capture(m) or board.gives_check(m):
+            seen.add(m)
+            out.append(_after(board, m))
+            if len(out) >= MAX_ONE_MOVE_ALTS:
+                break
+    return out
+
+
+def _remember_named(text: str, ctx: Any, state: dict) -> None:
+    """Add the moves of the board now that *text* names (each read one way) to NAMED_KEY."""
+    cur = getattr(ctx, "current", None)
+    if cur is None or not re.search(r"[a-h][1-8]|O-O|0-0", text or "") or not _asks_move(ctx):
+        return  # (read only where the turn asks for the move: _unnamed_solution_boards)
+    from src.claim_grammar import written_moves
+
+    try:
+        found = written_moves(text)
+    except Exception:  # noqa: BLE001
+        return
+    named = list(state.get(NAMED_KEY) or ())
+    for m in found:
+        try:
+            got = move_readings(cur, m)
+        except Exception:  # noqa: BLE001
+            continue
+        if len(got) == 1 and got[0].uci() not in named:
+            named.append(got[0].uci())
+    if named:
+        state[NAMED_KEY] = tuple(named[-MAX_NAMED:])
 
 
 def _past_boards(ctx: Any, cur: chess.Board) -> Optional[list]:
@@ -653,9 +860,12 @@ def _past_boards(ctx: Any, cur: chess.Board) -> Optional[list]:
 ANY_POSITION = BoardSet(primary=None, where="in any position")
 
 
+_START = _key(chess.Board())[:-1]
+
+
 def _bare_start(cur: Optional[chess.Board], ctx: Any) -> bool:
     """The board now is the initial position by default: nothing was played to reach it (no game is on it)."""
-    return cur is not None and cur.board_fen() == chess.STARTING_BOARD_FEN and not getattr(ctx, "game_moves", None)
+    return cur is not None and _key(cur)[:-1] == _START and not getattr(ctx, "game_moves", None)
 
 
 def _diagram_only(claim: Claim, primary: chess.Board, cur: Optional[chess.Board], shown: list, ctx: Any) -> bool:
@@ -720,6 +930,10 @@ def _resolve_now(pos: Pos, ctx: Any, state: dict) -> Optional[tuple]:
             branches = _walk(alt[0], alt[1], pos.moves, ctx, [])
             if branches is not None:
                 break
+    if branches is None and pos.at in ("now", "after") and any(m.number for m in pos.moves):
+        # «После 3.Bg5 …» on move 2 with no line of the turn at move 3: a number off by one, read on this board — only
+        # when no board of the turn has the line as written
+        branches = _walk(board, where, pos.moves, ctx, history, loose=True)
     if branches is None:
         return None
     main = branches[0]
@@ -849,15 +1063,16 @@ def boards_for(claim: Claim, ctx: Any, state: dict) -> Optional[BoardSet]:
         alts.extend(_question_boards(ctx))
         if cur is not None and primary is cur:
             sol = _solution_boards(ctx, cur)
-            if not sol and _asks_move(ctx):
-                # The turn asks for the move and its solution is not known here: the answer may describe the board
-                # after its unnamed first move — any move of the side to move.
-                sol = _one_move_boards(cur)
+            if not sol and _asks_move(ctx) and not claim.neg and claim.question != "which":
+                # The turn asks for the move and its solution is not known here (voice, a late engine): the answer
+                # may describe the board after its unnamed first move — one it named, or a forcing one. A denial or
+                # a «which» presupposition is about the board now.
+                sol = _unnamed_solution_boards(cur, state, ctx)
             alts.extend(sol)
         alts.extend(_from_square(primary, claim))
     if pos.moves or pos.at == "then":
         alts.extend(_before_last(primary, claim))
-    alts.extend(_implicit(primary, claim))
+    alts.extend(_implicit(primary, claim, ctx))
     return BoardSet(primary=primary, where=where, alternatives=tuple(alts), shown=shown_board)
 
 
@@ -867,6 +1082,10 @@ def remember(text: str, claims: list[Claim], ctx: Any, state: dict) -> None:
     restores a shallow copy when the sentence is cut."""
     if not isinstance(state, dict):
         return
+    try:
+        _remember_named(text, ctx, state)
+    except Exception:  # noqa: BLE001
+        pass
     told = None
     for c in claims:
         if c.pos.moves and c.pos.at in ("now", "after", "then", "shown_after"):
@@ -894,24 +1113,32 @@ __all__ = ["boards_for", "remember", "to_move", "last_move", "board_before", "TH
 
 def _told_line(text: str, ctx: Any, state: dict) -> Optional[tuple]:
     """The end of the line a sentence with no claim writes («Да, есть — но только одна: Nc7+.», «Чёрные вынуждены
-    взять: Kxh7»), as remember() keeps it; None when it writes none or it cannot be played. A bare square is no move
-    here: only what is written as a move (a piece letter, a capture, a check, castling, a move number)."""
-    from src.claim_types import find_moves
+    взять: Kxh7», «Сыграй d3.»), as remember() keeps it; None when it writes none or it cannot be played. A bare square
+    is a move only where the parser's words make it one (claim_grammar.written_moves)."""
+    from src.claim_grammar import written_moves
 
     try:
-        moves = tuple(m for m in find_moves(text) if m.piece not in (None, "P") or m.capture or m.castle or m.number
-                      or (m.san or "").endswith(("+", "#")))
+        # what is written as a move: a piece letter, a capture, a check, castling, a move number, «e4-e5», a move told
+        # in words, a bare square the words make a move («Сыграй d3. Тогда …», «Лучший ход — d3»)
+        moves = written_moves(text)
     except Exception:  # noqa: BLE001
         return None
     if not moves or len(moves) > 8:
         return None
     if len(moves) > 1 and _CHOICE.search(text):
         return None  # «У чёрных всего два ответа: Крg5 или Л:h7» — choices, not a line
-    got = _resolve(Pos(at="now", moves=moves), ctx, state)
-    if got is None or not last_move(got[0]):
-        return None
-    prev, last = board_before(got[0]), last_move(got[0])
-    return got[0].fen(), got[1], 0, prev.fen() if prev is not None else "", last.uci() if last else ""
+    # Played later, when a sentence needs it (_then_board): on the board the line was told on — the line the sentence
+    # before told, else the answer's scene then, kept here as FEN.
+    prev_then = state.get(THEN_KEY) if isinstance(state, dict) else None
+    if prev_then and prev_then[1] == "lazy":
+        prev_then = _materialize(prev_then, ctx)
+    base = None
+    got = _then_board(ctx, {THEN_KEY: prev_then} if prev_then else {})
+    if got is not None:
+        b, where = got
+        lm, pb = last_move(b), board_before(b)
+        base = (b.fen(), where, 0, pb.fen() if pb is not None else "", lm.uci() if lm else "")
+    return (None, "lazy", 0, moves, base, prev_then)
 
 
 _EARLIER = re.compile(r"(?<![\w-])(?:если\s+бы|было\s+бы|what\s+if|would\s+have|had\s+i)(?![\w-])|"

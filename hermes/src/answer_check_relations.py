@@ -12,6 +12,10 @@ sentence is then judged by the other checks alone. ``extract_claims`` and ``judg
 evaluation harness (scripts/eval_relations.py) swaps for the recorded claims and the reference judge.
 
 Wiring (WP-C):
+  surface   CheckContext.relation_surface caps the mode: 'lesson' (the /learn tutor) is never checked, 'game' (a move
+            comment) is recorded (shadow) and logged as a relation_check event of surface 'game', never cut; the voice
+            check replays the earlier sentences with ``spoken=True`` (what a flagged sentence named stays the
+            antecedent — it was heard).
   merge     a relation issue that repeats one the other checks already gave is dropped; for the rewrite the relation
             issues go first (they carry the board truth) and at most MAX_FIX_ISSUES go (``issues_for_fix``).
   timing    ``relation_stats['ms']`` (all calls of the turn) and ``['ms_max']`` (the slowest call).
@@ -48,16 +52,25 @@ _OFF = ("off", "0", "false", "no", "")
 _ON = ("on", "1", "true", "yes")
 
 
-def mode() -> str:
-    """'off' | 'shadow' | 'on', read from src.config at call time (tests and the harness patch it)."""
+def mode(ctx: Any = None) -> str:
+    """'off' | 'shadow' | 'on', read from src.config at call time (tests and the harness patch it). With a context, its
+    surface caps it: the /learn lesson tutor is never checked (the team's feature — Асан 19.10), a game comment is at
+    most recorded (shadow, logged as a relation_check event of surface 'game') until its flags are reviewed."""
     from src import config
 
     raw = str(getattr(config, "COACH_RELATION_CHECK", "on") or "").strip().lower()
     if raw in _OFF:
+        got = "off"
+    elif raw in _ON:
+        got = "on"
+    else:
+        got = "shadow"  # 'shadow', or a value nobody meant: computed, never shown
+    surface = getattr(ctx, "relation_surface", "text") if ctx is not None else "text"
+    if surface == "lesson":
         return "off"
-    if raw in _ON:
-        return "on"
-    return "shadow"  # 'shadow', or a value nobody meant: computed, never shown
+    if surface == "game" and got == "on":
+        return "shadow"
+    return got
 
 
 def extract_claims(text: str, ctx: Any, state: dict) -> list[Claim]:
@@ -112,6 +125,11 @@ def _issues(text: str, ctx: Any, stats: dict) -> list[str]:
     claims = list(extract_claims(text, ctx, state))[:MAX_CLAIMS]
     stats["claims"] += len(claims)
     out = []
+    try:  # the pieces the whole sentence names: none of them on the board → the sentence is about another position
+        ctx._rel_named = tuple(r for c in claims for r in [c.subj] + list(c.objs) if r is not None and r.sq and r.piece
+                               and not r.pronoun)
+    except Exception:  # noqa: BLE001
+        pass
     for claim in claims:
         try:
             verdict = judge_claim(claim, ctx, state)
@@ -121,6 +139,10 @@ def _issues(text: str, ctx: Any, stats: dict) -> list[str]:
             continue
         if verdict is not None and verdict.status == "false":
             out.append(issue_text(claim, verdict))
+    try:
+        ctx._rel_named = ()
+    except Exception:  # noqa: BLE001
+        pass
     try:
         remember(text, claims, ctx, state)
     except Exception:  # noqa: BLE001
@@ -133,7 +155,7 @@ def relation_issues(text: str, ctx: Any, prior: list[str]) -> list[str]:
     """The relation claims of *text* that are false on their board, as issues (``on``); [] in ``shadow`` (they
     are recorded in ``ctx.relation_shadow``) and in ``off``. *prior* are the sentence's issues found so far: an
     issue they already hold is not given twice. Never raises."""
-    current = mode()
+    current = mode(ctx)
     if current == "off":
         return []
     stats = _stats(ctx)
@@ -175,7 +197,7 @@ def issues_for_fix(issues: Iterable[str], ctx: Any, limit: int = MAX_FIX_ISSUES)
     of board truth each, «after 4.e5: White's pawn on e5 attacks d6 and f6 — not …»), then the others in their
     order; at most *limit*. The full list stays in the logs. With the checker ``off`` the list goes as it is (the
     rewrite as before the checker). Never raises."""
-    if mode() == "off":
+    if mode(ctx) == "off":
         return list(issues or [])
     try:
         ordered = list(dict.fromkeys(i for i in issues or () if isinstance(i, str) and i.strip()))
@@ -194,7 +216,7 @@ def turn_summary(ctx: Any) -> dict:
     relation_mode, relation_calls, relation_claims, relation_flags, relation_errors, relation_ms, relation_ms_max."""
     stats = getattr(ctx, "relation_stats", None) or {}
     return {
-        "relation_mode": mode(),
+        "relation_mode": mode(ctx),
         "relation_calls": int(stats.get("calls", 0)),
         "relation_claims": int(stats.get("claims", 0)),
         "relation_flags": int(stats.get("flags", 0)),
@@ -246,7 +268,14 @@ _ASKS_MOVE = re.compile(
     r"(?:играть|сыграть|делать|ходить|предпринять)|"
     r"как\s+(?:мне\s+|тут\s+|здесь\s+|белым\s+|ч[её]рным\s+){0,2}"
     r"(?:решить|выиграть|победить|спастись|защититься|поставить\s+мат|заматовать|матовать|реализовать)|"
-    r"(?:найди|подскажи|покажи)\s+(?:мне\s+)?(?:ход|решение|лучший\s+ход)|"
+    r"(?:найди|найдите|найти|подскажи|покажи|ищи)\s+(?:мне\s+)?(?:\w+\s+)?(?:ход|решение|лучший\s+ход|мат\w*|вилк\w*|"
+    r"двойн\w+\s+удар\w*|тактик\w*|комбинаци\w*|выигрыш\w*|удар\w*|жертв\w*|продолжени\w*)|"
+    r"(?:начина\w+|начнут|ходят)\s+и\s+(?:выигрыва\w+|выигра\w+|побежда\w+|дела\w+\s+ничью|ставят\s+мат|матуют)|"
+    r"мат\s+в\s+(?:\d+|один|два|три)\s+хода?|"
+    r"winning\s+(?:move|line|combination|idea)|find\s+(?:the\s+|a\s+)?(?:\w+\s+)?(?:move|win|mate|tactic|fork|combination|"
+    r"solution|continuation)|(?:white|black)\s+to\s+(?:play|move)(?:\s+and\s+win)?|mate\s+in\s+\d|"
+    r"how\s+(?:does|do|can)\s+(?:white|black)\s+(?:win|mate|play)|"
+    r"where\s+(?:should|can|could|do|would)\s+(?:i|we|white|black|my\s+\w+|the\s+\w+)\s+(?:go|move|put|place)|"
     r"best\s+move|first\s+move|next\s+move|which\s+move|what\s+move|"
     r"what\s+(?:should|do|can|would)\s+(?:i|we|white|black)\s+(?:play|do)|"
     r"how\s+(?:do|can|should|would)\s+(?:i|we|white|black)\s+(?:solve|win|mate|play)|how\s+to\s+(?:solve|win|mate)|"

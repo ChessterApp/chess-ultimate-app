@@ -827,7 +827,8 @@ def test_a_self_correction_after_an_ellipsis_is_thinking_aloud():
 @pytest.mark.parametrize("fen, question, student, sentence, truth", [
     # a knight on a4 hits b2, c3, c5 and b6 — not b3
     (ROOK_G1_W, "Могу ли я сыграть Rg1 сейчас? А Qxg7?", chess.WHITE,
-     "If Black now plays ...Nxa4, the pawn on b3 is attacked by the knight on a4.", "nothing attacks White's pawn on b3"),
+     # (review 30.10: "by the knight" names the attacker now — the truth is what that knight hits)
+     "If Black now plays ...Nxa4, the pawn on b3 is attacked by the knight on a4.", "knight on a4 attacks White's queen on c3 — not White's pawn on b3"),
     # neither White rook nor bishop reaches h4 (h2 blocks the h-file)
     (TestHypotheticalPhrasings.H4, "что если поставить ладью на g1?", chess.WHITE, "Ладья и слон бьют по h4.", "h4"),
     # after Rg1 the knight c5 still hits a4

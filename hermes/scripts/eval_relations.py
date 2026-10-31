@@ -600,7 +600,9 @@ def main(argv=None) -> int:
 
     # 5. CORPUS
     if a.corpus:
+        t0 = len(REC.times)
         cor = run_corpus(Path(a.corpus), a.mode, a.parser, a.judge)
+        cor_times = REC.times[t0:]  # relation_issues on real answer sentences (with their game and line history)
         newf = [f for f in cor["flags"] if not f["legacy_flagged"]]
         m.update(corpus_sentences=cor["sentences"], corpus_relation_flags=len(cor["flags"]), corpus_new_flags=len(newf))
         report["corpus"] = cor
@@ -629,6 +631,10 @@ def main(argv=None) -> int:
     cs = [r["ms"] for r in ev] + [x["ms"] for out in results.values() for x in out]
     line = (f"LATENCY relation p50 {pct(rt, .5):.3f} p99 {pct(rt, .99):.3f} max {max(rt) if rt else 0:.3f} ms ({len(rt)} calls) | "
             f"check_sentence (fixtures) p50 {pct(cs, .5):.2f} p99 {pct(cs, .99):.2f} ms")
+    if a.corpus and cor_times:
+        # the real sentences alone (the eval rows are short): the bound the review asked for (30.10, wiring)
+        m["relation_p99_corpus_ms"] = round(pct(cor_times, .99), 3)
+        line += f" | relation on the corpus p50 {pct(cor_times, .5):.3f} p99 {pct(cor_times, .99):.3f} ms ({len(cor_times)})"
     if not a.no_sample:
         s = timing_sample(a.mode)
         if s:

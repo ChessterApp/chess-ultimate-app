@@ -26,7 +26,8 @@ def test_the_gate_holds_on_the_fixtures(tmp_path):
     assert seconds < 30, seconds
     m = json.loads(out.read_text())["metrics"]
     gates = json.loads((H / "tests" / "fixtures" / "relations" / "gates.json").read_text())
-    for k in list(gates["min"]) + [k for k in gates["max"] if k not in ("corpus_relation_flags", "check_sentence_p99_ms")]:
+    corpus_only = ("corpus_relation_flags", "check_sentence_p99_ms", "relation_p99_corpus_ms")  # need --corpus / the sample
+    for k in list(gates["min"]) + [k for k in gates["max"] if k not in corpus_only]:
         assert k in m, k  # every gated number is computed on the fixtures alone
 
 

@@ -2806,7 +2806,8 @@
    "id": "resolver/implicit-move",
    "group": "resolver",
    "ctx": {
-    "fen": "3rkr2/1Qpb4/p1B1pq2/7p/3PN1p1/B1P3P1/P4nKP/R4R2 b - - 3 24"
+    "fen": "3rkr2/1Qpb4/p1B1pq2/7p/3PN1p1/B1P3P1/P4nKP/R4R2 b - - 3 24",
+    "question": "Сдаюсь, покажи решение"
    },
    "claim": {
     "rel": "attack",
@@ -2824,7 +2825,7 @@
     ]
    },
    "expect": "true",
-   "note": "eval #99: no queen on f3 now, but exactly one move puts one there; on that board h1 is hit through the king"
+   "note": "eval #99: no queen on f3 now, but exactly one move puts one there; on that board h1 is hit through the king (the row's question asks for the solution: the words may place the queen where its move puts it; plan 30.10 fix — a present attack by an absent piece is otherwise the error itself)"
   },
   {
    "id": "resolver/from-square",
