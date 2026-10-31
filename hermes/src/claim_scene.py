@@ -1650,6 +1650,9 @@ def _remember_advice(text: str, ctx: Any, state: dict) -> None:
 def _remember_idea(text: str, ctx: Any, state: dict) -> Optional[tuple]:
     """«(А) почему не X?»: keep X for the next sentence (IDEA_KEY), and — idea_scope on — the board after X as the line
     it goes on from, for that sentence only (its age is the last one a «тогда» still reads). Else forget the idea."""
+    if not _IDEA_Q.match((text or "").strip().replace("ё", "е")):  # cheap: most sentences ask no «почему не X?»
+        state.pop(IDEA_KEY, None)
+        return None
     mode = _mode("idea_scope", ctx)
     got = _idea_move(text, ctx) if mode != "off" else None
     if got is None:

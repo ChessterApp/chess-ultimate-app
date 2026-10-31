@@ -8064,15 +8064,15 @@
    "prev": "",
    "fen_or_line": "1. d4 e5 2. dxe5 Nc6 3. Nf3 Nf6 4. exf6 Be7 5. fxe7",
    "position_kind": "past",
-   "label": "TRUE",
-   "claim": "after Be7 White hit it with the pawn: fxe7",
-   "why": "f6 pawn took e7",
+   "label": "FALSE",
+   "claim": "after Be7 White hit it with the pawn: fxe7; «твоя пешка с f6» — the student's pawn took the bishop",
+   "why": "the attack (fxe7) is true, but the pawn that took is White's, the engine's — the student plays Black: the sentence is the graded prod error st2#5 (relabelled at integration 31.10, stage 1; P1 student_capture cuts it)",
    "families": [
     "attack"
    ],
    "ambiguous": false,
    "ambiguous_reason": "",
-   "graded_prod_finding": null,
+   "graded_prod_finding": "st2#5: 5.fxe7 was White's (the engine's) capture, not the student's — the student plays Black",
    "flagged_by_current_checker": false,
    "current_issues": []
   },

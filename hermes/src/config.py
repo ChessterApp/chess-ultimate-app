@@ -1,5 +1,6 @@
 """Configuration loader for Hermes Chess Coach."""
 
+import functools
 import os
 from pathlib import Path
 from typing import Optional
@@ -463,8 +464,15 @@ RELATION_DETECTORS = frozenset({
 _MODE_RANK = {"off": 0, "shadow": 1, "on": 2}
 
 
-def _env_names(name: str) -> set:
-    return {x.strip().lower() for x in (os.environ.get(name) or "").split(",") if x.strip()}
+def _env_names(name: str) -> frozenset:
+    return _parse_names(os.environ.get(name) or "")
+
+
+@functools.lru_cache(maxsize=64)
+def _parse_names(raw: str) -> frozenset:
+    """The comma list *raw* as lower-case names; cached by the raw string, so a changed variable is read at once
+    while the per-sentence switch lookups (every relation sentence asks several) do not re-split it."""
+    return frozenset(x.strip().lower() for x in raw.split(",") if x.strip())
 
 
 def detector_mode(name: str, ctx=None) -> str:
