@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "C3 start_cue",
- "status": "missed",
+ "status": "caught",
  "sentence": "Сейчас, в самом начале партии, король на e5 попасть не может — поле слишком далеко и занято своими же фигурами, так что хода «Кр:e5» тут просто нет. ",
  "sentence_index": 5,
  "prefix": [

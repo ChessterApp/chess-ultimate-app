@@ -75,9 +75,10 @@ def mode(ctx: Any = None) -> str:
 
 def extract_claims(text: str, ctx: Any, state: dict) -> list[Claim]:
     """The claims of *text*: the grammar's and the board rules'."""
-    from src import claim_grammar, claim_rules
+    from src import claim_grammar, claim_rules, claim_scene
 
-    return list(claim_grammar.extract(text, state, getattr(ctx, "language", None))) + list(claim_rules.extract(text, state))
+    return list(claim_grammar.extract(text, state, getattr(ctx, "language", None))) + list(claim_rules.extract(text, state)) \
+        + list(claim_scene.extract(text, ctx, state))  # the scene's words: start cues, idea scope (plan 31.10, P3B)
 
 
 def judge_claim(claim: Claim, ctx: Any, state: dict) -> Optional[Verdict]:
