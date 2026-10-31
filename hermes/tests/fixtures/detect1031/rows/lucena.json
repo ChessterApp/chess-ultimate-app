@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "C2a checks_geometry",
- "status": "missed",
+ "status": "caught",
  "sentence": "Затем белый король выходит из-под пешки (Kc7), и ладья на d4 образует «мост» — когда чёрная ладья начнёт шаховать по вертикали d, наша ладья просто перекроет линию. ",
  "sentence_index": 4,
  "prefix": [
