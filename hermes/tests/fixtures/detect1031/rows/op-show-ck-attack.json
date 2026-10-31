@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "C6 prevents",
- "status": "missed",
+ "status": "caught",
  "sentence": "На доске сейчас ход твой, за белых: лучший план — d4, занимая центр и не давая чёрным спокойно поставить пешку на d5. ",
  "sentence_index": 4,
  "prefix": [

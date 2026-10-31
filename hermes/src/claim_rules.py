@@ -42,6 +42,7 @@ from typing import Any, Callable, Optional
 import chess
 
 from src.claim_types import PIECE_TYPE, UNDECIDED, Claim, MoveRef, Pos, Ref, Verdict, parse_san_token
+from src.config import detector_mode
 
 # relation → its judge on one board (claim_judge.decide dispatches the RULE_RELATIONS here).
 RULE_JUDGES: dict[str, Callable[[Claim, chess.Board, Any], Verdict]] = {}
@@ -289,9 +290,9 @@ def _past(pos: Pos, words: str) -> Pos:
     return pos
 
 
-def _claim(rel, subj, objs=(), *, pos=Pos(), span=(0, 0), move=None, kind="", neg=False, count=None):
+def _claim(rel, subj, objs=(), *, pos=Pos(), span=(0, 0), move=None, kind="", neg=False, count=None, to=None):
     return Claim(rel=rel, subj=subj, objs=tuple(objs), pos=pos, span=span, source="rules", move=move, kind=kind,
-                 neg=neg, count=count)
+                 neg=neg, count=count, to=to)
 
 
 # only_move ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -631,13 +632,184 @@ def _checks_along(conv, low, moves, state):
             continue
         side = _side_word(low, max(0, pm.start() - 20), pm.start())
         subj = Ref(piece=_piece_at(low, pm), side=side, text=pm.group(0))
-        out.append(_claim("checks_along", subj, pos=_pos(moves, m.start(), low, state), span=(pm.start(), m.end()), kind=kind))
+        span = (pm.start(), m.end())
+        told = _told_king(low, moves, m.start(), side) if detector_mode("checks_geometry") != "off" else None
+        later = low[m.end():]
+        if told is not None and (_KING_WORD.search(later) or any(s >= m.end() for s, _, _ in moves)):
+            told = None  # the king may walk on after the move told («…, как только король вернётся на d6»)
+        if told is not None and not _on_line(kind, chess.parse_square(told.to)):
+            # C2a (plan 31.10, lucena): the move told last puts the king the checks are aimed at on a square off the
+            # line — no check along that line can reach it, whatever the rest of the board («Затем белый король
+            # выходит из-под пешки (Kc7) … когда чёрная ладья начнёт шаховать по вертикали d»). Judged on geometry
+            # alone, so it holds on every board the words may mean (the line itself the scene often cannot build).
+            out.append(_claim("checks_along", subj, pos=Pos(), span=span, kind=kind, move=told,
+                              to=Ref(sq=told.to, piece="K", side=told.side, text="king")))
+            continue
+        out.append(_claim("checks_along", subj, pos=_pos(moves, m.start(), low, state), span=span, kind=kind))
+    return out
+
+
+def _on_line(kind: str, sq: int) -> bool:
+    what, _, x = kind.partition(":")
+    if what == "file":
+        return chess.square_file(sq) == "abcdefgh".index(x)
+    return chess.square_rank(sq) == int(x) - 1
+
+
+def _told_king(low: str, moves: list, at: int, checker: Optional[bool]) -> Optional[MoveRef]:
+    """The last king move told before *at* of the side the checks are aimed at (the other side from *checker*),
+    with its side: a numbered move, or a colour word on the king named right before it («белый король выходит из-под
+    пешки (Kc7)»). None when the checker's side or the king's is not said — the words do not fix whose king it is."""
+    if checker is None:
+        return None
+    for s, e, mv in reversed([x for x in moves if x[0] < at]):
+        if (mv.piece or "P") != "K" or mv.castle or not mv.to:
+            continue
+        side = mv.side
+        if side is None:
+            clause = max(low.rfind(c, 0, s) for c in ".;!?") + 1
+            king = _king_ref(low, max(clause, s - 60), s)
+            side = king.side if king is not None else None
+        if side is None:
+            return None
+        if side == checker:
+            continue  # the checker's own king walking: not the king the checks are aimed at
+        return MoveRef(san=mv.san, piece="K", to=mv.to, side=side, number=mv.number)
+    return None
+
+
+# retreat_cover (C5, plan 31.10) ────────────────────────────────────────────────────────────────────────────────
+# «…белые сразу нападают на слона, и вот тогда он вынужден уйти туда, откуда f1 уже не прикрывает» (castle-ru): the
+# piece chased must give up its cover of the square — false when a safe retreat keeps it.
+_COVER_VERB = (r"(?:прикрыва\w*|прикро\w*|прикрыть|бь[её]т|бить|держ\w*|контролир\w*|атаку\w*|прострелива\w*|"
+               r"защища\w*|защити\w*)")
+_FORCED_AWAY = re.compile(
+    _W + r"(?:вынужден\w*|придется|приходится|должен|должна|обязан\w*)\s+(?:будет\s+)?(?:[а-я]+\s+)?"
+    r"(?:уйти|отступить|отойти|уходить|отступать|отходить|убраться|бежать)"
+    r"(?:\s+(?:на\s+(?:поле\s+)?(?P<to>" + _SQ + r")|туда|куда-то|[а-я]+)){0,2}\s*,?\s*(?:туда\s*,?\s*)?"
+    r"(?:откуда|где|с\s+которого|с\s+которой)\s+(?:(?:он|она|оно)\s+)?(?:(?P<sq1>" + _SQ + r")\s+)?"
+    r"(?:(?:уже|больше|теперь|тогда|более)\s+)*не\s+(?:(?:сможет|может|будет|станет)\s+)?" + _COVER_VERB
+    + r"(?:\s+(?:(?:поле|пункт|клетку)\s+)?(?P<sq2>" + _SQ + r"))?" + _E)
+_TOKEN = re.compile(r"(?<![a-zа-я0-9])(?:[kqrbn][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x[a-h][1-8]|[a-h][1-8]|o-o(?:-o)?)(?![0-9])")
+
+
+def _retreat_cover(conv, low, moves, state):
+    out = []
+    for m in _FORCED_AWAY.finditer(low):
+        sq = m.group("sq1") or m.group("sq2")
+        if not sq or _skip(low, m.start(), any(s < m.start() for s, _, _ in moves)):
+            continue
+        clause = max(low.rfind(c, 0, m.start()) for c in ".;!?") + 1
+        pm = None
+        for p in _PIECE.finditer(low, clause, m.start()):
+            pm = p
+        if pm is None:
+            continue  # «он вынужден уйти» with no piece named in the sentence: the antecedent is not ours to guess
+        piece = _piece_at(low, pm)
+        if piece in ("P", "K"):
+            continue
+        ref = _piece_ref(low, pm, side=_side_word(low, max(0, pm.start() - 20), pm.start()))
+        # the moves before the claim that may be the chase («Начни с b3 — b3–c4 — белые сразу нападают на слона»)
+        chase = list(dict.fromkeys(t.group(0) for t in _TOKEN.finditer(low, clause, m.start())))
+        first = min([t.start() for t in _TOKEN.finditer(low, clause, m.start())] + [m.start()])
+        to = MoveRef(piece=piece, to=m.group("to")) if m.group("to") else None
+        out.append(_claim("retreat_cover", Ref(sq=ref.sq, piece=piece, side=ref.side, text=pm.group(0)),
+                          (Ref(sq=sq),), pos=_pos(moves, first, low, state), span=(pm.start(), m.end()), move=to,
+                          kind="chase:" + ",".join(chase)))
+    return out
+
+
+# prevents (C6, plan 31.10) ─────────────────────────────────────────────────────────────────────────────────────
+# «лучший план — d4, занимая центр и не давая чёрным спокойно поставить пешку на d5» (op-show-ck): a move said to stop
+# the other side's move to a square — false when that move stays legal and loses nothing after it.
+_ADVERBS = ("спокойно", "сразу", "легко", "свободно", "просто", "быстро", "потом", "затем", "никак", "толком")
+_PREVENTS = re.compile(
+    _W + r"(?:не\s+давая|не\s+позволяя|мешая|не\s+пуская)\s+(?:(?P<who>[а-я]+)\s+)?(?:(?:" + "|".join(_ADVERBS) + r")\s+)*"
+    r"(?P<verb>поставить|сыграть|занять|продвинуть|выдвинуть|двинуть|толкнуть|встать|пойти|выйти|прыгнуть|перейти)\s+(?:(?P<pw>" + "|".join(p for _, p in _PIECE_STEMS) + r")\s+)?"
+    r"(?:(?:на|в)\s+(?:поле\s+)?)?(?:\.{2,3}|…)?(?P<pl>[kqrbn])?(?P<sq>" + _SQ + ")" + _E)
+# A move written before the participle, as the move itself, not as an object («— d4, …», «Играй c4, …»): what may
+# stand right before it.
+_MOVE_INTRO = re.compile(r"(?:^|[—–:;,(]|" + _W + r"(?:играй|сыграй|играть|сыграть|ход|ходом|план|после|сначала|"
+                         r"продвинь|толкни|двинь|поставь|ставь|лучше|с))\s*[*_«\"]*(?:\d{1,3}\s?\.{1,3}\s?)?$")
+_DATIVE_SIDE = re.compile(r"(?P<b>черн\w+)|(?P<w>бел\w+)|(?P<their>сопернику|противнику|ему|ей|им)|(?P<you>тебе|вам)")
+
+
+def _prevents(conv, low, moves, state):
+    out = []
+    for m in _PREVENTS.finditer(low):
+        if _skip(low, m.start(), any(s < m.start() for s, _, _ in moves)):
+            continue
+        clause = max(low.rfind(c, 0, m.start()) for c in ".;!?") + 1
+        toks = list(_TOKEN.finditer(low, clause, m.start()))
+        if not toks:
+            continue
+        t = toks[-1]
+        if not _MOVE_INTRO.search(low[clause:t.start()]):
+            continue  # «атакуя d5 и не давая …», «конь на f6, не давая …»: the square is an object, not the move
+        mover = parse_san_token(conv[t.start():t.end()])
+        who, piece = m.group("who") or "", None
+        if who in _ADVERBS:
+            who = ""  # «не давая спокойно сыграть d5»: no side named — the other side from the mover
+        side: Optional[Ref] = None
+        d = _DATIVE_SIDE.fullmatch(who) if who else None
+        if d is not None:
+            side = Ref(side=chess.BLACK if d.group("b") else (chess.WHITE if d.group("w") else None),
+                       owner="their" if d.group("their") else ("you" if d.group("you") else None), text=who)
+        elif who:
+            pw = next((k for k, p in _PIECE_STEMS if re.fullmatch(p, who)), None)
+            if pw is None:
+                continue  # «не давая коню …» is a piece; another word is not a side we can read
+            piece = pw
+        if m.group("pw"):
+            piece = next((k for k, p in _PIECE_STEMS if re.fullmatch(p, m.group("pw"))), piece)
+        if m.group("pl"):
+            piece = m.group("pl").upper()
+        if piece is None and m.group("verb") in ("сыграть", "продвинуть", "выдвинуть", "двинуть", "толкнуть"):
+            piece = "P"  # «сыграть d5»: a bare square is a pawn move
+        target = MoveRef(piece=piece, to=m.group("sq"))
+        out.append(_claim("prevents", side, (Ref(sq=m.group("sq"), piece=piece),), pos=_pos(moves, t.start(), low, state),
+                          span=(t.start(), m.end()), move=mover, to=Ref(sq=target.to, piece=piece)))
+    return out
+
+
+# only_move_orders (F13, plan 31.10) ────────────────────────────────────────────────────────────────────────────
+# «Ход Kf8 единственный», «Есть только один ход: Kf8» — the word orders the legal-sense patterns above miss. Bare
+# «единственный ход — Qc1» stays unread (as often the only good move: «Kc7 — единственный ход, который держит ничью»),
+# and even these two are read only as the reply to a check (the judge leaves any other board undecided), never with
+# words that say what the move achieves.
+_ORDER_TRIGGER = re.compile(_W + r"(?:(?:лишь|только|ровно)\s+один\s+(?:ход|ответ)\w*"
+                            r"|ход\s+(?P<mv>\S+)\s+(?:[—–-]\s*)?(?:(?:здесь|тут|сейчас|был|была|было)\s+)?единственн\w*)" + _E)
+_ORDER_GOAL = re.compile(_W + r"(?:котор\w+|что|чтобы|спаса\w*|спасти|спасет|выигр\w*|держ\w*|удерж\w*|нич\w+|реша\w*|"
+                         r"форсир\w*|вед\w*|сохран\w*|проигр\w*|теря\w*|лучш\w*|хорош\w*|сильн\w*|точн\w*|правильн\w*|"
+                         r"разумн\w*|достойн\w*|защища\w*|защит\w*|мат\w*|побед\w*|позволя\w*|оставля\w*)" + _E)
+
+
+def _only_move_orders(conv, low, moves, state):
+    out = []
+    for m in _ORDER_TRIGGER.finditer(low):
+        end = re.search(r"[.;!?]|,\s*(?:но|а|и)\s", low[m.end():])
+        tail = low[m.end():m.end() + end.start()] if end else low[m.end():]
+        if _ORDER_GOAL.search(tail) or _ORDER_GOAL.search(low[max(0, m.start() - 25):m.start()]):
+            continue
+        if m.group("mv"):
+            near = [(s, e, mv) for s, e, mv in moves if s == m.start("mv")]
+        else:
+            near = [(s, e, mv) for s, e, mv in moves if 0 <= s - m.end() <= 6 or 0 <= m.start() - e <= 6]
+        if not near or _skip(low, m.start(), True):
+            continue
+        s, e, mv = min(near, key=lambda x: abs(x[0] - m.end()))
+        if low[e:e + 1] == "!" or not mv.san:
+            continue  # «Kf5!» — the annotation of the one good move
+        king = re.search(r"(?:у|для)\s+(?:[а-я]+\s+)?корол\w*\s+(?:[а-я]+\s+)?$", low[max(0, m.start() - 40):m.start()])
+        pos = _pos_for_move(mv, moves, s, low, state)
+        out.append(_claim("only_move", Ref(piece="K") if king else None, pos=pos,
+                          span=(min(s, m.start()), max(e, m.end())), move=mv, kind="check_reply"))
     return out
 
 
 _CUE = re.compile(r"тольк|единствен|выбор|ходов|обязан|вынужден|должн|некуда|нет\s|заперт|отрезан|прижат|зажат|загород|"
                   r"закрыл|занял|отнял|перекрыл|забрал|закрывает|занимает|загораживает|забирает|отбирает|отнимает|перекрывает|"
-                  r"мож|могу|смож|занят|свободн|пуст|шах")
+                  r"мож|могу|смож|занят|свободн|пуст|шах|давая|позволяя|мешая|пуская|откуда|придется|приходится")
 
 
 # Pieces the sentence places on squares («чёрный конь забрался на h5», «пешку e5», «прикрыта пешкой d3»): a board
@@ -681,8 +853,16 @@ def extract(text: str, state: dict) -> list[Claim]:
         st = state if isinstance(state, dict) else {}
         for part in (_only_move, _no_flight, _can_capture, _occupied, _checks_along):
             claims += part(conv, low, moves, st)
+        # plan 31.10 (P3D): each detector has its own switch (src/config.py detector_mode; off = not read at all)
+        for name, part in (("retreat_cover", _retreat_cover), ("prevents", _prevents),
+                           ("only_move_orders", _only_move_orders)):
+            if detector_mode(name) != "off":
+                claims += part(conv, low, moves, st)
     if isinstance(state, dict):
-        state["rules_placed"] = _placed(low) if claims else ()
+        state["rules_text"] = text if claims else ""
+        # a square a prevention claim names is where the other side may go, not where a piece stands
+        targets = {c.to.sq for c in claims if c.rel == "prevents" and c.to is not None}
+        state["rules_placed"] = tuple(x for x in _placed(low) if x[1] not in targets) if claims else ()
         state["rules_moves"] = tuple((s, m) for s, e, m in moves if not _mentioned(low, s, e)) if claims else ()
     _record(state, moves)
     return claims
@@ -967,7 +1147,37 @@ def judge_confined(claim: Claim, board: chess.Board, ctx) -> Verdict:
     return Verdict("true")
 
 
+def _geometric(claim: Claim) -> bool:
+    """A checks_along claim whose checked king the told move placed (C2a): judged on geometry, not on a board."""
+    return claim.rel == "checks_along" and claim.to is not None and claim.to.piece == "K" and bool(claim.to.sq)
+
+
+def judge_checks_geometry(claim: Claim, board: Optional[chess.Board], ctx) -> Verdict:
+    """«(Kc7) … когда чёрная ладья начнёт шаховать по вертикали d»: the king the checks are aimed at stands where the
+    told move put it; off the line, no check along the line reaches it — on any board."""
+    kind, _, x = claim.kind.partition(":")
+    if kind not in ("file", "rank") or not x or claim.subj is None or claim.subj.side is None:
+        return UNDECIDED
+    k = chess.parse_square(claim.to.sq)
+    if _on_line(claim.kind, k):
+        return UNDECIDED
+    pt = PIECE_TYPE.get(claim.subj.piece) if claim.subj.piece else None
+    line = f"the {x}-file" if kind == "file" else f"rank {x}"
+    what = _NAME[pt] if pt else "piece"
+    ways = [f"the {chess.FILE_NAMES[chess.square_file(k)]}-file", f"rank {chess.square_rank(k) + 1}"]
+    if pt in (chess.QUEEN, None):
+        ways.append("a diagonal")
+    elif pt == chess.BISHOP:
+        ways = ["a diagonal"]
+    told = claim.move.san if claim.move is not None and claim.move.san else f"K{claim.to.sq}"
+    return Verdict("false", "", f"after {told} {_colour(claim.to.side)}'s king stands on {claim.to.sq}, off {line}: "
+                   f"{_colour(claim.subj.side)}'s {what} cannot check it along {line} — its checks can only come along "
+                   + _join(ways, "or"))
+
+
 def judge_checks_along(claim: Claim, board: chess.Board, ctx) -> Verdict:
+    if _geometric(claim):
+        return judge_checks_geometry(claim, board, ctx)
     kind, _, x = claim.kind.partition(":")
     if kind not in ("file", "rank") or not x:
         return UNDECIDED
@@ -1033,6 +1243,24 @@ def judge_only_move(claim: Claim, board: chess.Board, ctx) -> Verdict:
     pt = PIECE_TYPE.get(claim.subj.piece) if claim.subj is not None and claim.subj.piece else None
     if claim.subj is not None and claim.subj.side is not None and claim.subj.side != board.turn:
         return UNDECIDED
+    if claim.kind == "check_reply":
+        # F13 «Ход Kf8 единственный», «у короля единственный ход Ke7»: the only legal reply to the check
+        if mv is None or not board.is_check():
+            return UNDECIDED  # off a check «единственный ход» is the only good move: not a rule of the board
+        pool = list(board.legal_moves)
+        if pt == chess.KING:
+            k = board.king(board.turn)
+            if mv.from_square != k:
+                return UNDECIDED
+            pool = [m for m in pool if m.from_square == k]
+        # a reply after which the checking side mates at once is no reply in the coach's sense («Qa6+ — и у чёрных
+        # только один ответ — bxa6», where 1...Ba7+ allows 2.Qxa7#): only the replies that survive the next move count
+        others = sorted(board.san(m) for m in pool if m != mv and not _mated_next(board, m))
+        if not others:
+            return Verdict("true")
+        who = f"{side}'s king" if pt == chess.KING else side
+        return Verdict("false", "", f"{who} has other legal replies to the check besides {board.san(mv)}: "
+                       + _join(others[:4]) + (f" and {len(others) - 4} more" if len(others) > 4 else ""))
     if claim.kind == "piece":
         # «Король может пойти только на f8»: every legal move of that piece goes to that square
         if mv is None or pt is None or board.piece_type_at(mv.from_square) != pt:
@@ -1069,6 +1297,127 @@ def judge_only_move(claim: Claim, board: chess.Board, ctx) -> Verdict:
     others = sorted(board.san(m) for m in legal if m != mv)
     return Verdict("false", "", f"{side} had other legal moves besides {board.san(mv)}: " + _join(others[:4])
                    + (f" and {len(others) - 4} more" if len(others) > 4 else ""))
+
+
+def _mated_next(board: chess.Board, move: chess.Move) -> bool:
+    """After *move* the other side has a mate in one."""
+    a = board.copy(stack=False)
+    a.push(move)
+    for m in a.legal_moves:
+        if a.gives_check(m):
+            a.push(m)
+            mate = a.is_checkmate()
+            a.pop()
+            if mate:
+                return True
+    return False
+
+
+def _guards(board: chess.Board, sq: int, color: bool, skip: Optional[int] = None) -> str:
+    """«the pawn on c6 and the queen on d8»: *color*'s pieces that defend *sq* on *board*."""
+    names = [f"the {_NAME[board.piece_type_at(s)]} on {chess.square_name(s)}"
+             for s in sorted(board.attackers(color, sq), key=lambda s: _VALUE[board.piece_type_at(s)]) if s != skip]
+    return _join(names)
+
+
+def _safety(board: chess.Board, sq: int) -> str:
+    """Why the piece on *sq* is safe there: nothing attacks it, or what defends it."""
+    p = board.piece_at(sq)
+    if p is None or not board.attackers(not p.color, sq):
+        return f"nothing attacks {chess.square_name(sq)}"
+    guards = _guards(board, sq, p.color, skip=sq)
+    return f"{chess.square_name(sq)} is defended by {guards}" if guards else f"nothing wins it on {chess.square_name(sq)}"
+
+
+def judge_retreat_cover(claim: Claim, board: chess.Board, ctx) -> Verdict:
+    """C5 «нападают на слона, и он вынужден уйти туда, откуда f1 уже не прикрывает»: false when, after the chase, the
+    piece has a safe retreat (static exchange, board_math.safe_squares) from which it still covers the square — after
+    every chase the sentence may mean."""
+    from src.answer_check_rules import _chase_boards
+    from src.board_math import safe_squares
+
+    subj = claim.subj
+    if subj is None or not subj.piece or not claim.objs or not claim.objs[0].sq:
+        return UNDECIDED
+    x = chess.parse_square(claim.objs[0].sq)
+    pt = PIECE_TYPE[subj.piece]
+    colors = [subj.side] if subj.side is not None else [chess.WHITE, chess.BLACK]
+    cands = [s for c in colors for s in board.pieces(pt, c) if x in board.attacks(s)]
+    if subj.sq:
+        cands = [s for s in cands if s == chess.parse_square(subj.sq)]
+    if len(cands) != 1:
+        return UNDECIDED  # «уже не прикрывает»: the piece covers the square now — one piece of that kind, or not ours
+    frm = cands[0]
+    owner = board.color_at(frm)
+    tokens = [t for t in claim.kind.partition(":")[2].split(",") if t]
+    chases, chase_san = _chase_boards(board, frm, tokens, [])
+    if not chases:
+        return UNDECIDED  # nothing chases it: «вынужден уйти» is about another position
+    named = chess.parse_square(claim.move.to) if claim.move is not None and claim.move.to else None
+    found = None
+    for b in chases:
+        if b.turn != owner:
+            return UNDECIDED
+        keep = []
+        for t in ([named] if named is not None else []) + safe_squares(b, frm):
+            mv = chess.Move(frm, t)
+            if mv not in b.legal_moves:
+                continue
+            a = b.copy(stack=False)
+            a.push(mv)
+            if x in a.attacks(t):
+                keep.append((t, b.san(mv), a))
+        if not keep:
+            return Verdict("true")  # after this chase every safe retreat gives the square up: the words hold here
+        found = found or keep[0]
+    t, san, a = found
+    head = f"after {chase_san} " if chase_san else ""
+    if named is not None and t == named:
+        return Verdict("false", "", f"{head}{_colour(owner)}'s {_NAME[pt]} on {chess.square_name(t)} still covers "
+                       f"{chess.square_name(x)}: {san} does not give it up")
+    return Verdict("false", "", f"{head}{_colour(owner)}'s {_NAME[pt]} on {chess.square_name(frm)} is not forced off "
+                   f"{chess.square_name(x)}: {san} — it is safe there ({_safety(a, t)}) and still covers {chess.square_name(x)}")
+
+
+def judge_prevents(claim: Claim, board: chess.Board, ctx) -> Verdict:
+    """C6 «d4, не давая чёрным спокойно поставить пешку на d5»: false when, after the move, the other side's move to
+    that square is legal and loses nothing there by static exchange."""
+    from src.board_math import move_loss
+
+    if claim.move is None or not claim.move.san or claim.to is None or not claim.to.sq:
+        return UNDECIDED
+    after = _playable(board, claim.move)
+    if after is None:
+        return UNDECIDED  # the move is not this board's
+    mover = not after.turn
+    subj = claim.subj
+    if subj is not None and subj.owner == "their":
+        stopped = not mover
+    elif subj is not None and (subj.side is not None or subj.owner == "you"):
+        stopped = _side(subj, board, ctx)
+    else:
+        stopped = not mover
+    if stopped is None or stopped == mover:
+        return UNDECIDED
+    t = chess.parse_square(claim.to.sq)
+    pt = PIECE_TYPE.get(claim.to.piece) if claim.to.piece else None
+    there = after.piece_at(t)
+    if there is not None and there.color == stopped:
+        return UNDECIDED  # its piece stands there already: the words are about a board before that move
+    cands = [m for m in after.legal_moves if m.to_square == t and (pt is None or after.piece_type_at(m.from_square) == pt)
+             and not after.is_castling(m)]
+    if not cands:
+        return Verdict("true")
+    free = [m for m in cands if move_loss(after, m) == 0]
+    if not free:
+        return Verdict("true")  # every such move loses material: «не давая спокойно …» holds
+    m = free[0]
+    played = after.san(m)
+    a = after.copy(stack=False)
+    a.push(m)
+    why = _safety(a, t)
+    return Verdict("false", "", f"after {claim.move.san.rstrip('!?')} {_colour(stopped)} can still play {played}: it is legal and loses "
+                   f"nothing ({why})")
 
 
 def _playable(board: chess.Board, m: MoveRef) -> Optional[chess.Board]:
@@ -1130,11 +1479,54 @@ def _not_this_board(claim: Claim, board: chess.Board, ctx) -> bool:
     return False
 
 
+def detector_of(claim: Claim) -> Optional[str]:
+    """The plan 31.10 detector (src/config.py DETECTOR_DEFAULTS) a claim of this file belongs to, or None for the
+    board rules of WP-D, which follow COACH_RELATION_CHECK alone."""
+    if _geometric(claim):
+        return "checks_geometry"
+    if claim.rel in ("retreat_cover", "prevents"):
+        return claim.rel
+    if claim.rel == "only_move" and claim.kind == "check_reply":
+        return "only_move_orders"
+    return None
+
+
+def _shadowed(name: str, claim: Claim, verdict: Verdict, ctx) -> None:
+    """A detector in shadow: its false verdict is recorded with the relation shadow records (logged, never shown)."""
+    try:
+        seen = getattr(ctx, "_p3d_shadow", None)
+        if seen is None:
+            seen = set()
+            ctx._p3d_shadow = seen
+        st = getattr(ctx, "relation_state", None) or {}
+        key = (name, st.get("rules_text", ""), verdict.truth)
+        if key in seen:
+            return
+        seen.add(key)
+        ctx.relation_shadow.append((st.get("rules_text", ""), [f"[{name}] {verdict.truth}"]))
+    except Exception:  # noqa: BLE001 — a context without the shadow list: nothing to record
+        pass
+
+
 def _guarded(judge: Callable[[Claim, chess.Board, Any], Verdict]) -> Callable[[Claim, chess.Board, Any], Verdict]:
     def run(claim: Claim, board: chess.Board, ctx) -> Verdict:
-        if board is None or (ctx is not None and _not_this_board(claim, board, ctx)):
+        name = detector_of(claim)
+        mode = detector_mode(name, ctx) if name else "on"
+        if mode == "off":
             return UNDECIDED
-        return judge(claim, board, ctx)
+        if mode == "shadow":
+            from src.answer_check_relations import mode as relation_mode
+
+            if relation_mode(ctx) == "shadow":
+                mode = "on"  # the whole relation check records it already, in its own words (SHADOW == ON)
+        # a claim judged on geometry alone does not depend on the board, so the board guards do not apply to it
+        if board is None or (ctx is not None and not _geometric(claim) and _not_this_board(claim, board, ctx)):
+            return UNDECIDED
+        verdict = judge(claim, board, ctx)
+        if mode == "shadow" and verdict.status == "false":
+            _shadowed(name, claim, verdict, ctx)
+            return UNDECIDED
+        return verdict
 
     run.__name__ = judge.__name__
     run.__doc__ = judge.__doc__
@@ -1149,14 +1541,6 @@ RULE_JUDGES.update({rel: _guarded(fn) for rel, fn in (
     ("can_exchange", judge_can_exchange),
     ("occupied", judge_occupied),
     ("checks_along", judge_checks_along),
+    ("retreat_cover", judge_retreat_cover),
+    ("prevents", judge_prevents),
 )})
-
-
-def _not_judged_yet(claim: Claim, board: chess.Board, ctx) -> Verdict:
-    """A relation of plan 31.10 whose judge P3D writes (prevents, retreat_cover): undecided until then."""
-    return UNDECIDED
-
-
-# WP-0 hook (plan 31.10): every rule relation has a judge; P3D replaces these two.
-for _rel in ("prevents", "retreat_cover"):
-    RULE_JUDGES.setdefault(_rel, _not_judged_yet)
