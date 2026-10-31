@@ -24,6 +24,25 @@ logger = logging.getLogger(__name__)
 # How far a client's own time stamp may be from the server's and still be used (a wrong device clock, 28.10).
 CLIENT_TS_SKEW_S = 600.0
 
+# Told after every board save — a game move, a takeback, a loaded game, a position or puzzle put up (plan 31.10
+# P7b: src/engine_precompute.py analyses the new position while the student thinks). listener(session, board); it
+# must return at once and never raise into the save. Sessions themselves know nothing of the engine.
+_board_listeners: list = []
+
+
+def on_board_change(listener) -> None:
+    """Register *listener(session, board)* for every board save (once per listener)."""
+    if listener not in _board_listeners:
+        _board_listeners.append(listener)
+
+
+def _board_changed(session, board) -> None:
+    for listener in list(_board_listeners):
+        try:
+            listener(session, board)
+        except Exception:  # noqa: BLE001 — a listener never breaks a save
+            logger.debug("board listener failed", exc_info=True)
+
 
 def _stored_time(*values) -> Optional[float]:
     """The first of *values* that reads as a time (epoch seconds or an ISO string from Supabase), else None.
@@ -193,6 +212,7 @@ class Session(BaseModel):
                 self._persistence.update_board_state(self.id, board.fen)
         if self._persistence is not None:
             self._persistence.persist_board(board.to_public())
+        _board_changed(self, board)
 
     def remove_board(self, board_id: str) -> bool:
         board = self.get_board(board_id)

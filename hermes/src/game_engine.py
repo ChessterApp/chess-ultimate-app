@@ -1,8 +1,10 @@
 """Stockfish as the coach's playing hand: limited-strength moves and quick evals.
 
 One engine process per server, serialised with a lock (a game move needs the
-engine for a few hundred milliseconds; the analysis tool spawns its own
-process and is unaffected). The process is restarted transparently if it dies.
+engine for a few hundred milliseconds). The process is restarted transparently
+if it dies. With the analysis engine pool on (STOCKFISH_POOL, plan 31.10 P7a)
+the annotation evals run there, outside this lock, and only the opponent's
+moves — with their strength options — stay on this process.
 
 Strength is set with UCI_LimitStrength / UCI_Elo (Stockfish accepts 1320–3190)
 and, below 1320, with Skill Level plus a shorter think, which is how club-level
@@ -160,6 +162,10 @@ class GameEngine:
                 return 0, None
             return (MATE_CP if outcome.winner == pov else -MATE_CP), None
 
+        pooled = _pooled_eval(board, pov, depth)
+        if pooled is not None:
+            return pooled
+
         def _go(engine: chess.engine.SimpleEngine):
             engine.configure({k: v for k, v in {"UCI_LimitStrength": False}.items() if k in engine.options})
             info = engine.analyse(board, chess.engine.Limit(depth=depth))
@@ -169,6 +175,42 @@ class GameEngine:
             return cp, best
 
         return self._run(_go)
+
+
+def _pooled_eval(board: chess.Board, pov: chess.Color, depth: int) -> Optional[tuple[int, Optional[str]]]:
+    """The annotation eval on the analysis engine pool (plan 31.10 P7a), or None to use the game's own process.
+
+    Outside the game engine's lock, so one student's eval no longer waits behind another's move. A search to
+    *depth* from an empty hash (src/tools/stockfish.analyze_exact): the before and after evals of a move are the
+    same kind of number on every run, and a position analysed while the student thought (src/engine_precompute.py)
+    is served from the store. The opponent's moves stay on the game's own process: their strength options must
+    never reach an analysis search."""
+    from src.tools import stockfish
+
+    if not stockfish.pool_on():
+        return None
+    try:
+        res = stockfish.analyze_exact(board.fen(), depth, 1)
+    except Exception:  # noqa: BLE001 — the game's own process is the fallback
+        return None
+    lines = res.get("lines") if isinstance(res, dict) and "error" not in res else None
+    if not lines:
+        return None
+    top = lines[0]
+    mate = top.get("mate_in")
+    if mate is not None:
+        mover_cp = MATE_CP - mate if mate > 0 else -MATE_CP - mate
+    else:
+        mover_cp = int(round(float(top.get("score") or 0.0) * 100))
+    cp = mover_cp if pov == board.turn else -mover_cp
+    best = None
+    try:
+        first = (top.get("pv") or "").split()[0]
+        move = chess.Move.from_uci(first)
+        best = board.san(move) if move in board.legal_moves else None
+    except (IndexError, ValueError):
+        best = None
+    return cp, best
 
 
 _default: Optional[GameEngine] = None
