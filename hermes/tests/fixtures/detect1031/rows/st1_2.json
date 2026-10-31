@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "I1 open_plain + I2 open_recap + I3",
- "status": "missed",
+ "status": "caught",
  "sentence": "Nf3 — и чёрные ответили d6: это классическая сицилианская, вариант «современный» (Дракон без ...g6). ",
  "sentence_index": 0,
  "prefix": [],
