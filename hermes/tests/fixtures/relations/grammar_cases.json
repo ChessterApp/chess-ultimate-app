@@ -2665,9 +2665,22 @@
    "id": "class/unnamed-from-square",
    "source": "class",
    "prev": [],
-   "none": true,
    "text": "Потому что ладья бьёт ферзя с поля, где её саму никто не атакует, а ферзь a6 продолжает держать связку.",
-   "note": "«с поля, где …»: the square the piece acts from is not named"
+   "forbid": [
+    {
+     "rel": "attack"
+    },
+    {
+     "rel": "attacked"
+    },
+    {
+     "rel": "undefended"
+    },
+    {
+     "rel": "pins"
+    }
+   ],
+   "note": "«с поля, где …»: the square the piece acts from is not named — no attack claim; the pin the last clause takes for granted («ферзь a6 продолжает держать связку», pin_exists, plan 31.10 P3A) is a claim of its own"
   },
   {
    "id": "class/blind-capture-with-check",
