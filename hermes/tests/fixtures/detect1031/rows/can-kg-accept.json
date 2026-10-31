@@ -1,0 +1,163 @@
+{
+ "id": "can-kg-accept",
+ "turn": {
+  "set": "out_theory.json",
+  "id": "can-kg-accept",
+  "message": "Стоит ли брать пешку f4?",
+  "answer": "Да, брать можно — это лучший ход в позиции. Играешь и забираешь пешку f4: она ничем не защищена, а взамен у тебя появляется сильная идея — ферзь на h4 с шахом.\n\nСмотри, что дальше: белый конь обычно идёт на c3, прикрывая поле e2, а ты бьёшь ферзём на h4 — шах, и белый король вынужден как-то выпутываться. Материал пока равный — ты отдал пешку e5, но забрал f4, так что лишней пешки ни у кого нет. Зато у тебя остаётся инициатива: ферзь на h4 с шахом заставляет белого короля раскрываться, и дальше тебе важно не гнаться за пешками, а держать фигуры активными и следить, чтобы белые не перехватили атаку. Играй спокойно, развивай фигуры и не забывай проверять, не висит ли что-то у тебя самого.",
+  "live_game": false
+ },
+ "kind": "opening_name_or_theory",
+ "quote": "белый конь обычно идёт на c3, прикрывая поле e2, а ты бьёшь ферзём на h4 — шах",
+ "error": "The usual main move after 2...exf4 is 3.Nf3 (King's Knight's Gambit), and it exists to stop ...Qh4+; 3.Bc4 is also more common than 3.Nc3. So in the usual lines Black has no ...Qh4+ at all, and 3.Nc3 is a sideline (Mason Gambit).",
+ "owner": "—",
+ "tier": "out",
+ "expect": "not_caught",
+ "stage": "sync",
+ "mechanism": "needs move popularity",
+ "status": "missed",
+ "sentence": "Смотри, что дальше: белый конь обычно идёт на c3, прикрывая поле e2, а ты бьёшь ферзём на h4 — шах, и белый король вынужден как-то выпутываться. ",
+ "sentence_index": 3,
+ "prefix": [
+  "Да, брать можно — это лучший ход в позиции. ",
+  "Играешь и забираешь пешку f4: она ничем не защищена, а взамен у тебя появляется сильная идея — ферзь на h4 с шахом.",
+  "\n\n"
+ ],
+ "replay_issues": [
+  [],
+  [],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkbnr/pppp1ppp/8/4p3/4PP2/8/PPPP2PP/RNBQKBNR b KQkq - 0 2",
+    "moves": [],
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4PP2/8/PPPP2PP/RNBQKBNR b KQkq - 0 2"
+   },
+   {
+    "root": "rnbqkbnr/pppp1ppp/8/8/4Pp2/8/PPPP2PP/RNBQKBNR w KQkq - 0 3",
+    "moves": [],
+    "fen": "rnbqkbnr/pppp1ppp/8/8/4Pp2/8/PPPP2PP/RNBQKBNR w KQkq - 0 3"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    },
+    {
+     "$b": 2
+    }
+   ],
+   "quoted": {
+    "$s": [
+     "f4"
+    ]
+   },
+   "given": {
+    "$s": [
+     "rnbqkbnr/pppp1ppp/8/4p3/4PP2/8/PPPP2PP/RNBQKBNR b",
+     "rnbqkbnr/pppp1ppp/8/8/4Pp2/8/PPPP2PP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": -0.5,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "стоит ли брать пешку f4?",
+   "question_raw": "Стоит ли брать пешку f4?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "rnbqkbnr/pppp1ppp/8/4p3/4PP2/8/PPPP2PP/RNBQKBNR b",
+     "rnbqkbnr/pppp1ppp/8/8/4Pp2/8/PPPP2PP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "rnbqkbnr/pppp1ppp/8/4p3/4PP2/8/PPPP2PP/RNBQKBNR b",
+     "rnbqkbnr/pppp1ppp/8/8/4Pp2/8/PPPP2PP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

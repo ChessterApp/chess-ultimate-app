@@ -399,6 +399,9 @@ class CheckContext:
     # not run there, Асан 19.10: the lesson tutor is the team's), 'game' (a move comment — recorded, never cut, until
     # its flags are reviewed). src/answer_check_relations.mode reads it.
     relation_surface: str = "text"
+    # The facts the model was given this turn (src/turn_facts.Fact; plan 31.10, filled by P8's providers): a detector
+    # may quote the one it relied on («(you were given: …)»). Empty until a provider fills it.
+    facts: list = field(default_factory=list)
     MAX_BOARDS = 400
 
     @classmethod
@@ -3945,6 +3948,14 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
     from src.answer_check_facts import record_fact_issues
 
     issues += record_fact_issues(lowered, text, ctx)
+    # «белые отдали ферзя за ладью» about a recorded game: against the game's exchanges (src/trade_claims.py, plan 31.10;
+    # fail-open — a broken trade check never blocks an answer).
+    from src.trade_claims import trade_issues
+
+    try:
+        issues += trade_issues(text, ctx)
+    except Exception:  # noqa: BLE001
+        logger.debug("trade check failed", exc_info=True)
     # Who attacks, defends, pins, holds what — each claim judged on the board it is about (src/answer_check_relations.py,
     # off | shadow | on by COACH_RELATION_CHECK; fail-open). After the facts, so this sentence's scene_trail is filled.
     from src.answer_check_relations import relation_issues

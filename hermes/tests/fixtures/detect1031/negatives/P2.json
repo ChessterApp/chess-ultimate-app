@@ -1,0 +1,92 @@
+{
+ "package": "P2",
+ "doc": "True controls: no detector may flag them (plan 31.10 §5.2). Seeded by WP-0; the package appends its own.",
+ "controls": [
+  {
+   "id": "kid-name",
+   "moves": "d4 Nf6 c4 g6 Nc3 Bg7 e4 d6",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это староиндийская защита.",
+   "why": "King's Indian",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "kid-classical",
+   "moves": "d4 Nf6 c4 g6 Nc3 Bg7 e4 d6 Nf3 O-O Be2 e5",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это староиндийская защита, классический вариант.",
+   "why": "5.Nf3 O-O 6.Be2 e5 is the King's Indian Classical Variation: «классический» is its own name",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "classical-sicilian",
+   "moves": "e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 Nc6",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это классический вариант сицилианской защиты.",
+   "why": "after 5...Nc6 the board is the Classical Sicilian",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "french",
+   "moves": "e4 e6 d4 d5",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это французская защита.",
+   "why": "French",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "caro-kann",
+   "moves": "e4 c6",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это защита Каро-Канн.",
+   "why": "Caro-Kann",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "classical-spanish-phrase",
+   "moves": "e4 e5 Nf3 Nc6 Bb5 a6",
+   "detector": "open_plain",
+   "sentence": "Это классическая испанская партия.",
+   "why": "«классическая испанская» is the Spanish in general here, not the Classical Variation (3...Bc5): the prototype wrongly flagged it on 3...a6",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "classical-qgd-phrase",
+   "moves": "d4 d5 c4 e6",
+   "detector": "open_plain",
+   "sentence": "Это классический ферзевый гамбит.",
+   "why": "the Queen's Gambit Declined, said plainly",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "najdorf-be2-quiet",
+   "moves": "e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6",
+   "detector": "open_character",
+   "sentence": "6.Сe2 — спокойная классика.",
+   "why": "6.Be2 is the quiet Classical (Opočenský) line",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "alekhine-knight-f6",
+   "moves": "e4 Nf6",
+   "detector": "open_defining",
+   "sentence": "В защите Алехина конь сразу идёт на f6.",
+   "why": "1...Nf6 is the Alekhine's defining move",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  }
+ ]
+}

@@ -1,0 +1,160 @@
+{
+ "id": "castle-00",
+ "turn": {
+  "set": "out_30.json",
+  "id": "castle-00",
+  "message": "А если 0-0?",
+  "answer": "Нет, 0-0 сейчас нельзя — слон с c4 бьёт f1, и король не может пройти через атакованную клетку. И прогнать слона недостаточно: он может уйти на a6, b5, d3 или e2 и всё равно держать f1 под ударом.\n\nСейчас слон c4 атакует ещё и твой пункт a2, поэтому лучший ход — b3: ты отгоняешь слона, а если он отступит на a6, то с боку грозит bxc4. А вот длинная рокировка станет возможна, когда ты уберёшь фигуры с c1 и d1 — тогда король уйдёт на c1 под защиту. Пока же просто развивайся: Qe2, Be3, и король спокойно укроется позже, когда f1 перестанет быть под боем.",
+  "live_game": false
+ },
+ "kind": "wrong_attack_or_defence",
+ "quote": "Пока же просто развивайся: Qe2, Be3",
+ "error": "Qe2 is a square the black bishop on c4 attacks (c4–d3–e2), so 8.Qe2?? Bxe2 just loses the queen for a bishop. Stockfish gives about -9.5.",
+ "owner": "P1",
+ "tier": "must",
+ "expect": "caught",
+ "stage": "engine",
+ "mechanism": "C1a propose_vocab",
+ "status": "missed",
+ "sentence": "Пока же просто развивайся: Qe2, Be3, и король спокойно укроется позже, когда f1 перестанет быть под боем.",
+ "sentence_index": 6,
+ "prefix": [
+  "Нет, 0-0 сейчас нельзя — слон с c4 бьёт f1, и король не может пройти через атакованную клетку. ",
+  "И прогнать слона недостаточно: он может уйти на a6, b5, d3 или e2 и всё равно держать f1 под ударом.",
+  "\n",
+  "\n",
+  "Сейчас слон c4 атакует ещё и твой пункт a2, поэтому лучший ход — b3: ты отгоняешь слона, а если он отступит на a6, то с боку грозит bxc4. ",
+  "А вот длинная рокировка станет возможна, когда ты уберёшь фигуры с c1 и d1 — тогда король уйдёт на c1 под защиту. "
+ ],
+ "replay_issues": [
+  [],
+  [
+   "the bishop on c4 has no retreat to b5, d3, e2 — there it is simply lost (Nxb5, cxd3, Nxe2); of the squares named only a6 is a real retreat"
+  ],
+  [],
+  [],
+  [
+   "after 8. b3 Ba6 (the line written here) bxc4 is impossible: c4 is empty — there is nothing to take there (the bishop has gone from c4 to a6); legal moves of the white pawn there: b4"
+  ],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": true,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w KQkq - 0 8",
+    "moves": [],
+    "fen": "r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w KQkq - 0 8"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": -1.78,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "а если 0-0?",
+   "question_raw": "А если 0-0?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

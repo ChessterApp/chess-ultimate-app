@@ -1,0 +1,33 @@
+{
+ "package": "P3D",
+ "doc": "True controls: no detector may flag them (plan 31.10 §5.2). Seeded by WP-0; the package appends its own.",
+ "controls": [
+  {
+   "id": "checks-along-d-real",
+   "fen": "8/3K4/8/8/8/8/5R2/3r2k1 w - - 0 1",
+   "detector": "checks_geometry",
+   "sentence": "Чёрная ладья шахует по вертикали d, и наша ладья может перекрыть линию на d2.",
+   "why": "the king is on d7, the rook on d1 checks along d; Rd2 blocks",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "e4-prevents-d5",
+   "moves": "c4 e5 Nc3 Nf6 Nf3 Nc6",
+   "detector": "prevents",
+   "sentence": "Лучший план — e4, не давая чёрным спокойно сыграть d5.",
+   "why": "after 4.e4 …d5 loses a pawn (c4, e4, Nc3 against Nf6, Qd8)",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "only-move-kf8",
+   "fen": "4k3/R7/8/1B6/8/8/8/3RK3 b - - 0 1",
+   "detector": "only_move_orders",
+   "sentence": "Ход Kf8 единственный.",
+   "why": "Bb5+ — d7 and d8 covered, e7 and the 7th rank by Ra7: Kf8 is the only legal move",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  }
+ ]
+}

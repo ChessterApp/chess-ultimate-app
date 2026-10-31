@@ -1,0 +1,74 @@
+{
+ "package": "P5",
+ "doc": "True controls: no detector may flag them (plan 31.10 §5.2). Seeded by WP-0; the package appends its own.",
+ "controls": [
+  {
+   "id": "kd5-in-the-square",
+   "fen": "8/8/8/P3k3/8/8/8/7K b - - 0 1",
+   "tablebase": "draw",
+   "detector": "race_distance",
+   "sentence": "Кd5! Король не слишком далеко — он успевает в квадрат.",
+   "why": "Kd5 draws (tablebase)",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "pawn-too-far-no-king-word",
+   "fen": "8/8/8/P3k3/8/8/8/7K b - - 0 1",
+   "tablebase": "draw",
+   "detector": "race_distance",
+   "sentence": "Пешка слишком далеко.",
+   "why": "no king word in the clause: not a race claim (judge [J])",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "two-knights-not-forced",
+   "fen": "8/8/8/4k3/8/8/8/1NN1K3 w - - 0 1",
+   "detector": "mate_squares",
+   "sentence": "Двумя конями мат не форсируется.",
+   "why": "KNNK: mate possible, never forced",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "rook-mate-edge",
+   "fen": "8/8/8/4k3/8/8/8/R3K3 w - - 0 1",
+   "detector": "mate_squares",
+   "sentence": "Ладьёй мат ставится только на краю доски.",
+   "why": "KRK mates are on the edge",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "lost-race-too-far",
+   "fen": "8/8/8/P7/7K/8/8/6k1 b - - 0 1",
+   "tablebase": "White wins",
+   "detector": "race_distance",
+   "sentence": "Король слишком далеко от пешки и не догонит её.",
+   "why": "Kg1 is outside the a5 pawn's square: lost",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "corpus-mate_only_where-0",
+   "sentence": "Запомни на будущее: ферзь в одиночку матует только прижатого к краю короля, и решает не шах, а «отнять клетки, но оставить одну и подойти своим королём».",
+   "question": "Я сыграл Qb6. Это мат?",
+   "detector": "mate_squares",
+   "stage": "sync",
+   "source": "out_30_1023.json:stalemate-now",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "k7/8/1Q6/8/8/8/8/2K5 b - - 0 1"
+  },
+  {
+   "id": "corpus-mate_only_where-1",
+   "sentence": "Важно: мат в таких позициях ставится только у самого края доски, в углу.",
+   "question": "Можно ли тут поставить мат?",
+   "detector": "mate_squares",
+   "stage": "sync",
+   "source": "out_71_1023.json:kbn",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "8/8/8/4k3/8/8/8/2BNK3 w - - 0 1"
+  }
+ ]
+}

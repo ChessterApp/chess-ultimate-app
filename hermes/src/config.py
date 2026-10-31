@@ -428,3 +428,99 @@ COACH_BESTOFN_BUDGET_MS = int(os.environ.get("COACH_BESTOFN_BUDGET_MS", "4500"))
 # in-process tools only and behavior is byte-identical; enable with
 # COACH_MCP_ENABLED=true (and configure mcp_servers). See engine-mcp/.
 COACH_MCP_ENABLED = _env_flag("COACH_MCP_ENABLED", False)
+
+# ── Detectors of plan 31.10 (detect-1031; next1031/PLAN.md §1.3, §7) ────────────────────────────────────────────
+# Each new answer-check mechanism has a name and its own switch, read at call time (tests and the replay patch the
+# environment or these names), so one detector rolls back alone without a deploy:
+#   COACH_DETECTORS_OFF    — comma list of detector names that do nothing;
+#   COACH_DETECTORS_SHADOW — comma list of detector names that compute and log their issue but never cut.
+# OFF wins over SHADOW, SHADOW over the default below. The relation detectors (RELATION_DETECTORS) also obey
+# COACH_RELATION_CHECK: off there turns them off, shadow there caps them at shadow. Whatever the switches say, the
+# /learn lesson tutor gets none of them (the team's feature, Асан 19.10) and a game move comment at most shadow.
+DETECTOR_DEFAULTS = {
+    # WP-0 (the replay warms the book index; production builds it in the warm-up)
+    "book_wait": "on",
+    # P1 game record
+    "recap_scope": "on", "material_order": "on", "student_capture": "on", "gave_up": "on", "block_kind": "on",
+    "free_capture": "on", "propose_vocab": "on", "plan_place": "on", "start_scene": "on",
+    # P2 openings
+    "open_plain": "on", "open_recap": "on", "open_character": "shadow", "open_defining": "shadow",
+    # P3A grammar, P3B scene + judge, P3D board rules
+    "pin_escape": "on", "pin_noun": "shadow", "locked": "on", "cover_cause": "on",
+    "idea_scope": "on", "start_cue": "on", "bare_pawn_line": "shadow", "loaded_line": "shadow",
+    "retreat_cover": "on", "prevents": "on", "checks_geometry": "on", "only_move_orders": "on",
+    # P4 engine claims (trade_swing_named also needs COACH_TRADE_SWING_NAMED)
+    "piece_decides": "on", "trade_swing_named": "off",
+    # P5 endgames
+    "race_distance": "on", "mate_squares": "on", "king_direction": "shadow",
+    # P6 records
+    "trades": "on",
+}
+RELATION_DETECTORS = frozenset({
+    "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",
+    "retreat_cover", "prevents", "checks_geometry", "only_move_orders",
+})
+_MODE_RANK = {"off": 0, "shadow": 1, "on": 2}
+
+
+def _env_names(name: str) -> set:
+    return {x.strip().lower() for x in (os.environ.get(name) or "").split(",") if x.strip()}
+
+
+def detector_mode(name: str, ctx=None) -> str:
+    """'on' | 'shadow' | 'off' for the detector *name* (DETECTOR_DEFAULTS), read now. An unknown name is 'off' — a
+    package cannot switch on a detector the plan does not list (tests/unit/test_wp0_1031.py checks the names)."""
+    key = (name or "").strip().lower()
+    got = DETECTOR_DEFAULTS.get(key)
+    if got is None:
+        return "off"
+    if key in _env_names("COACH_DETECTORS_OFF"):
+        return "off"
+    if key in _env_names("COACH_DETECTORS_SHADOW"):
+        got = "shadow"
+    if key == "trade_swing_named":
+        on = globals().get("COACH_TRADE_SWING_NAMED", False)
+        raw = os.environ.get("COACH_TRADE_SWING_NAMED")
+        if raw is not None:
+            on = raw.strip().lower() in ("1", "true", "yes", "on")
+        got = "on" if on and key not in _env_names("COACH_DETECTORS_SHADOW") else ("shadow" if on else "off")
+    if key in RELATION_DETECTORS:
+        raw = str(globals().get("COACH_RELATION_CHECK", "on") or "").strip().lower()
+        rel = "off" if raw in ("0", "off", "false", "no") else ("on" if raw in ("1", "on", "true", "yes") else "shadow")
+        got = min(got, rel, key=_MODE_RANK.get)
+    surface = getattr(ctx, "relation_surface", "text") if ctx is not None else "text"
+    if surface == "lesson":
+        return "off"
+    if surface == "game":
+        got = min(got, "shadow", key=_MODE_RANK.get)
+    return got
+
+
+def detector_on(name: str, ctx=None) -> bool:
+    """The detector may cut a sentence (mode 'on')."""
+    return detector_mode(name, ctx) == "on"
+
+
+def detector_enabled(name: str, ctx=None) -> bool:
+    """The detector runs at all (mode 'on' or 'shadow'); a shadow issue is logged, never shown."""
+    return detector_mode(name, ctx) != "off"
+
+
+# «отдают слона за пешку» (pawn-b3-bare): the swing of a trade the sentence names is judged by that trade's value.
+# Off until Асан agrees to change the tolerance he approved (plan 31.10 §7).
+COACH_TRADE_SWING_NAMED = _env_flag("COACH_TRADE_SWING_NAMED", False)
+# Prevention (P8): the facts of the turn (fork facts vetted by the engine, piece safety, attack balance, the game's
+# material and captures, opening ideas, rules from the board) go to the model; off renders nothing new.
+COACH_TURN_FACTS = _env_flag("COACH_TURN_FACTS", True)
+# Speed (P7, next1031/speed): persistent Stockfish processes instead of one process per search, and the board's
+# positions analysed while the student thinks. Each has its own off switch (0 = today's behaviour).
+#   STOCKFISH_POOL             — the pool on/off (default on).
+#   STOCKFISH_POOL_SIZE        — processes (default min(2, CPUs)), one thread each.
+#   STOCKFISH_HASH_MB          — hash per process (default 32).
+#   STOCKFISH_RECYCLE_SEARCHES — a process is restarted after this many searches (default 5000).
+#   COACH_PRECOMPUTE           — the board-change listener's precompute (default on).
+STOCKFISH_POOL = _env_flag("STOCKFISH_POOL", True)
+STOCKFISH_POOL_SIZE = max(1, int(os.environ.get("STOCKFISH_POOL_SIZE") or min(2, os.cpu_count() or 1)))
+STOCKFISH_HASH_MB = max(1, int(os.environ.get("STOCKFISH_HASH_MB", "32")))
+STOCKFISH_RECYCLE_SEARCHES = max(1, int(os.environ.get("STOCKFISH_RECYCLE_SEARCHES", "5000")))
+COACH_PRECOMPUTE = _env_flag("COACH_PRECOMPUTE", True)

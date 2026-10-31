@@ -1,0 +1,46 @@
+{
+ "package": "P8",
+ "doc": "True controls: no detector may flag them (plan 31.10 §5.2). Seeded by WP-0; the package appends its own.",
+ "controls": [
+  {
+   "id": "mating-fork-kept",
+   "kind": "fact",
+   "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+   "fact_kind": "fork",
+   "keep": "Qxf7#",
+   "why": "Qxf7# mates: a fork fact that is a mate is kept",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "royal-fork-kept",
+   "kind": "fact",
+   "fen": "r1bqkbnr/pppp1ppp/2n5/1N2p3/4P3/8/PPPP1PPP/R1BQKBNR w KQkq - 2 3",
+   "fact_kind": "fork",
+   "keep": "Nxc7+",
+   "why": "Nxc7+ forks the king e8 and the rook a8 (prod 23.10): kept",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "mate2-no-poisoned-fork",
+   "kind": "fact",
+   "fen": "r1bq1b1r/ppp3pp/2n1k3/3np3/2B5/5Q2/PPPP1PPP/RNB1K2R w KQ - 2 8",
+   "fact_kind": "fork",
+   "drop": "Qxd5+",
+   "why": "8...Qxd5 takes the queen back (−6): the fork fact must go",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "g1-resign-safe-squares",
+   "kind": "fact",
+   "fen": "rnbqkb1r/pppppppp/5n2/4P3/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2",
+   "fact_kind": "piece_safety",
+   "keep": "d5",
+   "why": "the knight f6 attacked by e5 has safe squares (d5, e4, g8)",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  }
+ ]
+}

@@ -1,0 +1,163 @@
+{
+ "id": "x-poem",
+ "turn": {
+  "set": "out_71.json",
+  "id": "x-poem",
+  "message": "Напиши стих про весну",
+  "answer": "Стих попросил — не шахматы. Ладно, вот:\n\nВесна пришла, и снег сошёл,\nИ лес очнулся ото сна.\nРучей тропинку пересёк,\nИ в небе — первая весна.\n\nГрачи вернулись к старым гнёздам,\nИ воздух пахнет по-другому.\nИ даже старый пень во дворе\nСебе позволил стать зелёным.\n\nА хочешь — вернёмся к доске и разберём твой эндшпиль? Стихи стихами, а ладью с королём против короля пора бы уже дожать.",
+  "live_game": false
+ },
+ "kind": "made_up_position_or_fact",
+ "quote": "А хочешь — вернёмся к доске и разберём твой эндшпиль? Стихи стихами, а ладью с королём против короля пора бы уже дожать.",
+ "error": "The student's board is the starting position. There is no endgame and no king-and-rook-versus-king position on it to 'finish off', so this game situation is made up.",
+ "owner": "—",
+ "tier": "out",
+ "expect": "not_caught",
+ "stage": "sync",
+ "mechanism": "from the profile, not the board",
+ "status": "missed",
+ "sentence": "Стихи стихами, а ладью с королём против короля пора бы уже дожать.",
+ "sentence_index": 15,
+ "prefix": [
+  "Стих попросил — не шахматы. ",
+  "Ладно, вот:\n\n",
+  "Весна пришла, и снег сошёл,\n",
+  "И лес очнулся ото сна.",
+  "\n",
+  "Ручей тропинку пересёк,\n",
+  "И в небе — первая весна.",
+  "\n\n",
+  "Грачи вернулись к старым гнёздам,\n",
+  "И воздух пахнет по-другому.",
+  "\n",
+  "И даже старый пень во дворе\n",
+  "Себе позволил стать зелёным.",
+  "\n\n",
+  "А хочешь — вернёмся к доске и разберём твой эндшпиль? "
+ ],
+ "replay_issues": [
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 0
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 0.28,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "напиши стих про весну",
+   "question_raw": "Напиши стих про весну",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

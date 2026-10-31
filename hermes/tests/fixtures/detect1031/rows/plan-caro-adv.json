@@ -1,0 +1,146 @@
+{
+ "id": "plan-caro-adv",
+ "turn": {
+  "set": "out_theory.json",
+  "id": "plan-caro-adv",
+  "message": "Какой план у белых в этой позиции?",
+  "answer": "План белых здесь — спокойно закончить развитие и убрать давление на c2. Играй Nd2: конь уходит из-под связки, а слон чёрных на f5 остаётся «в воздухе».\n\nДальше идея простая: Nb3 освобождает d2 под… хотя нет, коня лучше на b3 — он бьёт по d4-c5 и заодно уходит от возможного размена. Затем Nf3, Be2 и короткая рокировка.\n\nПочему не c3 сразу? Тогда слон с f5 спокойно отходит, и белые только теряют темп. А вот e5 — уже вполне рабочая пешка в центре, её и держим.\n\nЧто скажешь, какой из ходов — Nc3 или Nd2 — по-твоему лучше защищает пешку c2?",
+  "live_game": false
+ },
+ "kind": "made_up_position_or_fact",
+ "quote": "Играй Nd2: конь уходит из-под связки",
+ "error": "The knight on b1 is not pinned. The f5 bishop's diagonal is blocked by the pawn on c2, and there is no other pin on b1. The pin is invented.",
+ "owner": "P3A",
+ "tier": "must",
+ "expect": "caught",
+ "stage": "sync",
+ "mechanism": "pin_escape",
+ "status": "missed",
+ "sentence": "Играй Nd2: конь уходит из-под связки, а слон чёрных на f5 остаётся «в воздухе».",
+ "sentence_index": 1,
+ "prefix": [
+  "План белых здесь — спокойно закончить развитие и убрать давление на c2. "
+ ],
+ "replay_issues": [
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rn1qkbnr/pp2pppp/2p5/3pPb2/3P4/8/PPP2PPP/RNBQKBNR w KQkq - 1 4",
+    "moves": [],
+    "fen": "rn1qkbnr/pp2pppp/2p5/3pPb2/3P4/8/PPP2PPP/RNBQKBNR w KQkq - 1 4"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "rn1qkbnr/pp2pppp/2p5/3pPb2/3P4/8/PPP2PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 0.37,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "какой план у белых в этой позиции?",
+   "question_raw": "Какой план у белых в этой позиции?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "rn1qkbnr/pp2pppp/2p5/3pPb2/3P4/8/PPP2PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "rn1qkbnr/pp2pppp/2p5/3pPb2/3P4/8/PPP2PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

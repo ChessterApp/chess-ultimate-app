@@ -1,0 +1,158 @@
+{
+ "id": "can-scotch",
+ "turn": {
+  "set": "out_theory.json",
+  "id": "can-scotch",
+  "message": "Как правильно отвечать чёрным? Брать на d4?",
+  "answer": "Да, бери на d4 — это лучший ход.\n\nПосле exd4 Nxd4 сыграй Nf6, и белый конь уйдёт с d4: Nxc6 bxc6 — у тебя открывается линия b для ладьи и здоровый пешечный центр, а белые остаются без преимущества двух слонов.\n\nА почему не Nxd4 сразу? Подумай, что случится с твоим конём c6 после d5 — и сам увидишь, почему пешка на d4 сначала должна уйти.",
+  "live_game": false
+ },
+ "kind": "wrong_eval_or_line",
+ "quote": "А почему не Nxd4 сразу? Подумай, что случится с твоим конём c6 после d5 — и сам увидишь, почему пешка на d4 сначала должна уйти.",
+ "error": "After 3...Nxd4 the knight has already left c6, so a d5 push cannot hit it, and after 4.Nxd4 exd4 the d-pawn is gone too. The real downside of 3...Nxd4 is 4.Nxd4 exd4 5.Qxd4, where White gets a strong centralised queen (Stockfish +0.76 against +0.06 for 3...exd4). The reason given does not apply to this position.",
+ "owner": "P3B",
+ "tier": "target",
+ "expect": "caught",
+ "stage": "sync",
+ "mechanism": "C5 idea_scope",
+ "status": "missed",
+ "sentence": "Подумай, что случится с твоим конём c6 после d5 — и сам увидишь, почему пешка на d4 сначала должна уйти.",
+ "sentence_index": 6,
+ "prefix": [
+  "Да, бери на d4 — это лучший ход.",
+  "\n\n",
+  "После exd4 Nxd4 сыграй Nf6, и белый конь уйдёт с d4: Nxc6 bxc6 — у тебя открывается линия b для ладьи и здоровый пешечный центр, а белые остаются без преимущества двух слонов.",
+  "\n",
+  "\n",
+  "А почему не Nxd4 сразу? "
+ ],
+ "replay_issues": [
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R b KQkq - 0 3",
+    "moves": [],
+    "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R b KQkq - 0 3"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": [
+     "d4"
+    ]
+   },
+   "given": {
+    "$s": [
+     "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 0.13,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "как правильно отвечать черным? брать на d4?",
+   "question_raw": "Как правильно отвечать чёрным? Брать на d4?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

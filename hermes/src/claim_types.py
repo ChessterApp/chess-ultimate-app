@@ -23,12 +23,19 @@ import chess
 
 # Relations the attack-map judge (claim_judge, WP-B) decides.
 RELATIONS = {"attack", "aim", "chase", "threat", "defend", "hold", "undefended", "attacked", "pinned", "pins",
-             "pin_after", "locked_by", "capture_with", "plan_reach"}
+             "pin_after", "locked_by", "capture_with", "plan_reach",
+             # plan 31.10 (P3A emits, P3B judges): a pin the words take for granted («держать связку»), a piece
+             # locked with no blocker named («слон c8 заперт»), and a hold named as the cause of a loss («поле f6
+             # держала пешка g7, и конь там потерялся»).
+             "pin_exists", "locked", "cover_cause"}
 # Relations the board-rule judge (claim_rules, WP-D) decides.
-RULE_RELATIONS = {"only_move", "no_flight", "confined", "can_capture", "can_exchange", "occupied", "checks_along"}
+RULE_RELATIONS = {"only_move", "no_flight", "confined", "can_capture", "can_exchange", "occupied", "checks_along",
+                  # plan 31.10 (P3D): «не давая чёрным поставить пешку на d5», «вынужден уйти туда, откуда f1 уже не
+                  # прикрывает»
+                  "prevents", "retreat_cover"}
 # Relations of the llm schema the recorded extractions carry that neither judge decides in this round (the
 # reference judge in tests/support/ref_judge.py does); kept under their own names so nothing is lost on reading.
-OTHER_RELATIONS = {"gives_check", "blocks", "locked", "trapped", "can_move", "hanging"}
+OTHER_RELATIONS = {"gives_check", "blocks", "trapped", "can_move", "hanging"}
 ALL_RELATIONS = RELATIONS | RULE_RELATIONS | OTHER_RELATIONS
 
 # The llm schema's relation names → ours (the rest are the same word in both).
@@ -42,6 +49,11 @@ TENSES = ("present", "past", "future")
 QUESTIONS = ("", "which", "yesno")
 OWNERS = ("you", "own", "their")
 SOURCES = ("grammar", "rules", "fixture", "llm")
+# What a claim takes for granted rather than asserts (plan 31.10): '' — nothing; 'before_move' — the positive relation
+# holds on the board before the told move («конь уходит из-под связки»: it was pinned before Nd2); 'exists' — on some
+# board the sentence may mean («держать связку»); 'no_longer' — held before the told move and not after it («ладья
+# больше не защищала d8»).
+PRESUPS = ("", "before_move", "exists", "no_longer")
 
 
 def _side_in(value) -> tuple[Optional[bool], Optional[str]]:
@@ -177,6 +189,7 @@ class Claim:
     # schema's ``move``/``kind``, which only_move needs (WP-D).
     move: Optional[MoveRef] = None
     kind: str = ""
+    presup: str = ""  # PRESUPS (plan 31.10)
 
     def to_dict(self) -> dict:
         out = {"rel": self.rel, "subj": self.subj.to_dict() if self.subj else None,
@@ -199,6 +212,8 @@ class Claim:
             out["move"] = self.move.to_dict()
         if self.kind:
             out["kind"] = self.kind
+        if self.presup:
+            out["presup"] = self.presup
         return out
 
     @classmethod
@@ -213,11 +228,14 @@ class Claim:
         span = tuple(span) if isinstance(span, (list, tuple)) and len(span) == 2 else (0, 0)
         count = d.get("count", d.get("n"))
         mv = d.get("move")
+        presup = d.get("presup") or ""
+        if presup not in PRESUPS:
+            raise ValueError(f"unknown presupposition {presup!r}")
         return cls(rel=rel, subj=Ref.from_dict(d.get("subj")), objs=tuple(Ref.from_dict(o) for o in objs),
                    to=Ref.from_dict(d.get("to")), neg=bool(d.get("neg", False)), question=question,
                    count=int(count) if count is not None else None, pos=Pos.from_dict(d.get("pos")), span=span,
                    source=source or d.get("source") or "grammar", move=MoveRef.from_dict(mv) if mv else None,
-                   kind=d.get("kind") or "")
+                   kind=d.get("kind") or "", presup=presup)
 
 
 @dataclass(frozen=True)

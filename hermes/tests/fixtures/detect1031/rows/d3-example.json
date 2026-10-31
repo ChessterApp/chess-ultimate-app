@@ -1,0 +1,156 @@
+{
+ "id": "d3-example",
+ "turn": {
+  "set": "out_71.json",
+  "id": "d3-example",
+  "message": "Покажи на доске пример вилки конём",
+  "answer": "На доске — пример из твоего курса «Шахматная тактика», урок «Двойной удар». Ход чёрных: ладья идёт на d4 — и сразу бьёт по двум незащищённым фигурам: коню на g4 и слону на b4. Одним ходом обе не спасти — одна фигура теряется.\n\nЗаметь: если бы белая пешка стояла на h3, а не на h4, конь g4 успевал отойти, и удар был бы пустым.\n\nВилка — это тот же двойной удар, но сделанный конём или пешкой. Открой урок целиком и порешай его 34 задачи: https://chesster.io/learn/chess-tactics/double-attack",
+  "live_game": false
+ },
+ "kind": "wrong_attack_or_defence",
+ "quote": "если бы белая пешка стояла на h3, а не на h4, конь g4 успевал отойти, и удар был бы пустым",
+ "error": "The reason given is wrong. With the pawn on h3 the knight on g4 is protected by it, so the bishop simply moves away and Rxg4 hxg4 loses the exchange. The knight has the same time to move with the pawn on h3 or h4; what changes is that h3 protects it and h4 does not.",
+ "owner": "—",
+ "tier": "out",
+ "expect": "not_caught",
+ "stage": "sync",
+ "mechanism": "causal reason in a counterfactual",
+ "status": "missed",
+ "sentence": "Заметь: если бы белая пешка стояла на h3, а не на h4, конь g4 успевал отойти, и удар был бы пустым.",
+ "sentence_index": 4,
+ "prefix": [
+  "На доске — пример из твоего курса «Шахматная тактика», урок «Двойной удар». ",
+  "Ход чёрных: ладья идёт на d4 — и сразу бьёт по двум незащищённым фигурам: коню на g4 и слону на b4. ",
+  "Одним ходом обе не спасти — одна фигура теряется.",
+  "\n\n"
+ ],
+ "replay_issues": [
+  [],
+  [
+   "the student asked for a fork made by a knight; this sentence presents a blow by a rook — that is not the knight fork asked for: say so plainly"
+  ],
+  [],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": true,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "3r2k1/5pp1/7p/8/1B4NP/8/5PP1/7K b - - 0 1",
+    "moves": [],
+    "fen": "3r2k1/5pp1/7p/8/1B4NP/8/5PP1/7K b - - 0 1"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "3r2k1/5pp1/7p/8/1B4NP/8/5PP1/7K b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 0
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": null,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "покажи на доске пример вилки конем",
+   "question_raw": "Покажи на доске пример вилки конём",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": [
+     "3r2k1/5pp1/7p/8/1B4NP/8/5PP1/7K b"
+    ]
+   },
+   "shown_keys": {
+    "$s": [
+     "3r2k1/5pp1/7p/8/1B4NP/8/5PP1/7K b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "3r2k1/5pp1/7p/8/1B4NP/8/5PP1/7K b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": true,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

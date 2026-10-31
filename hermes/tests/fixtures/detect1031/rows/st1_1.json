@@ -1,0 +1,212 @@
+{
+ "id": "st1#1",
+ "turn": {
+  "set": "st1",
+  "id": "st1#1",
+  "message": "e4",
+  "answer": "e4 — и вместо спокойной итальянской партии чёрные ответили c5: это сицилианская защита, самая боевая защита против 1.e4. Позиция примерно равна, но теперь важно понять: сицилианская — не про быстрый захват центра, а про асимметрию. Чёрные отдали центральную пешку, зато получили полуоткрытую линию c и будут давить по ней. Твой типичный план белыми — Nf3, d4 и затем развивать фигуры, получая пространство. Как думаешь, что лучше сначала: сразу d4 или подготовить его конём?",
+  "live_game": true
+ },
+ "kind": "wrong_attack_or_threat",
+ "quote": "Чёрные отдали центральную пешку, зато получили полуоткрытую линию c и будут давить по ней.",
+ "error": "After 1.e4 c5 nothing has been given up. No pawn was traded and the c-file is still closed (the c2 pawn is there). The trade of the c-pawn for the d-pawn and the half-open c-file only come after d4 cxd4, which has not been played.",
+ "owner": "P1",
+ "tier": "must",
+ "expect": "caught",
+ "stage": "sync",
+ "mechanism": "M7 gave_up",
+ "status": "missed",
+ "sentence": "Чёрные отдали центральную пешку, зато получили полуоткрытую линию c и будут давить по ней. ",
+ "sentence_index": 2,
+ "prefix": [
+  "e4 — и вместо спокойной итальянской партии чёрные ответили c5: это сицилианская защита, самая боевая защита против 1.e4. ",
+  "Позиция примерно равна, но теперь важно понять: сицилианская — не про быстрый захват центра, а про асимметрию. "
+ ],
+ "replay_issues": [
+  [],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+    "moves": [],
+    "fen": "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+   },
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    },
+    {
+     "$b": 2
+    }
+   ],
+   "quoted": {
+    "$s": [
+     "e4"
+    ]
+   },
+   "given": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": true,
+   "language": "ru",
+   "engine_eval": 0.32,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": [
+    "c5"
+   ],
+   "game_moves": [
+    "e4",
+    "c5"
+   ],
+   "question": "e4",
+   "question_raw": "e4",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": [
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_ends": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w"
+    ]
+   },
+   "line_captures": {
+    "$d": [
+     [
+      "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w",
+      {
+       "$s": []
+      }
+     ]
+    ]
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": [
+     {
+      "$t": [
+       "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+       "c7c5"
+      ]
+     },
+     {
+      "$t": [
+       "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w",
+       "e2e4"
+      ]
+     }
+    ]
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [
+    {
+     "$t": [
+      {
+       "$b": 3
+      },
+      [
+       "e4",
+       "c5"
+      ]
+     ]
+    }
+   ],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": [],
+   "game_lines": 1
+  }
+ },
+ "fidelity": true
+}

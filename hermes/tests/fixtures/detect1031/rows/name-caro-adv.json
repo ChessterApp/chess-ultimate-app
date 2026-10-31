@@ -1,0 +1,150 @@
+{
+ "id": "name-caro-adv",
+ "turn": {
+  "set": "out_theory.json",
+  "id": "name-caro-adv",
+  "message": "Какой это дебют и какой вариант?",
+  "answer": "Это защита Каро-Канн, вариант с продвижением пешки — Advance Variation (B12). Ты (или соперник) сыграл 1.e4 c6 2.d4 d5 3.e5 — белая пешка идёт на e5 и захватывает пространство, а чёрные готовят удар ...c5 по центру.\n\nПлан за чёрных прост: конь на f6 давит на e4, потом ...c5 подрывает d4 — иначе белый центр задушит тебя. Хочешь разберём, как правильно играть этот вариант дальше?",
+  "live_game": false
+ },
+ "kind": "wrong_attack_or_defence",
+ "quote": "План за чёрных прост: конь на f6 давит на e4, потом ...c5 подрывает d4",
+ "error": "После 3.e5 на e4 нет никакой белой пешки (белая пешка стоит на e5), так что давить там не на что. К тому же поле f6 бьёт пешка e5, поэтому ...Nf6 просто подставляет коня под 4.exf6. Конь на f6 в варианте с продвижением не входит в план чёрных; типовые ходы здесь ...Bf5, ...e6 и ...c5.",
+ "owner": "P1",
+ "tier": "must",
+ "expect": "caught",
+ "stage": "engine",
+ "mechanism": "C1b plan_place",
+ "status": "missed",
+ "sentence": "План за чёрных прост: конь на f6 давит на e4, потом ...c5 подрывает d4 — иначе белый центр задушит тебя. ",
+ "sentence_index": 3,
+ "prefix": [
+  "Это защита Каро-Канн, вариант с продвижением пешки — Advance Variation (B12). ",
+  "Ты (или соперник) сыграл 1.e4 c6 2.d4 d5 3.e5 — белая пешка идёт на e5 и захватывает пространство, а чёрные готовят удар ...c5 по центру.",
+  "\n\n"
+ ],
+ "replay_issues": [
+  [],
+  [],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkbnr/pp2pppp/2p5/3pP3/3P4/8/PPP2PPP/RNBQKBNR b KQkq - 0 3",
+    "moves": [],
+    "fen": "rnbqkbnr/pp2pppp/2p5/3pP3/3P4/8/PPP2PPP/RNBQKBNR b KQkq - 0 3"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "rnbqkbnr/pp2pppp/2p5/3pP3/3P4/8/PPP2PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 0.36,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "какой это дебют и какой вариант?",
+   "question_raw": "Какой это дебют и какой вариант?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "rnbqkbnr/pp2pppp/2p5/3pP3/3P4/8/PPP2PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "rnbqkbnr/pp2pppp/2p5/3pP3/3P4/8/PPP2PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

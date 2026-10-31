@@ -1,0 +1,24 @@
+{
+ "package": "P3A",
+ "doc": "True controls: no detector may flag them (plan 31.10 §5.2). Seeded by WP-0; the package appends its own.",
+ "controls": [
+  {
+   "id": "razvyazka",
+   "moves": "e4 e5",
+   "detector": "pin_escape",
+   "sentence": "Развязка партии наступила только на тридцатом ходу.",
+   "why": "«развязка» (the dénouement) is not «развязать»",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "french-bishop-locked-by",
+   "moves": "e4 e6 d4 d5 e5",
+   "detector": "locked",
+   "sentence": "Слон c8 заперт пешками e6 и d5.",
+   "why": "blockers named: the existing locked_by relation, true",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  }
+ ]
+}

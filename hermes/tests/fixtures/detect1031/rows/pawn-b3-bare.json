@@ -1,0 +1,161 @@
+{
+ "id": "pawn-b3-bare",
+ "turn": {
+  "set": "out_30.json",
+  "id": "pawn-b3-bare",
+  "message": "А если b3?",
+  "answer": "Нет, так играть нельзя — b3 теряет слона. После b3 чёрные отвечают b5, и слон на a4 оказывается в ловушке: b5–a4 отступать ему некуда, и он гибнет. В лучшем случае белые отдают слона за пешку — это почти на четыре пешки хуже, чем было.\n\nЗдесь лучше спокойное Re1: ладья входит в игру и грозит Bxc6. А что чёрные делают в ответ на это — видишь их идею с b5?",
+  "live_game": false
+ },
+ "kind": "wrong_eval_or_line",
+ "quote": "это почти на четыре пешки хуже, чем было",
+ "error": "Giving a bishop for a pawn is a 2-pawn material loss, and the engine swing is about 6.5 pawns (+0.24 before, about -6.3 after 6.b3 b5). Neither figure fits 'almost four pawns'.",
+ "owner": "P4",
+ "tier": "stretch",
+ "expect": "stretch",
+ "stage": "engine",
+ "mechanism": "C8 trade_swing_named (off: Асан decides)",
+ "status": "missed",
+ "sentence": "В лучшем случае белые отдают слона за пешку — это почти на четыре пешки хуже, чем было.",
+ "sentence_index": 2,
+ "prefix": [
+  "Нет, так играть нельзя — b3 теряет слона. ",
+  "После b3 чёрные отвечают b5, и слон на a4 оказывается в ловушке: b5–a4 отступать ему некуда, и он гибнет. "
+ ],
+ "replay_issues": [
+  [],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 6",
+    "moves": [],
+    "fen": "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 6"
+   },
+   {
+    "root": "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/1P3N2/P1PP1PPP/RNBQ1RK1 b kq - 0 6",
+    "moves": [],
+    "fen": "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/1P3N2/P1PP1PPP/RNBQ1RK1 b kq - 0 6"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    },
+    {
+     "$b": 2
+    }
+   ],
+   "quoted": {
+    "$s": [
+     "b3"
+    ]
+   },
+   "given": {
+    "$s": [
+     "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/1P3N2/P1PP1PPP/RNBQ1RK1 b",
+     "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 0.45,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "а если b3?",
+   "question_raw": "А если b3?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/1P3N2/P1PP1PPP/RNBQ1RK1 b",
+     "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/1P3N2/P1PP1PPP/RNBQ1RK1 b",
+     "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

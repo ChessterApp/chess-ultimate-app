@@ -1,0 +1,146 @@
+{
+ "id": "plan-kid",
+ "turn": {
+  "set": "out_theory.json",
+  "id": "plan-kid",
+  "message": "Какие идеи у чёрных в этой позиции?",
+  "answer": "Чёрные здесь играют на подрыв центра и ход ...f5 — вот их главная идея. Пешка e4 у белых держится на коне c3, а конь f6 уже на неё давит; как только чёрные сыграют ...f5, появится второй удар, и белым придётся решать, чем бить на e4.\n\nОбрати внимание и на пешку d5: её атакуют сразу оба коня — f6 и e7, — но защищена она четырьмя фигурами, так что пока брать невыгодно. А вот пешка d6 держит под контролем поле e5 — именно поэтому твой конь f3 пока не может там закрепиться, а чёрные спокойно готовят ...f5. Тебе же стоит укрепить центр и королевский фланг: h3, затем a3 и b4 — так ты расширяешься на ферзевом и не даёшь сопернику развернуть атаку.",
+  "live_game": false
+ },
+ "kind": "illegal_or_nonexistent_move",
+ "quote": "конь f6 уже на неё давит; как только чёрные сыграют ...f5, появится второй удар",
+ "error": "...f5 is illegal while the knight stands on f6, because the f7 pawn cannot pass through an occupied square. Black first has to move the knight (Ne8, Nd7 or Nh5), and then it no longer attacks e4. The f-pawn and the f6 knight can never hit e4 together.",
+ "owner": "P1",
+ "tier": "out",
+ "expect": "not_caught",
+ "stage": "sync",
+ "mechanism": "P1 start_scene removes the wrong board",
+ "status": "missed",
+ "sentence": "Пешка e4 у белых держится на коне c3, а конь f6 уже на неё давит; как только чёрные сыграют ...f5, появится второй удар, и белым придётся решать, чем бить на e4.",
+ "sentence_index": 1,
+ "prefix": [
+  "Чёрные здесь играют на подрыв центра и ход ...f5 — вот их главная идея. "
+ ],
+ "replay_issues": [
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "r1bq1rk1/ppp1npbp/3p1np1/3Pp3/2P1P3/2N2N2/PP2BPPP/R1BQ1RK1 w - - 1 9",
+    "moves": [],
+    "fen": "r1bq1rk1/ppp1npbp/3p1np1/3Pp3/2P1P3/2N2N2/PP2BPPP/R1BQ1RK1 w - - 1 9"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "r1bq1rk1/ppp1npbp/3p1np1/3Pp3/2P1P3/2N2N2/PP2BPPP/R1BQ1RK1 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 0.68,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "какие идеи у черных в этой позиции?",
+   "question_raw": "Какие идеи у чёрных в этой позиции?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "r1bq1rk1/ppp1npbp/3p1np1/3Pp3/2P1P3/2N2N2/PP2BPPP/R1BQ1RK1 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "r1bq1rk1/ppp1npbp/3p1np1/3Pp3/2P1P3/2N2N2/PP2BPPP/R1BQ1RK1 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

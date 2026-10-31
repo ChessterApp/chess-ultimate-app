@@ -1,0 +1,167 @@
+{
+ "id": "stalemate-hyp",
+ "turn": {
+  "set": "out_30.json",
+  "id": "stalemate-hyp",
+  "message": "Хочу сыграть Qb6, чтобы запереть короля. Хорошо?",
+  "answer": "Нет, Qb6 — это пат. Король на a8 не под шахом и ходить ему некуда: ферзь бьёт и b7, и b8, и a7. Партия тут же заканчивается ничьей, победа уходит из рук.\n\nЗапирать короля надо так, чтобы он был под шахом и ему было куда отступать. Сейчас выигрывает Qb4 — ферзь встаёт не вплотную к королю, а подальше, отрезая его и оставляя в запасе нужные темпы.\n\nХочешь, покажу, как оттуда ферзь и свой король доводят дело до мата?",
+  "live_game": false
+ },
+ "kind": "other",
+ "quote": "Запирать короля надо так, чтобы он был под шахом и ему было куда отступать.",
+ "error": "The technique rule is misstated. To avoid stalemate the cornered king only needs a legal move; it does not need to be in check. The recommended Qb4 itself gives no check (the king keeps a7).",
+ "owner": "P6",
+ "tier": "out",
+ "expect": "not_caught",
+ "stage": "sync",
+ "mechanism": "prevent: rules facts D′",
+ "status": "missed",
+ "sentence": "Запирать короля надо так, чтобы он был под шахом и ему было куда отступать. ",
+ "sentence_index": 5,
+ "prefix": [
+  "Нет, Qb6 — это пат. ",
+  "Король на a8 не под шахом и ходить ему некуда: ферзь бьёт и b7, и b8, и a7. ",
+  "Партия тут же заканчивается ничьей, победа уходит из рук.",
+  "\n",
+  "\n"
+ ],
+ "replay_issues": [
+  [],
+  [],
+  [],
+  [],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "k7/8/3Q4/8/8/8/8/2K5 w - - 0 1",
+    "moves": [],
+    "fen": "k7/8/3Q4/8/8/8/8/2K5 w - - 0 1"
+   },
+   {
+    "root": "k7/8/1Q6/8/8/8/8/2K5 b - - 1 1",
+    "moves": [],
+    "fen": "k7/8/1Q6/8/8/8/8/2K5 b - - 1 1"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    },
+    {
+     "$b": 2
+    }
+   ],
+   "quoted": {
+    "$s": [
+     "Qb6"
+    ]
+   },
+   "given": {
+    "$s": [
+     "k7/8/1Q6/8/8/8/8/2K5 b",
+     "k7/8/3Q4/8/8/8/8/2K5 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 20.0,
+   "tablebase": "White wins",
+   "engine_mate": 7,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "хочу сыграть qb6, чтобы запереть короля. хорошо?",
+   "question_raw": "Хочу сыграть Qb6, чтобы запереть короля. Хорошо?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "k7/8/1Q6/8/8/8/8/2K5 b",
+     "k7/8/3Q4/8/8/8/8/2K5 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "k7/8/1Q6/8/8/8/8/2K5 b",
+     "k7/8/3Q4/8/8/8/8/2K5 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

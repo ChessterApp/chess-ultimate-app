@@ -1375,7 +1375,20 @@ async def health():
             "configured": bool(os.environ.get("SUPABASE_URL")),
             "circuit": supabase_circuit.status(),
         },
+        # The ECO book's indexes the text gate reads (src/answer_check_facts.py, src/openings_book.py) are built: until
+        # then the first turns after a restart do not judge «здесь белые пошли …» (plan 31.10 [J]; built in _warm_up).
+        "book_index_ready": _book_index_ready(),
     }
+
+
+def _book_index_ready() -> bool:
+    try:
+        from src.answer_check_facts import book_index_ready
+        from src.openings_book import position_index_ready
+
+        return bool(book_index_ready() and position_index_ready())
+    except Exception:  # noqa: BLE001 — the health check never fails on it
+        return False
 
 
 @app.post("/v1/chat/completions")
@@ -2872,6 +2885,20 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     old_board_blocks.append(
                         hypothetical_block(hypo['note'], live_game=bool(live_game), where=past['label'] if past else None))
                     message = f"{message}\n\n{old_board_blocks[-1]}"
+                # The rules the board itself shows this turn — a stalemate an idea move makes, a mate, an illegal
+                # castling — with the facts of the recommended move (src/rules_facts.rules_block, plan 31.10: P6 writes
+                # the body; "" until then, so the message is as before).
+                try:
+                    from src.rules_facts import rules_block
+
+                    verdict_rules = rules_block(body.message, board_verdicts={
+                        "fen": idea_fen, "ideas": list((hypo or {}).get("items") or []),
+                        "idea_fens": list((hypo or {}).get("fens") or []),
+                        "engine_lines": list((note or {}).get("lines") or [])})
+                except Exception:  # noqa: BLE001 — never block a turn on the rules
+                    verdict_rules = ""
+                if verdict_rules:
+                    message = f"{message}\n\n{verdict_rules}"
                 review = _await_review(review_future, engine_started, review_state)
                 if review:
                     message = f"{message}\n\n{review_block(review)}"

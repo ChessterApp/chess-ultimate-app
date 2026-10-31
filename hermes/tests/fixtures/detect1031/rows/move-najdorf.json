@@ -1,0 +1,178 @@
+{
+ "id": "move-najdorf",
+ "turn": {
+  "set": "out_theory.json",
+  "id": "move-najdorf",
+  "message": "Какие главные теоретические продолжения за белых здесь?",
+  "answer": "Это сицилианская защита, вариант Найдорфа — конкретно система, где белые пошли 6.Сс4 (вариант Фишера-Созина). Сейчас белые разыграли коня на d4 и коня на c3, а слон f1 ещё не вышел.\n\nГлавные теоретические продолжения за белых здесь:\n\n- **6.Сe3** — самый популярный и позиционно самый надёжный ход. Белые готовят Фd2 и 0-0-0, слон контролирует d4 и не мешает развитию. Именно этот ход сейчас считается основным.\n- **6.Сg5** — более острый план: связка коня f6, давление на d5. Но чёрные успевают ответить ...e6 и ...Се7.\n- **6.h3** — тихий профилактический ход. Белые готовят g4 и хотят избежать связки ...Сg4, но теряют темп.\n\nНа твоём уровне я бы советовал именно **6.Сe3** — он ведёт к понятной игре без тактических осложнений. Хочешь, разберём план белых после 6.Сe3 — где ставить короля и куда девать коня?",
+  "live_game": false
+ },
+ "kind": "wrong_eval_or_line",
+ "quote": "На твоём уровне я бы советовал именно **6.Сe3** — он ведёт к понятной игре без тактических осложнений.",
+ "error": "6.Be3 (the English Attack, f3/Qd2/0-0-0/g4) is one of the sharpest and most tactical Najdorf lines, with castling on opposite sides and pawn storms. Calling it calm and free of tactics, and 'positionally the most solid', misdescribes the line.",
+ "owner": "P2",
+ "tier": "stretch",
+ "expect": "stretch",
+ "stage": "sync",
+ "mechanism": "I4 open_character (shadow); hidden by the rewrite",
+ "status": "missed",
+ "sentence": "На твоём уровне я бы советовал именно **6.Сe3** — он ведёт к понятной игре без тактических осложнений. ",
+ "sentence_index": 15,
+ "prefix": [
+  "Это сицилианская защита, вариант Найдорфа — конкретно система, где белые пошли 6.Сс4 (вариант Фишера-Созина). ",
+  "Сейчас белые разыграли коня на d4 и коня на c3, а слон f1 ещё не вышел.",
+  "\n",
+  "\n",
+  "Главные теоретические продолжения за белых здесь:\n\n",
+  "- **6.Сe3** — самый популярный и позиционно самый надёжный ход. ",
+  "Белые готовят Фd2 и 0-0-0, слон контролирует d4 и не мешает развитию. ",
+  "Именно этот ход сейчас считается основным.",
+  "\n",
+  "- **6.Сg5** — более острый план: связка коня f6, давление на d5. ",
+  "Но чёрные успевают ответить ...e6 и ...Се7.",
+  "\n",
+  "- **6.h3** — тихий профилактический ход. ",
+  "Белые готовят g4 и хотят избежать связки ...Сg4, но теряют темп.",
+  "\n\n"
+ ],
+ "replay_issues": [
+  [
+   "6.Bc4 has not been played on this board: the position is after 1.e4 c5 2.Nf3 d6 3.d4 cxd4 4.Nxd4 Nf6 5.Nc3 a6, White to move at move 6 — a move not yet made is only a possible continuation, never what was played here"
+  ],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [
+   "after the idea 6...Bg4: Black's bishop on g4 pins nothing; it attacks White's queen on d1"
+  ],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": true,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkb1r/1p2pppp/p2p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R w KQkq - 0 6",
+    "moves": [],
+    "fen": "rnbqkb1r/1p2pppp/p2p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R w KQkq - 0 6"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "rnbqkb1r/1p2pppp/p2p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 0.34,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "какие главные теоретические продолжения за белых здесь?",
+   "question_raw": "Какие главные теоретические продолжения за белых здесь?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "rnbqkb1r/1p2pppp/p2p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "rnbqkb1r/1p2pppp/p2p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

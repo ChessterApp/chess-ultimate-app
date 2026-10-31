@@ -9,6 +9,7 @@ rule each question is about is matched by its words and given as it stands in th
 from __future__ import annotations
 
 import re
+from typing import Optional
 
 _W = r"(?<![\w-])"
 
@@ -57,8 +58,17 @@ _ASKS_A_RULE = re.compile(
     r"is\s+it|can\s+i|can\s+a|allowed|legal|rule\w*|who\s+wins|draw|бола\s+ма|ереже\w*)", re.IGNORECASE)
 
 
-def rules_block(message: str) -> str:
-    """The rules a rules question is about, as a turn-context block; "" for anything else."""
+def rules_block(message: str, *, board_verdicts: Optional[dict] = None) -> str:
+    """The rules a rules question is about, as a turn-context block; "" for anything else.
+
+    *board_verdicts* (plan 31.10, P6 writes the body; WP-0 wires the call): what the engine and the board found this
+    turn — {"fen": the position the ideas were played from, "ideas": the idea moves' items (src/hypothetical.
+    hypothetical_notes: {"san", "mate"/"draw"/"headline", …}), "idea_fens": the positions after them, "engine_lines":
+    the engine line's lines}. Called with them (src/server.py, once the idea moves are judged) it returns only the
+    rules those verdicts show (stalemate, mate, an illegal castling) and the facts about the recommended move, never
+    the question's rules again — "" when there are none. Without them it is the question's rules, as before."""
+    if board_verdicts is not None:
+        return ""
     text = message or ""
     if not _ASKS_A_RULE.search(text):
         return ""

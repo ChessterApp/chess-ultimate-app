@@ -101,12 +101,16 @@ def analyze_position(
     timeout: int = TIMEOUT_SECONDS,
     movetime_ms: int | None = None,
     max_ms: int | None = None,
+    searchmoves: tuple | list | None = None,
 ) -> dict:
     """Run Stockfish analysis on a FEN position — to *depth*, or for *movetime_ms* when given.
 
     *max_ms* bounds a search to *depth* in time, the engine server and the local fallback together: a search
     stopped short of the depth returns its lines as deep as they got (the caller decides whether that says
-    anything), and no time is left → an error."""
+    anything), and no time is left → an error.
+
+    *searchmoves* (UCI strings; plan 31.10): the search looks only at these moves of the side to move («решает ферзь»:
+    the queen's best). The engine server has no such option, so a restricted search is always local."""
     from src.fen_repair import repair_fen
 
     fen = repair_fen(fen)
@@ -119,7 +123,8 @@ def analyze_position(
     # The site's own engine server (engine.chesster.io) when ENGINE_API_URL is set:
     # no Stockfish process on the coach host, its cache and pool instead. Any
     # failure falls back to the local engine, so the turn never waits in vain.
-    if ENGINE_API_URL:
+    sm = _searchmoves(searchmoves)
+    if ENGINE_API_URL and not sm:
         try:
             remote = _analyze_remote(fen, depth, multipv, movetime_ms, wait_s=max_ms / 1000.0 if deadline else None)
             if remote and remote.get("lines"):
@@ -135,6 +140,8 @@ def analyze_position(
         global _running
         _running += 1
     try:
+        if sm:
+            return _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms, cap, searchmoves=sm)
         return _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms, cap)
     finally:
         with _running_lock:
@@ -210,7 +217,20 @@ def engines_running() -> int:
         return _running
 
 
-def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms, cap_ms=None) -> dict:
+def _searchmoves(searchmoves) -> tuple:
+    """*searchmoves* as a sorted tuple of valid UCI strings (() for none): one spelling for the cache key and the
+    `go` command."""
+    if not searchmoves:
+        return ()
+    out = set()
+    for m in searchmoves:
+        u = str(m).strip()
+        if re.fullmatch(r"[a-h][1-8][a-h][1-8][qrbn]?", u):
+            out.add(u)
+    return tuple(sorted(out))
+
+
+def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms, cap_ms=None, searchmoves=()) -> dict:
     try:
         proc = subprocess.Popen(
             [stockfish_path],
@@ -228,12 +248,13 @@ def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms,
         proc.stdin.write(f"setoption name MultiPV value {multipv}\n")
         proc.stdin.write(f"position fen {fen}\n")
         cap = min(c for c in (MAX_MS, cap_ms) if c and c > 0) if (MAX_MS > 0 or cap_ms) else 0
+        restrict = f" searchmoves {' '.join(searchmoves)}" if searchmoves else ""
         if movetime_ms:
-            proc.stdin.write(f"go movetime {movetime_ms}\n")
+            proc.stdin.write(f"go movetime {movetime_ms}{restrict}\n")
         elif cap > 0:
-            proc.stdin.write(f"go depth {depth} movetime {cap}\n")
+            proc.stdin.write(f"go depth {depth} movetime {cap}{restrict}\n")
         else:
-            proc.stdin.write(f"go depth {depth}\n")
+            proc.stdin.write(f"go depth {depth}{restrict}\n")
         proc.stdin.flush()
 
         lines = []
@@ -323,9 +344,17 @@ def _result_depth(result: dict) -> int:
     return int(lines[0].get("depth") or 0) if lines else 0
 
 
-def _cache_get(fen: str, depth: int, multipv: int) -> dict | None:
-    """A cached analysis at least *depth* deep with at least *multipv* lines."""
+def _cache_key(fen: str, searchmoves=()) -> str:
+    """Position (clocks ignored), and the moves a restricted search looked at: a search of the queen's moves only is
+    never an answer for the whole position, nor the other way round (plan 31.10)."""
     key = " ".join(fen.split()[:4])
+    sm = _searchmoves(searchmoves)
+    return f"{key} searchmoves {' '.join(sm)}" if sm else key
+
+
+def _cache_get(fen: str, depth: int, multipv: int, searchmoves=()) -> dict | None:
+    """A cached analysis at least *depth* deep with at least *multipv* lines."""
+    key = _cache_key(fen, searchmoves)
     with _cache_lock:
         hit = _cache.get(key)
         if hit is None or len(hit.get("lines", [])) < multipv:
@@ -338,11 +367,11 @@ def _cache_get(fen: str, depth: int, multipv: int) -> dict | None:
         return {**hit, "lines": hit["lines"][:multipv]}
 
 
-def _cache_put(fen: str, result: dict) -> None:
+def _cache_put(fen: str, result: dict, searchmoves=()) -> None:
     """Keep *result* unless the cache already holds a deeper (or as deep and wider) run."""
     if "error" in result or not result.get("lines"):
         return
-    key = " ".join(fen.split()[:4])
+    key = _cache_key(fen, searchmoves)
     with _cache_lock:
         old = _cache.get(key)
         if old is None or (_result_depth(result), len(result["lines"])) >= (_result_depth(old), len(old["lines"])):
@@ -352,31 +381,42 @@ def _cache_put(fen: str, result: dict) -> None:
             _cache.popitem(last=False)
 
 
-def analyze_cached(fen: str, depth: int = DEFAULT_DEPTH, multipv: int = DEFAULT_MULTIPV) -> dict:
-    """analyze_position behind a small LRU keyed by position (clocks ignored).
+def analyze_cached(fen: str, depth: int = DEFAULT_DEPTH, multipv: int = DEFAULT_MULTIPV,
+                   searchmoves: tuple | list | None = None) -> dict:
+    """analyze_position behind a small LRU keyed by position (clocks ignored) and *searchmoves*.
 
     A cached run at least as deep, with at least as many lines, serves the
     request. Errors are never cached.
     """
-    hit = _cache_get(fen, depth, multipv)
+    sm = _searchmoves(searchmoves)
+    hit = _cache_get(fen, depth, multipv, sm)
     if hit is not None:
         return hit
-    result = analyze_position(fen, depth=depth, multipv=multipv)
-    _cache_put(fen, result)
+    if sm:
+        result = analyze_position(fen, depth=depth, multipv=multipv, searchmoves=sm)
+    else:
+        result = analyze_position(fen, depth=depth, multipv=multipv)
+    _cache_put(fen, result, sm)
     return result
 
 
-def analyze_timed(fen: str, movetime_ms: int, multipv: int = DEFAULT_MULTIPV, min_depth: int = 12) -> dict:
+def analyze_timed(fen: str, movetime_ms: int, multipv: int = DEFAULT_MULTIPV, min_depth: int = 12,
+                  searchmoves: tuple | list | None = None) -> dict:
     """Analysis bounded by time rather than depth, through the same cache.
 
     Depth then follows the host's speed and the result is ready on time — the
     text turn waits for it. A cached run at least *min_depth* deep serves it.
+    *searchmoves* (UCI): only these moves are searched, cached under their own key (plan 31.10, P4's «решает ферзь»).
     """
-    hit = _cache_get(fen, min_depth, multipv)
+    sm = _searchmoves(searchmoves)
+    hit = _cache_get(fen, min_depth, multipv, sm)
     if hit is not None:
         return hit
-    result = analyze_position(fen, multipv=multipv, movetime_ms=movetime_ms)
-    _cache_put(fen, result)
+    if sm:
+        result = analyze_position(fen, multipv=multipv, movetime_ms=movetime_ms, searchmoves=sm)
+    else:
+        result = analyze_position(fen, multipv=multipv, movetime_ms=movetime_ms)
+    _cache_put(fen, result, sm)
     return result
 
 

@@ -1,0 +1,143 @@
+{
+ "package": "P1",
+ "doc": "True controls: no detector may flag them (plan 31.10 §5.2). Seeded by WP-0; the package appends its own.",
+ "controls": [
+  {
+   "id": "recap-one-ply-early",
+   "moves": "e4 e5 d4 d6 c3 Be7 Nf3 Nf6 Bc4 exd4 O-O Nxe4",
+   "student": "w",
+   "detector": "recap_scope",
+   "sentence": "После 1.e4 e5 2.d4 d6 3.c3 Be7 4.Nf3 Nf6 5.Bc4 exd4 у чёрных лишняя пешка.",
+   "why": "the recap ends at 5...exd4, one ply before the board: a line, and true there (Black +1)",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "made-up-line-true",
+   "moves": "e4 e5 d4 d6 c3 Be7 Nf3 Nf6 Bc4 exd4 O-O Nxe4",
+   "student": "w",
+   "detector": "recap_scope",
+   "sentence": "Например, после 1.e4 d5 2.exd5 у белых лишняя пешка.",
+   "why": "an invented line, not the game's record: hypothetical, and true on it",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "exf4-free-game",
+   "moves": "e4 e5 f4 exf4",
+   "student": "b",
+   "detector": "free_capture",
+   "sentence": "Ты забрал пешку f4 бесплатно: exf4.",
+   "why": "f4 was not defended: SEE 1 = the pawn taken (judge [J])",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "block-with-queen-f7",
+   "fen": "rnb1kbnr/pppq2pp/8/4pp1Q/4P3/8/PPPP1PPP/RNB1KBNR b KQkq - 1 4",
+   "detector": "block_kind",
+   "sentence": "Тебе шах, и лучше всего закрыться ферзём на f7.",
+   "why": "Qd7-f7 lands between Qh5 and Ke8: a true block, read as a queen move",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "morphy-gave-queen",
+   "moves": "e4 c5 Nf3 d6",
+   "student": "w",
+   "detector": "gave_up",
+   "sentence": "В партии Морфи отдал ферзя ради мата.",
+   "why": "«в партии <name>»: another game, judged by P6 against its record, not this game's",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "diagonal-mate-not-imperative",
+   "fen": "kb6/p2B4/8/8/8/8/8/K7 w - - 0 1",
+   "detector": "propose_vocab",
+   "sentence": "Мат ставит слон по диагонали — Сc6#.",
+   "why": "«диагонали — Сc6#» is no imperative introducer; Bc6 is mate",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "play-qe2-sound",
+   "moves": "e4 e5 Nf3 Nc6 Bc4 Bc5 d3 Nf6",
+   "stage": "engine",
+   "detector": "propose_vocab",
+   "sentence": "Играй Qe2 — спокойное развитие.",
+   "why": "the engine passes Qe2 here (within COACH_MOVE_VERIFY_CP of the best)",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "corpus-free_capture-0",
+   "sentence": "Хороший вопрос — и честный ответ: я не строю коварный план, у меня простая задача: развиваться и не отдавать тебе центр даром.",
+   "question": "А ты что задумал?",
+   "detector": "free_capture",
+   "stage": "sync",
+   "source": "out_71_1028.json:g1-question",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "rnbqkb1r/pppppppp/5n2/8/3P4/5N2/PPP1PPPP/RNBQKB1R b KQkq - 0 2"
+  },
+  {
+   "id": "corpus-free_capture-1",
+   "sentence": "Вместо бесплатной пешки вы получили мощнейшую контратаку — ход **4... Qg5!** сразу нападает и на коня е5, и на пешку g2.",
+   "question": "Вот моя партия, где я ошибся? 1. e4 e5 2. Nf3 Nc6 3. Bc4 Nd4 4. Nxe5 Qg5 5. Nxf7",
+   "detector": "free_capture",
+   "stage": "sync",
+   "source": "out_71_1028.json:d4-game",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  },
+  {
+   "id": "corpus-free_capture-2",
+   "sentence": "А слон f6 при этом остаётся под защитой пешки g7, так что даром его не возьмёшь.",
+   "question": "Задача из урока «Защита от мата» (курс «Шахматная тактика»). Какой здесь первый ",
+   "detector": "free_capture",
+   "stage": "sync",
+   "source": "out_local_1022.json:puzzle:chess-tactics:defense-against-checkmate",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "4rrk1/5ppp/5b2/5Q2/8/8/2B5/7K b - - 0 1"
+  },
+  {
+   "id": "corpus-free_capture-3",
+   "sentence": "Убери его — и чёрный ферзь c5 забирает ферзя d4 бесплатно, а заодно ладья с e2 грозит Rxe1+ с шахом и матом.",
+   "question": "Задача из урока «Пример 1» (курс «Продвинутая тактика»). Какой здесь первый ход ",
+   "detector": "free_capture",
+   "stage": "sync",
+   "source": "out_programme.json:puzzle:advanced-tactics:center-control-example-1",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "6k1/3bpp2/3p2p1/2qP4/1p1Q2P1/pP3P2/P1P1N2r/1K2R3 b - - 0 1"
+  },
+  {
+   "id": "corpus-free_capture-4",
+   "sentence": "А вот соблазн взять слона — Kxc5 — проигрывает: Kxc5 тогда пешка a6 бежит в ферзи бесплатно, и остановить её уже нечем.",
+   "question": "Задача из урока «Эндшпиль — Набор 12» (курс «Связки и Эндшпили»). Какой здесь пе",
+   "detector": "free_capture",
+   "stage": "sync",
+   "source": "out_programme_1023.json:puzzle:pins-endgames:endgame-set-12",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "8/8/P1k5/2B5/8/4K3/8/8 b - - 0 1"
+  },
+  {
+   "id": "corpus-free_capture-5",
+   "sentence": "Пешка f4 ничем не защищена, а после exf4 ты забираешь её бесплатно и вдобавок получаешь план: ферзь рвётся на h4 с шахом.",
+   "question": "Стоит ли брать пешку f4?",
+   "detector": "free_capture",
+   "stage": "sync",
+   "source": "out_theory_stand.json:can-kg-accept",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "rnbqkbnr/pppp1ppp/8/4p3/4PP2/8/PPPP2PP/RNBQKBNR b KQkq - 0 2"
+  },
+  {
+   "id": "corpus-free_capture-7",
+   "sentence": "Их пешка d4 стоит в центре и бьёт твою c3, а их конь с e4 напал на твою пешку f2 и на c3 — но обе защищены, так что бесплатно ничего не забирают.",
+   "question": "Опиши позицию",
+   "detector": "free_capture",
+   "stage": "sync",
+   "source": "prod1029/st3.json:Опиши позицию",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "moves": "e4 e5 d4 d6 c3 Be7 Nf3 Nf6 Bc4 exd4 O-O Nxe4"
+  }
+ ]
+}

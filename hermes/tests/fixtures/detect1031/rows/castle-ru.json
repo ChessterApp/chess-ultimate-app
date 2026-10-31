@@ -1,0 +1,152 @@
+{
+ "id": "castle-ru",
+ "turn": {
+  "set": "out_30.json",
+  "id": "castle-ru",
+  "message": "Можно мне сейчас рокироваться в короткую?",
+  "answer": "Нет, короткая рокировка сейчас невозможна: поле f1 простреливается слоном с c4, а через битое поле король пройти не может.\n\nИ прогнать слона одной угрозой не выйдет — отступив на a6, b5, d3 или e2, он всё равно будет держать f1 под боем. Начни с b3 — b3–c4 — белые сразу нападают на слона, и вот тогда он вынужден уйти туда, откуда f1 уже не прикрывает.\n\nА длинную рокировку ты почему не рассматриваешь — что стоит между королём и ладьёй?",
+  "live_game": false
+ },
+ "kind": "wrong_attack_or_defence",
+ "quote": "Начни с b3 — b3–c4 — белые сразу нападают на слона, и вот тогда он вынужден уйти туда, откуда f1 уже не прикрывает.",
+ "error": "After 8.b3 the bishop is not forced off the f1–a6 diagonal: 8...Ba6 (and also ...Bb5/...Bd3/...Be2) still covers f1, and Stockfish rates 8...Ba6 about as good as 8...Be6 for Black (around -1.5). The answer also contradicts its own previous sentence, which said a retreat to a6/b5/d3/e2 keeps f1 under fire.",
+ "owner": "P3D",
+ "tier": "must",
+ "expect": "caught",
+ "stage": "sync",
+ "mechanism": "C5 retreat_cover",
+ "status": "missed",
+ "sentence": "Начни с b3 — b3–c4 — белые сразу нападают на слона, и вот тогда он вынужден уйти туда, откуда f1 уже не прикрывает.",
+ "sentence_index": 3,
+ "prefix": [
+  "Нет, короткая рокировка сейчас невозможна: поле f1 простреливается слоном с c4, а через битое поле король пройти не может.",
+  "\n\n",
+  "И прогнать слона одной угрозой не выйдет — отступив на a6, b5, d3 или e2, он всё равно будет держать f1 под боем. "
+ ],
+ "replay_issues": [
+  [],
+  [],
+  [
+   "the bishop on c4 has no retreat to b5, d3, e2 — there it is simply lost (Nxb5, cxd3, Nxe2); of the squares named only a6 is a real retreat"
+  ],
+  []
+ ],
+ "hidden_by_rewrite": true,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w KQkq - 0 8",
+    "moves": [],
+    "fen": "r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w KQkq - 0 8"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": -1.78,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "можно мне сейчас рокироваться в короткую?",
+   "question_raw": "Можно мне сейчас рокироваться в короткую?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

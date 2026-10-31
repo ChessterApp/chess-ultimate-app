@@ -790,37 +790,8 @@ def judge_can_capture(claim: Claim, board: chess.Board, ctx) -> Verdict:
     return Verdict("true") if ok else Verdict("false", "", "; ".join(truths))
 
 
-def see(board: chess.Board, move: chess.Move) -> int:
-    """The static exchange count of the capture *move* (in pawns): what its side wins on that square when both sides
-    keep taking there with their cheapest piece while it pays."""
-    t = move.to_square
-    if board.is_en_passant(move):
-        first = 1
-    else:
-        v = board.piece_at(t)
-        first = _VALUE[v.piece_type] if v else 0
-    b = board.copy(stack=False)
-    mover = b.piece_at(move.from_square)
-    gains = [first]
-    on_square = _VALUE[mover.piece_type]
-    b.push(move)
-    side = b.turn
-    while True:
-        attackers = [s for s in b.attackers(side, t)
-                     if chess.Move(s, t) in b.legal_moves or (b.piece_type_at(s) == chess.PAWN and chess.square_rank(t) in (0, 7))]
-        if not attackers:
-            break
-        s = min(attackers, key=lambda x: _VALUE[b.piece_type_at(x)])
-        gains.append(on_square - gains[-1])
-        on_square = _VALUE[b.piece_type_at(s)]
-        mv = next((m for m in b.legal_moves if m.from_square == s and m.to_square == t), None)
-        if mv is None:
-            break
-        b.push(mv)
-        side = b.turn
-    for i in range(len(gains) - 1, 0, -1):
-        gains[i - 1] = -max(-gains[i - 1], gains[i])
-    return gains[0]
+# The static exchange is shared with the other judges (plan 31.10, WP-0): one copy in src/board_math.py.
+from src.board_math import see  # noqa: E402,F401
 
 
 def judge_can_exchange(claim: Claim, board: chess.Board, ctx) -> Verdict:
@@ -1179,3 +1150,13 @@ RULE_JUDGES.update({rel: _guarded(fn) for rel, fn in (
     ("occupied", judge_occupied),
     ("checks_along", judge_checks_along),
 )})
+
+
+def _not_judged_yet(claim: Claim, board: chess.Board, ctx) -> Verdict:
+    """A relation of plan 31.10 whose judge P3D writes (prevents, retreat_cover): undecided until then."""
+    return UNDECIDED
+
+
+# WP-0 hook (plan 31.10): every rule relation has a judge; P3D replaces these two.
+for _rel in ("prevents", "retreat_cover"):
+    RULE_JUDGES.setdefault(_rel, _not_judged_yet)

@@ -1,0 +1,148 @@
+{
+ "id": "name-scandi",
+ "turn": {
+  "set": "out_theory.json",
+  "id": "name-scandi",
+  "message": "Как называется этот дебют?",
+  "answer": "Это скандинавская защита, вариант Миеса-Котрока (ECO B01). Чёрные рано вывели ферзя на d5 после размена на e4 — характерный признак этой системы.\n\nФерзь на d5 сейчас под боем: белые играют Nc3 и угрожают забрать его. Куда, по-твоему, чёрным стоит отступить?",
+  "live_game": false
+ },
+ "kind": "wrong_eval_or_line",
+ "quote": "Чёрные рано вывели ферзя на d5 после размена на e4",
+ "error": "The exchange happened on d5 (2.exd5 Qxd5), not on e4.",
+ "owner": "WP-0",
+ "tier": "wp0",
+ "expect": "caught",
+ "stage": "sync",
+ "mechanism": "book index warmed (replay; prod warms it)",
+ "status": "caught",
+ "sentence": "Чёрные рано вывели ферзя на d5 после размена на e4 — характерный признак этой системы.",
+ "sentence_index": 1,
+ "prefix": [
+  "Это скандинавская защита, вариант Миеса-Котрока (ECO B01). "
+ ],
+ "replay_issues": [
+  [],
+  [
+   "no capture was made on e4 in the moves that led to this board (1.e4 d5 2.exd5 Qxd5): the captures were 2.exd5 2...Qxd5 (on d5) — tell the exchanges of this game as its record has them"
+  ]
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rnb1kbnr/ppp1pppp/8/3q4/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3",
+    "moves": [],
+    "fen": "rnb1kbnr/ppp1pppp/8/3q4/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "rnb1kbnr/ppp1pppp/8/3q4/8/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 0.78,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "как называется этот дебют?",
+   "question_raw": "Как называется этот дебют?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "rnb1kbnr/ppp1pppp/8/3q4/8/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "rnb1kbnr/ppp1pppp/8/3q4/8/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}
