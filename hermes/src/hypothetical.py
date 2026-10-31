@@ -13,6 +13,7 @@ is checked against.
 
 from __future__ import annotations
 
+import functools
 import logging
 import time
 from typing import Optional
@@ -21,9 +22,24 @@ import chess
 
 from src.fen_repair import repair_fen
 from src.position_facts import VALUES, static_facts
-from src.tools.stockfish import analyze_cached, analyze_position, analyze_timed
+from src.tools.stockfish import analyze_cached, analyze_position, analyze_timed, exact_get, exact_join, pool_on
 
 logger = logging.getLogger(__name__)
+
+
+def _answer_check(fn):
+    """The answer check holds a sentence while *fn* asks the engine: its searches go first in the engine pool's queue
+    (src/engine_pool.PRIORITY_CHECK; plan 31.10 P7a), before engine lines, tool calls and work done in advance."""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        from src import engine_pool
+
+        with engine_pool.priority(min(engine_pool.current_priority(), engine_pool.PRIORITY_CHECK)):
+            return fn(*args, **kwargs)
+
+    return wrapper
+
 
 MAX_MOVES = 3
 MIN_DEPTH = 10
@@ -410,6 +426,7 @@ def _reply_point(after: chess.Board, reply_san: str) -> Optional[str]:
     return ("Why: " + "; ".join(bits) + ".") if bits else None
 
 
+@_answer_check
 def verify_line(board: chess.Board, line: list[str], movetime_ms: int = 300, threshold_cp: int = 150) -> Optional[str]:
     """Why a written line («после Nf7 Kxf7 Qxc5 у тебя перевес») ends badly for
     the side that starts it: the evaluation at its end against the position
@@ -497,6 +514,7 @@ def live_game_note(fen: str, movetime_ms: int = 300) -> Optional[dict]:
         return None
 
 
+@_answer_check
 def verify_recommendation(board: chess.Board, move: chess.Move, san: str, movetime_ms: int = 300,
                           threshold_cp: int = 150, reveal_best: bool = True, line: Optional[list] = None) -> Optional[str]:
     """Why the move the coach recommends is wrong on *board*, by the engine.
@@ -640,10 +658,20 @@ def _engine_lines(fen: str, multipv: int, movetime_ms: Optional[int], depth: Opt
     if depth is None:
         res = analyze_timed(fen, movetime_ms, multipv=multipv, min_depth=MIN_DEPTH)
         return None if "error" in res else res
-    # A search of its own, never the cache: a timed look that happened to reach the depth served it before, with
-    # its gaps (trap-legal: 0.72 from the cache against 0.50 searched to depth 17 — the verdict flipped by what had
-    # been looked at first; merge 30.10).
-    if deadline is None:
+    # Never the analysis cache: a timed look that happened to reach the depth served it before, with its gaps
+    # (trap-legal: 0.72 from the cache against 0.50 searched to depth 17 — the verdict flipped by what had been
+    # looked at first; merge 30.10). Only the exact store (src/tools/stockfish.exact_get: searches to this depth
+    # from an empty hash, the same lines every run) answers it, so the sentence keeps its verdict in voice and later.
+    # analyze_position on the pool searches from an empty hash and keeps a complete result in that store; a search
+    # of the same position to this depth already at work (computed in advance after the student's idea moves or the
+    # engine line, src/engine_precompute.py) is joined within this search's time.
+    res = exact_get(fen, depth, multipv) if pool_on() else None
+    if res is None and pool_on():
+        left_s = (deadline - time.monotonic()) if deadline is not None else FORCED_CONFIRM_MAX_MS / 1000.0
+        res = exact_join(fen, depth, multipv, left_s)
+    if res is not None:
+        pass
+    elif deadline is None:
         res = analyze_position(fen, depth=depth, multipv=multipv)
     else:
         left = int((deadline - time.monotonic()) * 1000)
@@ -750,6 +778,7 @@ def _verify_one_reading(claim: dict, movetime_ms: int, reveal_best: bool, until:
                            None, FORCED_CONFIRM_DEPTH, deadline)[0]
 
 
+@_answer_check
 def verify_forced_reply(claim: dict, movetime_ms: int = 300, reveal_best: bool = True) -> Optional[str]:
     """Why the reply *claim* says is forced is not, by the engine; None when it holds or the engine cannot say.
 

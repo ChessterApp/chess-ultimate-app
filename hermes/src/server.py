@@ -214,6 +214,14 @@ def _warm_up() -> None:
     started = time.monotonic()
     steps = {}
     try:
+        # The analysis processes (src/engine_pool.py, plan 31.10 P7a): started once here, no process per search.
+        from src import engine_pool
+
+        if engine_pool.start():
+            steps["engine_pool"] = int((time.monotonic() - started) * 1000)
+    except Exception:  # noqa: BLE001 — warming up is best-effort
+        logger.warning("warm-up: engine pool failed", exc_info=True)
+    try:
         _create_agent(quick_model(), "warm-up", session_id="warm-up", user_query="warm-up")
         steps["agent"] = int((time.monotonic() - started) * 1000)
     except Exception:  # noqa: BLE001 — warming up is best-effort
@@ -1014,7 +1022,17 @@ def _served_model(agent, routed_model: str) -> str:
 
 # Engine lines for text turns run here, not on the default executor that also
 # carries the agent and the reaction; engine_note itself caps parallel engines.
-_engine_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="engine-note")
+# 8 threads (plan 31.10 P7a): the Stockfish processes are the engine pool's now (src/engine_pool.py), so a thread
+# waiting here for a process costs nothing, and the pool is the CPU limit.
+_engine_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="engine-note")
+
+
+def _engine_priority(level: int):
+    """fn → fn(*args) with its Stockfish searches at *level* in the engine pool's queue (src/engine_pool.py):
+    0 a sentence the answer check holds, 1 an engine line, 2 a tool call, 3 work done in advance."""
+    from src import engine_pool
+
+    return lambda fn, *args, **kwargs: engine_pool.at_priority(level, fn, *args, **kwargs)
 
 
 _POSITION_ACTIONS = frozenset({"set_fen", "set_puzzle", "load_pgn", "clear_board"})
@@ -1370,6 +1388,8 @@ async def health():
         "stockfish": {
             "available": stockfish_available,
             "circuit": stockfish_circuit.status(),
+            # The persistent analysis processes (src/engine_pool.py): processes alive, busy, waiting, restarts.
+            "pool": _engine_pool_status(),
         },
         "supabase": {
             "configured": bool(os.environ.get("SUPABASE_URL")),
@@ -1379,6 +1399,15 @@ async def health():
         # then the first turns after a restart do not judge «здесь белые пошли …» (plan 31.10 [J]; built in _warm_up).
         "book_index_ready": _book_index_ready(),
     }
+
+
+def _engine_pool_status() -> dict:
+    try:
+        from src import engine_pool
+
+        return engine_pool.status()
+    except Exception:  # noqa: BLE001 — the health check never fails on it
+        return {"on": None}
 
 
 def _book_index_ready() -> bool:
@@ -3115,7 +3144,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     started_v = time.monotonic()
                     try:
                         issue = await loop.run_in_executor(
-                            _engine_pool, verify_claims, claims, config.COACH_MOVE_VERIFY_MOVETIME_MS, not live_game)
+                            _engine_pool, _engine_priority(0), verify_claims, claims,
+                            config.COACH_MOVE_VERIFY_MOVETIME_MS, not live_game)
                     except Exception:  # noqa: BLE001 — the check is best-effort
                         logger.debug("line verdict failed", exc_info=True)
                         issue = None
@@ -4522,7 +4552,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
             from src.line_verdict import verify_claims
 
             used[0] = True
-            why = verify_claims(claims, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal=False)
+            why = _engine_priority(0)(verify_claims, claims, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal=False)
             if why:
                 return [why]
         return issues

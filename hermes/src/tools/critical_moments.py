@@ -168,6 +168,12 @@ def find_critical_moments(
     if len(positions) < 2:
         return {"error": "Game has no moves."}
 
+    if _proc is None and _pool_on():
+        scanned = _scan_pooled(positions)
+        if scanned is None:
+            return {"error": "Stockfish is not available."}
+        return _moments(positions, moves_san, scanned, threshold)
+
     # Start Stockfish (or use provided proc for testing)
     own_proc = _proc is None
     proc = _proc
@@ -198,44 +204,6 @@ def find_critical_moments(
         # comparing them raw across a move flips the sign each ply — a won game
         # came back with nearly every move a "blunder".
         scanned = [_white_eval(b, proc) for b in positions]
-        evals = [score for score, _ in scanned]
-
-        # A move is critical when the mover's own evaluation drops by the threshold.
-        critical = []
-        for i in range(len(moves_san)):
-            eval_before = evals[i]
-            eval_after = evals[i + 1]
-            mover = positions[i].turn
-            before = _for_mover(eval_before, mover)
-            after = _for_mover(eval_after, mover)
-            loss = before - after
-            if loss < threshold:
-                continue
-
-            if before > EVAL_CAP and after <= EVAL_CAP:
-                moment_type = "missed_mate"
-            elif after < -EVAL_CAP:
-                moment_type = "blunder"  # walked into a forced mate
-            else:
-                moment_type = "blunder" if loss >= 3.0 else "mistake"
-
-            moment = {
-                "move_number": positions[i].fullmove_number,
-                "side": "white" if mover == chess.WHITE else "black",
-                "move": moves_san[i],
-                "eval_before": round(eval_before, 2),
-                "eval_after": round(eval_after, 2),
-                "eval_change": round(eval_after - eval_before, 2),
-                "type": moment_type,
-                "fen_before": positions[i].fen(),
-            }
-            # What the engine wanted instead — the scan already searched this
-            # position, so the review needs no analyze_position round per moment.
-            best_line = _san_line(positions[i], scanned[i][1])
-            if best_line and best_line[0] != moves_san[i]:
-                moment["best_move"] = best_line[0]
-                moment["best_line"] = " ".join(best_line)
-            critical.append((loss, moment))
     finally:
         if own_proc and proc:
             try:
@@ -244,6 +212,49 @@ def find_critical_moments(
                 proc.wait(timeout=5)
             except (BrokenPipeError, subprocess.TimeoutExpired):
                 proc.kill()
+    return _moments(positions, moves_san, scanned, threshold)
+
+
+def _moments(positions: list, moves_san: list, scanned: list, threshold: float) -> dict:
+    """The critical moments from every position's (White-side eval, engine line)."""
+    evals = [score for score, _ in scanned]
+
+    # A move is critical when the mover's own evaluation drops by the threshold.
+    critical = []
+    for i in range(len(moves_san)):
+        eval_before = evals[i]
+        eval_after = evals[i + 1]
+        mover = positions[i].turn
+        before = _for_mover(eval_before, mover)
+        after = _for_mover(eval_after, mover)
+        loss = before - after
+        if loss < threshold:
+            continue
+
+        if before > EVAL_CAP and after <= EVAL_CAP:
+            moment_type = "missed_mate"
+        elif after < -EVAL_CAP:
+            moment_type = "blunder"  # walked into a forced mate
+        else:
+            moment_type = "blunder" if loss >= 3.0 else "mistake"
+
+        moment = {
+            "move_number": positions[i].fullmove_number,
+            "side": "white" if mover == chess.WHITE else "black",
+            "move": moves_san[i],
+            "eval_before": round(eval_before, 2),
+            "eval_after": round(eval_after, 2),
+            "eval_change": round(eval_after - eval_before, 2),
+            "type": moment_type,
+            "fen_before": positions[i].fen(),
+        }
+        # What the engine wanted instead — the scan already searched this
+        # position, so the review needs no analyze_position round per moment.
+        best_line = _san_line(positions[i], scanned[i][1])
+        if best_line and best_line[0] != moves_san[i]:
+            moment["best_move"] = best_line[0]
+            moment["best_line"] = " ".join(best_line)
+        critical.append((loss, moment))
 
     found = len(critical)
     # The biggest swings, back in game order.
@@ -262,11 +273,112 @@ def find_critical_moments(
     return result
 
 
+def _pool_on() -> bool:
+    from src.tools.stockfish import pool_on
+
+    return pool_on()
+
+
+def _cached_eval(fen: str):
+    """A position's depth-ANALYSIS_DEPTH look already in hand (src/tools/stockfish): the analysis cache (a deeper look
+    serves, as it does every caller), else the exact store a game's annotation evals fill. None when neither has it."""
+    from src.tools import stockfish
+
+    hit = stockfish._cache_get(fen, ANALYSIS_DEPTH, 1) or stockfish.exact_get(fen, ANALYSIS_DEPTH, 1)
+    return hit if hit and hit.get("lines") else None
+
+
+def _as_scan(board: chess.Board, result: dict) -> tuple[float, list[str]]:
+    """(White-side eval, UCI line) from an analysis result, as _white_eval reads Stockfish's own output."""
+    top = result["lines"][0]
+    mate = top.get("mate_in")
+    score = MATE_SCORE * (1 if mate > 0 else -1) if mate is not None else float(top.get("score") or 0.0)
+    pv = (top.get("pv") or "").split()
+    return (score if board.turn == chess.WHITE else -score), pv
+
+
+def _scan_pooled(positions: list, halves: int | None = None):
+    """Every position's eval on the engine pool (plan 31.10 P7a): positions analysed before (the game's evals, the
+    precompute, an engine line) come from the cache; the rest are searched to ANALYSIS_DEPTH in game order with the
+    hash kept from move to move, as the scan's own process did — split in two halves, one per process, unless the
+    scan runs in the background (one process). None when the engine is not available."""
+    from src import engine_pool
+    from src.tools import stockfish
+
+    out: list = [None] * len(positions)
+    missing = []
+    for i, b in enumerate(positions):
+        if b.is_checkmate():
+            out[i] = ((-MATE_SCORE if b.turn == chess.WHITE else MATE_SCORE), [])
+        elif b.is_stalemate() or b.is_insufficient_material():
+            out[i] = (0.0, [])
+        else:
+            hit = _cached_eval(b.fen())
+            if hit is not None:
+                out[i] = _as_scan(b, hit)
+            else:
+                missing.append(i)
+    if not missing:
+        return out
+    prio = engine_pool.current_priority()
+    job = engine_pool.current_job()
+    if halves is None:
+        halves = 1 if prio >= engine_pool.PRIORITY_BACKGROUND or len(missing) < 8 else 2
+    size = -(-len(missing) // halves)
+    parts = [missing[k:k + size] for k in range(0, len(missing), size)]
+    failed = []
+
+    def _run(part):
+        own = job or engine_pool.Job("review scan")
+        with engine_pool.priority(prio, own):
+            for n, i in enumerate(part):
+                if own.cancelled:
+                    failed.append(i)
+                    return
+                b = positions[i]
+                fen = b.fen()
+                res = engine_pool.search(fen, go=f"depth {ANALYSIS_DEPTH}", multipv=1, clear_hash=(n == 0),
+                                         timeout=TIMEOUT_PER_MOVE)
+                if "error" in res or res.get("stopped"):
+                    failed.append(i)
+                    if res.get("stopped") or own.cancelled:
+                        return
+                    continue
+                result = stockfish._build_result(res["output"], ANALYSIS_DEPTH, None)
+                if not result.get("lines"):
+                    out[i] = (0.0, [])  # as _white_eval scores a search that said nothing
+                    continue
+                stockfish._cache_put(fen, result)
+                out[i] = _as_scan(b, result)
+
+    if len(parts) == 1:
+        _run(parts[0])
+    else:
+        import threading
+
+        threads = [threading.Thread(target=_run, args=(p,), daemon=True) for p in parts]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    if failed:
+        if prio >= engine_pool.PRIORITY_BACKGROUND:
+            return None  # a stopped or dropped background scan says nothing
+        for i in failed:
+            out[i] = (0.0, [])  # as _white_eval scores a failed search
+        if len(failed) == len(missing):
+            return None
+    return out
+
+
 def _handle_find_critical_moments(args: dict, **kwargs) -> str:
-    result = find_critical_moments(
-        pgn=args.get("pgn", ""),
-        threshold=args.get("threshold", DEFAULT_THRESHOLD),
-    )
+    from src import engine_pool
+
+    with engine_pool.priority(engine_pool.PRIORITY_TOOL):
+        result = find_critical_moments(
+            pgn=args.get("pgn", ""),
+            threshold=args.get("threshold", DEFAULT_THRESHOLD),
+        )
     return json.dumps(result, indent=2)
 
 
