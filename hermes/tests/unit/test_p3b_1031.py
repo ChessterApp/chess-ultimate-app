@@ -190,6 +190,10 @@ def _locked_c8(skip="future"):
 @pytest.mark.parametrize("mode", ["shadow", "on"])
 def test_bare_pawn_line_the_row(monkeypatch, mode):
     _mode(monkeypatch, "bare_pawn_line", mode)
+    # P3D's «prevents» cuts the sentence before (op-show-ck-attack: «d4 … не давая чёрным поставить пешку на d5»), and
+    # a sentence not shown leaves no line for the next one (answer_check.check_sentence): with it on, this row is one
+    # the rewrite hides. The line «d4 … d5, e5» is judged here as the sentence before had told it.
+    _mode(monkeypatch, "prevents", "off")
     _with_claim(monkeypatch, "слон на c8 останется", _locked_c8())
     row, ctx = _row("op-show-ck-eval")
     got = run_answer(row["prefix"] + [row["sentence"]], ctx)
@@ -202,6 +206,7 @@ def test_bare_pawn_line_the_row(monkeypatch, mode):
 
 def test_bare_pawn_line_off(monkeypatch):
     _mode(monkeypatch, "bare_pawn_line", "off")
+    _mode(monkeypatch, "prevents", "off")
     _with_claim(monkeypatch, "слон на c8 останется", _locked_c8())
     row, ctx = _row("op-show-ck-eval")
     assert run_answer(row["prefix"] + [row["sentence"]], ctx)[-1][1] == []
