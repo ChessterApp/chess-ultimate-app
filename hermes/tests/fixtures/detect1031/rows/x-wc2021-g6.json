@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "E trades",
- "status": "missed",
+ "status": "caught",
  "sentence": "Хочешь, пройдём по ключевым моментам этой партии — там был красивый размен, где белые отдали ферзя за ладью и получили решающий эндшпиль?",
  "sentence_index": 10,
  "prefix": [
