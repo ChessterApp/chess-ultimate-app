@@ -1026,6 +1026,57 @@ def _served_model(agent, routed_model: str) -> str:
 # waiting here for a process costs nothing, and the pool is the CPU limit.
 _engine_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="engine-note")
 
+# Every board save starts the analysis of its new position in the background (src/engine_precompute.py, plan 31.10
+# P7b; COACH_PRECOMPUTE=0 or STOCKFISH_POOL=0 switches it off at call time).
+from src import engine_precompute  # noqa: E402
+
+engine_precompute.install()
+
+
+def _after_engine_line(future, session_id: str, board_id: str, fen: str) -> None:
+    """The turn's engine line is ready: the positions after its top moves are analysed as the answer check will ask."""
+    try:
+        if future.cancelled() or future.exception() is not None:
+            return
+        engine_precompute.after_engine_line(session_id, board_id, fen, future.result())
+    except Exception:  # noqa: BLE001 — background work never touches the turn
+        logger.debug("precompute after the engine line failed", exc_info=True)
+
+
+def _after_ideas(future, session_id: str, board_id: str) -> None:
+    """The student's idea moves were looked at: the positions after them get the forced-reply confirm in advance."""
+    try:
+        if future.cancelled() or future.exception() is not None:
+            return
+        engine_precompute.after_ideas(session_id, board_id, list((future.result() or {}).get("fens") or []))
+    except Exception:  # noqa: BLE001 — background work never touches the turn
+        logger.debug("precompute after the idea moves failed", exc_info=True)
+
+
+def _game_final_fen(pgn: str) -> Optional[str]:
+    """The final position of a game's PGN, or None."""
+    try:
+        import io as _io
+
+        import chess.pgn as _pgn
+
+        game = _pgn.read_game(_io.StringIO(pgn or ""))
+        if game is None:
+            return None
+        board = game.end().board()
+        return None if board.is_game_over() or not board.move_stack else board.fen()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _review_final_block(note: dict) -> str:
+    """The engine line of a reviewed game's final position (plan 31.10 P7b): the model needed an analyze_position
+    round of its own for it (prod 29.10, `game-load`: a whole extra model call)."""
+    return ("## Engine analysis of the game's final position\n"
+            f"{note['note']}\n"
+            "Stockfish already analysed the position the game ended in, as analyze_position would: do not call "
+            "analyze_position for it. Evaluations are from White's side.")
+
 
 def _engine_priority(level: int):
     """fn → fn(*args) with its Stockfish searches at *level* in the engine pool's queue (src/engine_pool.py):
@@ -2118,6 +2169,13 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if review_pgn:
             review_future = _engine_pool.submit(find_critical_moments, review_pgn)
     review_state = {"used": False, "ms": None, "moments": None}
+    # …and the engine line of the game's final position, as the analyze_position tool asks it (depth 16, 3 lines):
+    # read from what the precompute did while the game was on the board, else searched beside the scan.
+    review_note_future = None
+    if review_future is not None and config.COACH_ENGINE_NOTE and engine_precompute.enabled():
+        final_fen = _game_final_fen(review_pgn)
+        if final_fen:
+            review_note_future = _engine_pool.submit(engine_note, final_fen)
     # An opening named in the message: its book line goes on the board and into
     # the turn before the model is called (src/opening_knowledge.py) — the engine
     # line below then describes the line's final position, not the old board.
@@ -2274,6 +2332,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     if (config.COACH_ENGINE_NOTE and (body.fen or opening_plan or endgame or hidden_fen) and note_fen
             and not live_game and review_future is None and not wants_puzzle):
         engine_future = _engine_pool.submit(engine_note, note_fen, movetime_ms=note_movetime)
+        engine_future.add_done_callback(
+            lambda f, sid=session.id, bid=active_board.id, fen=note_fen: _after_engine_line(f, sid, bid, fen))
     # A live game: the evaluation and the opponent's threat (no best move) — the
     # coach hints, but it must know what hangs and what is coming (2026-10-05).
     live_future = None
@@ -2336,6 +2396,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 hypo_future = _engine_pool.submit(
                     hypothetical_notes, idea_fen, legal_named, idea_movetime, not live_game,
                 )
+                hypo_future.add_done_callback(
+                    lambda f, sid=session.id, bid=active_board.id: _after_ideas(f, sid, bid))
         except Exception:  # noqa: BLE001 — the idea block is best-effort
             logger.debug("question moves failed", exc_info=True)
             named_moves = []
@@ -2931,6 +2993,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 review = _await_review(review_future, engine_started, review_state)
                 if review:
                     message = f"{message}\n\n{review_block(review)}"
+                    review_note = _await_review(review_note_future, engine_started, {})
+                    if review_note and review_note.get("note"):
+                        message = f"{message}\n\n{_review_final_block(review_note)}"
                     # The «Моменты» card of the review (src/review_moments.py): the scan ran
                     # here, not as a tool, so its tool_result frame is sent from here.
                     summary = build_summary("find_critical_moments", {"pgn": review_pgn}, review,

@@ -262,6 +262,32 @@ def test_background_takes_one_process_at_most(fake):
     assert peak[0] == 1
 
 
+def test_a_search_promoted_before_it_queued_enters_at_its_new_level(fake):
+    """The turn joins a background search a moment before that search reaches the queue: the promotion holds."""
+    _, _, make = fake
+    pool = make(size=1)
+    order = []
+    busy = threading.Thread(target=pool.search, args=(FEN,), kwargs={"go": "movetime 300", "multipv": 1})
+    busy.start()
+    time.sleep(0.05)
+    tool = threading.Thread(target=lambda: (pool.search(FEN2, go="depth 2", multipv=1, priority=engine_pool.PRIORITY_TOOL),
+                                            order.append("tool")))
+    tool.start()
+    time.sleep(0.05)
+    parent = engine_pool.Job("board")
+    job = engine_pool.Job("flight", parent=parent)
+    pool.promote(job, engine_pool.PRIORITY_LINE)              # promoted first…
+    bg = threading.Thread(target=lambda: (pool.search("8/8/8/8/8/8/8/K1k5 w - - 0 1", go="depth 2", multipv=1,
+                                                      priority=engine_pool.PRIORITY_BACKGROUND + 2, job=job),
+                                          order.append("promoted")))
+    bg.start()                                                # …then it queues
+    for th in (busy, tool, bg):
+        th.join()
+    assert order == ["promoted", "tool"]
+    parent.cancelled = True
+    assert job.cancelled                                      # a board change drops its searches too
+
+
 def test_a_stale_job_is_dropped(fake):
     _, log, make = fake
     pool = make(size=1)
@@ -554,3 +580,276 @@ def test_real_stockfish_review_scan_matches_its_own_process(monkeypatch):
         stockfish.clear_analysis_cache()
     assert pooled == own
 
+
+# ── P7b: the board's positions analysed while the student thinks ────────────────────────────────────────────────
+@pytest.fixture
+def precompute(server_pool, monkeypatch):
+    """The pool on the fake engine with the board listener on; short searches so the tests run fast."""
+    from src import engine_precompute, position_facts
+    from src.sessions import session_store
+
+    monkeypatch.setattr(config, "COACH_PRECOMPUTE", True)
+    monkeypatch.setattr(config, "COACH_ENGINE_NOTE_MOVETIME_MS", 400)   # the turn's line; live note 200
+    monkeypatch.setattr(position_facts, "THREAT_MOVETIME_MS", 100)
+    monkeypatch.setattr(config, "COACH_MOVE_VERIFY_MOVETIME_MS", 100)
+    engine_precompute.install()
+    session_store._sessions.clear()
+    yield server_pool
+    engine_precompute.idle(10)
+    session_store._sessions.clear()
+
+
+def _count_gos(log) -> int:
+    return len(_gos(log))
+
+
+def test_an_idle_board_has_its_engine_line_ready(precompute):
+    """The text turn's engine line after the board stood still: every search it makes is a cache hit."""
+    from src import engine_precompute
+    from src.sessions import session_store
+    from src.voice_engine_note import engine_note
+
+    _, log = precompute
+    fen = "rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2"  # the fake's best move e2e4 is legal here
+    session = session_store.create("p7-user")
+    session.set_board_state(fen)
+    assert engine_precompute.idle(15)
+    n = _count_gos(log)
+    assert n == 3                                                      # line, threat now, threat after the best
+    from src.openings_book import get_book
+
+    get_book().continuations(chess.Board(fen))                         # the ECO book loads once (server warm-up)
+    t = time.monotonic()
+    note = engine_note(fen, movetime_ms=config.COACH_ENGINE_NOTE_MOVETIME_MS)
+    assert note and note["lines"] and time.monotonic() - t < 0.1
+    assert _count_gos(log) == n                                        # no search at the turn
+    assert stockfish._cache_get(fen, stockfish.DEFAULT_DEPTH, 3)       # the voice note and the tool too
+
+
+def test_a_board_change_drops_the_old_job(precompute, monkeypatch):
+    from src import engine_precompute
+    from src.sessions import session_store
+
+    _, log = precompute
+    monkeypatch.setattr(config, "COACH_ENGINE_NOTE_MOVETIME_MS", 3000)
+    session = session_store.create("p7-user")
+    session.set_board_state(FEN)
+    time.sleep(0.4)                                                    # its 3 s line is at work
+    t = time.monotonic()
+    session.set_board_state(FEN2)
+    monkeypatch.setattr(config, "COACH_ENGINE_NOTE_MOVETIME_MS", 200)
+    assert engine_precompute.idle(15)
+    assert time.monotonic() - t < 2.5                                  # FEN's 3 s search was stopped, not waited for
+    assert stockfish._cache_get(FEN, 12, 3) is None                    # its stopped result was dropped
+    assert stockfish._cache_get(FEN2, 1, 3) is not None
+
+
+def test_an_answer_takes_the_process_from_the_precompute_at_once(precompute, monkeypatch):
+    from src import engine_precompute
+    from src.sessions import session_store
+
+    pool, log = precompute
+    monkeypatch.setattr(config, "COACH_ENGINE_NOTE_MOVETIME_MS", 4000)
+    session = session_store.create("p7-user")
+    session.set_board_state(FEN)
+    time.sleep(0.3)
+    # Both processes busy with answers' searches, then a check: it stops the background search, not waits 4 s.
+    other = threading.Thread(target=pool.search, args=(FEN2,), kwargs={"go": "movetime 600", "multipv": 1})
+    other.start()
+    time.sleep(0.05)
+    t = time.monotonic()
+    res = pool.search("8/8/8/8/8/8/8/K1k5 w - - 0 1", go="depth 3", multipv=1, priority=engine_pool.PRIORITY_CHECK)
+    assert "output" in res and time.monotonic() - t < 1.0
+    other.join()
+    monkeypatch.setattr(config, "COACH_ENGINE_NOTE_MOVETIME_MS", 200)
+    session.set_board_state(FEN2)
+    assert engine_precompute.idle(15)
+
+
+def test_the_turn_waits_for_the_precompute_search_of_its_own_line(precompute):
+    """The question arrives while the precompute computes the same line: the turn joins that search (promoted, no
+    longer stoppable) instead of starting a second one."""
+    from src import engine_precompute
+    from src.sessions import session_store
+
+    _, log = precompute
+    session = session_store.create("p7-user")
+    session.set_board_state(FEN)
+    time.sleep(0.15)
+    res = stockfish.analyze_timed(FEN, config.COACH_ENGINE_NOTE_MOVETIME_MS, multipv=3)
+    assert res["lines"]
+    assert engine_precompute.idle(15)
+    lines = [g for g in _gos(log) if g == f"go movetime {config.COACH_ENGINE_NOTE_MOVETIME_MS}"]
+    assert len(lines) == 1
+
+
+def test_a_live_game_question_is_answered_from_the_precompute(precompute, monkeypatch):
+    """After the engine's reply the student thinks: the live-game note and the eval of the next move are ready."""
+    from src import engine_precompute, game_mode
+    from src.hypothetical import live_game_note
+    from src.sessions import session_store
+
+    _, log = precompute
+    monkeypatch.setattr(game_mode, "_engine_move", lambda fen, elo: "e7e5")
+    session = session_store.create("p7-user")
+    board_rec, _ = game_mode.start_game(session, "white", 1500)
+    assert engine_precompute.idle(15)
+    game_mode.play_move(session, board_rec, "e4")                     # the student moves, the engine answers e5
+    assert engine_precompute.idle(15)
+    fen = board_rec.fen
+    n = _count_gos(log)
+    t = time.monotonic()
+    note = live_game_note(fen, max(200, config.COACH_ENGINE_NOTE_MOVETIME_MS // 2))
+    assert note and time.monotonic() - t < 0.1 and _count_gos(log) == n
+    assert stockfish.exact_get(fen, 12, 1) is not None                 # the next move's «eval before»
+
+
+def test_a_live_game_line_from_the_cache_still_hides_the_best_move(precompute, monkeypatch):
+    """The precomputed line of a live game's position is in the cache with its best move; the tool's guard acts
+    when it is read, so the coach gets only the student's candidate moves (28.10)."""
+    import json as _json
+
+    from src import engine_precompute, game_mode
+    from src.sessions import session_store
+
+    monkeypatch.setattr(game_mode, "_engine_move", lambda fen, elo: "e7e5")
+    session = session_store.create("p7-user")
+    board_rec, _ = game_mode.start_game(session, "white", 1500)
+    game_mode.play_move(session, board_rec, "e4")
+    assert engine_precompute.idle(15)
+    stockfish.analyze_cached(board_rec.fen, depth=5, multipv=3)
+    out = _json.loads(stockfish._handle_analyze_position({"fen": board_rec.fen, "depth": 5}, session_id=session.id,
+                                                         user_id="p7-user"))
+    assert all(len((ln.get("pv") or "").split()) <= 1 for ln in out["lines"])
+    assert out.get("game_note")
+
+
+def test_a_loaded_game_is_reviewed_from_the_cache(precompute):
+    from src import engine_precompute
+    from src.sessions import session_store
+    from src.tools import critical_moments as cm
+
+    _, log = precompute
+    pgn = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 *"
+    session = session_store.create("p7-user")
+    board = session.add_board(activate=True, kind="master_game")
+    board.load_pgn(pgn)
+    session.save_board(board)
+    assert engine_precompute.idle(20)
+    n = _count_gos(log)
+    t = time.monotonic()
+    review = cm.find_critical_moments(pgn)
+    assert review["total_moves"] == 10 and time.monotonic() - t < 0.05 and _count_gos(log) == n
+    final = board.fen
+    assert stockfish._cache_get(final, stockfish.DEFAULT_DEPTH, 3)    # the tool's request on the final position
+
+
+def test_after_the_engine_line_the_check_finds_its_moves_analysed(precompute):
+    from src import engine_precompute
+    from src.hypothetical import verify_recommendation
+    from src.voice_engine_note import engine_note
+
+    _, log = precompute
+    start = chess.Board()
+    note = engine_note(start.fen(), movetime_ms=200)
+    engine_precompute.after_engine_line("s", "b", start.fen(), note)
+    assert engine_precompute.idle(15)
+    n = _count_gos(log)
+    move = start.parse_san(note["lines"][0]["moves"][0])
+    verify_recommendation(start, move, start.san(move), config.COACH_MOVE_VERIFY_MOVETIME_MS)
+    assert _count_gos(log) == n                                        # base and after: both in the cache
+
+
+def test_switches_off(precompute, monkeypatch):
+    from src import engine_precompute
+    from src.sessions import session_store
+
+    _, log = precompute
+    monkeypatch.setattr(config, "COACH_PRECOMPUTE", False)
+    session = session_store.create("p7-user")
+    session.set_board_state(FEN)
+    assert engine_precompute.idle(5) and _count_gos(log) == 0
+    monkeypatch.setattr(config, "COACH_PRECOMPUTE", True)
+    monkeypatch.setattr(stockfish, "ENGINE_API_URL", "https://engine.example")   # the site's engine server: no
+    session.set_board_state(FEN2)                                                 # background searches on top
+    assert engine_precompute.idle(5) and _count_gos(log) == 0
+    monkeypatch.setattr(stockfish, "ENGINE_API_URL", "")
+    monkeypatch.setattr(config, "STOCKFISH_POOL", False)
+    session.set_board_state(FEN)
+    assert engine_precompute.idle(5) and _count_gos(log) == 0
+
+
+def test_a_failing_listener_never_breaks_a_save():
+    from src import sessions
+    from src.sessions import session_store
+
+    def boom(session, board):
+        raise RuntimeError("listener")
+
+    sessions.on_board_change(boom)
+    try:
+        session = session_store.create("p7-user")
+        session.set_board_state(FEN)
+        assert session.board_state == FEN
+    finally:
+        sessions._board_listeners.remove(boom)
+
+
+def test_candidate_moves_are_the_ones_a_coach_recommends():
+    """The engine line's top moves first, then the book's, castling, checks, captures and pawn moves, at most 12."""
+    from src.engine_precompute import CANDIDATE_MOVES, _candidate_moves
+
+    board = chess.Board("r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4")   # Giuoco Piano
+    note = {"lines": [{"moves": ["c3"]}, {"moves": ["O-O"]}, {"moves": ["Nc3"]}]}
+    moves = [board.san(m) for m in _candidate_moves(board, note)]
+    assert moves[:3] == ["c3", "O-O", "Nc3"] and len(moves) == CANDIDATE_MOVES == len(set(moves))
+    assert {"b4", "d3", "d4"} <= set(moves)                           # the book's: Evans Gambit, Giuoco Pianissimo…
+    ending = chess.Board("7k/8/8/7P/4K3/8/4B3/8 w - - 0 1")             # wrong-bishop: «играй h6»
+    assert "h6" in [ending.san(m) for m in _candidate_moves(ending, {"lines": [{"moves": ["Kf5"]}]})]
+    capture = chess.Board("r1bq1b1r/ppp3pp/2n1k3/3np3/2B5/5Q2/PPPP1PPP/RNB1K2R w KQ - 2 8")  # mate2-no: «Qxd5+»
+    assert "Qxd5+" in [capture.san(m) for m in _candidate_moves(capture, {"lines": [{"moves": ["Nc3"]}]})]
+
+
+def test_stale_and_surplus_background_work_is_dropped(monkeypatch):
+    """Many students at once: a turn's check positions older than CHECK_TTL_S, a board's older than BOARD_TTL_S and
+    the oldest tasks beyond MAX_TASKS are dropped, never searched (they would only queue behind the live ones)."""
+    from src import engine_precompute as ep
+
+    monkeypatch.setattr(ep, "_pending", ep.OrderedDict())
+    now = time.monotonic()
+
+    def task(key, level, age):
+        t = ep._Task(key, engine_pool.Job(key), [("x", lambda: {})], 0, level)
+        t.queued_at = now - age
+        ep._pending[key] = t
+        return t
+
+    old_check = task("s1/b#line", ep.LEVEL_CHECK, ep.CHECK_TTL_S + 1)
+    live_board = task("s1/b", ep.LEVEL_BOARD, ep.CHECK_TTL_S + 1)
+    old_board = task("s2/b", ep.LEVEL_BOARD, ep.BOARD_TTL_S + 1)
+    with ep._lock:
+        ep._expire_locked()
+    assert list(ep._pending) == ["s1/b"] and old_check.job.cancelled and old_board.job.cancelled
+    assert not live_board.job.cancelled
+    for i in range(ep.MAX_TASKS + 5):
+        task(f"s{i}/c", ep.LEVEL_BOARD, 1.0 - i / 100)
+    task("s9/c#line", ep.LEVEL_CHECK, 5.0)
+    with ep._lock:
+        ep._expire_locked()
+    assert len(ep._pending) == ep.MAX_TASKS and "s9/c#line" in ep._pending   # the board positions go first
+
+
+def test_a_step_waits_for_the_level_ahead_of_it(monkeypatch):
+    from src import engine_precompute as ep
+
+    monkeypatch.setattr(ep, "_pending", ep.OrderedDict())
+    line = ep._Task("s/b#line", engine_pool.Job("line"), [("x", lambda: {})], 0, ep.LEVEL_CHECK)
+    line.busy = True                                   # its step at work, more to come
+    ep._pending[line.key] = line
+    ep._pending["s/b#confirm"] = ep._Task("s/b#confirm", engine_pool.Job("c"), [("x", lambda: {})], 0, ep.LEVEL_CONFIRM)
+    with ep._lock:
+        assert ep._next_locked() is None               # the confirm would only be stopped by the line's next step
+    line.steps.clear()
+    line.busy = False
+    with ep._lock:
+        assert ep._next_locked().key == "s/b#confirm"

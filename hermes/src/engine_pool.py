@@ -102,14 +102,31 @@ def at_priority(level: int, fn, *args, **kwargs):
 
 
 class Job:
-    """A group of background searches that one board change asked for; ``cancel`` drops the rest of it."""
+    """A group of background searches that one board change asked for; ``cancel`` drops the rest of it.
+
+    A job made with a *parent* (one search the precompute runs for its job, src/tools/stockfish._merged) is cancelled
+    with it; ``promote`` raises it for good (*boost*), so a search promoted before it reached the queue still enters
+    the queue at the level it was promoted to."""
 
     _ids = itertools.count(1)
 
-    def __init__(self, label: str = ""):
+    def __init__(self, label: str = "", parent: "Optional[Job]" = None):
         self.id = next(self._ids)
         self.label = label
-        self.cancelled = False
+        self.parent = parent
+        self.boost: Optional[int] = None
+        self._cancelled = False
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled or (self.parent is not None and self.parent.cancelled)
+
+    @cancelled.setter
+    def cancelled(self, value: bool) -> None:
+        self._cancelled = bool(value)
+
+    def belongs_to(self, other: "Optional[Job]") -> bool:
+        return other is not None and (self is other or (self.parent is not None and self.parent.belongs_to(other)))
 
     def __repr__(self) -> str:  # pragma: no cover — logs only
         return f"Job({self.id}, {self.label!r}, cancelled={self.cancelled})"
@@ -426,6 +443,8 @@ class EnginePool:
                         return None, "closed"
                     if job is not None and job.cancelled:
                         return None, "cancelled"
+                    if job is not None and job.boost is not None and job.boost < me.priority:
+                        me.priority = job.boost  # promoted before (or while) it queued
                     head = self._head()
                     if head is me and self._free and (me.priority < PRIORITY_BACKGROUND
                                                       or self._background_busy() < MAX_BACKGROUND):
@@ -595,6 +614,7 @@ class EnginePool:
         if job is None:
             return
         with self._cv:
+            job.boost = level if job.boost is None else min(job.boost, level)
             for wid, (w, p, j) in list(self._busy.items()):
                 if j is job and p > level:
                     self._busy[wid] = (w, level, j)
@@ -610,7 +630,7 @@ class EnginePool:
         with self._cv:
             job.cancelled = True
             for w, _, j in self._busy.values():
-                if j is job:
+                if j is not None and j.belongs_to(job):
                     w.stop()
             self._cv.notify_all()
 
