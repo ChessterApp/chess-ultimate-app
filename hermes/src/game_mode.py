@@ -366,16 +366,34 @@ def move_words(board: chess.Board, move: chess.Move) -> str:
     return words
 
 
+def _owned_capture_words(state: dict, board: chess.Board, move: chess.Move, words: str) -> str:
+    """A capture's words with the owner of both pieces (plan 31.10 F2): «White's (the engine's) pawn from f6 to e7,
+    takes Black's (the student's) bishop on e7» — the coach told the engine's 5.fxe7 as «твоя пешка с f6 забрала
+    слона» (prod st2 29.10). Other moves, and a game whose student colour is unknown, keep their words."""
+    from src import config
+
+    colour = state.get("student_color")
+    if colour not in ("white", "black") or not board.is_capture(move) or not getattr(config, "COACH_TURN_FACTS", True):
+        return words
+    student = chess.WHITE if colour == "white" else chess.BLACK
+
+    def owner(side: bool) -> str:
+        return f"{'White' if side else 'Black'}'s ({'the student' if side == student else 'the engine'}'s)"
+
+    return f"{owner(board.turn)} " + words.replace(", takes the ", f", takes {owner(not board.turn)} ", 1)
+
+
 def ply_words(state: dict, ply: int) -> Optional[str]:
-    """The words for the game's move number *ply* (1-based), or None."""
+    """The words for the game's move number *ply* (1-based), or None. A capture names whose piece took whose."""
     moves = state.get("moves") or []
     if not 1 <= ply <= len(moves):
         return None
     board = _replay(moves[: ply - 1])
     try:
-        return move_words(board, board.parse_san(moves[ply - 1]))
+        move = board.parse_san(moves[ply - 1])
     except ValueError:
         return None
+    return _owned_capture_words(state, board, move, move_words(board, move))
 
 
 def told_ply(state: dict, ply: int) -> Optional[str]:

@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "M4 block_kind",
- "status": "missed",
+ "status": "caught",
  "sentence": "Сейчас ты под шахом от ладьи d8, и у тебя всего три законных хода: отойти королём на d8 (взять ладью), на e7 или закрыться конём — Nxd8. ",
  "sentence_index": 2,
  "prefix": [

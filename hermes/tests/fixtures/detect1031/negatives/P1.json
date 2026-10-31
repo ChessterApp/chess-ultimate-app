@@ -138,6 +138,135 @@
    "source": "prod1029/st3.json:Опиши позицию",
    "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
    "moves": "e4 e5 d4 d6 c3 Be7 Nf3 Nf6 Bc4 exd4 O-O Nxe4"
+  },
+  {
+   "id": "block-king-word-loose",
+   "fen": "r5k1/5Npp/8/8/8/8/8/6K1 b - - 0 1",
+   "detector": "block_kind",
+   "sentence": "У чёрных всего два законных ответа: закрыться королём на g8 или взять коня ладьёй на f7.",
+   "why": "«закрыться королём» already says a king move: loose wording, the replies named are the real ones (corpus cp 258/737)",
+   "stage": "sync",
+   "source": "P1 (plan 31.10): own true controls"
+  },
+  {
+   "id": "block-true-interpose-san",
+   "fen": "rnbqk1nr/pppp1ppp/8/4p3/1b1PP3/8/PPP2PPP/RNBQKBNR w KQkq - 1 3",
+   "detector": "block_kind",
+   "sentence": "Тебе шах от слона b4, и проще всего закрыться — c3.",
+   "why": "c3 lands between Bb4 and Ke1: a true block",
+   "stage": "sync",
+   "source": "P1 (plan 31.10): own true controls"
+  },
+  {
+   "id": "queen-lost-true",
+   "moves": "d4 e5 dxe5 Nc6 Nf3 Nf6 exf6 Be7 fxe7 d6 exd8=R+",
+   "student": "b",
+   "detector": "gave_up",
+   "sentence": "Ты потерял ферзя, и это очень тяжело.",
+   "why": "6.exd8=R+ took the student's queen",
+   "stage": "sync",
+   "source": "P1 (plan 31.10): own true controls"
+  },
+  {
+   "id": "gambit-pawn-given-true",
+   "moves": "e4 e5 f4 exf4",
+   "student": "w",
+   "detector": "gave_up",
+   "sentence": "Ты отдал пешку f4 ради быстрого развития.",
+   "why": "2...exf4 took White's pawn: the loss is in the record",
+   "stage": "sync",
+   "source": "P1 (plan 31.10): own true controls"
+  },
+  {
+   "id": "gave-other-line",
+   "moves": "e4 c5",
+   "student": "w",
+   "detector": "gave_up",
+   "sentence": "В гамбите после 1.e4 e5 2.f4 exf4 белые отдали пешку ради центра.",
+   "why": "a line written in the sentence: that line's loss, not this game's",
+   "stage": "sync",
+   "source": "P1 (plan 31.10): own true controls"
+  },
+  {
+   "id": "student-capture-true",
+   "moves": "d4 e5 dxe5 Nc6 Nf3 Nf6 exf6",
+   "student": "w",
+   "detector": "student_capture",
+   "sentence": "Твоя пешка с e5 забрала коня на f6.",
+   "why": "4.exf6 was the student's capture (White)",
+   "stage": "sync",
+   "source": "P1 (plan 31.10): own true controls"
+  },
+  {
+   "id": "free-capture-negated",
+   "moves": "d4 e5 dxe5 Nc6 Nf3 Nf6 exf6",
+   "student": "b",
+   "detector": "free_capture",
+   "before": [
+    "Nf6 — и белые сразу взяли коня: 4.exf6, пешка с e5 на f6 бьёт твоего коня."
+   ],
+   "sentence": "Но белые забрали фигуру не бесплатно: пешку f6 можно взять обратно.",
+   "why": "negated: true (gxf6 or Qxf6)",
+   "stage": "sync",
+   "source": "P1 (plan 31.10): own true controls"
+  },
+  {
+   "id": "free-capture-threat",
+   "moves": "d4 e5 dxe5 Nc6 Nf3 Nf6 exf6",
+   "student": "b",
+   "detector": "free_capture",
+   "sentence": "Если бы пешку f6 никто не защищал, белые забрали бы ещё и ладью бесплатно.",
+   "why": "a condition, not the game's capture",
+   "stage": "sync",
+   "source": "P1 (plan 31.10): own true controls"
+  },
+  {
+   "id": "free-capture-true-game",
+   "moves": "e4 e5 Nf3 Nf6 Nxe5",
+   "student": "b",
+   "detector": "free_capture",
+   "sentence": "Белые забрали пешку e5 бесплатно.",
+   "why": "3.Nxe5: nothing of Black's attacks e5 — SEE 1 = the pawn taken, the capture is free",
+   "stage": "sync",
+   "source": "P1 (plan 31.10): own true controls"
+  },
+  {
+   "id": "material-order-true",
+   "moves": "d4 e5 dxe5 Nc6 Nf3 Nf6 exf6 d6",
+   "student": "b",
+   "detector": "material_order",
+   "sentence": "Белые впереди на целую фигуру и пешку.",
+   "why": "White is up a knight and a pawn",
+   "stage": "sync",
+   "source": "P1 (plan 31.10): own true controls"
+  },
+  {
+   "id": "plan-other-side",
+   "fen": "rnbqkbnr/pp2pppp/2p5/3pP3/3P4/8/PPP2PPP/RNBQKBNR b KQkq - 0 3",
+   "detector": "plan_place",
+   "sentence": "План за белых прост: конь на f3, слон на d3 и рокировка.",
+   "why": "a plan for the side not to move: no move proposed",
+   "stage": "engine",
+   "source": "P1 (plan 31.10): own true controls"
+  },
+  {
+   "id": "plan-idea-sound",
+   "fen": "r1bq1rk1/pppp1ppp/2n2n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R w KQ - 1 6",
+   "detector": "plan_place",
+   "sentence": "План за белых простой: слон на g5, потом Qd2 и длинная рокировка.",
+   "why": "Bg5 is a sound move here (the engine passes it): the plan's move goes to the engine and passes",
+   "stage": "engine",
+   "source": "P1 (plan 31.10): own true controls"
+  },
+  {
+   "id": "develop-sound",
+   "moves": "e4 e5 Nf3 Nc6",
+   "student": "w",
+   "detector": "propose_vocab",
+   "sentence": "Развивайся: Bc4, и потом рокировка.",
+   "why": "Bc4 is a sound developing move (the engine passes it)",
+   "stage": "engine",
+   "source": "P1 (plan 31.10): own true controls"
   }
  ]
 }
