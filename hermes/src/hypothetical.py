@@ -46,6 +46,22 @@ def _keeps_decided(before: float, after: float, mover: chess.Color) -> bool:
     return before * sign >= DECIDED and after * sign >= DECIDED
 
 
+def _tablebase_keeps(board: chess.Board, san: str) -> bool:
+    """The endgame tablebase (≤ 7 pieces) says *san* keeps the result of *board* — a win stays a win, a draw a draw:
+    no mistake, whatever the engine's number drops by (lucena «Rd1+», +6.1 → +4.3, still the textbook win; stage-2
+    integration 31.10). Asked only when the engine would cut; fail-open (unknown → False)."""
+    try:
+        from src import board_rules
+
+        if len(board.piece_map()) > 7 or board.castling_rights:
+            return False
+        tb = board_rules.tablebase(board)
+        keeping = [k.rstrip("+#") for k in ((tb or {}).get("keeping") or []) if k]
+        return bool(keeping) and san.rstrip("+#") in keeping
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _given_away(before: float, loss: float) -> str:
     """'about 2.3 pawns given away', or the mate thrown away when the position before was a forced mate."""
     if abs(before) >= MATE_PAWNS - 0.5:
@@ -531,7 +547,8 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
         if before is None or after_pawns is None:
             return None
         loss = (before - after_pawns) if board.turn == chess.WHITE else (after_pawns - before)
-        if loss * 100 < threshold_cp or _keeps_decided(before, after_pawns, board.turn):
+        if loss * 100 < threshold_cp or _keeps_decided(before, after_pawns, board.turn) \
+                or _tablebase_keeps(board, san):
             # The move itself holds; a written line after it may still end badly.
             return verify_line(board, line_moves, movetime_ms, threshold_cp) if line_moves else None
         reply = _san_line(after, line.get("pv", ""), 3)
