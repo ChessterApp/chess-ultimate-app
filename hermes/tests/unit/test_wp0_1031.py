@@ -334,7 +334,8 @@ def test_trade_hook_is_called_and_fail_open(monkeypatch):
     ctx = CheckContext.from_fens()
     ctx.add_line(g["moves"])
     s = "там был красивый размен, где белые отдали ферзя за ладью и получили решающий эндшпиль."
-    assert tc.trade_issues(s, ctx) == []
+    # P6 filled the stub (plan 31.10): the WC2021 g6 claim is judged against the game's exchanges
+    assert any("two rooks" in i for i in tc.trade_issues(s, ctx))
     seen = []
     monkeypatch.setattr(tc, "trade_issues", lambda text, c: seen.append(text) or ["the trade is wrong"])
     assert "the trade is wrong" in check_sentence(s, CheckContext.from_fens()) and seen

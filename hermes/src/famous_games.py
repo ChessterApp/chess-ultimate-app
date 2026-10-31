@@ -23,6 +23,7 @@ GAMES = [
         "name": "Opera Game (Оперная партия)",
         "match": r"опер(?:н|а\s|е\s|у\s|ой)|opera\s+game|в\s+опере",
         "white": "Paul Morphy", "black": "Duke Karl of Brunswick and Count Isouard",
+        "white_ru": "Морфи", "black_ru": "Брауншвейгский Изуар",
         "event": "Paris Opera", "date": "1858.??.??", "result": "1-0",
         "moves": "1.e4 e5 2.Nf3 d6 3.d4 Bg4 4.dxe5 Bxf3 5.Qxf3 dxe5 6.Bc4 Nf6 7.Qb3 Qe7 8.Nc3 c6 9.Bg5 b5 "
                  "10.Nxb5 cxb5 11.Bxb5+ Nbd7 12.O-O-O Rd8 13.Rxd7 Rxd7 14.Rd1 Qe6 15.Bxd7+ Nxd7 16.Qb8+ Nxb8 17.Rd8#",
@@ -32,7 +33,7 @@ GAMES = [
         "name": "Kasparov's Immortal (Каспаров — Топалов, Вейк-ан-Зее 1999)",
         "match": r"каспаров\w*[^.?!]{0,30}топалов|топалов\w*[^.?!]{0,30}каспаров|бессмертн\w*\s+(?:парти\w+\s+)?каспаров|"
                  r"kasparov'?s\s+immortal|kasparov[^.?!]{0,20}topalov",
-        "white": "Garry Kasparov", "black": "Veselin Topalov",
+        "white": "Garry Kasparov", "black": "Veselin Topalov", "white_ru": "Каспаров", "black_ru": "Топалов",
         "event": "Hoogovens, Wijk aan Zee", "date": "1999.01.20", "result": "1-0",
         "moves": "1.e4 d6 2.d4 Nf6 3.Nc3 g6 4.Be3 Bg7 5.Qd2 c6 6.f3 b5 7.Nge2 Nbd7 8.Bh6 Bxh6 9.Qxh6 Bb7 "
                  "10.a3 e5 11.O-O-O Qe7 12.Kb1 a6 13.Nc1 O-O-O 14.Nb3 exd4 15.Rxd4 c5 16.Rd1 Nb6 17.g3 Kb8 "
@@ -45,7 +46,7 @@ GAMES = [
         "key": "immortal",
         "name": "Immortal Game (Бессмертная партия)",
         "match": r"бессмертн|immortal\s+game|андерсен\w*[^.?!]{0,30}кизериц|кизериц\w*|anderssen[^.?!]{0,20}kieseritzky|өлмес",
-        "white": "Adolf Anderssen", "black": "Lionel Kieseritzky",
+        "white": "Adolf Anderssen", "black": "Lionel Kieseritzky", "white_ru": "Андерсен", "black_ru": "Кизерицкий",
         "event": "London", "date": "1851.06.21", "result": "1-0",
         "moves": "1.e4 e5 2.f4 exf4 3.Bc4 Qh4+ 4.Kf1 b5 5.Bxb5 Nf6 6.Nf3 Qh6 7.d3 Nh5 8.Nh4 Qg5 9.Nf5 c6 "
                  "10.g4 Nf6 11.Rg1 cxb5 12.h4 Qg6 13.h5 Qg5 14.Qf3 Ng8 15.Bxf4 Qf6 16.Nc3 Bc5 17.Nd5 Qxb2 "
@@ -55,7 +56,7 @@ GAMES = [
         "key": "evergreen",
         "name": "Evergreen Game (Вечнозелёная партия)",
         "match": r"вечнозел[её]н|evergreen|андерсен\w*[^.?!]{0,30}дюфрен|дюфрен|anderssen[^.?!]{0,20}dufresne",
-        "white": "Adolf Anderssen", "black": "Jean Dufresne",
+        "white": "Adolf Anderssen", "black": "Jean Dufresne", "white_ru": "Андерсен", "black_ru": "Дюфрен",
         "event": "Berlin", "date": "1852.??.??", "result": "1-0",
         "moves": "1.e4 e5 2.Nf3 Nc6 3.Bc4 Bc5 4.b4 Bxb4 5.c3 Ba5 6.d4 exd4 7.O-O d3 8.Qb3 Qf6 9.e5 Qg6 "
                  "10.Re1 Nge7 11.Ba3 b5 12.Qxb5 Rb8 13.Qa4 Bb6 14.Nbd2 Bb7 15.Ne4 Qf5 16.Bxd3 Qh5 17.Nf6+ gxf6 "
@@ -68,7 +69,7 @@ GAMES = [
         "name": "World Championship 2021, game 6 (Карлсен — Непомнящий, Дубай 2021, 136 ходов)",
         "match": r"(?:(?:\b6(?:-?[а-я]{1,2})?|шест\w*|136|сам\w+\s+длинн\w*|longest|sixth|six)\s+(?:[\w-]+\s+){0,6}?(?:карлсен|непомнящ|carlsen|nepo)"
                  r"|(?:карлсен|непомнящ|carlsen|nepo)\w*\s+(?:[\w\-—–]+\s+){0,8}?(?:6(?:-?[а-я]{1,2})?\b|шест\w*|136|сам\w+\s+длинн\w*|longest|sixth|six\b))",
-        "white": "Magnus Carlsen", "black": "Ian Nepomniachtchi",
+        "white": "Magnus Carlsen", "black": "Ian Nepomniachtchi", "white_ru": "Карлсен", "black_ru": "Непомнящий",
         "event": "World Chess Championship, Dubai, game 6", "date": "2021.12.03", "result": "1-0",
         "moves": "1.d4 Nf6 2.Nf3 d5 3.g3 e6 4.Bg2 Be7 5.O-O O-O 6.b3 c5 7.dxc5 Bxc5 8.c4 dxc4 9.Qc2 Qe7 10.Nbd2 Nc6 "
                  "11.Nxc4 b5 12.Nce5 Nb4 13.Qb2 Bb7 14.a3 Nc6 15.Nd3 Bb6 16.Bg5 Rfd8 17.Bxf6 gxf6 18.Rac1 Nd4 "
@@ -91,7 +92,7 @@ GAMES = [
         "key": "game-of-the-century",
         "name": "Game of the Century (Партия века)",
         "match": r"парти\w+\s+века|game\s+of\s+the\s+century|бирн\w*[^.?!]{0,30}фишер|фишер\w*[^.?!]{0,30}бирн|byrne[^.?!]{0,20}fischer",
-        "white": "Donald Byrne", "black": "Robert James Fischer",
+        "white": "Donald Byrne", "black": "Robert James Fischer", "white_ru": "Бирн", "black_ru": "Фишер",
         "event": "Rosenwald Memorial, New York", "date": "1956.10.17", "result": "0-1",
         "moves": "1.Nf3 Nf6 2.c4 g6 3.Nc3 Bg7 4.d4 O-O 5.Bf4 d5 6.Qb3 dxc4 7.Qxc4 c6 8.e4 Nbd7 9.Rd1 Nb6 "
                  "10.Qc5 Bg4 11.Bg5 Na4 12.Qa3 Nxc3 13.bxc3 Nxe4 14.Bxe7 Qb6 15.Bc4 Nxc3 16.Bc5 Rfe8+ 17.Kf1 Be6 "
@@ -113,6 +114,72 @@ def _replay(g: dict) -> tuple[chess.pgn.Game, list]:
     return game, list(game.mainline_moves())
 
 
+def _facts_on() -> bool:
+    """COACH_TURN_FACTS (src/config.py, plan 31.10): off gives the facts as before 31.10."""
+    import os
+
+    raw = os.environ.get("COACH_TURN_FACTS")
+    if raw is not None:
+        return raw.strip().lower() not in ("0", "false", "no", "off")
+    try:
+        from src import config
+
+        return bool(getattr(config, "COACH_TURN_FACTS", True))
+    except Exception:  # noqa: BLE001
+        return True
+
+
+_EXCHANGE_FACTS: dict = {}
+
+
+def exchange_facts(g: dict) -> list[str]:
+    """The pairs of _exchange_facts, computed once per game (a 271-ply score takes ~30 ms)."""
+    key = (g.get("key"), g.get("moves"))
+    if key not in _EXCHANGE_FACTS:
+        _EXCHANGE_FACTS[key] = _exchange_facts(g)
+    return list(_EXCHANGE_FACTS[key])
+
+
+def _exchange_facts(g: dict) -> list[str]:
+    """The game's exchanges as pairs — «26.Qxc8 Rxc8 27.Rxc8: White gave the queen for two rooks» — every run of
+    captures (src/game_record.exchanges) in which a piece, not only pawns, was lost; a sacrifice is told from the move
+    that offered the piece, and a mate that follows at once is part of it. The model paired separate loss lists
+    wrongly («белые отдали ферзя за ладью», prod 29.10), so the pairs are given as such."""
+    from src.game_record import exchanges
+    from src.trade_claims import _phrase, _plies, _run_text
+
+    _, moves = _replay(g)
+    board, sans = chess.Board(), []
+    for mv in moves:
+        sans.append(board.san(mv))
+        board.push(mv)
+    plies = _plies(sans)
+    out = []
+    for run in exchanges(moves):
+        pieces = {c: sum(n for t, n in run.lost.get(c, {}).items() if t != chess.PAWN) for c in (chess.WHITE, chess.BLACK)}
+        if not pieces[chess.WHITE] and not pieces[chess.BLACK]:
+            continue
+        # the side that gave: the one whose dearest lost piece is dearer (the queen for two rooks), then the one that
+        # lost more, then the owner of the first piece taken
+        from src.board_math import VALUE
+
+        def worth(c):
+            lost = run.lost.get(c, {})
+            return (max((VALUE[t] for t, n in lost.items() if n), default=0), sum(VALUE[t] * n for t, n in lost.items()))
+
+        first_board, first_mv, _ = plies[run.start_ply - 1]
+        first = first_board.piece_at(first_mv.to_square)
+        w, b = worth(chess.WHITE), worth(chess.BLACK)
+        giver = chess.WHITE if w > b else chess.BLACK if b > w else (first.color if first is not None else chess.WHITE)
+        text = _run_text(plies, run.start_ply, run.end_ply, giver)
+        who = "White" if giver == chess.WHITE else "Black"
+        back = _phrase(run.lost.get(not giver, {}))
+        told = f"{who} gave {_phrase(run.lost.get(giver, {}))}" + (
+            " for nothing" + (", and mate followed" if text.endswith("#") else "") if back == "nothing" else f" for {back}")
+        out.append(f"{text}: {told}")
+    return out
+
+
 def facts(g: dict) -> str:
     """What each side gave up, move by move, and how it ends — counted on the board."""
     game, moves = _replay(g)
@@ -128,6 +195,14 @@ def facts(g: dict) -> str:
         end = f"it ends in mate: {game.end().san()} — the last move."
     else:
         end = f"it ends with {game.headers.get('Result')} after the last move {game.end().san()}."
+    if _facts_on():
+        try:
+            pairs = exchange_facts(g)
+        except Exception:  # noqa: BLE001 — the old lists below are still true
+            pairs = None
+        if pairs is not None:
+            return ("The exchanges, each as what one side gave for what (pawn-only trades left out): "
+                    + ("; ".join(pairs) or "none") + f". The game has {len(moves)} half-moves; {end}")
     return (f"Pieces White lost: {', '.join(lost[chess.WHITE]) or 'none'}. "
             f"Pieces Black lost: {', '.join(lost[chess.BLACK]) or 'none'}. The game has {len(moves)} half-moves; {end}")
 
