@@ -809,7 +809,7 @@ _CALM = re.compile(
     r"|without\s+(?:\w+\s+){0,2}?complications|free\s+of\s+(?:\w+\s+)?(?:tactics|complications))" + _E, re.IGNORECASE)
 
 
-_CALM_WORD = re.compile(r"осложнени|спокойн|тих|мирн|quiet|calm|peaceful|tranquil|complication", re.IGNORECASE)
+_CALM_WORD = re.compile(r"осложнени|спокойн|тих|мирн|quiet|calm|peaceful|tranquil|complication|free\s+of", re.IGNORECASE)
 
 
 def _character_issues(text: str, ctx) -> list[str]:
