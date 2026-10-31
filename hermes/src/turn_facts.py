@@ -62,3 +62,125 @@ def quote(facts: Iterable[Fact], limit: int = 1) -> str:
     """« (you were given: …)» for an issue text, or "" when there is nothing to quote."""
     texts = [f.text for f in facts if getattr(f, "text", "")][:limit]
     return f" (you were given: {'; '.join(texts)})" if texts else ""
+
+
+# ── providers (plan 31.10, P8) ─────────────────────────────────────────────────────────────────────────────────
+# One function computes the typed facts of a board; the prompt blocks render their texts (prompt_builder.
+# board_facts_block, engine_note_block) and scripts/eval_prevent.py audits them on the corpora. Every outcome fact
+# carries its proof in ``data`` and a proving source (see, engine): a fork vetted by the engine's lines or by playing
+# every reply out with exchange counts, a safe square counted by static exchange, a capture's net after the
+# exchange on its square.
+import logging  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+from collections import OrderedDict  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+BOARD_KINDS = ("fork", "piece_safety", "attack_balance", "recapture", "check_replies", "material")
+# The facts the engine line of the coach's turn gets beside it (voice_engine_note.engine_note collects them with its
+# lines; prompt_builder.engine_note_block renders them).
+ENGINE_KINDS = ("piece_safety", "attack_balance")
+_RECENT: "OrderedDict[str, list]" = OrderedDict()
+_RECENT_MAX = 256
+_lock = threading.Lock()
+
+
+def enabled() -> bool:
+    """COACH_TURN_FACTS (default on); off: no provider runs and the prompts are as before."""
+    try:
+        from src import config
+
+        return bool(getattr(config, "COACH_TURN_FACTS", True))
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def facts_for_board(board, engine_lines=None, kinds=BOARD_KINDS) -> list:
+    """The typed facts of *board* (a chess.Board) of *kinds*. *engine_lines* are the engine's lines of the turn in
+    the raw analyze_* form ({pv, score, mate_in}); without them a fork is kept only when it wins by exchange count
+    against every reply."""
+    from src import position_facts as pf
+
+    if board is None or not board.is_valid():
+        return []
+    out: list = []
+    if "check_replies" in kinds:
+        item = pf.check_reply_item(board)
+        if item:
+            out.append(Fact("check_replies", pf.check_reply_text(item, board), item, "board"))
+    if "fork" in kinds:
+        for move, targets, after, source in pf.vetted_forks(board, engine_lines)[:2]:
+            out.append(Fact("fork", pf.fork_text(board, move, targets, after),
+                            {"san": board.san(move), "uci": move.uci(),
+                             "targets": [chess_name(s) for s in targets],
+                             "proof": "engine line within %.1f of the best" % pf.FORK_ENGINE_MARGIN if source == "engine"
+                             else "wins at least %d by exchange count against every reply" % pf.FORK_MIN_GAIN},
+                            source))
+    if "piece_safety" in kinds:
+        for item in pf.safety_items(board, engine_lines):
+            out.append(Fact("piece_safety", pf.safety_text(item), item, "see"))
+    if "attack_balance" in kinds:
+        for item in pf.balance_items(board):
+            out.append(Fact("attack_balance", pf.balance_text(item, board), item, "see"))
+    if "recapture" in kinds:
+        items = pf.capture_items(board)
+        if items:
+            out.append(Fact("recapture", pf.capture_text(items, board), {"captures": items}, "see"))
+    if "material" in kinds:
+        m = pf.material_item(board)
+        out.append(Fact("material", pf.material_text(m), {"white": m["white"], "black": m["black"], "diff": m["diff"],
+                                                          "more": m["more"]}, "board"))
+    return out
+
+
+def chess_name(sq: int) -> str:
+    import chess
+
+    return chess.square_name(sq)
+
+
+def collect(board, engine_lines=None, kinds=BOARD_KINDS) -> list:
+    """facts_for_board behind the switch, never raising; the result is remembered by position and by whether the
+    engine's lines vetted it (recent())."""
+    if not enabled() or board is None:
+        return []
+    started = time.monotonic()
+    try:
+        facts = facts_for_board(board, engine_lines, kinds)
+    except Exception:  # noqa: BLE001 — the facts are a bonus, never a blocker
+        logger.debug("turn facts failed", exc_info=True)
+        return []
+    ms = (time.monotonic() - started) * 1000
+    if ms > 20:
+        logger.info("turn facts took %.1f ms on %s", ms, board.fen())
+    try:
+        key = (board.fen(), engine_lines is not None)
+        with _lock:
+            _RECENT[key] = facts
+            _RECENT.move_to_end(key)
+            while len(_RECENT) > _RECENT_MAX:
+                _RECENT.popitem(last=False)
+    except Exception:  # noqa: BLE001
+        pass
+    return facts
+
+
+def recent(fen, engine: bool = False):
+    """The facts last collected for *fen* — with the engine's lines when *engine* — or None when none were. A hook for
+    CheckContext.facts (what the model was given on that board) and for the engine block of the coach's turn."""
+    if not fen:
+        return None
+    try:
+        import chess
+
+        fen = chess.Board(fen).fen()
+    except Exception:  # noqa: BLE001
+        pass
+    with _lock:
+        got = _RECENT.get((fen, engine))
+    return list(got) if got is not None else None
+
+
+def texts(facts) -> list:
+    return [f.text for f in facts if getattr(f, "text", "")]

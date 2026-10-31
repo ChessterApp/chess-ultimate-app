@@ -420,6 +420,43 @@ def _remember_undo(session, board_rec, command: str, words: str, view: dict) -> 
     session.save_board(board_rec)
 
 
+def resign_evaluation(view: dict) -> str:
+    """The engine's word on the position the student resigned in, and the rule not to justify the resignation
+    (plan 31.10 P8: «конь на f6 под боем пешки e5, и ты честно не захотел терять» — the knight had three safe
+    squares and the position was +0.6, g1-resign of 29.10). "" when COACH_TURN_FACTS is off; without an evaluation
+    only the rule."""
+    from src import turn_facts
+
+    if not turn_facts.enabled():
+        return ""
+    rule = ("Do not justify the resignation and do not give a reason for it the board does not show: never say a "
+            "piece was lost, trapped or could not be saved, or that the position was hopeless, unless the "
+            "evaluation here and the board facts say so. ")
+    try:
+        from src import game_mode
+
+        student = chess.WHITE if view.get("student_color") == "white" else chess.BLACK
+        cp, _ = game_mode._evaluate(view["fen"], student)
+    except Exception:  # noqa: BLE001 — the rule still goes in
+        return rule
+    white_cp = cp if student == chess.WHITE else -cp
+    side = "the student"
+    if abs(cp) >= 9000:  # a mate score (game_engine.MATE_CP minus the distance)
+        verdict = f"{side} was being mated" if cp < 0 else f"{side} had a mate"
+        told = "a forced mate for " + ("White" if white_cp > 0 else "Black")
+    else:
+        told = f"{white_cp / 100:+.1f} (from White's side)"
+        if cp >= 150:
+            verdict = f"{side} was better"
+        elif cp > -150:
+            verdict = "about level — the position was not lost"
+        elif cp > -400:
+            verdict = f"{side} was worse, but the position was not lost"
+        else:
+            verdict = f"{side} was clearly worse"
+    return f"The engine's evaluation of the final position: {told} — {verdict}. " + rule
+
+
 def game_command_step(session, board_rec, command: str, words: str = "", wish: Optional[dict] = None,
                       view_ply: Optional[int] = None, view_line: Optional[list] = None) -> Optional[dict]:
     """Resign / take back / draw / a new game / the engine's strength, asked for in words: done here as the
@@ -450,8 +487,8 @@ def game_command_step(session, board_rec, command: str, words: str = "", wish: O
             view = game_mode.resign(session, board_rec)
             return {"view": view, "block": (
                 "## The student resigned — the system ended the game\n"
-                f"Result {view.get('result')} (resignation). Say the game is over in one kind sentence, without "
-                "talking them out of it, and offer to review it or to play again."
+                f"Result {view.get('result')} (resignation). {resign_evaluation(view)}Say the game is over in one "
+                "kind sentence, without talking them out of it, and offer to review it or to play again."
             )}
         if command in UNDO_FAMILY and _just_taken_back(state, command, words):
             board = game_mode._replay(state.get("moves") or [])

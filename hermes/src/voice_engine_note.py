@@ -157,7 +157,14 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
         parts.append(book_moves)
 
     # COACH_ENGINE_FACTS=0 leaves the line as moves and evaluations only.
-    facts = _facts(board, result["lines"][0], prefetch) if with_facts else []
+    facts = _facts(board, result["lines"][0], prefetch, lines=result["lines"]) if with_facts else []
+    if with_facts:
+        # The typed facts this line vets (src/turn_facts, plan 31.10 P8): the safe squares of an attacked piece that
+        # start one of these lines, what one more attacker wins. Not in this note (the voice and lesson lines stay as
+        # they were): the coach's engine block reads them back (prompt_builder.engine_note_block).
+        from src import turn_facts
+
+        turn_facts.collect(board, result["lines"], kinds=turn_facts.ENGINE_KINDS)
     if facts:
         parts.append("Facts (verified on the board and by the engine): " + "; ".join(facts) + ".")
     if with_facts:
@@ -225,11 +232,17 @@ def _book_moves(fen: str, limit: int = 5) -> Optional[str]:
             + "; ".join(told) + ".")
 
 
-def _facts(board: chess.Board, top: dict, prefetch) -> list[str]:
+def _facts(board: chess.Board, top: dict, prefetch, lines: Optional[list] = None) -> list[str]:
     """What hangs, what is pinned, what the best move and the opponent threaten.
+
+    *lines* are all the engine's lines of the turn (default: *top* alone): a fork is told only when its move starts
+    one of them within 1.0 of the best (src/position_facts.vetted_forks) — «a fork is available now: Qxd5+» was
+    told on mate2-no, where 8...Qxd5 takes the queen back (plan 31.10 P8), so the label "verified on the board and
+    by the engine" now holds for the forks too.
 
     Never fails the line: a broken fact search just leaves the facts out.
     """
+    lines = list(lines) if lines is not None else ([top] if top else None)
     try:
         if prefetch is not None:
             prefetch.result(timeout=THREAT_MOVETIME_MS / 1000.0 + 2.0)  # warms the cache
@@ -237,9 +250,10 @@ def _facts(board: chess.Board, top: dict, prefetch) -> list[str]:
         score = top.get("score") or 0.0
         if top.get("mate_in") is not None:
             score = 10000.0 if top["mate_in"] > 0 else -10000.0
-        return _rules(board) + static_facts(board) + dynamic_facts(board, best_uci, float(score), _threat_analysis)
+        return (_rules(board) + static_facts(board, lines)
+                + dynamic_facts(board, best_uci, float(score), _threat_analysis))
     except Exception:  # noqa: BLE001 — the facts are a bonus on top of the moves
-        return (_rules(board) + static_facts(board)) if board.is_valid() else []
+        return (_rules(board) + static_facts(board, lines)) if board.is_valid() else []
 
 
 def _rules(board: chess.Board) -> list[str]:

@@ -15,12 +15,12 @@
   {
    "id": "royal-fork-kept",
    "kind": "fact",
-   "fen": "r1bqkbnr/pppp1ppp/2n5/1N2p3/4P3/8/PPPP1PPP/R1BQKBNR w KQkq - 2 3",
+   "fen": "r3k3/8/8/3N4/8/8/8/4K3 w - - 0 1",
    "fact_kind": "fork",
-   "keep": "Nxc7+",
-   "why": "Nxc7+ forks the king e8 and the rook a8 (prod 23.10): kept",
+   "keep": "Nc7+",
+   "why": "Nc7+ forks the king e8 and the rook a8 (prod 23.10, tests/unit/test_puzzle_solution_2026_10_23 FORK): kept",
    "stage": "sync",
-   "source": "design-detect §2 / triage reports"
+   "source": "design-detect §2 / triage reports; P8: the seeded FEN had the black queen on d8 guarding c7, see recaptured-fork-dropped"
   },
   {
    "id": "mate2-no-poisoned-fork",
@@ -41,6 +41,67 @@
    "why": "the knight f6 attacked by e5 has safe squares (d5, e4, g8)",
    "stage": "sync",
    "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "recaptured-fork-dropped",
+   "kind": "fact",
+   "fen": "r1bqkbnr/pppp1ppp/2n5/1N2p3/4P3/8/PPPP1PPP/R1BQKBNR w KQkq - 2 3",
+   "fact_kind": "fork",
+   "drop": "Nxc7+",
+   "why": "3.Nxc7+ Qxc7: the queen d8 takes the knight back (a knight for a pawn) — not a fork to tell",
+   "stage": "sync",
+   "source": "P8 (the FEN WP-0 seeded for royal-fork-kept)"
+  },
+  {
+   "id": "legal-mate-fork-is-not-the-point",
+   "kind": "fact",
+   "fen": "rn1qkbnr/ppp2p1p/3p2p1/4N3/2B1P3/2N5/PPPP1PPP/R1BbK2R w KQkq - 0 6",
+   "fact_kind": "fork",
+   "drop": "Nxf7",
+   "keep": "Bxf7+",
+   "why": "Legal's mate: 6.Bxf7+ Ke7 7.Nd5# mates; Nxf7 (queen and rook) is a fork beside a mate — the mate is told, not the fork",
+   "stage": "sync",
+   "source": "P8, eval_prevent (a) corpus: out_71 legal-mate"
+  },
+  {
+   "id": "mate-in-one-beside-a-fork",
+   "kind": "fact",
+   "fen": "2r3k1/p1q1nppp/1p6/8/1P1R2Q1/P3P2P/1B3PP1/6K1 w - - 0 1",
+   "fact_kind": "fork",
+   "drop": "Rd7",
+   "why": "Qxg7# mates at once; Rd7 (queen and knight) is not the point",
+   "stage": "sync",
+   "source": "P8, eval_prevent (a) corpus: programme double-attack-set-19"
+  },
+  {
+   "id": "st2-2-one-more-attacker",
+   "kind": "fact",
+   "fen": "r1bqkbnr/pppp1ppp/2n5/4P3/8/5N2/PPP1PPPP/RNBQKB1R b KQkq - 2 3",
+   "fact_kind": "attack_balance",
+   "keep": "Qe7",
+   "why": "e5 is attacked once (Nc6) and defended once (Nf3): 3...Qe7 adds a second attacker and the exchange then wins it (st2#2)",
+   "stage": "sync",
+   "source": "P8 (st2#2 of 29.10)"
+  },
+  {
+   "id": "st2-4-takes-back",
+   "kind": "fact",
+   "fen": "r1bqkb1r/pppp1ppp/2n2P2/8/8/5N2/PPP1PPPP/RNBQKB1R b KQkq - 0 4",
+   "fact_kind": "recapture",
+   "keep": "gxf6",
+   "why": "after 4.exf6 Black takes the pawn back with gxf6 or Qxf6 (st2#4: «белые забирают фигуру бесплатно»)",
+   "stage": "sync",
+   "source": "P8 (st2#4 of 29.10)"
+  },
+  {
+   "id": "st2-8-check-replies",
+   "kind": "fact",
+   "fen": "r1bRk2r/ppp2ppp/2np4/8/8/5N2/PPP1PPPP/RNBQKB1R b KQkq - 0 6",
+   "fact_kind": "check_replies",
+   "keep": "Nxd8",
+   "why": "after 6.exd8=R+ Black can take the checker with Kxd8 or Nxd8, or play Ke7; no block (st2#8)",
+   "stage": "sync",
+   "source": "P8 (st2#8 of 29.10)"
   }
  ]
 }
