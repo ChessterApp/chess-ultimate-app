@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "M3 student_capture",
- "status": "missed",
+ "status": "caught",
  "sentence": "Be7 — и белые сразу бьют по нему пешкой: 5.fxe7, твоя пешка с f6 забрала слона на e7. ",
  "sentence_index": 0,
  "prefix": [],

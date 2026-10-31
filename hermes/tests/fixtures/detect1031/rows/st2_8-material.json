@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "M2 material_order",
- "status": "missed",
+ "status": "caught",
  "sentence": "Ты потерял ферзя, и теперь белые впереди на целую ладью — партию уже не спасти. ",
  "sentence_index": 1,
  "prefix": [

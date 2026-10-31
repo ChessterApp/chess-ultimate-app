@@ -172,7 +172,9 @@ def test_a_capture_reply_names_the_piece_taken():
     board, _ = game_mode.start_game(session, "white", 1200, "quiet")
     state = board.game_state
     state["moves"] = ["e4", "Nc6", "d4", "Nf6", "d5", "e6", "dxc6"]
-    assert game_mode.told_ply(state, 7) == "4.dxc6 (pawn from d5 to c6, takes the knight on c6)"
+    # plan 31.10 F2: a capture names whose piece took whose
+    assert game_mode.told_ply(state, 7) == ("4.dxc6 (White's (the student's) pawn from d5 to c6, takes Black's "
+                                            "(the engine's) knight on c6)")
     assert game_mode.told_ply(state, 2) == "1...Nc6 (knight from b8 to c6)"
     assert game_mode.told_ply(state, 8) is None
 

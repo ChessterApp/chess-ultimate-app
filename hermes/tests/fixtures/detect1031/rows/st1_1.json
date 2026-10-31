@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "M7 gave_up",
- "status": "missed",
+ "status": "caught",
  "sentence": "Чёрные отдали центральную пешку, зато получили полуоткрытую линию c и будут давить по ней. ",
  "sentence_index": 2,
  "prefix": [

@@ -402,6 +402,9 @@ class CheckContext:
     # The facts the model was given this turn (src/turn_facts.Fact; plan 31.10, filled by P8's providers): a detector
     # may quote the one it relied on («(you were given: …)»). Empty until a provider fills it.
     facts: list = field(default_factory=list)
+    # The issues of plan-31.10 detectors switched to shadow (COACH_DETECTORS_SHADOW, or a game move comment): logged,
+    # never shown — [(detector name, issues)].
+    detector_shadow: list = field(default_factory=list)
     MAX_BOARDS = 400
 
     @classmethod
@@ -536,12 +539,77 @@ def _just_played(ctx: Optional["CheckContext"]) -> Optional[set]:
     return {m.rstrip("+#") for m in moves[-2:]} if moves else None
 
 
-def _is_hypothetical(text: str, original: str, upto: int, whole: bool = False, played: Optional[set] = None) -> bool:
+def _fail_open(fn, *args) -> list:
+    """*fn*(*args*), or [] when it raises: a broken new detector never blocks an answer (plan 31.10)."""
+    try:
+        return fn(*args)
+    except Exception:  # noqa: BLE001
+        logger.debug("%s failed", getattr(fn, "__name__", "detector"), exc_info=True)
+        return []
+
+
+def _detector(name: str, ctx: Optional["CheckContext"], issues: list) -> list:
+    """The issues of the plan-31.10 detector *name* as its switch says (src/config.detector_mode): 'on' returns
+    them, 'shadow' records them in ctx.detector_shadow and logs them (never shown), 'off' drops them."""
+    if not issues:
+        return []
+    from src.config import detector_mode
+
+    mode = detector_mode(name, ctx)
+    if mode == "on":
+        return list(issues)
+    if mode == "shadow" and ctx is not None:
+        ctx.detector_shadow.append((name, list(issues)))
+        logger.info("detector %s (shadow): %s", name, "; ".join(issues)[:300])
+    return []
+
+
+# «Позиция после 1.d4 e5 … 6.exd8=R+: …», «…5.fxe7, и после твоих ошибок белые впереди»: the game's own record up to
+# the board now told before a claim. «после» right before the moves, and «после твоих ошибок / этого / всех разменов»
+# after them, then mean "now" (plan 31.10 M1 recap_scope).
+_RECAP_AFTER = re.compile(r"(?<![а-я])после\s+(?=\d{1,3}\s?\.)", re.IGNORECASE)
+_RECAP_SINCE = re.compile(r"(?<![а-я])после\s+(?:тво\w+|ваш\w+|эт\w+|всех|всего)(?:\s+[а-я]+)?", re.IGNORECASE)
+
+
+def _recap_now(original: str, upto: int, ctx: Optional["CheckContext"]) -> bool:
+    """The written moves before *upto* are the game's own record and end at the board now (src/game_record.recap_end;
+    a recap that ends a ply early, or an invented line, is not)."""
+    moves = getattr(ctx, "game_moves", None) if ctx is not None else None
+    if not moves or ctx.current is None:
+        return False
+    from src.game_record import recap_end
+
+    return recap_end(ctx, original[:upto]) == len(moves)
+
+
+def _is_hypothetical(text: str, original: str, upto: int, whole: bool = False, played: Optional[set] = None,
+                     ctx: Optional["CheckContext"] = None) -> bool:
     """A marker or a written move BEFORE the claim; what follows it («у чёрных
     лишняя пешка, и после Rg1 Nxa4…») does not excuse the claim itself — a
     claim about the position after those moves holds on the derived boards.
     *whole*: the whole sentence counts («твой конь на c5 — если бы он туда
-    попал — доминировал бы»), for claims about whose piece stands where."""
+    попал — доминировал бы»), for claims about whose piece stands where.
+    *ctx*: in a game, written moves that retell the game's own record up to the board now are no line to imagine
+    (plan 31.10 M1): the claim after them is about the board now."""
+    if not whole and ctx is not None and _recap_now(original, upto, ctx):
+        head = _RECAP_AFTER.sub("", text[:upto])
+        first = re.search(r"\d{1,3}\s?\.", head)
+        if first:
+            head = head[: first.start()] + _RECAP_SINCE.sub("", head[first.start():])
+        if _HYPO.search(head):
+            return True
+        if _HYPO.search(text[:upto]) is None and not any(
+                m["san"] for m in _MOVE.finditer(_to_san(original[:upto])[0])
+                if (m["num"] or m["bdots"] or m["san"][0] in "KQRBN") and m["san"].rstrip("+#") not in (played or ())):
+            return False  # nothing made it a line before either: no switch to consult
+        from src.config import detector_mode
+
+        mode = detector_mode("recap_scope", ctx)
+        if mode == "on":
+            return False
+        if mode == "shadow":
+            ctx.detector_shadow.append(("recap_scope", [f"recap to now read as the board now: {text[:upto][-80:]}"]))
+        return True
     if _HYPO.search(text if whole else text[:upto]):
         return True
     converted, _ = _to_san(original[:upto])
@@ -662,7 +730,7 @@ def _attack_issue(ptype: int, m, text: str, ctx: Optional["CheckContext"] = None
     a = chess.parse_square(m["a"])
     targets = [t for t in _clause_targets(m["targets"]) if t != m["a"] and not _negated_target(m["targets"], t)]
     now = about_now or not _is_hypothetical(text, original if original is not None else text, m.start(),
-                                            played=_just_played(ctx))
+                                            played=_just_played(ctx), ctx=ctx)
     # (Only for a piece named in words by its square: a written move as the subject already stands where it went.)
     went = None if about_now else _moved_in_sentence(original if original is not None else text, ptype, a, ctx)
     if went is not None:
@@ -1126,6 +1194,11 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
     # start position. A chain begun on the start position standing in for an
     # unknown one («…13.Qe4 Rxf2 14.dxe5 Bg5+»), or re-begun mid-line, is not.
     prev_trusted = False
+    prev_ghost = False  # *prev* comes from the start position standing in for a known board (plan 31.10 H)
+    from src.config import detector_mode
+
+    start_scene = ctx.current is not None and ctx.current.board_fen() != chess.STARTING_BOARD_FEN \
+        and detector_mode("start_scene", ctx) == "on"
     for m in _MOVE.finditer(converted):
         san, num, dots = m["san"], m["num"], m["dots"] or m["bdots"]
         numbered = bool(num or m["bdots"])
@@ -1168,6 +1241,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         # unknown ones), and a capture only where it captures.
         suffix_judged = suffix_ok = False
         fallback = ctx.boards[0] if ctx.boards and (ctx.current is None or ctx.current.board_fen() != ctx.boards[0].board_fen()) else None
+        start_scene_off = start_scene and fallback is not None and fallback.board_fen() == chess.STARTING_BOARD_FEN
         # The line's own continuation first, then the boards of the turn (the one
         # on the screen before the rest), the start position standing in for an
         # unknown one last — «4...d5 5.exd5» used to start from the start
@@ -1177,6 +1251,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
             + [b for b in boards if b is not fallback and b is not ctx.current] + ([fallback] if fallback is not None else [])
         # A board where it is that side's move comes before one where the side is changed to fit: «15.Bxd7+ …
         # 16.Qb8+» is the game's 16th move, not White moving twice after 15.Bxd7+ (2026-10-08).
+        ghost_now = False
         candidates = ([(prev, [prev.turn])] if prev is not None and prev.turn in colors else []) \
             + [(b, [c for c in colors if c == b.turn]) for b in ordered] \
             + [(b, [c for c in colors if c != b.turn]) for b in ordered]
@@ -1206,11 +1281,23 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
                         # it mates: that clears it, though a derived position never condemns
                         # (production 2026-10-07: «следует Bc6# — мат» was cut on the board as it stands).
                         suffix_ok = True
+                if not legal_somewhere and start_scene_off and not trusted \
+                        and (board is fallback or (board is prev and prev_ghost)):
+                    # Plan 31.10 H (start_scene): the real board is known and is not the start position — a move
+                    # legal only on the start position standing in for an unknown one (and the moves after it) is
+                    # a plan, not a line the later claims are about: it is followed (its boards stay among the
+                    # turn's, for the lenient "some board allows it" checks), but it sets no scene (prod plan-kid
+                    # 29.10: «...f5» read on the start position, then «бить на e4» judged there).
+                    legal_somewhere = True
+                    trial.push(move)
+                    prev, prev_trusted, ghost_now = trial, False, True
+                    ctx.add(trial.fen(), derived=True)
+                    break
                 if not legal_somewhere:
                     legal_somewhere = True
                     scene_san = trial.san(move)
                     trial.push(move)
-                    prev, prev_trusted = trial, trusted
+                    prev, prev_trusted, ghost_now = trial, trusted, False
                     ctx.add(trial.fen(), derived=True)  # a line written in the answer goes on from here
                     ctx.scene, ctx.scene_san, ctx.scene_age = trial.copy(stack=False), scene_san, 0
                     ctx.scene_trail.append((scene_san, ctx.scene, move))
@@ -1219,8 +1306,9 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
             if legal_somewhere and (suffix_ok or not m["check"]):
                 break
         in_line_until = m.end() if legal_somewhere else -1
+        prev_ghost = ghost_now
         if not legal_somewhere:
-            prev, prev_trusted = None, False
+            prev, prev_trusted, prev_ghost = None, False, False
         if legal_somewhere:
             if suffix_judged and not suffix_ok and not bare_capture:
                 label = (f"{num}{dots}" if num else (dots or "")) + full
@@ -1235,7 +1323,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         # a capture written for the board on the screen, by a piece that is there
         # but cannot get through, is impossible — not a plan from another position.
         if is_piece and "x" in san and prev is None and ctx.current is not None and not list_item \
-                and not _is_hypothetical(text, text, m.start()) and not _CONTINUES.match(text):
+                and not _is_hypothetical(text, text, m.start(), ctx=ctx) and not _CONTINUES.match(text):
             blocked = _blocked_capture(ctx, ptype, colors, dest)
             if blocked:
                 issues.append(f"{full} is not possible here: {blocked}")
@@ -1408,7 +1496,7 @@ def _told_move_issues(text: str, original: str, ctx: Optional[CheckContext]) -> 
     issues = []
     played = _just_played(ctx)
     for m in _MOVED_CLAIM.finditer(text):
-        if _is_hypothetical(text, original, m.start(), played=played):
+        if _is_hypothetical(text, original, m.start(), played=played, ctx=ctx):
             continue
         ptype = _MOVER[m["piece"].lower()]
         sq = m["to"] or m["to2"]
@@ -1831,7 +1919,7 @@ def _unattacked_object_issues(text: str, original: str, ctx: CheckContext) -> li
                 continue
             at = text.find(clause)
             upto = (at if at >= 0 else 0) + m.start()
-            if _is_hypothetical(text, original, upto):
+            if _is_hypothetical(text, original, upto, ctx=ctx):
                 continue  # «после Nb5 конь нападёт на пешку c7»: a line, judged on the derived boards elsewhere
             if _SAN_IN_TEXT.search(_to_san(original[:upto])[0]):
                 continue  # «cxd4: пешка c5 … нападает на ферзя c3»: after the move written before it
@@ -1893,7 +1981,7 @@ def _solution_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         if _norm_san(san) != last and _norm_san(san) not in allowed:
             return [f"the puzzle's solution ends with {solution[-1]}, not {san}: say the puzzle's own line"]
     # (b) «решение: …» — every move of the line must be the puzzle's
-    if _SOLUTION_WORD.search(text) and not _is_hypothetical(text, original, 0, whole=True):
+    if _SOLUTION_WORD.search(text) and not _is_hypothetical(text, original, 0, whole=True, ctx=ctx):
         wrong = [m for m in moves if _norm_san(m) not in allowed]
         if wrong:
             return [f"the puzzle's solution is {' '.join(solution)}; {wrong[0]} is not in it"]
@@ -1955,7 +2043,7 @@ def _hanging_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             continue  # «ладья висит в воздухе и ничего не делает»: idle, not en prise (replay, 2026-10-05)
         if kind != "undefended" and _NEGATION.search(text[: m.start(verb and ("v" if m["v"] else "v2" if m["v2"] else "v3"))]):
             continue  # «не висит», "is not hanging"
-        if _is_hypothetical(text, original, m.start()):
+        if _is_hypothetical(text, original, m.start(), ctx=ctx):
             continue
         sq = chess.parse_square(sq_name)
         named = _piece_type(m["p1"] or m["p2"] or "") if (m["p1"] or m["p2"]) else None
@@ -2026,7 +2114,7 @@ def _pin_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         sq_name = m["a"] or m["b"]
         if _NEGATION.search(text[: m.start("v" if m["v"] else "v2")]):
             continue  # «не связан», "is not pinned"
-        if _is_hypothetical(text, original, m.start()):
+        if _is_hypothetical(text, original, m.start(), ctx=ctx):
             continue
         sq = chess.parse_square(sq_name)
         if ctx.current is not None and ctx.current.piece_at(sq) is not None:
@@ -2060,6 +2148,14 @@ _MATERIAL = [re.compile(_B2 + rx, re.IGNORECASE) for rx in (
     rf"{_SIDE}(?:\s+(?:is|are|am)|'s|'re|'m)?\s*(?:already\s+|now\s+)?(?:{_NUM}\s+)?{_UNIT}\s+(?P<dir>up|down|ahead|behind)",
     # "white has an extra pawn"
     rf"{_SIDE}(?:\s+(?:has|have)|'s|'ve)\s+(?:an?\s+)?(?P<dir>extra|spare)\s+{_UNIT}",
+)]
+# Plan 31.10 M2 (material_order): the word orders the patterns above miss — «белые впереди на целую ладью», «чёрные
+# позади на две пешки», «у белых теперь на целую фигуру больше» (prod st2 29.10: three wrong counts went out).
+_MATERIAL_ORDER = [re.compile(_B2 + rx, re.IGNORECASE) for rx in (
+    rf"(?:у\s+)?{_SIDE}\s+(?:уже\s+|сейчас\s+|теперь\s+|по\s+материалу\s+)?(?:на\s+)?(?:{_NUM}\s+)?(?:цел\w+\s+)?{_UNIT}\s+"
+    r"(?P<dir>больше|впереди|меньше|позади)",
+    rf"(?:у\s+)?{_SIDE}\s+(?:уже\s+|сейчас\s+|теперь\s+)?(?P<dir>впереди|позади)\s+(?:по\s+материалу\s+)?на\s+"
+    rf"(?:{_NUM}\s+)?(?:цел\w+\s+)?{_UNIT}",
 )]
 _MATERIAL_EQUAL = re.compile(
     _B2 + r"(?:материал\w*\s+(?:пока\s+|сейчас\s+)?рав\w+|равн\w+\s+материал\w*|материальн\w+\s+равенств\w+|"
@@ -2208,7 +2304,7 @@ def _eval_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     issues = []
     for rx in _EVAL_CLAIMS:
         for m in rx.finditer(text):
-            if _is_hypothetical(text, original, m.start()):
+            if _is_hypothetical(text, original, m.start(), ctx=ctx):
                 continue
             gd = m.groupdict()
             key = "eq" if gd.get("eq") else "w"
@@ -2337,9 +2433,15 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         boards, where, shown = ctx.boards[1:] or ctx.boards, ctx.current, ""
         if ctx.game_moves and not _PAST_BE.search(text):
             boards = _now_boards(ctx)  # a game: the material now, not a move ago (prod 29.10)
-    for rx in _MATERIAL:
+    judged = set()  # the side words a pattern already judged: the M2 orders add only what the others miss
+    ordered = []
+    for rx in _MATERIAL + _MATERIAL_ORDER:
         for m in rx.finditer(text):
-            if _is_hypothetical(text, original, m.start()):
+            new_order = rx in _MATERIAL_ORDER
+            if new_order and m.start("side") in judged:
+                continue
+            judged.add(m.start("side"))
+            if _is_hypothetical(text, original, m.start(), ctx=ctx):
                 continue
             if _FUTURE_FILL.search(text[m.start("side"): m.start("dir")]):
                 continue  # «ты останешься без фигуры»: what will be, not what is (replay, 2026-10-05)
@@ -2352,10 +2454,18 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             more = any(direction.startswith(w) for w in _MORE)
             balance = not direction.startswith(("лишн", "без", "extra", "spare"))
             if not any(_material_holds(b, color, kind, points, n, more, balance) for b in boards):
-                issues.append(f"material {shown}{_imbalance(where)} (not: {m.group(0).strip()})" if shown
-                              else f"material: {_imbalance(where)} (not: {m.group(0).strip()})")
+                issue = (f"material {shown}{_imbalance(where)} (not: {m.group(0).strip()})" if shown
+                         else f"material: {_imbalance(where)} (not: {m.group(0).strip()})")
+                if new_order:  # the size of the lead is what the word order misstated: say it in points too
+                    from src.game_record import material as _material_of
+
+                    diff = _material_of(where)["diff"]
+                    if diff:
+                        issue = issue.replace(" (not: ", f" — {'White' if diff > 0 else 'Black'} +{abs(diff)} in points (not: ", 1)
+                (ordered if new_order else issues).append(issue)
+    issues += _detector("material_order", ctx, ordered)
     for m in _MATERIAL_EQUAL.finditer(text):
-        if _is_hypothetical(text, original, m.start()):
+        if _is_hypothetical(text, original, m.start(), ctx=ctx):
             continue
         if _NEGATION.search(text[: m.start()]):
             continue  # «материал не равен»
@@ -2444,7 +2554,7 @@ def _side_piece_issues(text: str, original: str, ctx: CheckContext) -> list[str]
     if ctx.current is None:
         return []
     for m in _SIDE_PIECE.finditer(text):
-        if _is_hypothetical(text, original, m.start(), whole=True):
+        if _is_hypothetical(text, original, m.start(), whole=True, ctx=ctx):
             continue
         word = (m["adj"] or m["gen"]).lower().replace("ё", "е")
         if word.startswith(("сопер", "против")):
@@ -2473,7 +2583,7 @@ def _presence_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     # as the side to move (prompt v11), and "your b3 queen" was a pawn (stand, 2026-10-04).
     student = ctx.student_color if ctx.student_color is not None else ctx.current.turn
     for m in _OWN_PIECE.finditer(text):
-        if _is_hypothetical(text, original, m.start(), whole=True):
+        if _is_hypothetical(text, original, m.start(), whole=True, ctx=ctx):
             continue
         ptype = _piece_type(m["piece"] or m["piece2"])
         if ptype is None:
@@ -2523,7 +2633,7 @@ def _instrument_issues(text: str, original: str, ctx: CheckContext) -> list[str]
         return []
     issues = []
     for m in _INSTRUMENT.finditer(text):
-        if _is_hypothetical(text, original, m.start(), whole=True):
+        if _is_hypothetical(text, original, m.start(), whole=True, ctx=ctx):
             continue
         word = m["piece"].lower().replace("ё", "е").split()[-1]
         ptype = _INSTRUMENT_TYPE.get(word[:3])
@@ -2596,7 +2706,7 @@ def _object_first_issues(text: str, original: str, ctx: CheckContext) -> list[st
     for m in _OBJECT_FIRST.finditer(text):
         if _NEGATION.search(text[: m.start("verb")]):
             continue
-        if _is_hypothetical(text, original, m.start()):
+        if _is_hypothetical(text, original, m.start(), ctx=ctx):
             continue
         obj = m["obj"] or m["obj2"]
         if not obj:
@@ -2653,7 +2763,7 @@ def _object_typed_issues(text: str, original: str, ctx: CheckContext) -> list[st
             continue
         sq = chess.parse_square(obj)
         standing = [b for b in ctx.boards if b.piece_at(sq) is not None]
-        if _is_hypothetical(text, original, m.start()):
+        if _is_hypothetical(text, original, m.start(), ctx=ctx):
             # «после Rg1 ферзь h4 под ударом ладьи»: judged on the positions the
             # sentence's moves lead to, never on the board as it is now
             standing = [b for b in standing if not ctx.is_given(b)]
@@ -2713,7 +2823,7 @@ def _not_defended_issues(text: str, original: str, ctx: CheckContext) -> list[st
         return []
     issues = []
     for m in _NOT_DEFENDED.finditer(text):
-        if _is_hypothetical(text, original, m.start()):
+        if _is_hypothetical(text, original, m.start(), ctx=ctx):
             continue
         sq_name = m["a"] or m["b"] or (_pronoun_square(text, m.start("it"), ctx) if m["it"] else None)
         if not sq_name or (m["it"] and sq_name not in _SQ_RE.findall(text)):
@@ -2736,7 +2846,7 @@ def _not_attacked_issues(text: str, original: str, ctx: CheckContext) -> list[st
         return []
     issues = []
     for m in _NOT_ATTACKED.finditer(text):
-        if _is_hypothetical(text, original, m.start()):
+        if _is_hypothetical(text, original, m.start(), ctx=ctx):
             continue
         sq_name = m["a"] or m["b"] or m["b2"]
         if not sq_name:
@@ -2775,7 +2885,7 @@ def _square_subject_issues(text: str, original: str, ctx: CheckContext) -> list[
         return []
     issues = []
     for m in _SQUARE_SUBJECT.finditer(text):
-        if _NEGATION.search(text[: m.start("verb")]) or _is_hypothetical(text, original, m.start()):
+        if _NEGATION.search(text[: m.start("verb")]) or _is_hypothetical(text, original, m.start(), ctx=ctx):
             continue
         target_name = m["b"] or _pronoun_square(text, m.start(), ctx)
         if not target_name:
@@ -2856,7 +2966,7 @@ def _fact_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             + _object_typed_issues(text, original, ctx) + _not_attacked_issues(text, original, ctx)
             + _not_defended_issues(text, original, ctx) + _eval_issues(text, original, ctx)
             + _side_piece_issues(text, original, ctx) + _side_move_issues(original, ctx)
-            + (_ghost_issues(text, ctx) if not _is_hypothetical(text, original, 0, whole=True) else [])
+            + (_ghost_issues(text, ctx) if not _is_hypothetical(text, original, 0, whole=True, ctx=ctx) else [])
             + _object_ghost_issues(text, ctx) + _capture_chain_issues(text, ctx) + _solution_issues(text, original, ctx)
             + _unattacked_object_issues(text, original, ctx))
 
@@ -3069,6 +3179,61 @@ _PROPOSES = re.compile(
     r"i\s+would\s+(?:play|go|put|take)|you\s+(?:should|could|can|want\s+to|need\s+to|have\s+to)|consider|"
     r"recommend|suggest|strong(?:est)?\s+(?:is|move)|the\s+(?:right|correct|key|good|natural|only)\s+move|"
     r"the\s+move\s+(?:is|here\s+is))(?![а-яa-z])", re.IGNORECASE)
+# Plan 31.10 C1a (propose_vocab): a closed list of imperatives that hand the student moves — «Пока же просто
+# развивайся: Qe2, Be3» (prod castle-00 29.10: Qe2 hangs the queen to the c4 bishop) — only when «:» or «—» and a
+# move follow at once. No general imperative: that was measured at 3 wrong engine flags in 17.
+_PROPOSE_VOCAB = re.compile(
+    r"(?<![а-яa-z])(?:развивайся|развивайтесь|развейся|развейтесь|выводи(?:те)?(?:\s+фигуры)?|продолжай(?:те)?(?:\s+развитие)?|"
+    r"заканчивай(?:те)?\s+развитие|готовь(?:те)?)(?:\s+(?:дальше|спокойно|сначала|просто))?\s*[:—–-]\s*"
+    r"(?=[*_]*(?:\d{1,3}\s?\.{1,3}\s?)?(?:[KQRBNКФЛС][a-h]?[1-8]?[x:]?[a-h][1-8]|[a-h][1-8]|[a-h]x[a-h][1-8]|O-O|0-0))",
+    re.IGNORECASE)
+# Plan 31.10 C1b (plan_place): «План за чёрных прост: конь на f6 давит на e4, …», «Идея — слон на g5»: a plan that
+# puts a piece of the side to move on a square exactly one of its legal moves reaches proposes that move (prod
+# name-caro-adv 29.10: 3...Nf6?? 4.exf6 loses the knight).
+_PLAN_INTRO = re.compile(
+    r"(?:^|[.!?]\s+)[\s*_>#«\"-]*(?:(?:мой|наш|твой|главный|основной|типичный)\s+)?(?:план|идея)"
+    r"(?:\s+(?:за|у|для)\s+(?P<side>бел\w+|ч[её]рн\w+))?(?:\s+(?!(?:конь|слон|ладья|ферзь|пешка|король)\b)[а-яё]+){0,2}\s*[:—–]",
+    re.IGNORECASE)
+_PLACED_PIECE = re.compile(rf"(?<![а-яa-z])(?P<piece>конь|слон|ладья|ферзь|пешка)\s+(?:на|в)\s+(?P<sq>{SQ})(?![0-9])",
+                           re.IGNORECASE)
+_PLACE_TYPE = {"конь": chess.KNIGHT, "слон": chess.BISHOP, "ладья": chess.ROOK, "ферзь": chess.QUEEN, "пешка": chess.PAWN}
+
+
+def _plan_place_move(text: str, ctx: CheckContext) -> Optional[tuple]:
+    """C1b: (board, move, san) for the first piece a plan places, when one legal move of the side to move does it."""
+    board = ctx.current
+    for intro in _PLAN_INTRO.finditer(text):
+        if intro["side"]:
+            if (chess.WHITE if intro["side"].lower().startswith("бел") else chess.BLACK) != board.turn:
+                continue
+        elif student_side(ctx, text) != board.turn:
+            continue
+        rest = text[intro.end():]
+        stop = re.search(r"[.!?;\n]", rest)
+        rest = rest[: stop.start()] if stop else rest
+        placed = _PLACED_PIECE.search(rest[:60])
+        if not placed or _NEGATION.search(rest[max(0, placed.start() - 24): placed.start()]):
+            continue
+        ptype = _PLACE_TYPE[placed["piece"].lower()]
+        sq = chess.parse_square(placed["sq"].lower())
+        there = board.piece_at(sq)
+        if there is not None and there.color == board.turn and there.piece_type == ptype:
+            continue  # already there: a description, not a move
+        moves = [mv for mv in board.legal_moves if mv.to_square == sq and board.piece_type_at(mv.from_square) == ptype
+                 and not mv.promotion]
+        if len(moves) != 1:
+            continue
+        from src.config import detector_mode
+
+        mode = detector_mode("plan_place", ctx)
+        if mode == "shadow":
+            ctx.detector_shadow.append(("plan_place", [f"plan places {board.san(moves[0])}: proposed to the engine"]))
+        if mode != "on":
+            return None
+        return board, moves[0], board.san(moves[0])
+    return None
+
+
 # Where the recommended move must sit: in the same clause, before any «если»/«после»
 # (those start a hypothetical, not the recommendation) and before «но»/«а не»/«вместо».
 _PROPOSAL_END = re.compile(
@@ -3236,6 +3401,15 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
             break
         return ctx.current, move, ctx.current.san(move)
     starts = list(_PROPOSES.finditer(text))
+    vocab = list(_PROPOSE_VOCAB.finditer(text))
+    if vocab:
+        from src.config import detector_mode
+
+        mode = detector_mode("propose_vocab", ctx)
+        if mode == "on":
+            starts = sorted(starts + vocab, key=lambda x: x.start())
+        elif mode == "shadow":
+            ctx.detector_shadow.append(("propose_vocab", [f"advice «{v.group(0).strip()}» proposed to the engine" for v in vocab]))
     you_play = _YOU_PLAY.match(text)
     if you_play and "?" not in text and not _FAILS.search(text) and not _REPLY.search(text) \
             and student_side(ctx, text) == ctx.current.turn and not _tells_line(text[you_play.end():]) \
@@ -3330,7 +3504,11 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
         if san.replace("x", "") in {q.replace("x", "") for q in ctx.quoted} and not _PRAISE.search(tail):
             continue
         return ctx.current, move, ctx.current.san(move)
-    return None
+    try:
+        return _plan_place_move(text, ctx)
+    except Exception:  # noqa: BLE001 — a broken plan reader never blocks an answer
+        logger.debug("plan placement failed", exc_info=True)
+        return None
 
 
 # «Моя пешка на f6…», «мой конь c6…»: in a game against the coach, the coach's own (the engine's) piece.
@@ -3544,12 +3722,323 @@ def _coach_capture_issues(text: str, ctx: CheckContext) -> list[str]:
     return out
 
 
+# ── The game's own record (plan 31.10, P1: M3 student_capture, M4 block_kind, M6 free_capture, M7 gave_up) ──────────
+# Each judges a claim about the game on the board against its score (src/game_record.py) and names the true fact.
+_COLOR_EN = {chess.WHITE: "White", chess.BLACK: "Black"}
+from src.claim_scope import NOW as _NOW_WORD  # noqa: E402
+
+
+def _owner_words(ctx: CheckContext, color: bool, possessive: bool = False) -> str:
+    """«White (the engine)», «Black's (the student's)»: a colour and who plays it in this game."""
+    student = getattr(ctx, "student_color", None)
+    s = "'s" if possessive else ""
+    if student is None:
+        return _COLOR_EN[color] + s
+    return f"{_COLOR_EN[color]}{s} ({'the student' if color == student else 'the engine'}{s})"
+
+
+# M3: «твоя пешка с f6 забрала слона на e7», «ты взял коня»: a capture called the student's must be one the student
+# made in this game (prod st2#5 29.10: it was White's 5.fxe7, the engine's) — the mirror of _COACH_TOOK.
+_STUDENT_TOOK = re.compile(
+    r"(?:(?<![а-яё])тво(?:й|я|е|ё)\s+(?P<piece>пешк\w*|кон\w*|слон\w*|ладь\w*|ферз\w*|корол\w*)(?:\s+(?:на|с)\s+(?P<from>[a-h][1-8]))?"
+    r"|(?<![а-яё])ты)\s+(?:только\s+что\s+|уже\s+|сразу\s+|просто\s+|тоже\s+)?"
+    rf"(?:забрал\w*|побил\w*|взял\w*|съел\w*|сбил\w*)\s+(?:(?P<inst>{_INSTR})\s+)?(?:мо\w+\s+|его\s+|ч[её]рн\w+\s+|бел\w+\s+)?"
+    r"(?P<target>пешку|пешки|коня|коней|слона|слонов|ладью|ладьи|ферзя)(?:\s+на\s+(?P<tsq>[a-h][1-8]))?"
+    rf"(?:\s+(?P<inst2>{_INSTR}))?(?![а-яё])", re.IGNORECASE)
+
+
+def _student_capture_issues(text: str, ctx: CheckContext) -> list[str]:
+    moves = getattr(ctx, "game_moves", None)
+    if not moves or ctx.student_color is None or "?" in text or "«" in text or '"' in text:
+        return []
+    claims = [m for m in _STUDENT_TOOK.finditer(text) if not _NOT_TOLD.search(text[max(0, m.start() - 40):])
+              and not _TOOK_IDIOM.match(text, m.end())]
+    if not claims:
+        return []
+    from src.game_record import captures
+
+    caps = captures(ctx)
+    out = []
+    for m in claims:
+        piece = _took_type(m["piece"]) or _took_type(m["inst"]) or _took_type(m["inst2"])
+        target = _took_type(m["target"])
+        if target is None:
+            continue
+
+        def fits(c) -> bool:
+            if c.captured != target or (m["tsq"] and chess.square_name(c.square) != m["tsq"].lower()):
+                return False
+            if piece is not None and piece != c.piece and not (c.piece == chess.PAWN and "=" in c.san):
+                return False
+            if m["from"]:
+                return c.san[0].lower() == m["from"][0].lower() if c.piece == chess.PAWN else True
+            return True
+        hits = [c for c in caps if fits(c)]
+        if hits and not any(c.by_student for c in hits):
+            c = hits[-1]
+            out.append(f"{c.label} was {_owner_words(ctx, c.mover, True)} capture, not the student's — the student plays "
+                       f"{_COLOR_EN[ctx.student_color]}: it took the student's {_NAMES.get(c.captured, 'pawn')} on "
+                       f"{chess.square_name(c.square)}")
+        elif not hits:
+            what = _NAMES.get(target, "pawn") + (f" on {m['tsq']}" if m["tsq"] else "") \
+                + (f" with a {_NAMES.get(piece, 'pawn')}" if piece else "")
+            mine = [c.label for c in caps if c.by_student]
+            out.append(f"in this game the student never captured a {what}: the student's captures so far are "
+                       + (", ".join(mine) if mine else "none"))
+    return out
+
+
+# M4: a move named with the kind of reply to a check — «закрыться конём — Nxd8», «перекрыть шах ходом Bd2»,
+# «закрыться ферзём на f7» — must be that kind on the board in check: a block lands between the checker and the
+# king; it neither takes the checker nor moves the king (prod st2#8 29.10: Nxd8 takes the checking rook).
+_BLOCK_NAMED = re.compile(
+    r"(?<![а-яё])(?P<verb>закрыться|закрываться|закройся|закройтесь|закрывайся|перекрыться|перекройся|заслониться|заслонись|"
+    r"прикрыться|прикройся|загородиться|загородись|закрыть\s+короля|перекрыть\s+шах|interpose|block\s+the\s+check|block)"
+    r"(?:\s+от\s+шаха)?"
+    rf"(?:\s+(?P<instr>{_INSTR}|with\s+(?:the|a|your)\s+(?:knight|bishop|rook|queen|pawn)))?"
+    r"(?:\s+(?:на|on)\s+(?P<sq>[a-h][1-8]))?"
+    r"(?:\s*[—–:-]?\s*(?:ходом\s+|например\s+|e\.g\.\s+)?[*_]*"
+    r"(?P<san>[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8](?:=[QRBN])?)(?![A-Za-z0-9]))?",
+    re.IGNORECASE)
+_EN_INSTR = {"knight": chess.KNIGHT, "bishop": chess.BISHOP, "rook": chess.ROOK, "queen": chess.QUEEN, "pawn": chess.PAWN}
+
+
+def _block_candidates(board: chess.Board, m) -> list:
+    """The moves the words name on *board* (in check): the written move, else the legal moves of the piece named
+    (to the square named)."""
+    if m["san"]:
+        try:
+            return [board.parse_san(m["san"])]
+        except ValueError:
+            return []
+    instr = (m["instr"] or "").lower()
+    ptype = _took_type(instr) or next((t for w, t in _EN_INSTR.items() if instr.endswith(w)), None)
+    if ptype is None:
+        return []
+    sq = chess.parse_square(m["sq"].lower()) if m["sq"] else None
+    return [mv for mv in board.legal_moves if board.piece_type_at(mv.from_square) == ptype
+            and (sq is None or mv.to_square == sq)]
+
+
+def _block_kind_issues(text: str, ctx: CheckContext) -> list[str]:
+    if ctx.current is None or not _BLOCK_NAMED.search(text):
+        return []
+    converted, _ = _to_san(text)
+    boards = []
+    for b in (ctx.current, (ctx.scene_before or (None,))[0], ctx.scene):
+        if b is not None and b.is_check() and all(b is not x for x in boards):
+            boards.append(b)
+    if not boards:
+        return []
+    out = []
+    for m in _BLOCK_NAMED.finditer(converted):
+        if not (m["san"] or m["instr"]):
+            continue
+        if not m["san"] and (m["instr"] or "").lower().startswith(("корол", "with the king")):
+            continue  # «закрыться королём на g8»: the words already say a king move — loose wording, no false move
+        clause_start = max(converted.rfind(c, 0, m.start()) for c in ".;!?")
+        if "?" in converted[m.start():m.end() + 3] or _NEGATION.search(converted[max(0, m.start() - 24): m.start()]) \
+                or _HYPO.search(converted[clause_start + 1: m.start()].lower()) and not _NOW_WORD.search(converted[clause_start + 1: m.start()].lower()):
+            continue
+        verdicts = []
+        for board in boards:
+            cands = _block_candidates(board, m)
+            if not cands:
+                continue
+            king = board.king(board.turn)
+            checkers = board.checkers()
+            between = chess.SquareSet()
+            if len(checkers) == 1:
+                between = chess.SquareSet(chess.between(king, next(iter(checkers))))
+            blocks = [mv for mv in cands if board.piece_type_at(mv.from_square) != chess.KING
+                      and mv.to_square not in checkers and mv.to_square in between]
+            verdicts.append((board, cands, blocks))
+        if not verdicts or any(blocks for _, _, blocks in verdicts):
+            continue
+        board, cands, _ = verdicts[0]
+        mv = cands[0]
+        san = board.san(mv)
+        real = [board.san(x) for x in board.legal_moves if board.piece_type_at(x.from_square) != chess.KING
+                and x.to_square not in board.checkers()
+                and len(board.checkers()) == 1
+                and x.to_square in chess.SquareSet(chess.between(board.king(board.turn), next(iter(board.checkers()))))]
+        tail = (f"the blocks here are {', '.join(real)}" if real
+                else "this check cannot be blocked: the replies are " + ", ".join(board.san(x) for x in board.legal_moves))
+        if board.piece_type_at(mv.from_square) == chess.KING:
+            out.append(f"{san} is a king move, not a block of the check — {tail}")
+        elif mv.to_square in board.checkers():
+            pc = board.piece_at(mv.to_square)
+            out.append(f"{san} takes the checking {_NAMES.get(pc.piece_type, 'piece')} on {chess.square_name(mv.to_square)} — "
+                       f"it captures the checker, it does not block the check; {tail}")
+        else:
+            out.append(f"{san} does not stand between the checker and the king — {tail}")
+    return out
+
+
+# M6 (with eval C3): «белые забирают фигуру бесплатно» about a capture of the game (prod st2#4 29.10: after 4.exf6
+# the pawn on f6 is taken back by gxf6 or Qxf6 — a knight for a pawn): a capture told as free loses nothing back.
+# «бесплатно», «даром», «за просто так», "for free" next to a verb of taking; not negated («даром не возьмёшь»), not
+# «просто так» alone, not a capture to come («заберёт бесплатно»: a threat, judged as a line).
+_FREE = re.compile(r"(?<![а-яё])(?:бесплатно|даром|задаром|за\s+просто\s+так)(?![а-яё])|(?<![a-z])for\s+(?:free|nothing)(?![a-z])",
+                   re.IGNORECASE)
+_TAKE_NOW = re.compile(r"(?<![а-яё])(?:забира\w+|забрал\w*|бер[её]т|берут|бер[её]шь|взял\w*|выигрыва\w+|выиграл\w*|съел\w*|"
+                       r"съеда\w+|получа\w+|получил\w*|отдал\w*|отда[её]т|отдают)(?![а-яё])|"
+                       r"(?<![a-z])(?:wins?|won|takes?|took|grabs?|grabbed|picks?\s+up|picked\s+up|gives?\s+up|gave\s+up)(?![a-z])",
+                       re.IGNORECASE)
+_CAPTURED_WORD = (("пешк", {chess.PAWN}), ("кон", {chess.KNIGHT}), ("слон", {chess.BISHOP}), ("ладь", {chess.ROOK}),
+                  ("ферз", {chess.QUEEN}), ("фигур", {chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN}),
+                  ("pawn", {chess.PAWN}), ("knight", {chess.KNIGHT}), ("bishop", {chess.BISHOP}), ("rook", {chess.ROOK}),
+                  ("queen", {chess.QUEEN}), ("piece", {chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN}))
+_UNIT_WORD = re.compile(r"(?<![а-яёa-z])(?:пешк\w*|кон[ьяе]\w*|слон\w*|ладь\w*|ферз\w*|фигур\w*|pawns?|knights?|bishops?|rooks?|"
+                        r"queens?|pieces?)(?![а-яёa-z])", re.IGNORECASE)
+
+
+def _clause_at(text: str, at: int) -> tuple[int, int]:
+    """The clause of *text* around *at*: between the nearest «.;:!?—–,» on each side."""
+    seps = ".;:!?—–,("
+    start = max(text.rfind(c, 0, at) for c in seps) + 1
+    ends = [i for i in (text.find(c, at) for c in seps) if i >= 0]
+    return start, min(ends) if ends else len(text)
+
+
+def _free_capture_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
+    moves = getattr(ctx, "game_moves", None)
+    if not moves or ctx.current is None:
+        return []
+    free = _FREE.search(text)
+    if not free:
+        return []
+    start, end = _clause_at(text, free.start())
+    clause = text[start:end]
+    verb = _TAKE_NOW.search(clause)
+    if not verb or _NEGATED_WORD.search(clause) or "?" in text[free.end():free.end() + 40].split(".")[0]:
+        return []
+    if _is_hypothetical(text, original, free.start(), ctx=ctx) or _FUTURE_VERB.search(clause):
+        return []
+    from src.board_math import capture_is_free, move_loss
+    from src.game_record import captures, last_capture
+
+    caps = captures(ctx)
+    if not caps:
+        return []
+    converted, _ = _to_san(original)
+    written = [m["san"].rstrip("+#") for m in _MOVE.finditer(converted)
+               if m["num"] or m["bdots"] or m["san"][0] in "KQRBNO" or "x" in m["san"]]
+    game_caps = {c.san.rstrip("+#") for c in caps}
+    if any(w not in game_caps and w not in {s.rstrip("+#") for s in moves} for w in written):
+        return []  # a move of a line, not of the game: the capture told is that line's
+    named_in_sentence = any("x" in w and w in game_caps for w in written)
+    scene = (getattr(ctx, "scene_san", "") or "").rstrip("+#")
+    cap = last_capture(ctx, original)
+    if cap is None:
+        return []
+    unit = _UNIT_WORD.search(clause)
+    want = next((t for k, t in _CAPTURED_WORD if unit and unit.group(0).lower().startswith(k)), None)
+    if not named_in_sentence and not ("x" in scene and scene == cap.san.rstrip("+#")):
+        # the last ply played: only when the words fit it — the piece taken and the side taking
+        if want is None:
+            return []
+    if want is not None and cap.captured not in want:
+        return []
+    from src.game_record import side_words
+
+    side = side_words(ctx, clause)
+    if side is not None and side != cap.mover:
+        return []
+    squares = {s.lower() for s in _SQ_RE.findall(clause.lower())}
+    if squares and chess.square_name(cap.square) not in squares and \
+            chess.square_name(chess.parse_square(re.findall(SQ, cap.san)[-1])) not in squares:
+        return []
+    board = chess.Board()
+    for san in moves[: cap.ply - 1]:
+        board.push_san(san)
+    move = board.parse_san(moves[cap.ply - 1])
+    if move.promotion:
+        free_now = move_loss(board, move) == 0 and not _recaptures(board, move)
+    else:
+        free_now = capture_is_free(board, move)
+    if free_now:
+        return []
+    after = board.copy(stack=False)
+    after.push(move)
+    back = _recaptures(board, move)
+    taken = _NAMES.get(cap.captured, "pawn")
+    lands = _NAMES.get(move.promotion or cap.piece, "pawn")
+    return [f"{cap.label} is not free: the {lands} on {chess.square_name(move.to_square)} can be taken back by "
+            f"{' or '.join(back) if back else 'force'} — {_COLOR_EN[cap.mover]} wins a {taken} for a {lands}"
+            if back else f"{cap.label} is not free: it loses material back by force"]
+
+
+def _recaptures(board: chess.Board, move: chess.Move) -> list[str]:
+    """The captures of the piece *move* lands with, on the board after it, that win for the side taking back."""
+    from src.board_math import see
+
+    after = board.copy(stack=False)
+    after.push(move)
+    return [after.san(m) for m in after.legal_moves if m.to_square == move.to_square and see(after, m) > 0]
+
+
+# M7: a loss told as done in a game — «Чёрные отдали центральную пешку» after 1.e4 c5 (prod st1#1 29.10: nothing was
+# taken) — must be in the game's record: a capture of that side's unit. «в партии Морфи …», a famous game among the
+# turn's records, or a line written in the sentence: another game's or a line's loss, judged elsewhere (trades, P6).
+_GAVE = re.compile(
+    r"(?<![а-яё])(?P<side>белые|ч[её]рные|ты|я|соперник|противник)\s+(?:уже\s+|сразу\s+|просто\s+|ведь\s+|фактически\s+)?"
+    r"(?:отдал\w*|потерял\w*)\s+(?:сво\w+\s+|центральн\w+\s+|одн\w+\s+|цел\w+\s+|лишн\w+\s+)?"
+    r"(?P<unit>пешку|коня|слона|ладью|ферзя|фигуру|качество)(?![а-яё])", re.IGNORECASE)
+_OTHER_GAME = re.compile(r"(?<![а-яё])(?:в|из|во)\s+(?:(?:сво\w+|прошл\w+|друг\w+|т(?:ой|ую|ом)|известн\w+|знаменит\w+|"
+                         r"бессмертн\w+|вечнозел\w+|оперн\w+|классическ\w+|старин\w+|той\s+самой)\s+)?парти[ия]\s+"
+                         r"(?:[А-ЯЁA-Z]|против|с\s+[А-ЯЁA-Z]|\d{4})"
+                         r"|(?<![а-яё])(?:прошл\w+|друг\w+|т(?:ой|ую|ом)|известн\w+|знаменит\w+|бессмертн\w+|вечнозел\w+|оперн\w+)\s+парти",
+                         re.IGNORECASE)
+_GAVE_UNIT = {"пешку": ({chess.PAWN}, "pawn"), "коня": ({chess.KNIGHT}, "knight"), "слона": ({chess.BISHOP}, "bishop"),
+              "ладью": ({chess.ROOK}, "rook"), "ферзя": ({chess.QUEEN}, "queen"),
+              "фигуру": ({chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN}, "piece"),
+              "качество": ({chess.ROOK}, "exchange (a rook)")}
+
+
+def _gave_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
+    moves = getattr(ctx, "game_moves", None)
+    if not moves or ctx.current is None or "?" in text or _OTHER_GAME.search(original):
+        return []
+    from src.game_record import _players, captures, recap_end
+
+    claims = [m for m in _GAVE.finditer(text) if not _NOT_TOLD.search(text[max(0, m.start() - 40): m.start()])
+              and not _is_hypothetical(text, original, m.start(), ctx=ctx)]
+    if not claims or _players(ctx):
+        return []
+    converted, _ = _to_san(original)
+    if any(m["num"] or m["bdots"] or m["san"][0] in "KQRBN" or "x" in m["san"] for m in _MOVE.finditer(converted)) \
+            and recap_end(ctx, original) is None:
+        return []  # moves of a line written in the sentence: its loss, not the game's
+    caps = captures(ctx)
+    out = []
+    for m in claims:
+        side = m["side"].lower().replace("ё", "е")
+        if side.startswith("бел"):
+            color = chess.WHITE
+        elif side.startswith("черн"):
+            color = chess.BLACK
+        elif ctx.student_color is None:
+            continue
+        else:
+            color = ctx.student_color if side == "ты" else not ctx.student_color
+        want, name = _GAVE_UNIT[m["unit"].lower()]
+        lost = [c for c in caps if c.mover != color and c.captured in want]
+        if lost:
+            continue
+        theirs = [f"{c.label} ({_NAMES.get(c.captured, 'pawn')})" for c in caps if c.mover != color]
+        out.append(f"in this game {_owner_words(ctx, color)} has lost no {name}: "
+                   + (f"its losses so far are {', '.join(theirs)}" if theirs else "nothing of it has been captured yet"))
+    return out
+
+
 def _coach_move_issues(text: str, ctx: CheckContext) -> list[str]:
     """In a game, a move the coach says it made must be one the engine made."""
     played = ctx.game_engine_moves
     if played is None:
         return []
     out = _move_number_issues(text, played, ctx.student_color) + _students_move_issues(text, ctx) + _coach_capture_issues(text, ctx)
+    out += _detector("student_capture", ctx, _fail_open(_student_capture_issues, text, ctx))  # plan 31.10 M3
     text = _MOVE_NUMBER.sub("", text)
     norm = {m.rstrip("+#") for m in played}
     for m in _COACH_MOVE.finditer(text):
@@ -3778,7 +4267,7 @@ def _composition_issues(text: str, original: str, ctx: CheckContext) -> list[str
     put up). A rule, an offer, a question, a denial or a line is not judged, nor another moment or game, a named
     position («позиция Филидора»), or the composition or the endgame the student asked about — the topic, not the
     board («Расскажи про эндшпиль ферзь против ладьи»)."""
-    if ctx.current is None or "?" in text or _is_hypothetical(text, original, 0, whole=True) \
+    if ctx.current is None or "?" in text or _is_hypothetical(text, original, 0, whole=True, ctx=ctx) \
             or _COMP_ELSEWHERE.search(text) or re.search(r"позици\w*\s+[А-ЯЁA-Z]", original) \
             or re.search(r"(?<![а-я])(?:против|эндшпил\w*)(?![а-я])", ctx.question or ""):
         return []
@@ -3855,7 +4344,7 @@ def _asked_motif_issues(text: str, original: str, ctx: CheckContext) -> list[str
     if not asked or asked[0] not in _PRESENTS_MOTIF or "?" in text:
         return []
     m = _PRESENTS_MOTIF[asked[0]].search(text)
-    if not m or _CONTRAST.search(text) or _is_hypothetical(text, original, 0, whole=True):
+    if not m or _CONTRAST.search(text) or _is_hypothetical(text, original, 0, whole=True, ctx=ctx):
         return []
     told = motif_pieces(text)
     if told and told[0] == asked[0] and told[1] & asked[1]:
@@ -3942,6 +4431,10 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
               + _fact_issues(lowered, text, ctx)
               + _plan_move_issues(lowered, text, ctx)
               + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx) + _scene_issues(text, ctx)
+              # the game's own record (plan 31.10 P1): the kind of reply to a check, a capture told as free, a loss
+              + _detector("block_kind", ctx, _fail_open(_block_kind_issues, text, ctx))
+              + _detector("free_capture", ctx, _fail_open(_free_capture_issues, lowered, text, ctx))
+              + _detector("gave_up", ctx, _fail_open(_gave_issues, lowered, text, ctx))
               + _asked_motif_issues(lowered, text, ctx) + _composition_issues(lowered, text, ctx)
               # ECO codes, variations named after a person, «usually X» — by the ECO book (prod check 29.10)
               + opening_book_issues(text, ctx))

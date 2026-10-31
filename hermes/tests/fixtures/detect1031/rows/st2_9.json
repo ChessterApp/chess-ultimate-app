@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "M1 recap_scope + M2 material_order",
- "status": "missed",
+ "status": "caught",
  "sentence": "Позиция после 1.d4 e5 2.dxe5 Nc6 3.Nf3 Nf6 4.exf6 Be7 5.fxe7 d6 6.exd8=R+: у тебя чёрные, ты под шахом, и партия фактически решена — белые впереди на целую ладью. ",
  "sentence_index": 0,
  "prefix": [],
