@@ -108,8 +108,13 @@ def test_prod_square_the_verdict_and_the_pawn_are_cut_with_the_truth():
 def test_prod_square_the_rest_of_the_answer_is_not_judged_by_the_outcome_check():
     # Hypotheticals («если король пойдёт…»), a purpose («Чтобы удержать ничью…»), the line told in words
     # («…Kc6, и король встаёт перед пешкой — ничья»), the own king («белый король успевает вернуться»).
+    # Plan 31.10 (P5 race_distance): «Твой король на e5 слишком далеко» is the race said in words of distance — a
+    # graded error of 29.10 (made_up: Kd5 and Kd6 draw), cut since; every other sentence still passes.
     ctx = _ctx(SQUARE, Q_SQUARE)
     for sentence, issues in _sentences(ctx, SQUARE_ANSWER)[2:]:
+        if "слишком далеко" in sentence:
+            assert any("does not catch" in i and "draw" in i for i in issues), (sentence, issues)
+            continue
         assert not any("tablebase" in i for i in issues), sentence
 
 

@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "B race_distance",
- "status": "missed",
+ "status": "caught",
  "sentence": "Твой король на e5 слишком далеко: пешка a5 идёт вперёд с темпом, а белый король успевает вернуться и встать на путь. ",
  "sentence_index": 3,
  "prefix": [
