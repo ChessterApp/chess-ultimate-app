@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "sync",
  "mechanism": "C5 idea_scope",
- "status": "missed",
+ "status": "caught",
  "sentence": "Подумай, что случится с твоим конём c6 после d5 — и сам увидишь, почему пешка на d4 сначала должна уйти.",
  "sentence_index": 6,
  "prefix": [

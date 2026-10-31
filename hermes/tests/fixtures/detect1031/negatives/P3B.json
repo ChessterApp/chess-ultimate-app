@@ -47,6 +47,82 @@
    "why": "the holder (White's e5 pawn) and the lost knight are of opposite colours: true",
    "stage": "sync",
    "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "start-cue-c1-locked-now",
+   "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "detector": "start_cue",
+   "sentence": "Сейчас, в самом начале партии, слон c1 заперт пешками b2 и d2.",
+   "why": "true in the initial position, now judged there",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
+  },
+  {
+   "id": "board-cue-lesson-pieces-absent",
+   "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "detector": "start_cue",
+   "sentence": "На доске сейчас первая задача урока: ферзь на d3 защищает пешку e4.",
+   "why": "the words point at the lesson's board, which the turn does not have: the pieces named are not on this one",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
+  },
+  {
+   "id": "idea-old-square-named-plainly",
+   "moves": "e4 e5 Nf3 Nc6 d4",
+   "detector": "idea_scope",
+   "before": [
+    "А почему не Nxd4 сразу?"
+   ],
+   "sentence": "Тогда белые разменяют коней, и твой конь c6 исчезнет с доски.",
+   "why": "the moved knight named by the square it left, nothing said about that square: the usual naming (cf. «твою пешку b6» after bxa7)",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
+  },
+  {
+   "id": "idea-from-square-form",
+   "moves": "e4 e5 Nf3 Nc6 d4",
+   "detector": "idea_scope",
+   "before": [
+    "А почему не Nxd4 сразу?"
+   ],
+   "sentence": "Конь с c6 уходит в центр, и после d5 ему ничего не грозит.",
+   "why": "«конь с c6» is the piece that came from c6",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
+  },
+  {
+   "id": "idea-lasts-one-sentence",
+   "moves": "e4 e5 Nf3 Nc6 d4",
+   "detector": "idea_scope",
+   "before": [
+    "А почему не Nxd4 сразу?",
+    "Хороший вопрос."
+   ],
+   "sentence": "Подумай, что случится с твоим конём c6 после d5.",
+   "why": "two sentences after the question the board is the one now again, where the knight stands on c6",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
+  },
+  {
+   "id": "bare-line-attacked-true",
+   "moves": "e4 Nf6",
+   "detector": "bare_pawn_line",
+   "sentence": "Если белые сыграют e5, конь f6 окажется под ударом.",
+   "why": "after 2.e5 the knight on f6 is attacked",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
+  },
+  {
+   "id": "opera-no-longer-true",
+   "moves": "e4 e5 Nf3 d6 d4 Bg4 dxe5 Bxf3 Qxf3 dxe5 Bc4 Nf6 Qb3 Qe7 Nc3 c6 Bg5 b5 Nxb5 cxb5 Bxb5+ Nbd7 O-O-O Rd8 Rxd7 Rxd7 Rd1 Qe6 Bxd7+ Nxd7 Qb8+ Nxb8 Rd8#",
+   "detector": "loaded_line",
+   "before": [
+    "Посмотри на конец: ферзь идёт на b8, конь вынужден её взять, и тогда ладья врывается на d8 с матом."
+   ],
+   "sentence": "Ферзь пожертвован, чтобы конь чёрных больше не защищал поле f6.",
+   "why": "before 16.Qb8+ the knight on d7 covers f6: the relation «больше не» presupposes held",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
   }
  ]
 }
