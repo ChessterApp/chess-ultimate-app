@@ -48,13 +48,23 @@ def test_the_rows_are_the_42_misses_of_main():
     assert tiers == {"wp0": 1, "must": 22, "target": 2, "stretch": 5, "out": 12}
 
 
+def _engine_stage_on(monkeypatch):
+    """tests/conftest.py turns the engine stage off for every test; a row or control of the engine stage runs it as
+    the server does (stage 2 integration: these were empty checks before)."""
+    from src import config
+
+    monkeypatch.setattr(config, "COACH_MOVE_VERIFY", True)
+
+
 @pytest.mark.parametrize("path", ROWS, ids=[p.stem for p in ROWS])
-def test_row_keeps_its_status(path):
+def test_row_keeps_its_status(path, monkeypatch):
     row = json.loads(path.read_text(encoding="utf-8"))
     if row["sentence"] is None:
         pytest.skip("the graded quote is not one sentence of the answer")
     if row["stage"] == "engine" and not _stockfish():
         pytest.skip("the engine stage needs a local Stockfish")
+    if row["stage"] == "engine":
+        _engine_stage_on(monkeypatch)
     ctx = load_ctx(row["ctx"])
     got = run_answer(row["prefix"] + [row["sentence"]], ctx, engine=row["stage"] == "engine",
                      live_game=row["turn"].get("live_game"))
@@ -97,9 +107,11 @@ SENTENCE_CONTROLS = [(pkg, c) for pkg, c in CONTROLS if c.get("kind") != "fact"]
 
 
 @pytest.mark.parametrize("pkg,control", SENTENCE_CONTROLS, ids=[f"{p}:{c['id']}" for p, c in SENTENCE_CONTROLS])
-def test_true_control_is_not_flagged(pkg, control):
+def test_true_control_is_not_flagged(pkg, control, monkeypatch):
     if control.get("stage") == "engine" and not _stockfish():
         pytest.skip("the engine stage needs a local Stockfish")
+    if control.get("stage") == "engine":
+        _engine_stage_on(monkeypatch)
     ctx = _ctx_for(control)
     got = run_answer(list(control.get("before") or []) + [control["sentence"]], ctx,
                      engine=control.get("stage") == "engine")

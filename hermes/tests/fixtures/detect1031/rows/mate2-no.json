@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "engine",
  "mechanism": "C2 piece_decides",
- "status": "missed",
+ "status": "caught",
  "sentence": "Нет, мата в два хода тут нет — но есть гораздо более простое: король чёрных застрял в центре на e6, и решает ферзь.",
  "sentence_index": 0,
  "prefix": [],

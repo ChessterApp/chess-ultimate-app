@@ -15,7 +15,7 @@
  "expect": "caught",
  "stage": "engine",
  "mechanism": "C1a propose_vocab",
- "status": "missed",
+ "status": "caught",
  "sentence": "Пока же просто развивайся: Qe2, Be3, и король спокойно укроется позже, когда f1 перестанет быть под боем.",
  "sentence_index": 6,
  "prefix": [
