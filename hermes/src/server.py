@@ -952,6 +952,18 @@ def _engine_moves(game: dict) -> list:
     return [m for i, m in enumerate(game.get("moves") or []) if i % 2 == first]
 
 
+def _record_leads_to(moves: list, fen: Optional[str]) -> bool:
+    """The game record *moves* (SAN from the start) ends in the position of *fen* — pieces, side to move."""
+    try:
+        board = chess.Board()
+        for san in moves:
+            board.push_san(san)
+        target = chess.Board(fen) if fen else None
+    except ValueError:
+        return False
+    return target is not None and board.board_fen() == target.board_fen() and board.turn == target.turn
+
+
 def _parse_move_token(token: str, board) -> Optional[str]:
     """*token* as a legal SAN move of *board* (Russian notation too), else None."""
     from src.notation import russian_to_san
@@ -5142,6 +5154,13 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
     check_ctx = CheckContext.from_fens([board.fen], [board.pgn] if board.pgn else [], student_color=student)
     check_ctx.language = comment_language
     check_ctx.relation_surface = "game"  # the relation checker records here (shadow), never cuts, until reviewed
+    # The game's own record, as the chat path gives it (fix 01.11): the game-record detectors (who took what, what
+    # was given up, the material by the record) judge a comment against the moves of this game — without them every
+    # one of them was silent here. Only a record that leads to the board's position: a comment is about that board.
+    moves = list(state.get("moves") or [])
+    if moves and _record_leads_to(moves, board.fen):
+        check_ctx.game_moves = moves
+        check_ctx.game_engine_moves = _engine_moves(state)
     gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
 
     async def event_stream():
