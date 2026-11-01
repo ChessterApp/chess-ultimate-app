@@ -190,6 +190,10 @@ class Claim:
     move: Optional[MoveRef] = None
     kind: str = ""
     presup: str = ""  # PRESUPS (plan 31.10)
+    # presup 'before_move' only (fix1101 F1): the told move ``move`` is said to END the relation — «Bd2 развязывает коня
+    # c3»: pinned before Bd2 (the presupposition) and no longer pinned after it (the assertion, judged too when the move
+    # is another piece's). False for a negation or a question, which keep only the presupposition.
+    escape: bool = False
 
     def to_dict(self) -> dict:
         out = {"rel": self.rel, "subj": self.subj.to_dict() if self.subj else None,
@@ -214,6 +218,8 @@ class Claim:
             out["kind"] = self.kind
         if self.presup:
             out["presup"] = self.presup
+        if self.escape:
+            out["escape"] = True
         return out
 
     @classmethod
@@ -235,7 +241,7 @@ class Claim:
                    to=Ref.from_dict(d.get("to")), neg=bool(d.get("neg", False)), question=question,
                    count=int(count) if count is not None else None, pos=Pos.from_dict(d.get("pos")), span=span,
                    source=source or d.get("source") or "grammar", move=MoveRef.from_dict(mv) if mv else None,
-                   kind=d.get("kind") or "", presup=presup)
+                   kind=d.get("kind") or "", presup=presup, escape=bool(d.get("escape", False)))
 
 
 @dataclass(frozen=True)

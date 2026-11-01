@@ -758,6 +758,14 @@ def _judge_blocks(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
 
 def _judge_locked(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
     s = claim.subj
+    if s is not None and not s.sq and s.piece and claim.rel in ("locked", "trapped") and not claim.objs:
+        # «чёрный ферзь без ходов», «у белых ферзь заперт»: the one piece of that kind (and side) on the board (fix1101 F1)
+        col = _colour(s, ctx, board)
+        same = [q for q, p in board.piece_map().items() if p.piece_type == PIECE_TYPE[s.piece]
+                and (col is None or p.color == col)]
+        if len(same) != 1:
+            raise _Undecided
+        s = Ref(sq=chess.square_name(same[0]), piece=s.piece, side=s.side, owner=s.owner, text=s.text)
     if s is None or not s.sq:
         raise _Undecided
     a = chess.parse_square(s.sq)
@@ -824,9 +832,23 @@ def _judge_pin_exists(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
             return False, f"there is no {_kind(s)} on the board to pin anything"
         raise _Undecided
     want = {_ref_square(board, o) for o in objs}
+    # a pinned piece named by its kind or side only («увести коня из-под связки», «чёрные снимают связку»): a pin of
+    # that kind / of that side's piece (fix1101 F1)
+    loose = [o for o in _targets(claim) if not o.sq and (o.piece or o.side is not None or o.owner in ("you", "their"))]
+
+    def fits(t):
+        if want:
+            return t in want
+        p = board.piece_at(t)
+        for o in loose:
+            col = _colour(o, ctx, board)
+            if (o.piece and p.piece_type != PIECE_TYPE[o.piece]) or (col is not None and p.color != col):
+                return False
+        return True
+
     for a in pinners:
         for t in board.attacks(a):
-            if (not want or t in want) and board.piece_at(t) is not None and pin_behind(board, a, t) is not None:
+            if board.piece_at(t) is not None and fits(t) and pin_behind(board, a, t) is not None:
                 return True, ""
     if len(pinners) == 1:
         a = pinners[0]
@@ -842,6 +864,25 @@ def _lost_on(claim: Claim, board: chess.Board, ctx: Any, z: int) -> Optional[tup
     claim's own ref (``to``: «твой конь»), the game's capture on *z* (src/game_record.last_capture), or the told move
     that led to *board* when it captured on *z*; None when none says."""
     to = claim.to
+    if to is not None and not to.sq:
+        # the lost piece not named on z («пешка g7 контролировала f6, и конь был потерян», «твой конь потерялся»):
+        # the game's last capture on z must be of that kind and side; with no capture there in the record, a side the
+        # words give still decides, a bare kind binds to nothing (fix1101 F1)
+        try:
+            from src.game_record import captures
+
+            caps = [c for c in captures(ctx) if c.square == z]
+        except Exception:  # noqa: BLE001
+            caps = []
+        col = _colour(to, ctx, board) if (to.side is not None or to.owner in ("you", "their")) else None
+        if caps:
+            cap = caps[-1]
+            if (to.piece and PIECE_TYPE.get(to.piece) != cap.captured) or (col is not None and col == cap.mover):
+                return None
+            return (not cap.mover), cap.captured, f"; it was taken by {_side(cap.mover)}'s {NAME[cap.piece]} ({cap.label})"
+        if col is None:
+            return None
+        return col, PIECE_TYPE.get(to.piece) if to.piece else None, ""
     if to is not None and (to.side is not None or to.owner in ("you", "their")):
         col = _colour(to, ctx, board)
         if col is not None:
@@ -1074,15 +1115,20 @@ def _on(claim: Claim, board: chess.Board, ctx: Any, rule: Optional[Callable]) ->
 # gates the verdict — off: never false; shadow: a false verdict is logged (ctx.relation_shadow), not reported.
 _REL_DETECTOR = {"locked": "locked", "cover_cause": "cover_cause", "pin_exists": "pin_noun"}
 _PRESUP_DETECTOR = {"before_move": "pin_escape", "exists": "pin_noun", "no_longer": "loaded_line"}
+_KIND_DETECTORS = ("pin_escape", "pin_noun", "locked", "cover_cause")
 
 
 def _detectors(claim: Claim, boards: Optional[BoardSet]) -> list:
     """The detectors *claim*'s verdict depends on: its relation's, its presupposition's, the idea scope's, and the one
     that built its primary board (claim_scene.DETECTOR_ATTR) — [] for every claim of the relation checker before."""
     names = []
-    for n in (_REL_DETECTOR.get(claim.rel), _PRESUP_DETECTOR.get(claim.presup),
-              "idea_scope" if claim.kind == "idea_scope" else None,
-              getattr(boards.primary, "rel_detector", None) if boards is not None else None):
+    own = claim.kind if claim.kind in _KIND_DETECTORS else None
+    # the detector that emitted the claim gates it (fix1101 F1: «снять связку», a proposal, the past of pin_escape are
+    # pin_escape's, not pin_noun's though their relation is pin_exists); the relation and presupposition maps serve
+    # the claims no detector emitted (the llm schema's)
+    for n in ((own,) if own else (_REL_DETECTOR.get(claim.rel), _PRESUP_DETECTOR.get(claim.presup))) + (
+            "idea_scope" if claim.kind == "idea_scope" else None,
+            getattr(boards.primary, "rel_detector", None) if boards is not None else None):
         if n and n not in names:
             names.append(n)
     return names
@@ -1136,14 +1182,14 @@ def decide(claim: Claim, boards: BoardSet, ctx: Any) -> Verdict:
 
 
 def _presupposed(claim: Claim, boards: BoardSet) -> tuple:
-    """(claim, boards) as judged under the claim's presupposition (plan 31.10): before_move — the relation on the board
-    before the told move («конь уходит из-под связки»: pinned before Nd2); no_longer — the positive relation on the
-    board before the told move («ладья больше не защищала d8»: it defended d8 before). Else as they are."""
+    """(claim, boards) as judged under the claim's presupposition (plan 31.10): no_longer — the positive relation on the
+    board before the told move («ладья больше не защищала d8»: it defended d8 before). Else as they are. (before_move
+    is _decide_escape's: the board the told move is played on is found from the move itself, fix1101 F1.)"""
     from dataclasses import replace
 
     from src.claim_scene import board_before, detector_of, last_move
 
-    if claim.presup == "before_move" or (claim.presup == "no_longer" and detector_of(boards.primary) != "loaded_line"):
+    if claim.presup == "no_longer" and detector_of(boards.primary) != "loaded_line":
         def back(b):
             prev = board_before(b) if b is not None else None
             return prev if prev is not None and last_move(b) is not None else b
@@ -1157,21 +1203,6 @@ def _presupposed(claim: Claim, boards: BoardSet) -> tuple:
             where = f"before {_san_where(primary, mv)}"
         elif claim.presup == "no_longer":
             return replace(claim, presup=""), None  # no move told: what held before is unknown
-        if claim.presup == "before_move" and primary is not boards.primary and mv is not None:
-            # «Nd2: конь уходит из-под связки» names the piece by kind only (claim_grammar pin_escape): it is the piece
-            # that made the told move, read on its square before the move. A told move other than the board's last
-            # one leaves the claim unbound (undecided).
-            if claim.move is not None and claim.move.to and claim.move.to != chess.square_name(mv.to_square):
-                return claim, None
-            mover = boards.primary.piece_at(mv.to_square)
-
-            def bind(r):
-                if r is None or r.sq or not r.piece or mover is None or PIECE_TYPE.get(r.piece) != mover.piece_type \
-                        or (r.side is not None and r.side != mover.color):
-                    return r
-                return replace(r, sq=chess.square_name(mv.from_square), side=mover.color)
-
-            claim = replace(claim, objs=tuple(bind(o) for o in claim.objs))
         boards = BoardSet(primary=primary, where=where, alternatives=tuple(back(b) for b in boards.alternatives),
                           shown=None)
     if claim.presup == "no_longer" or (claim.neg and detector_of(boards.primary) == "loaded_line"):
@@ -1179,10 +1210,141 @@ def _presupposed(claim: Claim, boards: BoardSet) -> tuple:
     return claim, boards
 
 
+def _escape_frames(claim: Claim, board: Optional[chess.Board], ctx: Any) -> list:
+    """The ways *board* can hold the told move M of a pin's end (presup before_move, fix1101 F1): (before, after, move,
+    pinned refs before, the same pieces after, own) for each reading where M is played by the side of the piece the
+    words name — the board's last move when it is M (the board after M), or a legal move of the side to move there (the
+    board before M, «Nxd5! — конь f6 уходит из-под связки» said to Black after 6.Nxd5). The piece named by its square
+    must stand there before M; named by its kind only, it is the piece that moved (M is its own move) or the one piece of
+    that kind and side (M is another piece's: an interposition, a capture of the pinner). A move numbered for a side
+    is that side's. [] when no reading fits (unbound: undecided)."""
+    from dataclasses import replace
+
+    from src.claim_scene import _after, _same_move, board_before, last_move, move_readings
+
+    # the told move; a claim built elsewhere (the llm schema, a fixture) may give it only as its position's last move
+    m = claim.move or (claim.pos.moves[-1] if claim.pos.moves else None)
+    if board is None or m is None or m.castle:
+        return []
+    cands = []
+    mv, prev = last_move(board), board_before(board)
+    if mv is not None and prev is not None:
+        try:
+            if _same_move(prev, m, mv):
+                cands.append((prev, board, mv))
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        for x in move_readings(board, m):
+            if not any(c[2] == x and c[0] is board for c in cands):
+                cands.append((board, _after(board, x), x))
+    except Exception:  # noqa: BLE001
+        pass
+    out = []
+    for before, after, x in cands:
+        mover = before.piece_at(x.from_square)
+        if mover is None or (m.side is not None and mover.color != m.side):
+            continue
+        refs, own = [], False
+        objs = [o for o in claim.objs if o is not None]
+        for r in objs:
+            if r.sq or r.piece:
+                if r.sq:
+                    sq = chess.parse_square(r.sq)
+                    p = before.piece_at(sq)
+                    if p is None or (r.piece and p.piece_type != PIECE_TYPE[r.piece]):
+                        refs = None
+                        break
+                elif x.from_square is not None and r.piece and PIECE_TYPE[r.piece] == mover.piece_type:
+                    sq, p = x.from_square, mover
+                else:
+                    same = [s for s, q in before.piece_map().items() if r.piece and q.piece_type == PIECE_TYPE[r.piece]
+                            and q.color == mover.color]
+                    if len(same) != 1:
+                        refs = None
+                        break
+                    sq, p = same[0], before.piece_at(same[0])
+                want = r.side if r.side is not None else _colour(r, ctx, before) if r.owner in ("you", "their") else None
+                if p.color != mover.color or (want is not None and want != p.color):
+                    refs = None
+                    break  # one does not unpin the other side's piece: M is not this pin's end
+                own = own or sq == x.from_square
+                refs.append((replace(r, sq=chess.square_name(sq), side=p.color),
+                             replace(r, sq=chess.square_name(x.to_square if sq == x.from_square else sq), side=p.color)))
+            else:  # a side only («чёрные снимают эту связку», «чтобы развязаться»): a pin of that side's piece; with
+                # no side named any pin («после Ba5 связка исчезает» — the pinner's own move ends it too)
+                want = r.side if r.side is not None else _colour(r, ctx, before) if r.owner in ("you", "their") else None
+                refs.append((Ref(side=want), Ref(side=want)))
+        if refs is None:
+            continue
+        if not objs:
+            refs = [(Ref(), Ref())]
+        if claim.to is not None and claim.to.piece == "K" and mover.piece_type != chess.KING:
+            continue  # «уйти королём из-под связки»: the king's move
+        out.append((before, after, x, tuple(a for a, _ in refs), tuple(b for _, b in refs), own))
+    return out
+
+
+def _decide_escape(claim: Claim, boards: BoardSet, ctx: Any) -> Verdict:
+    """«Bd2 развязывает коня c3», «Nd2: конь уходит из-под связки», «Ход 4...Bd7 снял связку с коня c6» (presup
+    before_move, fix1101 F1): the pin held on the board right before the told move M — and, for M another piece's
+    move told affirmatively (claim.escape), no longer holds right after it. Judged on every reading of M the boards
+    allow (the primary first, then the alternatives): true when one reading holds, false when every reading fails and
+    the primary has one, undecided when no board binds M to the piece the words name."""
+    from dataclasses import replace
+
+    from src.claim_scene import _san_where
+
+    readings = []
+    for b in (boards.primary,) + tuple(boards.alternatives):
+        for fr in _escape_frames(claim, b, ctx):
+            if not any(fr[0] is r[0] and fr[2] == r[2] for r in readings):
+                readings.append(fr)
+        if b is boards.primary and not readings:
+            pass
+    if not readings:
+        return UNDECIDED
+    first = None
+    for before, after, x, refs, after_refs, own in readings:
+        pre = replace(claim, objs=refs, presup="", neg=False, escape=False, move=None)
+        v, truth = judge_on(pre, before, ctx)
+        if v is None:
+            return UNDECIDED  # one reading cannot be judged: the words may mean it
+        if v is False:
+            if first is None:
+                first = Verdict("false", f"before {_san_where(before, x)}", truth)
+            continue
+        if not claim.escape or own or claim.rel != "pinned":
+            return Verdict("true", boards.where)
+        # the pin the words end is the one that held before M — the same pinner against the same piece behind; a new
+        # relative pin M makes («Qd2 развязывает коня c3»: the knight now shields the queen) is not that pin
+        t0, t1 = chess.parse_square(refs[0].sq), chess.parse_square(after_refs[0].sq)
+        held = [(a, pin_behind(before, a, t0)) for a in _pinners(before, t0)]
+        kept = [a for a, y in held if a != x.to_square and after.piece_at(a) == before.piece_at(a)
+                and y is not None and y != x.from_square and pin_behind(after, a, t1) == y]
+        if not kept:
+            return Verdict("true", boards.where)
+        if first is None:
+            first = Verdict("false", f"after {_san_where(before, x)}",
+                            f"{who(after, t1)} is still pinned by {_names(after, kept)}: {before.san(x)} does not take "
+                            f"it out of the pin")
+    if first is None:
+        return UNDECIDED
+    if not any(r[0] is boards.primary or r[1] is boards.primary for r in readings):
+        return UNDECIDED  # only another board of the sentence binds M: never false on its own
+    return first
+
+
 def _decide(claim: Claim, boards: BoardSet, ctx: Any) -> Verdict:
     if claim.question == "yesno" or boards is None:
         return UNDECIDED
-    if claim.presup in ("before_move", "no_longer") or (boards.primary is not None and claim.neg and
+    if claim.presup == "before_move":
+        return _decide_escape(claim, boards, ctx)
+    if claim.kind == "pin_escape" and claim.presup == "exists" and claim.pos.tense == "past":
+        # «конь ушёл из-под связки», «король увёл ферзя из-под связки» with no move told: the pin held right before
+        # a move the words do not name, and the boards here are after it (fix1101 F1) — unjudged, never false
+        return UNDECIDED
+    if claim.presup == "no_longer" or (boards.primary is not None and claim.neg and
                                                        getattr(boards.primary, "rel_detector", None) == "loaded_line"):
         claim, boards = _presupposed(claim, boards)
         if boards is None:
