@@ -310,3 +310,16 @@ def test_cover_cause_cuts_a_move_comment_by_the_record():
     ctx.relation_surface = "game"
     got = run_answer(["Конь стал добычей на f6, ведь f6 под контролем пешки g7."], ctx)[-1][1]
     assert got, "cover_cause follows the record on a move comment"
+
+
+@pytest.mark.parametrize("sentence,cut", [
+    ("После 3...Nf6 у белых уже был лишний конь.", True),
+    ("После 2.dxe5 у белых была лишняя пешка.", False),
+])
+def test_material_at_a_numbered_move_of_the_record(sentence, cut):
+    assert bool(_row_issues("st2_4-eval", sentence)) is cut
+
+
+def test_a_past_anchor_is_the_end_of_the_line_it_opens():
+    ctx = _ctx("e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6", student=chess.WHITE)
+    assert check_sentence("После 3.d4 cxd4 у чёрных была лишняя пешка, но 4.Nxd4 её вернул.", ctx) == []

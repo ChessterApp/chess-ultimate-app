@@ -3077,13 +3077,27 @@ def _past_ply_board(original: str, ctx: CheckContext):
     moves = [str(x).rstrip("+#") for x in ctx.game_moves]
     if not (1 <= ply <= len(moves)) or moves[ply - 1] != m["san"].rstrip("+#"):
         return []
+    # the line the anchor opens runs on («после 1.e4 e5 2.Nf3 …», «после 3.d4 cxd4»): its last move, each the record's
+    label = f"{m['num']}{m['dots']}{m['san']}"
+    pos = m.end()
+    while True:
+        nxt = re.match(r"[\s,]*(?:(?P<n>\d{1,3})\s?(?P<d>\.\.\.|…|\.)\s?)?(?P<s>[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?"
+                       r"|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8](?:=[QRBN])?|O-O(?:-O)?)[+#]?(?![\w])", conv[pos:])
+        if not nxt or ply >= len(moves) or moves[ply] != nxt["s"].rstrip("+#"):
+            if nxt and (ply >= len(moves) or moves[ply] != nxt["s"].rstrip("+#")):
+                return []  # the line leaves the record: another line, not the game's past
+            break
+        ply += 1
+        label = (f"{(ply - 1) // 2 + 1}{'.' if ply % 2 else '...'}") + nxt["s"]
+        pos += nxt.end()
+    m = {"num": None}
     board = chess.Board()
     try:
         for san in moves[:ply]:
             board.push_san(san)
     except ValueError:
         return []
-    return [board, f"{m['num']}{m['dots']}{m['san']}"]
+    return [board, label]
 
 
 def _material_frame_issues(text: str, original: str, ctx: CheckContext, boards: list, read_spans: list, said,
