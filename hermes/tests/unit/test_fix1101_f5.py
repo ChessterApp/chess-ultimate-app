@@ -148,6 +148,7 @@ def test_a_still_wanted_proposal_is_still_read():
     "Закройся от шаха слоном: Bd7.",
     "Закрыться от шаха можно ходом Bd7.",
     "Лучший ответ — Qd7.",
+    "У тебя три хода: Kxd8, Ke7 или закрыться — Nxd8.",
 ])
 def test_a_contact_check_cannot_be_blocked(sentence):
     assert check_sentence(sentence, _row_ctx("st2_8-block"))

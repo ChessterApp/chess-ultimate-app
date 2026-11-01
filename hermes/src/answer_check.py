@@ -4470,7 +4470,9 @@ def _block_kind_issues(text: str, ctx: CheckContext) -> list[str]:
         told = [mv for mv in _MOVE.finditer(converted[: claim["at"]])
                 if (mv["san"][0] in "KQRBNO" or mv["num"] or mv["bdots"] or "x" in mv["san"] or mv["check"])
                 and mv["san"] != claim["san"]]  # not the block's own move («Nxd8 — это заслон»)
-        if told:
+        if told and any(all(_parses(b, x["san"] + (x["check"] or "")) for x in told) for b in boards):
+            pass  # «У тебя три хода: Kxd8, Ke7 или закрыться — Nxd8»: the replies of this very board, listed
+        elif told:
             # only a line written out move by move («Rc8+ Kh7 Qb1+»), every move of it walked in this sentence: a move
             # told in words between («Rc8+ загоняет короля на h7, потом Qb1+») leaves the walk on a guessed board
             whole = all(re.fullmatch(r"[\s,]*(?:\d{1,3}\s?\.{1,3}\s*)?", converted[x.end(): y.start()])
