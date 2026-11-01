@@ -2579,6 +2579,20 @@ def _off_game_keys(ctx: CheckContext) -> set:
     """In a game on the board: the positions of the session's other games and lines (ctx.other_board_keys, and every
     position of a recorded line from the initial position after it leaves this game's moves) — never "the board now"
     of this game (review-miss 01.11: «Материал равный» in st3 was excused by the st2 game's final board)."""
+    stamp = (len(getattr(ctx, "line_records", None) or ()), tuple(ctx.game_moves or ()),
+             frozenset(getattr(ctx, "other_board_keys", None) or ()), ctx._key(ctx.current) if ctx.current is not None else "")
+    cached = getattr(ctx, "_off_game_cache", None)
+    if cached and cached[0] == stamp:
+        return cached[1]
+    off = _off_game_keys_now(ctx)
+    try:
+        ctx._off_game_cache = (stamp, off)
+    except Exception:  # noqa: BLE001
+        pass
+    return off
+
+
+def _off_game_keys_now(ctx: CheckContext) -> set:
     off = set(getattr(ctx, "other_board_keys", None) or ())
     moves = [str(m).rstrip("+#") for m in (ctx.game_moves or ())]
     board, path = chess.Board(), set()
@@ -2694,8 +2708,14 @@ def _told_capture(text: str, ctx: CheckContext) -> Optional[tuple]:
     return board.san(moves[0]), after
 
 
+# Every material pattern below needs one of these words: a sentence without any is not looked at further.
+_MAT_ANY = re.compile(r"больше|меньше|впереди|позади|лишн|без|материал|перевес|преимуществ|отста|уступа|вед[уеё]|лучше|хуже|"
+                      r"выигрыва|проигрыва|плюс|минус|равн|равен|up|down|ahead|behind|extra|spare|material|equal|even|level|"
+                      r"balanced", re.IGNORECASE)
+
+
 def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
-    if ctx.current is None:
+    if ctx.current is None or not _MAT_ANY.search(text):
         return []
     issues = []
     told = _told_capture(text, ctx)
