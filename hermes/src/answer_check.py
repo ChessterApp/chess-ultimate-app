@@ -1144,7 +1144,88 @@ def _move_denied(text: str) -> bool:
 
 def _recapture_issues(text: str, ctx: CheckContext) -> list[str]:
     """«чёрные бьют Bxe3, ты берёшь fxe3» with no pawn on f2 — a pawn taking back on the square
-    the move before it captured on, where no such pawn stands (the client's game, 2026-10-07)."""
+    the move before it captured on, where no such pawn stands (the client's game, 2026-10-07).
+
+    The pair is judged where its line stands (F5 01.11): the moves written right before it in the same run
+    («Nxd4 Nxd4 exd4» — the run, not its last two moves: 3...Nxd4 4.Nxd4 exd4 is legal) are played first, from a
+    position of the turn or the one after the move the question is about («А почему не Nxd4?» — «после Nxd4 exd4»);
+    a run that plays from none of them is not judged here (the line check reads lines)."""
+    if _lesson(ctx):
+        return _recapture_issues_v1031(text, ctx)
+    converted, _ = _to_san(text)
+    moves = list(_MOVE.finditer(converted))
+    anchors = [b for b in ctx.boards if ctx.is_given(b) and (ctx.current is None or b.board_fen() != chess.STARTING_BOARD_FEN
+                                                            or ctx.current.board_fen() == chess.STARTING_BOARD_FEN)]
+    # …and the position after the student's asked move, on the board on the screen: the line the answer tells from there
+    if ctx.current is not None:
+        for q in sorted(ctx.quoted):
+            try:
+                idea = ctx.current.copy(stack=False)
+                idea.push_san(q)
+                anchors.append(idea)
+            except ValueError:
+                continue
+    issues = []
+    for k in range(1, len(moves)):
+        first, second = moves[k - 1], moves[k]
+        san1, san2 = first["san"], second["san"]
+        if "x" not in san1 or not re.fullmatch(r"[a-h]x[a-h][1-8]", san2) or san2[-2:] != san1[-2:]:
+            continue
+        # the moves written right before the pair, in one run with it («Nxd4 Nxd4 exd4»)
+        j = k - 1
+        while j > 0 and re.fullmatch(r"[\s,]*(?:\d{1,3}\s?\.{1,3}\s*)?", converted[moves[j - 1].end(): moves[j].start()]):
+            j -= 1
+        run = moves[j: k + 1]
+        i = len(run) - 1
+        if any(x["num"] or x["bdots"] for x in run):
+            continue  # a written line («17. Bxd5 cxd5») is followed by the line check
+        missing, played = None, False
+        # An exchange told from its middle («коню некуда возвращаться: после Nxd4 exd4 белые играют Qxd4» — the
+        # first capture on d4 left unwritten, or told in words): the position after a capture on that square by
+        # the side to move is where it stands too.
+        sq1 = chess.parse_square(san1[-2:])
+        middle = []
+        if ctx.current is not None:
+            for mv in ctx.current.legal_moves:
+                if mv.to_square == sq1 and ctx.current.is_capture(mv):
+                    after = ctx.current.copy(stack=False)
+                    after.push(mv)
+                    middle.append(after)
+        for board in anchors + middle:
+            for color in (board.turn, not board.turn):
+                trial = board.copy(stack=False)
+                trial.turn = color
+                try:
+                    for x in run[: i - 1]:
+                        trial.push_san(x["san"] + (x["check"] or ""))
+                    move = trial.parse_san(san1)
+                except ValueError:
+                    continue
+                if not trial.is_capture(move):
+                    continue
+                trial.push(move)
+                played = True
+                try:
+                    trial.parse_san(san2)
+                    missing = None
+                    break
+                except ValueError:
+                    dest = chess.parse_square(san2[-2:])
+                    rank = chess.square_rank(dest) + (-1 if trial.turn == chess.WHITE else 1)
+                    if 0 <= rank <= 7:
+                        missing = chess.square_name(chess.square(chess.FILE_NAMES.index(san2[0]), rank))
+            else:
+                continue
+            break  # a position where the pawn stands: a line from there
+        else:
+            if played and missing:
+                issues.append(f"{san2} is impossible after {san1}: there is no pawn on {missing} to take back on {san2[-2:]}")
+            continue
+    return issues
+
+
+def _recapture_issues_v1031(text: str, ctx: CheckContext) -> list[str]:
+    """The recapture check of 31.10, kept exactly for the /learn lesson tutor (the team's, Асан 19.10)."""
     converted, _ = _to_san(text)
     moves = list(_MOVE.finditer(converted))
     issues = []
@@ -1231,6 +1312,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
     # unknown one («…13.Qe4 Rxf2 14.dxe5 Bg5+»), or re-begun mid-line, is not.
     prev_trusted = False
     prev_ghost = False  # *prev* comes from the start position standing in for a known board (plan 31.10 H)
+    prev_flipped = False  # the line reached *prev* with a move made on a board whose side to move was changed to fit
     from src.config import detector_mode
 
     start_scene = ctx.current is not None and ctx.current.board_fen() != chess.STARTING_BOARD_FEN \
@@ -1249,6 +1331,25 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
                 and re.match(r"\d{1,3}\.\s", converted[m.start():]) \
                 and not re.search(r"\d{1,3}\.\s?[KQRBNa-hO]", converted[m.end():m.end() + 40]):
             continue  # «1. f7 пешкасы…»: a numbered list item, not 1.f7 («* **1. d4 Nf6 2. c4» is a line)
+        if san in ctx.quoted and not san.startswith("O-O") and not _lesson(ctx):
+            # The student's own move repeated: never judged, but followed when it is a move of the line here, so the
+            # moves after it are read after it (not on the board as it stands, the side to move changed to fit).
+            qcolors = [chess.BLACK] if dots in ("...", "…") else [chess.WHITE] if num and dots == "." else [chess.WHITE, chess.BLACK]
+            followed = None
+            for board in ([prev] if prev is not None else []) + ([ctx.current] if ctx.current is not None else []):
+                if board.turn in qcolors and _parses(board, san + (m["check"] or "")):
+                    followed = board
+                    break
+            if followed is not None:
+                trial = followed.copy(stack=False)
+                move = trial.parse_san(san + (m["check"] or ""))
+                trial.push(move)
+                prev_trusted = prev_trusted if followed is prev else ctx.is_given(followed)
+                prev_flipped = followed is prev and prev_flipped
+                prev, prev_ghost = trial, False
+                in_line_until = m.end()
+                ctx.add(trial.fen(), derived=True)
+            continue
         if san.startswith("O-O") or san in ctx.quoted:
             continue
         list_item = bool(num) and dots == "." and re.fullmatch(r"[\s*_#>`-]*", converted[:m.start()]) \
@@ -1288,9 +1389,17 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         # A board where it is that side's move comes before one where the side is changed to fit: «15.Bxd7+ …
         # 16.Qb8+» is the game's 16th move, not White moving twice after 15.Bxd7+ (2026-10-08).
         ghost_now = False
+        # A move numbered as the next ply of the line it continues («3...Nxd4 4.d5») is that line's move: illegal
+        # there, it is not re-anchored on a board where the other side is made to move (4.d5 on the board now with
+        # White to move, the pawn still on d4 — review-miss 01.11, wrong-board path 3). It stays a plan the lenient
+        # checks below may still accept; it sets no scene. (F2's patch; F5 adds: not after a line that reached its board
+        # with the side changed, and not on the lesson surface, which keeps 31.10's walk.)
+        next_ply = prev is not None and bool(num) and not list_item and colors == [prev.turn] \
+            and int(num) == prev.fullmove_number and not prev_flipped and not _lesson(ctx)
+        line_prev, line_trusted = prev, prev_trusted
         candidates = ([(prev, [prev.turn])] if prev is not None and prev.turn in colors else []) \
             + [(b, [c for c in colors if c == b.turn]) for b in ordered] \
-            + [(b, [c for c in colors if c != b.turn]) for b in ordered]
+            + ([] if next_ply else [(b, [c for c in colors if c != b.turn]) for b in ordered])
         for board, board_colors in candidates:
             if board is prev:
                 trusted = prev_trusted
@@ -1335,6 +1444,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
                     legal_somewhere = True
                     scene_san = trial.san(move)
                     trial.push(move)
+                    prev_flipped = color != board.turn or (board is prev and prev_flipped)
                     prev, prev_trusted, ghost_now = trial, trusted, False
                     ctx.add(trial.fen(), derived=True)  # a line written in the answer goes on from here
                     ctx.scene, ctx.scene_san, ctx.scene_age = trial.copy(stack=False), scene_san, 0
@@ -1354,6 +1464,13 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
                 issues.append(f"{label} is not checkmate" if m["check"] == "#" else f"{label} gives no check")
             continue
         if bare_capture:
+            continue
+        if next_ply and line_trusted and not (re.fullmatch(r"[a-h](?:x[a-h])?[18]", san) and _parses(line_prev, full + "=Q")):
+            # F5 (01.11): the line began on a board of the turn with its own side to move and every move so far was legal
+            # there: its next move, legal nowhere after it, is impossible — not a plan of some other position («После
+            # 3...Nxd4 4.d5 конь c6 под ударом»: the d-pawn is gone). «4.a8» without its piece is a promotion.
+            issues.append(f"{num}{dots}{full} is impossible after the moves before it in this line "
+                          f"(position {line_prev.fen()})")
             continue
         ptype = chess.PIECE_SYMBOLS.index(san[0].lower()) if is_piece else chess.PAWN
         dest = chess.parse_square(re.findall(SQ, san)[-1])
@@ -3508,57 +3625,370 @@ _PROPOSE_VOCAB = re.compile(
     r"заканчивай(?:те)?\s+развитие|готовь(?:те)?)(?:\s+(?:дальше|спокойно|сначала|просто))?\s*[:—–-]\s*"
     r"(?=[*_]*(?:\d{1,3}\s?\.{1,3}\s?)?(?:[KQRBNКФЛС][a-h]?[1-8]?[x:]?[a-h][1-8]|[a-h][1-8]|[a-h]x[a-h][1-8]|O-O|0-0))",
     re.IGNORECASE)
-# Plan 31.10 C1b (plan_place): «План за чёрных прост: конь на f6 давит на e4, …», «Идея — слон на g5»: a plan that
-# puts a piece of the side to move on a square exactly one of its legal moves reaches proposes that move (prod
-# name-caro-adv 29.10: 3...Nf6?? 4.exf6 loses the knight).
-_PLAN_INTRO = re.compile(
-    r"(?:^|[.!?]\s+)[\s*_>#«\"-]*(?:(?:мой|наш|твой|главный|основной|типичный)\s+)?(?:план|идея)"
-    r"(?:\s+(?:за|у|для)\s+(?P<side>бел\w+|ч[её]рн\w+))?(?:\s+(?!(?:конь|слон|ладья|ферзь|пешка|король)\b)[а-яё]+){0,2}\s*[:—–]",
+# Plan 31.10 C1b (plan_place) and C1a (propose_vocab), rebuilt 01.11 (F5) as one reader of structure, not of the graded
+# wording. A FRAME opens a scope: a plan noun («План за чёрных прост:», «Идея —», «Главная задача:», "The plan is"), an
+# evaluative or modal predicate («логично», «полезно», «неплохо», «хорошо бы сыграть»), a «next move» noun («Твой
+# следующий ход —», «Лучший ответ —»), a development imperative with a connector («Готовь длинную рокировку: Qe2, Be3»,
+# «Продолжай развитие ходом Qe2»), the side to move told in the present («Чёрные готовят Nf6 и Bg4», «Чёрные ставят
+# коня на f6»), a piece of it told to go to a square («Конь g8 идёт на f6»), and «Сначала …». The scope's ITEMS come in
+# order: a written move, «конь на f6» / «коня на f6» / «ход конём на f6», «конь f6» right after «:» or «—», a bare
+# pawn move in a list position. The first item is the move proposed now, judged by the engine (src/hypothetical.
+# verify_recommendation) — unless the words defer it: a later-word before it («со временем», «потом»), a precondition
+# right after it («…, но только после того, как …», «… — но сначала f4»); then the move «сначала» names is the move now.
+# Not judged: a question, a sentence that says the move fails, the past («план был»), a condition («если», «когда»), a
+# line written before the frame, the other side's plan, the game's own next move told in the present.
+_SIDE_RU = r"(?:бел\w*|черн\w*)"
+_F_PLAN = re.compile(
+    r"(?<![а-яa-z])(?P<adj>(?:(?:мой|наш|твой|ваш|главн\w+|основн\w+|типичн\w+|стандартн\w+|обычн\w+|естественн\w+|логичн\w+|"
+    r"прост\w+|хорош\w+|правильн\w+|сильн\w+|лучш\w+|ближайш\w+|перв\w+|разумн\w+|долгосрочн\w+|стратегическ\w+)\s+){0,2})"
+    r"(?P<noun>план|идея|задача|замысел|цель)"
+    r"(?:\s+(?:за|у|для)\s+(?P<side>бел\w+|черн\w+|тебя|вас))?(?:\s+(?P<gside>белых|черных))?"
+    r"(?P<gap>(?:\s+(?!(?:кон[ьяе]|слон|ладь|ферз|пешк|корол)\w*(?![а-я]))[а-я]+){0,2})\s*(?:[:—–]|-\s|,?\s+это\s)"
+    r"|(?<![a-z])(?:(?:the|my|our|your|a|typical|main|usual)\s+){0,2}(?P<enoun>plan|idea)(?:\s+for\s+(?P<eside>white|black))?"
+    r"(?:\s+here)?\s*(?:is\s+|:|—|–)", re.IGNORECASE)
+_F_EVAL = re.compile(
+    r"(?<![а-яa-z])(?P<side>(?:белым|черным|тебе|вам)\s+)?(?:(?:здесь|тут|сейчас|теперь|дальше|далее|затем)\s+)?"
+    r"(?P<pred>логич\w*|естествен\w*|полез\w*|неплох\w*|хорошо|разум\w*|умест\w*|целесообраз\w*|желател\w*|рациональн\w*|"
+    r"имеет\s+смысл|напрашива\w+|самое\s+время|пора|следует|рекомендуется)(?![а-яa-z])", re.IGNORECASE)
+_F_NEXT = re.compile(
+    r"(?<![а-яa-z])(?:(?:тво\w+|наш\w+|мой|ваш\w+)\s+)?(?:следующ\w+|лучш\w+|сильнейш\w+|естественн\w+|логичн\w+|"
+    r"правильн\w+|верн\w+|точн\w+|разумн\w+|хорош\w+|отличн\w+|сильн\w+|полезн\w+)\s+(?:ход|вариант|выбор|ответ|продолжение|шаг)"
+    r"(?:\s+(?:здесь|тут|сейчас|теперь|в\s+этой\s+позиции|за\s+\w+|для\s+\w+))*\s*(?:[:—–]|-\s|,?\s+это\s)"
+    r"|(?<![a-z])(?:your\s+|the\s+)?(?:next|best|natural|logical)\s+(?:move|reply|continuation)(?:\s+here)?\s*(?:is\s+|:|—|–)",
     re.IGNORECASE)
-_PLACED_PIECE = re.compile(rf"(?<![а-яa-z])(?P<piece>конь|слон|ладья|ферзь|пешка)\s+(?:на|в)\s+(?P<sq>{SQ})(?![0-9])",
-                           re.IGNORECASE)
-_PLACE_TYPE = {"конь": chess.KNIGHT, "слон": chess.BISHOP, "ладья": chess.ROOK, "ферзь": chess.QUEEN, "пешка": chess.PAWN}
+_F_IMPER = re.compile(
+    r"(?<![а-яa-z])(?:развивай(?:те)?(?:сь|ся)?|разве(?:й|йте)(?:сь|ся)|продолжа(?:й|йте)|заканчива(?:й|йте)|заверша(?:й|йте)|заверши(?:те)?|"
+    r"законч(?:и|ите)|готов(?:ь|ьте)|подготов(?:ь|ьте)|вывод(?:и|ите)|вывед(?:и|ите)|усил(?:ь|ьте|ивай)|укреп(?:и|ите|ляй)|"
+    r"займ(?:и|ите)|занима(?:й|йте)|develop|continue|finish|prepare)(?![а-яa-z])"
+    r"(?P<obj>(?:\s+(?!(?:ход\w*|через|например|with|by)(?![а-яa-z]))[а-яa-z0-9-]+){0,3}?)"
+    r"\s*(?:[:—–]|-\s|\s(?:ходом|ходами|через|например|with|by|e\.g\.)(?![а-яa-z]))", re.IGNORECASE)
+_F_THIRD = re.compile(
+    r"(?<![а-яa-z])(?P<side>белые|черные)\s+(?:(?:здесь|тут|сейчас|теперь|обычно|часто|как\s+правило|в\s+этой\s+позиции|"
+    r"в\s+этом\s+варианте|спокойно|просто|сразу|дальше|уже)\s+)*(?:(?:хотят|собираются|планируют|стремятся|могут|должны|"
+    r"готовы)\s+)?(?P<verb>ставят|поставят|развивают|разовьют|выводят|выведут|готовят|подготовят|играют|сыграют|переводят|"
+    r"переведут|двигают|продвигают|сыграть|поставить|вывести|развить|перевести|играть|продвинуть)(?![а-я])"
+    r"|(?<![a-z])(?P<eside>white|black)\s+(?:usually\s+|often\s+|here\s+|now\s+)*(?:wants\s+to\s+|will\s+|plans\s+to\s+)?"
+    r"(?P<everb>plays?|puts?|develops?|prepares?|brings?)(?![a-z])", re.IGNORECASE)
+_F_GOES = re.compile(
+    r"(?<![а-яa-z])(?:(?P<pside>бел\w+|черн\w+|тво\w+)\s+)?(?P<piece>конь|слон|ладья|ферзь|пешка)(?:\s+(?P<from>[a-h][1-8]))?"
+    r"(?:\s+(?:с|из)\s+(?P<from2>[a-h][1-8]))?\s+(?:(?:обычно|здесь|тут|сейчас|дальше|сразу|часто|как\s+правило|теперь)\s+)*"
+    r"(?:ид[её]т|пойд[её]т|вста[её]т|встанет|прыгает|прыгнет|переходит|перейд[её]т|отправляется|отправится|направляется|"
+    r"направится|перебирается|переберется|выходит|выйдет|становится|станет|"
+    r"(?:должен|должна|может|хочет|собирается|стремится|готов|готова)\s+(?:идти|пойти|встать|прыгнуть|перейти|отправиться|выйти|"
+    r"перебраться|переходить))\s+(?:на|в)\s+(?P<sq>[a-h][1-8])(?![0-9])",
+    re.IGNORECASE)
+# «Ферзь на e2 — лучший вариант», «Конь на f6 — естественный ход»: the placement first, the praise after it.
+_F_PRAISED_PLACE = re.compile(
+    r"(?<![а-яa-z])(?:ход\s+)?(?P<piece>конь|слон|ладья|ферзь|пешка|кон[её]м|слоном|ладь[её]й|ферз[её]м|пешкой)(?:\s+(?P<from>[a-h][1-8]))?"
+    r"(?:\s+(?:с|из)\s+(?P<from2>[a-h][1-8]))?\s+(?:на|в)\s+(?P<sq>[a-h][1-8])(?![0-9])\s*(?:[—–:-]|,)?\s*"
+    r"(?:это\s+|здесь\s+|тут\s+|сейчас\s+|как\s+раз\s+)*(?:сам\w+\s+)?(?:лучш|логич|естествен|полез|сильн|точн|правильн|верн|"
+    r"хорош|отличн|разумн)\w*\s+(?:вариант|ход|выбор|решение|продолжение|идея|план)(?![а-яa-z])", re.IGNORECASE)
+# «Ход Qe2 здесь логичен», «Nf6 — естественное развитие»: a written move, then an evaluation _PRAISED does not read.
+_F_PRAISED_SAN = re.compile(
+    r"(?<![A-Za-z0-9.])(?:ход\s+)?(?P<san>[KQRBN][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x[a-h][1-8]|O-O(?:-O)?)[+#]?[*_]*\s*(?:[—–:-]|,)?\s*"
+    r"(?:это\s+|здесь\s+|тут\s+|сейчас\s+|как\s+раз\s+|вполне\s+)*(?:сам\w+\s+)?(?:логич|естествен|полез|разум|умест|"
+    r"целесообраз|рациональн)\w*(?![а-яa-z])", re.IGNORECASE)
+_F_FIRST = re.compile(r"(?:^|[.!?:;—–]\s*|,\s*)[\s*_>#«\"-]*(?:сначала|сперва|для\s+начала|прежде\s+всего|first(?:\s+of\s+all)?|"
+                      r"to\s+start(?:\s+with)?)(?![а-яa-z])\s*,?", re.IGNORECASE)
+# From the frame to its first item: adverbs, a side, an infinitive of playing, «ход», «бы», a colon.
+_F_LINK = re.compile(
+    r"\s*(?:бы\s+)?(?:(?:для|за|у)\s+(?:бел\w+|черн\w+)\s+)?(?:(?:здесь|сейчас|тут|теперь|дальше|далее|сразу|просто|"
+    r"спокойно|всего|всех|now|here|simply)\s+)*(?:(?:сыграть|играть|поставить|вывести|перевести|развить|продолжить(?:\s+\w+)?|"
+    r"начать|сделать\s+ход|ход(?:ом)?|play(?:ing)?|to\s+play|go\s+for)\s+)?(?:[—–:]\s*)?$", re.IGNORECASE)
+_ITEM_PLACE = re.compile(
+    r"(?<![а-яa-z])(?:ход(?:ом)?\s+)?(?P<piece>кон(?:ь|я|ем)|слон(?:а|ом)?|ладь(?:я|ю|ей)|ферз(?:ь|я|ем)|пешк(?:а|у|ой))"
+    r"(?:\s+(?P<from>[a-h][1-8]))?(?:\s+(?:с|из)\s+(?P<from2>[a-h][1-8]))?\s+(?:на|в)\s+(?P<sq>[a-h][1-8])(?![0-9])"
+    r"|(?<![a-z])(?P<epiece>knight|bishop|rook|queen|pawn)\s+(?:to|on|onto)\s+(?P<esq>[a-h][1-8])(?![0-9])", re.IGNORECASE)
+_ITEM_BARE = re.compile(r"\s*(?P<piece>конь|слон|ладья|ферзь|пешка)\s+(?P<sq>[a-h][1-8])(?![0-9])", re.IGNORECASE)
+_PLACE_TYPE_ANY = {"кон": chess.KNIGHT, "слон": chess.BISHOP, "ладь": chess.ROOK, "ферз": chess.QUEEN, "пешк": chess.PAWN,
+                   "knight": chess.KNIGHT, "bishop": chess.BISHOP, "rook": chess.ROOK, "queen": chess.QUEEN, "pawn": chess.PAWN}
+# What a bare pawn move («c5») may follow to be an item of a list, not a square («давит на e4»).
+_BARE_PAWN_BEFORE = re.compile(r"(?:^|[:—–,(]|(?<![а-яa-z])(?:и|или|затем|потом|далее|дальше|сначала|сперва|ходом|ходами|сыграть|"
+                               r"играть|играют|сыграют|продвинуть|толкнуть|через|then|and|or|first|with|play))\s*$",
+                               re.IGNORECASE)
+# Where a plan's list ends: a contrast or a condition starts another thought.
+_SCOPE_END = re.compile(r"(?<!\d)(?<!\.)\.(?!\.)(?!\s?(?:[KQRBNO]|[a-h][1-8x]))|[;!?\n]|(?<![а-яa-z])(?:но|однако|а\s+не|вместо|иначе|"
+                        r"если|чтобы|пока\s+не|but|however|instead|unless|otherwise|if)(?![а-яa-z])", re.IGNORECASE)
+_LATER_WORD = re.compile(r"(?<![а-яa-z])(?:потом|затем|позже|позднее|со\s+временем|впоследствии|в\s+будущем|в\s+перспективе|"
+                         r"рано\s+или\s+поздно|когда-нибудь|в\s+дальнейшем|в\s+конце\s+концов|долгосрочн\w*|стратегическ\w*|"
+                         r"later|eventually|afterwards|in\s+the\s+long\s+run|at\s+some\s+point|long-term|then)(?![а-яa-z])",
+                         re.IGNORECASE)
+# A precondition right after the item (only connectors between): «конь на d5, но только после того, как e6 уйдёт»,
+# «конь на d5 — но сначала f4», "Nd5, but only once e6 has gone".
+_PRECOND_AFTER = re.compile(
+    r"^[\s,—–-]*(?:(?:но|а|однако|и\s+то|but|however|yet)\s+)?(?:(?:только|лишь|не\s+раньше|only|not\s+until|не\s+сейчас)\s*,?\s*)?"
+    r"(?:(?:надо|нужно|следует|стоит)\s+)?"
+    r"(?:после\s+того,?\s+как|после(?!\s+(?:чего|этого))|когда|как\s+только|пока\s+не|сначала|сперва|прежде|для\s+начала|"
+    r"с\s+подготовк\w*|после\s+подготовк\w*|в\s+будущем|со\s+временем|в\s+перспективе|"
+    r"after|once|when|as\s+soon\s+as|until|first|eventually)(?![а-яa-z])", re.IGNORECASE)
+_FIRST_WORD = re.compile(r"(?<![а-яa-z])(?:сначала|сперва|для\s+начала|прежде\s+всего|first)(?![а-яa-z])", re.IGNORECASE)
+# A condition or a time clause before the frame: the plan holds in another position.
+_COND_BEFORE = re.compile(r"(?<![а-яa-z])(?:если|когда|как\s+только|после\s+того|пока\s+не|в\s+случае|при\s+условии|бы|"
+                          r"if|when|once|after|until|unless|would)(?![а-яa-z])", re.IGNORECASE)
+_PAST_PLAN = re.compile(r"(?<![а-яa-z])(?:был|была|было|были|стоило|следовало|хотел\w*|собирал\w*|планировал\w*|пытал\w*|"
+                        r"готовил\w*|сыграл\w*|поставил\w*|вывел\w*|ставил\w*|развил\w*|играл\w*|пош[её]л|"
+                        r"was|were|had|wanted|planned|played|tried)(?![а-яa-z])", re.IGNORECASE)
+
+
+# A move told in the present or the future before a frame (the student's or the other side's): the plan is after it.
+_TOLD_ACTION = re.compile(
+    r"(?<![а-яa-z])(?:бер[её]шь|забира\w*шь|забер[её]шь|возьм[её]шь|бь[её]шь|побь[её]шь|играешь|сыграешь|отвечаешь|ответишь|"
+    r"ставишь|поставишь|пойд[её]шь|ид[её]шь|двигаешь|разменяешь|разменива\w*шь|бер[её]т|берут|забира(?:ет|ют)|забер(?:[её]т|ут)|"
+    r"возьм(?:[её]т|ут)|бь[её]т|бьют|побь(?:[её]т|ют)|сыгра(?:ет|ют)|ответ(?:ит|ят)|отвеча(?:ет|ют)|разменя(?:ет|ют)|"
+    r"you\s+(?:take|play|capture)|(?:white|black|he|they)\s+(?:takes|plays|captures|replies))(?![а-яa-z])", re.IGNORECASE)
+
+
+def _item_move(board: chess.Board, kind: str, m) -> tuple:
+    """(move, san) for a scope item on *board*, or (None, None) when it names no single legal move of the side to move."""
+    if kind == "san":
+        try:
+            move = board.parse_san(m["san"] + (m["check"] or ""))
+        except ValueError:
+            return None, None
+        return move, board.san(move)
+    word = (m["piece"] or m.groupdict().get("epiece") or "").lower()
+    ptype = next((t for stem, t in _PLACE_TYPE_ANY.items() if word.startswith(stem)), None)
+    sq_name = (m["sq"] or m.groupdict().get("esq") or "").lower()
+    if ptype is None or not sq_name:
+        return None, None
+    sq = chess.parse_square(sq_name)
+    there = board.piece_at(sq)
+    if there is not None and there.color == board.turn and there.piece_type == ptype:
+        return None, None  # already there: a description, not a move
+    frm = (m.groupdict().get("from") or m.groupdict().get("from2") or "").lower()
+    moves = [mv for mv in board.legal_moves if mv.to_square == sq and board.piece_type_at(mv.from_square) == ptype
+             and not mv.promotion and (not frm or mv.from_square == chess.parse_square(frm))]
+    if len(moves) != 1:
+        return None, None
+    return moves[0], board.san(moves[0])
+
+
+def _scope_items(scope: str, bare_first: bool) -> list:
+    """The items of a plan's scope, in order: (start, end, kind, match)."""
+    end = _SCOPE_END.search(scope)
+    body = scope[: end.start()] if end else scope
+    found = []
+    for m in _MOVE.finditer(body):
+        san = m["san"]
+        if san[0] not in "KQRBNO" and not m["num"] and not m["bdots"] and "x" not in san \
+                and not _BARE_PAWN_BEFORE.search(body[max(0, m.start() - 24): m.start()]):
+            continue  # «давит на e4»: a square, not a move
+        found.append((m.start(), m.end(), "san", m))
+    for m in _ITEM_PLACE.finditer(body):
+        if not any(s <= m.start() < e or m.start() <= s < m.end() for s, e, _, _ in found):
+            found.append((m.start(), m.end(), "place", m))
+    if bare_first:
+        m = _ITEM_BARE.match(body)
+        if m and not any(s < m.end() and m.start() < e for s, e, _, _ in found):
+            found.append((m.start(), m.end(), "place", m))
+    return sorted(found, key=lambda x: x[0])
+
+
+def _frames(conv: str) -> list:
+    """(start, end, detector, side word, strict link) of every frame in *conv*, in order."""
+    out = []
+    for m in _F_PLAN.finditer(conv):
+        out.append((m.start(), m.end(), "plan_place", m["side"] or m["gside"] or m["eside"], False, m.group(0)))
+    for m in _F_EVAL.finditer(conv):
+        out.append((m.start(), m.end(), "propose_vocab", m["side"], True, m.group(0)))
+    for m in _F_NEXT.finditer(conv):
+        out.append((m.start(), m.end(), "propose_vocab", None, False, m.group(0)))
+    for m in _F_IMPER.finditer(conv):
+        out.append((m.start(), m.end(), "propose_vocab", "ты", False, m.group(0)))
+    for m in _F_THIRD.finditer(conv):
+        out.append((m.start(), m.end(), "plan_place", m["side"] or m["eside"], True, m.group(0)))
+    for m in _F_GOES.finditer(conv):
+        out.append((m.start(), m.start(), "plan_place", m["pside"] or "", None, m.group(0)))
+    for m in _F_PRAISED_PLACE.finditer(conv):
+        out.append((m.start(), m.start(), "propose_vocab", "", None, m.group(0)))
+    for m in _F_PRAISED_SAN.finditer(conv):
+        out.append((m.start(), m.start(), "propose_vocab", "", "san", m.group(0)))
+    for m in _F_FIRST.finditer(conv):
+        out.append((m.start(), m.end(), "plan_place", None, True, m.group(0)))
+    return sorted(out, key=lambda x: x[0])
+
+
+def _side_of_word(word: Optional[str], ctx: CheckContext, text: str) -> Optional[bool]:
+    w = (word or "").lower().strip()
+    if not w:
+        return student_side(ctx, text)
+    if w.startswith(("бел", "white")):
+        return chess.WHITE
+    if w.startswith(("черн", "black")):
+        return chess.BLACK
+    if w in ("ты", "тебе", "тебя", "вам", "вас") or w.startswith("тво"):
+        return student_side(ctx, text)
+    return None
+
+
+def _deferred(conv: str, frame_end: int, items: list, k: int) -> bool:
+    """Whether item *k* of a plan is put off: a later-word between the frame and it, or a precondition right after the
+    list it ends (only connectors between)."""
+    start, end = items[k][0], items[k][1]
+    if _LATER_WORD.search(conv[frame_end: frame_end + start]):
+        return True
+    last = end
+    for s, e, _, _ in items[k + 1:]:
+        if re.fullmatch(r"[\s,]*(?:(?:и|или|and|or)\s+)?", conv[frame_end + last: frame_end + s]):
+            last = e
+        else:
+            break
+    return bool(_PRECOND_AFTER.match(conv[frame_end + last:]))
+
+
+def _plan_frame(conv: str, ctx: CheckContext, frame) -> Optional[tuple]:
+    """(detector, move, san) a frame proposes for the side to move, or None (not judged)."""
+    board = ctx.current
+    start, end, det, side_word, strict, words = frame
+    side = _side_of_word(side_word, ctx, conv)
+    if strict is None and not side_word:  # «Конь g8 идёт на f6»: the piece on its square tells the side
+        g = _F_GOES.match(conv, start) or _F_PRAISED_PLACE.match(conv, start)
+        frm = g and (g["from"] or g["from2"])
+        if frm and board.piece_at(chess.parse_square(frm.lower())) is not None:
+            side = board.piece_at(chess.parse_square(frm.lower())).color
+    if side_word is not None and side_word != "" and side is None:
+        return None
+    if side != board.turn:
+        return None  # the other side's plan, or the student's side unknown
+    student = ctx.student_color
+    if student is not None and side_word and side_word.lower().startswith(("бел", "черн", "white", "black")) \
+            and side != student:
+        return None  # the engine's own plan in a game: a forecast, not advice
+    before = conv[:start]
+    if _COND_BEFORE.search(before) or _NEGATION.search(conv[max(0, start - 24): start]):
+        return None
+    if _LATER_WORD.search(before[max(before.rfind(c) for c in ".;!?\n,") + 1:]):
+        return None  # «Со временем конь встанет на d5», «…, потом конь пойдёт на f6»: not the move now
+    if any(mv["num"] or mv["bdots"] or mv["san"][0] in "KQRBN" or "x" in mv["san"] for mv in _MOVE.finditer(before)):
+        return None  # a step of a line written before it, judged in that line
+    if _TOLD_ACTION.search(before):
+        return None  # «Играешь и забираешь пешку f4, а взамен у тебя идея — …»: a move told first, the plan after it
+    if before.strip():
+        from src.move_words import prose_moves
+
+        if any(pm["move"] is not None for pm in prose_moves(before, board)):
+            return None  # «Забираешь пешку f4, а взамен у тебя идея — ферзь на h4»: the plan comes after a move told in words
+    if re.search(r"(?<![а-яa-z])(?:не|ни|not|never)(?![а-яa-z])", words):
+        return None
+    if strict == "san":  # «Ход Qe2 здесь логичен»: the written move is the item
+        m = _F_PRAISED_SAN.match(conv, start)
+        if m is None or _PRECOND_AFTER.match(conv[m.end():]):
+            return None
+        move, san = _item_move(board, "san", {"san": m["san"], "check": ""})
+        return (det, move, san) if move is not None else None
+    if strict is None:  # «Конь g8 идёт на f6»: the frame is its own item
+        m = _F_GOES.match(conv, start) or _F_PRAISED_PLACE.match(conv, start)
+        if m is None or _LATER_WORD.search(words) or _PRECOND_AFTER.match(conv[m.end():]):
+            return None
+        move, san = _item_move(board, "place", m)
+        return (det, move, san) if move is not None else None
+    scope = conv[end:]
+    items = _scope_items(scope, bare_first=det == "plan_place" and words.rstrip().endswith((":", "—", "–")))
+    if not items:
+        return None
+    if strict and not _F_LINK.fullmatch(scope[: items[0][0]]):
+        return None  # «хорошо видно, что …»: the predicate is not about the move
+    if _PAST_PLAN.search(words) or _PAST_PLAN.search(scope[: items[0][0]]):
+        return None
+    if _NEGATION.search(scope[max(0, items[0][0] - 24): items[0][0]]) and items[0][0] > 0:
+        return None
+    k = 0
+    if _deferred(conv, end, items, 0):
+        # «… — но сначала надо подготовить это ходом f4»: the move «сначала» names is the move now
+        after = conv[end + items[0][1]:]
+        first = _FIRST_WORD.search(after)
+        if not first:
+            return None
+        rest = after[first.end():]
+        later = _scope_items(rest, bare_first=False)
+        if not later or not re.fullmatch(r"[\s,—–:-]*(?:(?:надо|нужно|следует|стоит)\s+)?(?:\w+\s+){0,3}?"
+                                         r"(?:(?:ходом|ходами|сыграть|играть|through|with|by)\s+)?", rest[: later[0][0]]):
+            return None
+        move, san = _item_move(board, later[0][2], later[0][3])
+        return (det, move, san) if move is not None else None
+    move, san = _item_move(board, items[k][2], items[k][3])
+    return (det, move, san) if move is not None else None
 
 
 def _plan_place_move(text: str, ctx: CheckContext) -> Optional[tuple]:
-    """C1b: (board, move, san) for the first piece a plan places, when one legal move of the side to move does it."""
+    """C1a/C1b: (board, move, san) for the move a plan, an idea or an evaluation proposes to the side to move now."""
     board = ctx.current
-    for intro in _PLAN_INTRO.finditer(text):
-        if intro["side"]:
-            if (chess.WHITE if intro["side"].lower().startswith("бел") else chess.BLACK) != board.turn:
-                continue
-        elif student_side(ctx, text) != board.turn:
-            continue
-        rest = text[intro.end():]
-        stop = re.search(r"[.!?;\n]", rest)
-        rest = rest[: stop.start()] if stop else rest
-        placed = _PLACED_PIECE.search(rest[:60])
-        if not placed or _NEGATION.search(rest[max(0, placed.start() - 24): placed.start()]):
-            continue
-        ptype = _PLACE_TYPE[placed["piece"].lower()]
-        sq = chess.parse_square(placed["sq"].lower())
-        there = board.piece_at(sq)
-        if there is not None and there.color == board.turn and there.piece_type == ptype:
-            continue  # already there: a description, not a move
-        moves = [mv for mv in board.legal_moves if mv.to_square == sq and board.piece_type_at(mv.from_square) == ptype
-                 and not mv.promotion]
-        if len(moves) != 1:
-            continue
-        from src.config import detector_mode
+    if board is None or "?" in text or _FAILS.search(text) or _DENIES.search(text):
+        return None
+    conv, _ = _to_san(text)
+    conv = re.sub(r"(?<![0-9A-Za-z])0-0-0(?![0-9-])", "O-O-O", conv)
+    conv = re.sub(r"(?<![0-9A-Za-z])0-0(?![0-9-])", "O-O", conv)
+    from src.config import detector_mode
 
-        mode = detector_mode("plan_place", ctx)
+    review = _review_asked(ctx)
+    for frame in _frames(conv):
+        try:
+            got = _plan_frame(conv, ctx, frame)
+        except Exception:  # noqa: BLE001 — a broken reading never blocks an answer
+            logger.debug("plan frame failed", exc_info=True)
+            got = None
+        if got is None:
+            continue
+        det, move, san = got
+        if (ctx._key(board), move.uci()) in ctx.line_next or (review and det == "plan_place"):
+            return None  # the game's or the line's own next move, told in the present: narration, not advice
+        mode = detector_mode(det, ctx)
         if mode == "shadow":
-            record_shadow(ctx, "plan_place", [f"plan places {board.san(moves[0])}: proposed to the engine"])
+            record_shadow(ctx, det, [f"«{frame[5].strip()}» proposes {san}: proposed to the engine"])
         if mode != "on":
             return None
-        return board, moves[0], board.san(moves[0])
+        return board, move, san
     return None
+
+
+# A proposal word that proposes nothing now (F5 01.11): governed by a preventing verb («не давая чёрным спокойно сыграть
+# e5», "not letting Black play e5": the move denied to the other side — prod 2026-11-01 review, six true sentences cut on
+# main), in the past («можно было закрыться ферзём — Qf6», «надо было сыграть»), or a possibility outranked in the same
+# sentence («Можно закрыться и ферзём на d2, но слон лучше»).
+_GOVERNOR_NOT = re.compile(
+    r"(?<![а-яa-z])(?:не\s+(?:[а-я]+\s+)?(?:дава\w*|дать|даст|дает|дадут|даю|позвол\w*|пуска\w*|пуст\w*)|меша\w*|помеша\w*|"
+    r"лиша\w*|запреща\w*|запрет\w*|предотвра\w*|препятству\w*|not\s+(?:letting|allowing)|without\s+letting|"
+    r"prevent\w*|stopping|denying)(?:\s+[^\s,.;:!?—–]+){0,3}\s*$", re.IGNORECASE)
+_PAST_MODAL = re.compile(r"\s*(?:бы\s+)?(?:был[аио]?|had)(?![а-яa-z])", re.IGNORECASE)
+_WEAK_PROPOSAL = re.compile(r"можно|могу|можешь|could|can|might", re.IGNORECASE)
+_OUTRANKED = re.compile(r"(?<![а-яa-z])(?:но|а|однако|but|however|though)(?![а-яa-z])[^.!?;]*?(?<![а-яa-z])(?:лучше|сильнее|точнее|"
+                        r"надежнее|предпочтительн\w*|better|stronger|preferable)(?![а-яa-z])", re.IGNORECASE)
+
+
+def _not_a_proposal(text: str, m) -> bool:
+    if m.group(0).strip().lower() == "стоит" and re.match(r"\s*(?:[,.;:!?—–)]|$|(?:на|в|у|за|рядом|перед)\s)", text[m.end():]):
+        return True  # «Ферзь h5 уже стоит, …», «конь стоит на f6»: stands, not «it is worth»
+    cut = max(text.rfind(c, 0, m.start()) for c in ".;:!?—–(")
+    if _GOVERNOR_NOT.search(text[cut + 1: m.start()]):
+        return True
+    if _PAST_MODAL.match(text, m.end()) or re.search(r"(?<![а-яa-z])был[аио]?\s+$", text[max(0, m.start() - 8): m.start()]):
+        return True
+    return bool(_WEAK_PROPOSAL.fullmatch(m.group(0).strip()) and _OUTRANKED.search(text, m.end()))
+
+
+def _put_off(after: str) -> bool:
+    """Whether the move whose text ends where *after* begins is put off by the words right after it (its list too)."""
+    rest = re.sub(r"^(?:[\s,]*(?:(?:и|или|and|or)\s+)?[*_]*(?:\d{1,3}\s?\.{1,3}\s?)?(?:[KQRBN][a-h]?[1-8]?x?[a-h][1-8]|"
+                  r"[a-h]x?[a-h]?[1-8]|O-O(?:-O)?)[+#]?[*_]*)*", "", after)
+    return bool(_PRECOND_AFTER.match(rest))
 
 
 # Where the recommended move must sit: in the same clause, before any «если»/«после»
 # (those start a hypothetical, not the recommendation) and before «но»/«а не»/«вместо».
-_PROPOSAL_END = re.compile(
+# The /learn lesson tutor is the team's (Асан 19.10): it keeps the proposal reading of 31.10 exactly.
+_PROPOSAL_END_V1031 = re.compile(
     r"\.(?!\s?(?:[KQRBNO]|[a-h][1-8x]))|[;!?\n]|"
+    r",\s*(?:но|а|если|когда|после|пока|потому|вместо|but|if|when|after|instead|rather|because)(?![а-яa-z])|"
+    r"\s(?:если|после|когда|вместо|а\s+не|но\s+не|if|after|when|instead\s+of|rather\s+than|not)(?![а-яa-z])",
+    re.IGNORECASE)
+
+
+def _lesson(ctx) -> bool:
+    return getattr(ctx, "relation_surface", "text") == "lesson"
+
+
+_PROPOSAL_END = re.compile(
+    r"(?<![\d.])\.(?!\.)(?!\s?(?:[KQRBNO]|[a-h][1-8x]))|[;!?\n]|"  # not the dots of «...Nf6», «3...Nf6» (F5 01.11)
     r",\s*(?:но|а|если|когда|после|пока|потому|вместо|but|if|when|after|instead|rather|because)(?![а-яa-z])|"
     r"\s(?:если|после|когда|вместо|а\s+не|но\s+не|if|after|when|instead\s+of|rather\s+than|not)(?![а-яa-z])",
     re.IGNORECASE)
@@ -3707,6 +4137,7 @@ def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]
 def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]:
     if ctx is None or ctx.current is None or not sentence:
         return None
+    lesson = _lesson(ctx)
     text = sentence.replace("ё", "е")
     if _DENIES.search(text):
         return None
@@ -3739,13 +4170,18 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
     for m in starts:
         if _NEGATION.search(text[max(0, m.start() - 24): m.start()]):
             continue  # «не стоит играть Rg1», "don't play Rg1"
+        if not lesson and _not_a_proposal(text, m):
+            continue
         clause = text[m.end():]
-        end = _PROPOSAL_END.search(clause)
+        rest_conv = _to_san(clause)[0]
+        end = (_PROPOSAL_END_V1031 if lesson else _PROPOSAL_END).search(clause)
         if end:
             clause = clause[: end.start()]
         clause = clause[:90]
         converted, _ = _to_san(clause)
         for mv in _MOVE.finditer(converted):
+            if not lesson and (_GOVERNOR_NOT.search(converted[: mv.start()]) or re.match(r"[*_]*\?", rest_conv[mv.end():])):
+                continue  # «стоит, не давая чёрным сыграть e5»; «Kd2? Нет, лучше Bd2»
             san = mv["san"]
             if san[0] not in "KQRBNO" and not mv["num"] and not mv["bdots"] and "x" not in san \
                     and not _PAWN_MOVE_WORDS.search(converted[max(0, mv.start() - 24): mv.start()]) \
@@ -3759,6 +4195,8 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
                 continue
             if m is you_play and (ctx._key(ctx.current), move.uci()) in ctx.line_next:
                 break  # the game's or the line's own next move, told in the present: narration, not advice
+            if not lesson and _put_off(rest_conv[mv.end():]):
+                break  # «Сыграй Nd5, но только после f4»: not the move now
             return ctx.current, move, ctx.current.san(move)
         try:
             from src.move_words import prose_moves
@@ -3767,6 +4205,11 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
                 if pm["move"] is not None:
                     if m is you_play and (ctx._key(ctx.current), pm["move"].uci()) in ctx.line_next:
                         break
+                    at = clause.lower().replace("ё", "е").find(pm["words"].lower())
+                    if not lesson and at >= 0 and (_GOVERNOR_NOT.search(clause[:at])
+                                    or re.match(r"[\s—–:-]*[*_]*(?:[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8])?[+#]?[*_]*\?",
+                                                rest_conv[at + len(pm["words"]):])):
+                        continue  # the move denied to the other side, or the doubtful one («увести короля — Kd2?»)
                     return ctx.current, pm["move"], pm["san"]
         except Exception:  # noqa: BLE001 — words are a bonus on top of notation
             logger.debug("prose move parse failed", exc_info=True)
@@ -3809,6 +4252,9 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
     for end, san, move, start in sorted(candidates, key=lambda c: c[0]):
         if any(e <= start for e in written_before):
             continue
+        cut = max(converted.rfind(c, 0, start) for c in ".;:!?—–(")
+        if not lesson and (_GOVERNOR_NOT.search(converted[cut + 1: start]) or re.match(r"[*_]*\?", converted[end:])):
+            continue  # «не давая чёрным поставить коня на f6 из-за мата»: the move denied to the other side
         if ctx.student_color is not None and ctx.current.turn == ctx.student_color \
                 and _COACH_OWN_PIECE.search(text[max(0, start - 30): start] + " " + converted[max(0, start - 30): start]):
             continue  # «моя пешка на f6 забирает твоего слона» in a game: the engine's pawn told, not advice (prod Live 29.10)
@@ -4158,91 +4604,254 @@ def _student_capture_issues(text: str, ctx: CheckContext) -> list[str]:
     return out
 
 
-# M4: a move named with the kind of reply to a check — «закрыться конём — Nxd8», «перекрыть шах ходом Bd2»,
-# «закрыться ферзём на f7» — must be that kind on the board in check: a block lands between the checker and the
-# king; it neither takes the checker nor moves the king (prod st2#8 29.10: Nxd8 takes the checking rook).
-_BLOCK_NAMED = re.compile(
-    r"(?<![а-яё])(?P<verb>закрыться|закрываться|закройся|закройтесь|закрывайся|перекрыться|перекройся|заслониться|заслонись|"
-    r"прикрыться|прикройся|загородиться|загородись|закрыть\s+короля|перекрыть\s+шах|interpose|block\s+the\s+check|block)"
-    r"(?:\s+от\s+шаха)?"
-    rf"(?:\s+(?P<instr>{_INSTR}|with\s+(?:the|a|your)\s+(?:knight|bishop|rook|queen|pawn)))?"
-    r"(?:\s+(?:на|on)\s+(?P<sq>[a-h][1-8]))?"
-    r"(?:\s*[—–:-]?\s*(?:ходом\s+|например\s+|e\.g\.\s+)?[*_]*"
-    r"(?P<san>[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8](?:=[QRBN])?)(?![A-Za-z0-9]))?",
+# M4: a block of the check claimed — «закрыться конём — Nxd8», «перекрыть шах ходом Bd2», «Шах можно перекрыть»,
+# «Встань конём между ладьёй и королём», «Nxd8 — это заслон» — must be one on the board in check: a block lands between
+# the checker and the king; it neither takes the checker nor moves the king (prod st2#8 29.10: Nxd8 takes the checking
+# rook). Read by structure (F5 01.11): a block word (a reflexive verb, a transitive one with «шах»/«короля», the noun
+# «заслон», «встать между … и королём»), the move bound to it (written after it, after «ходом», or as its subject
+# before «— это заслон»), the piece it names (instrumental «конём», a subject «Конь может заслонить», «только …»), and
+# its square («конём c6» the piece, «на d7» the target). A claim with no move is judged against the board's blocks.
+# Not judged: a denial («закрыться нечем»), a question, a condition, the past.
+# Only the forms that propose or claim a block to make (infinitive, imperative, 2nd person, future) — not the present of a
+# piece already standing between («ферзь прикрывает короля от шахов по линии f», «Qf3+ перекрывает королю выход»: a
+# description), and not «пешечный заслон» (a pawn shield).
+_BLOCK_WORD = re.compile(
+    r"(?<![а-яa-z])(?:"
+    r"(?P<refl>(?:за|пере|при)кр(?:ыться|ываться|ывайся|ывайтесь|ойся|ойтесь|оешься|оется|оются|ыл(?:ся|ась|ись))"
+    r"|заслон(?:иться|ись|итесь|ишься|ится|яться|яйся)|загород(?:иться|ись|итесь|ишься|ится)|загоражива(?:ться|йся|ешься))"
+    r"|(?P<trans>(?:за|пере|при)кр(?:ыть|ой|ойте|оешь|оет|ывать|ывай)|заслон(?:ить|и|ите|ишь|ит|ять|яй)|"
+    r"загород(?:ить|и|ите|ишь|ит)|(?:за)?блокир(?:овать|уй|уйте|уешь|овав)|block(?![a-z]))"
+    r"|(?P<noun>(?<!пешечн[ыо]м\s)(?<!пешечный\s)(?<!пешечного\s)заслон(?:ом|а|ы|е)?|перекрыти\w*|блокировк\w*|interpos\w*|"
+    r"a\s+block)"
+    r"|(?P<between>вста(?:ть|нь|ньте|нет|вать)|поставить|поставь|ставь|put|place))(?![а-яa-z])", re.IGNORECASE)
+_BLOCK_OBJ = re.compile(r"(?<![а-яa-z])(?:шах\w*|корол[яю]|линию\s+шаха|от\s+шаха|check|the\s+king)(?![а-яa-z])", re.IGNORECASE)
+_BLOCK_BETWEEN = re.compile(r"(?<![а-яa-z])(?:между|between)(?![а-яa-z])[^.;!?]*?(?:корол\w*|king)", re.IGNORECASE)
+_BLOCK_NOT = re.compile(r"(?<![а-яa-z])(?:не|ни|нельзя|нечем|некуда|невозможно|никак|cannot|can'?t|no\s+way|nothing)(?![а-яa-z])"
+                        r"(?:\s+[а-яa-z]+){0,2}\s*$", re.IGNORECASE)
+_BLOCK_NOT_AFTER = re.compile(r"^[^.;!?:—–]*?(?<![а-яa-z])(?:нельзя|нечем|некуда|невозможно|не\s+(?:получится|выйдет|удастся|"
+                              r"может|можешь|могут|сможешь|сможет)|никак|не\s+чем)(?![а-яa-z])", re.IGNORECASE)
+_BLOCK_PAST = re.compile(r"(?<![а-яa-z])(?:можно\s+было|надо\s+было|нужно\s+было|стоило|следовало|был[аио]?\s+бы|"
+                         r"(?:за|пере|при)крыл\w*|заслонил\w*|загородил\w*|could\s+have|should\s+have|blocked)(?![а-яa-z])",
+                         re.IGNORECASE)
+_PIECE_INSTR = re.compile(
+    r"(?<![а-яa-z])(?:(?P<only>только|лишь|only)\s+)?(?:(?P<ru>пешкой|кон[её]м|слоном|ладь[её]й|ферз[её]м|корол[её]м)"
+    r"|with\s+(?:the\s+|a\s+|your\s+)?(?P<en>knight|bishop|rook|queen|pawn|king))(?:\s+(?P<sq>[a-h][1-8])(?![0-9]))?",
     re.IGNORECASE)
-_EN_INSTR = {"knight": chess.KNIGHT, "bishop": chess.BISHOP, "rook": chess.ROOK, "queen": chess.QUEEN, "pawn": chess.PAWN}
+_PIECE_SUBJ = re.compile(r"(?<![а-яa-z])(?P<ru>пешка|конь|слон|ладья|ферзь|король)(?:\s+(?P<sq>[a-h][1-8]))?\s+"
+                         r"(?:(?:может|можешь|могут|сможет|должен|должна|обязан\w*|способ\w*)\s+)?$", re.IGNORECASE)
+_SAN_HERE = r"[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8](?:=[QRBN])?"
+_SAN_AFTER = re.compile(r"[^.;!?]*?(?:[:—–]|(?<![а-яa-z])(?:ходом|например|e\.g\.|with|by))\s*[*_]*(?P<san>" + _SAN_HERE
+                        + r")(?![A-Za-z0-9])", re.IGNORECASE)
+_SAN_BEFORE = re.compile(r"[*_]*(?P<san>" + _SAN_HERE + r")[+#]?[*_]*\s*(?:[—–:-]\s*)?(?:(?:это|is|—\s*это)\s+)?"
+                         r"(?:(?:хороший|лучший|надежный|единственный|отличный|правильный|a|the)\s+)?$", re.IGNORECASE)
+_PTYPE_WORD = {"пешк": chess.PAWN, "кон": chess.KNIGHT, "слон": chess.BISHOP, "ладь": chess.ROOK, "ферз": chess.QUEEN,
+               "корол": chess.KING, "pawn": chess.PAWN, "knight": chess.KNIGHT, "bishop": chess.BISHOP, "rook": chess.ROOK,
+               "queen": chess.QUEEN, "king": chess.KING}
 
 
-def _block_candidates(board: chess.Board, m) -> list:
-    """The moves the words name on *board* (in check): the written move, else the legal moves of the piece named
-    (to the square named)."""
-    if m["san"]:
-        try:
-            return [board.parse_san(m["san"])]
-        except ValueError:
-            return []
-    instr = (m["instr"] or "").lower()
-    ptype = _took_type(instr) or next((t for w, t in _EN_INSTR.items() if instr.endswith(w)), None)
-    if ptype is None:
+def _ptype_word(word: Optional[str]) -> Optional[int]:
+    w = (word or "").lower()
+    return next((t for stem, t in _PTYPE_WORD.items() if w.startswith(stem)), None)
+
+
+def _block_claims(conv: str) -> list:
+    """The block claims of *conv*: dicts with the move bound (san), the piece named (ptype, from, only), the target."""
+    out = []
+    for m in _BLOCK_WORD.finditer(conv):
+        cs = max(conv.rfind(c, 0, m.start()) for c in ".;!?\n") + 1
+        ends = [i for i in (conv.find(c, m.end()) for c in ".;!?\n") if i >= 0]
+        ce = min(ends) if ends else len(conv)
+        # the dots of «3...Bd7» do not end the clause
+        while ce < len(conv) and conv[ce] == "." and re.match(r"\.{0,2}[KQRBNa-h]|\d", conv[ce + 1:ce + 3] or ""):
+            nxt = [i for i in (conv.find(c, ce + 3) for c in ".;!?\n") if i >= 0]
+            ce = min(nxt) if nxt else len(conv)
+        before, after = conv[cs: m.start()], conv[m.end(): ce]
+        near = conv[max(cs, m.start() - 30): m.start()] + " " + after[:30]
+        if m["trans"] and not _BLOCK_OBJ.search(near):
+            continue  # «закрыть диагональ», «прикрыть f1»: not the check
+        if m["trans"] and m["trans"].lower().startswith("прикр") and not re.search(
+                r"(?<![а-яa-z])(?:от\s+шаха|шах\w*|check)(?![а-яa-z])", near):
+            continue  # «прикрыть короля»: shelter in general, not a block of this check
+        if m["noun"] and not re.search(r"(?<![а-яa-z])(?:от\s+шаха|шах\w*|check)(?![а-яa-z])", near) \
+                and not (m["noun"].lower().startswith("заслон") and _PIECE_INSTR.search(after[:30])):
+            continue  # «блокировка пешки», «зажат своим заслоном»: not a block of the check
+        if m["between"] and not _BLOCK_BETWEEN.search(after):
+            continue
+        clause = conv[cs: ce]
+        if re.search(r"(?<![а-яa-z])(?:чтобы|дабы|so\s+that|in\s+order\s+to|подума\w*|посмотр\w*|найди\w*|поищи\w*|"
+                     r"think|look\s+for|find)(?![а-яa-z])", before):
+            continue  # a purpose or a hint («…, чтобы заодно прикрыть короля», «Подумай, как закрыться»): no claim
+        if "?" in conv[m.start(): ce + 1] or _BLOCK_NOT.search(before) or _BLOCK_NOT_AFTER.match(after) \
+                or _BLOCK_PAST.search(clause) \
+                or (_HYPO.search(before.lower()) and not _NOW_WORD.search(before.lower())):
+            continue
+        claim = {"at": m.start(), "san": None, "ptype": None, "from": None, "to": None, "only": False}
+        sa = _SAN_AFTER.match(after)
+        sb = _SAN_BEFORE.search(before)
+        if sa and not re.search(r"(?<![а-яa-z])(?:или|а|но|or|but)(?![а-яa-z])", after[: sa.start("san")]):
+            claim["san"] = sa["san"]
+        elif re.match(r"\s*[*_]*(?P<san>" + _SAN_HERE + r")(?![A-Za-z0-9])", after):
+            claim["san"] = re.match(r"\s*[*_]*(?P<san>" + _SAN_HERE + r")(?![A-Za-z0-9])", after)["san"]
+        elif sb and (m["noun"] or re.search(r"[—–:-]", before[sb.end("san"):])):
+            claim["san"] = sb["san"]
+        own = re.split(r"(?:,\s*|\s)(?:но|а|однако|или|либо|кроме|but|or|except)(?![а-яa-z])", after[:40], maxsplit=1)[0]
+        pi = next((p for p in _PIECE_INSTR.finditer(own) if not re.search(r"(?<![а-яa-z])(?:не|ни|not)\s+$", own[:p.start()])),
+                  None) or next((p for p in _PIECE_INSTR.finditer(before[-30:]) if not before[-30:][p.end():].strip()), None)
+        if pi and re.match(r"\s*,?\s*(?:или|либо|and|or|и)\s", after[pi.end():]):
+            pass  # «закройся конём или слоном»: one of several pieces — only that a block exists is read
+        elif pi:
+            claim["ptype"] = _ptype_word(pi["ru"] or pi["en"])
+            claim["from"] = pi["sq"]
+            claim["only"] = bool(pi["only"])
+        else:
+            ps = _PIECE_SUBJ.search(before)
+            if ps:
+                claim["ptype"], claim["from"] = _ptype_word(ps["ru"]), ps["sq"]
+        to = re.match(r"(?:\s+[а-яa-z]+){0,3}?\s+(?:на|on|to)\s+(?P<sq>[a-h][1-8])(?![0-9])", after)
+        if to and not re.search(r"(?<![а-яa-z])(?:корол\w*|king)\s+(?:на|on)\s+$", after[: to.end()][:-2]):
+            claim["to"] = to["sq"]
+        out.append(claim)
+    return out
+
+
+def _real_blocks(board: chess.Board) -> list:
+    checkers = board.checkers()
+    if len(checkers) != 1:
         return []
-    sq = chess.parse_square(m["sq"].lower()) if m["sq"] else None
-    return [mv for mv in board.legal_moves if board.piece_type_at(mv.from_square) == ptype
-            and (sq is None or mv.to_square == sq)]
+    between = chess.SquareSet(chess.between(board.king(board.turn), next(iter(checkers))))
+    return [mv for mv in board.legal_moves if board.piece_type_at(mv.from_square) != chess.KING
+            and mv.to_square not in checkers and mv.to_square in between]
+
+
+def _check_tail(board: chess.Board) -> str:
+    real = [board.san(x) for x in _real_blocks(board)]
+    if real:
+        return f"the blocks here are {', '.join(real)}"
+    checker = next(iter(board.checkers()), None)
+    why = ""
+    if checker is not None and len(board.checkers()) == 1:
+        pc = board.piece_at(checker)
+        why = (" (a knight's check)" if pc.piece_type == chess.KNIGHT else
+               f" (the {_NAMES.get(pc.piece_type, 'piece')} on {chess.square_name(checker)} stands next to the king)"
+               if not chess.between(board.king(board.turn), checker) else "")
+    elif len(board.checkers()) > 1:
+        why = " (a double check)"
+    return f"this check cannot be blocked{why}: the replies are " + ", ".join(board.san(x) for x in board.legal_moves)
+
+
+def _block_verdict(board: chess.Board, claim: dict) -> Optional[str]:
+    """Why *claim* is false on *board* (in check), '' when it holds, None when the words name nothing judgeable here."""
+    blocks = _real_blocks(board)
+    if claim["san"]:
+        try:
+            mv = board.parse_san(claim["san"])
+        except ValueError:
+            side = "White" if board.turn else "Black"
+            return (f"{claim['san']} is not a legal move here: {side} is in check, and {claim['san']} does not answer it — "
+                    + _check_tail(board))
+        if mv in blocks:
+            return ""
+        san = board.san(mv)
+        if board.piece_type_at(mv.from_square) == chess.KING:
+            return f"{san} is a king move, not a block of the check — {_check_tail(board)}"
+        if mv.to_square in board.checkers():
+            pc = board.piece_at(mv.to_square)
+            return (f"{san} takes the checking {_NAMES.get(pc.piece_type, 'piece')} on {chess.square_name(mv.to_square)} — "
+                    f"it captures the checker, it does not block the check; {_check_tail(board)}")
+        return f"{san} does not stand between the checker and the king — {_check_tail(board)}"
+    ptype = claim["ptype"]
+    if ptype == chess.KING:
+        return None  # «закрыться королём»: the words already say a king move — loose wording, no false move
+    if not blocks:
+        return _check_tail(board)  # no block at all: whatever piece the words name
+    frm = chess.parse_square(claim["from"].lower()) if claim["from"] else None
+    if frm is not None and (board.piece_at(frm) is None or board.piece_at(frm).color != board.turn
+                            or (ptype is not None and board.piece_type_at(frm) != ptype)):
+        return None  # the square names another piece (or the king's square): not read
+    to = chess.parse_square(claim["to"].lower()) if claim["to"] else None
+    named = [mv for mv in blocks if (ptype is None or board.piece_type_at(mv.from_square) == ptype)
+             and (frm is None or mv.from_square == frm) and (to is None or mv.to_square == to)]
+    if not named:
+        if not blocks:
+            return _check_tail(board)
+        what = (f"the {_NAMES[ptype]}" + (f" on {chess.square_name(frm)}" if frm is not None else "")) if ptype else "nothing"
+        return f"{what} cannot block this check" + (f" on {chess.square_name(to)}" if to is not None else "") \
+            + f" — {_check_tail(board)}"
+    if claim["only"] and ptype is not None and any(board.piece_type_at(mv.from_square) != ptype for mv in blocks):
+        return f"not only the {_NAMES[ptype]} can block this check — {_check_tail(board)}"
+    return ""
 
 
 def _block_kind_issues(text: str, ctx: CheckContext) -> list[str]:
-    if ctx.current is None or not _BLOCK_NAMED.search(text):
+    if ctx.current is None:
         return []
-    converted, _ = _to_san(text)
     boards = []
     for b in (ctx.current, (ctx.scene_before or (None,))[0], ctx.scene):
         if b is not None and b.is_check() and all(b is not x for x in boards):
             boards.append(b)
     if not boards:
         return []
+    converted, _ = _to_san(text)
     out = []
-    for m in _BLOCK_NAMED.finditer(converted):
-        if not (m["san"] or m["instr"]):
-            continue
-        if not m["san"] and (m["instr"] or "").lower().startswith(("корол", "with the king")):
-            continue  # «закрыться королём на g8»: the words already say a king move — loose wording, no false move
-        clause_start = max(converted.rfind(c, 0, m.start()) for c in ".;!?")
-        if "?" in converted[m.start():m.end() + 3] or _NEGATION.search(converted[max(0, m.start() - 24): m.start()]) \
-                or _HYPO.search(converted[clause_start + 1: m.start()].lower()) and not _NOW_WORD.search(converted[clause_start + 1: m.start()].lower()):
-            continue
-        verdicts = []
-        for board in boards:
-            cands = _block_candidates(board, m)
-            if not cands:
+    claims = _block_claims(converted)
+    for claim in claims:
+        here = boards
+        # A line written before the block word («Rc8+ загоняет короля на h7, потом Qb1+ — спокойно закройся g6»): the
+        # claim is about the position after its last move, which the walk must have reached in this sentence.
+        told = [mv for mv in _MOVE.finditer(converted[: claim["at"]])
+                if (mv["san"][0] in "KQRBNO" or mv["num"] or mv["bdots"] or "x" in mv["san"] or mv["check"])
+                and mv["san"] != claim["san"]]  # not the block's own move («Nxd8 — это заслон»)
+        if told and any(all(_parses(b, x["san"] + (x["check"] or "")) for x in told) for b in boards):
+            pass  # «У тебя три хода: Kxd8, Ke7 или закрыться — Nxd8»: the replies of this very board, listed
+        elif told:
+            # only a line written out move by move («Rc8+ Kh7 Qb1+»), every move of it walked in this sentence: a move
+            # told in words between («Rc8+ загоняет короля на h7, потом Qb1+») leaves the walk on a guessed board
+            whole = all(re.fullmatch(r"[\s,]*(?:\d{1,3}\s?\.{1,3}\s*)?", converted[x.end(): y.start()])
+                        for x, y in zip(told, told[1:]))
+            walked = [san.rstrip("+#").replace("x", "") for san, _, _ in ctx.scene_trail]
+            if not whole or walked[-len(told):] != [x["san"].replace("x", "") for x in told]:
                 continue
-            king = board.king(board.turn)
-            checkers = board.checkers()
-            between = chess.SquareSet()
-            if len(checkers) == 1:
-                between = chess.SquareSet(chess.between(king, next(iter(checkers))))
-            blocks = [mv for mv in cands if board.piece_type_at(mv.from_square) != chess.KING
-                      and mv.to_square not in checkers and mv.to_square in between]
-            verdicts.append((board, cands, blocks))
-        if not verdicts or any(blocks for _, _, blocks in verdicts):
+            here = [b for _, b, _ in ctx.scene_trail[-1:] if b.is_check()]
+        here = [b for b in here if not b.is_checkmate()]  # mate: nothing answers it, no block to judge
+        if not here:
             continue
-        board, cands, _ = verdicts[0]
-        mv = cands[0]
-        san = board.san(mv)
-        real = [board.san(x) for x in board.legal_moves if board.piece_type_at(x.from_square) != chess.KING
-                and x.to_square not in board.checkers()
-                and len(board.checkers()) == 1
-                and x.to_square in chess.SquareSet(chess.between(board.king(board.turn), next(iter(board.checkers()))))]
-        tail = (f"the blocks here are {', '.join(real)}" if real
-                else "this check cannot be blocked: the replies are " + ", ".join(board.san(x) for x in board.legal_moves))
-        if board.piece_type_at(mv.from_square) == chess.KING:
-            out.append(f"{san} is a king move, not a block of the check — {tail}")
-        elif mv.to_square in board.checkers():
-            pc = board.piece_at(mv.to_square)
-            out.append(f"{san} takes the checking {_NAMES.get(pc.piece_type, 'piece')} on {chess.square_name(mv.to_square)} — "
-                       f"it captures the checker, it does not block the check; {tail}")
-        else:
-            out.append(f"{san} does not stand between the checker and the king — {tail}")
+        verdicts = [_block_verdict(b, claim) for b in here]
+        if any(v == "" for v in verdicts) or all(v is None for v in verdicts):
+            continue  # holds on some board in check of the sentence, or names nothing here
+        out.append(next(v for v in verdicts if v))
+    if not claims and not _BLOCK_WORD.search(converted):
+        out = _reply_in_check_issues(converted, ctx, boards)
     return out
+
+
+# The reply to a check proposed for the side in check («Лучший ответ — Qd7», «Сыграй Bd7» with Black in check from an
+# adjacent rook) must be legal there: a move that does not answer the check is not a reply at all (review 01.11: the
+# lenient «reachable in two moves» excused it). Only the sentence's first move, only after a proposal word in its
+# clause, and only when no other position of the turn with that side to move allows it.
+def _reply_in_check_issues(conv: str, ctx: CheckContext, boards: list) -> list[str]:
+    board = ctx.current
+    if not board.is_check() or "?" in conv or _DENIES.search(conv):
+        return []
+    first = next(iter(_MOVE.finditer(conv)), None)
+    if first is None or first["num"] or first["san"].startswith("O-O") or first["san"] in ctx.quoted:
+        return []
+    san = first["san"] + (first["check"] or "")
+    cs = max(conv.rfind(c, 0, first.start()) for c in ".;!?\n") + 1
+    head = conv[cs: first.start()]
+    if first["san"][0] not in "KQRBN" and "x" not in first["san"] and not first["bdots"] \
+            and not re.search(r"(?:[:—–]|(?<![а-яa-z])(?:ходом|сыграй|играй|сыграть|лучше|ответ\w*))\s*[*_]*$", head):
+        return []  # «перекрой шах ферзём на d7»: a square, not a move
+    trig = [m for m in list(_PROPOSES.finditer(head)) + list(_F_NEXT.finditer(head))
+            if not _not_a_proposal(head, m) and not _NEGATION.search(head[max(0, m.start() - 24): m.start()])]
+    if not trig or _COND_BEFORE.search(conv[:first.start()]) or _PAST_PLAN.search(head):
+        return []
+    if _parses(board, san):
+        return []
+    if any(b is not board and b.turn == board.turn and ctx.is_given(b) and ctx._key(b) not in ctx.passed_keys
+           and ctx._key(b) not in ctx.other_board_keys and _parses(b, san) for b in ctx.boards):
+        return []  # another position of the turn (not one the game passed through on its way here) allows it
+    side = "White" if board.turn else "Black"
+    return [f"{san} is not a legal move here: {side} is in check, and {san} does not answer it — {_check_tail(board)}"]
 
 
 # M6 (with eval C3): «белые забирают фигуру бесплатно» about a capture of the game (prod st2#4 29.10: after 4.exf6
