@@ -5093,6 +5093,7 @@ def _gave_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     moves = getattr(ctx, "game_moves", None)
     if not moves or ctx.current is None or "?" in text or _OTHER_GAME.search(original):
         return []
+    from src.board_math import see
     from src.game_record import _players, captures, recap_end
 
     claims = [m for m in _GAVE.finditer(text) if not _NOT_TOLD.search(text[max(0, m.start() - 40): m.start()])
@@ -5133,8 +5134,10 @@ def _gave_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         if trade and any(c.mover == color for c in caps):
             continue  # «разменяли c-пешку на центральную», «отдали пешку c за пешку d» after 2...cxd4: under way
         if board.turn != color and any(board.is_capture(mv) and (v := board.piece_at(mv.to_square)) is not None
-                                       and v.color == color and v.piece_type in want for mv in board.legal_moves):
-            continue  # «белые пожертвовали пешку» after 2.f4: the sacrifice is on offer, not taken yet
+                                       and v.color == color and v.piece_type in want and see(board, mv) > 0
+                                       for mv in board.legal_moves):
+            continue  # «белые пожертвовали пешку» after 2.f4: the sacrifice is on offer, not taken yet. A piece that
+            # can only be traded off evenly (Bxd5+ Qxd5 after 6...Kxf7) is no sacrifice on offer.
         theirs = [f"{c.label} ({_NAMES.get(c.captured, 'pawn')})" for c in caps if c.mover != color]
         out.append(f"in this game {_owner_words(ctx, color)} has lost "
                    + (f"no {name}" if not lost else f"only {len(lost)} {name}{'s' if len(lost) > 1 else ''}, not {n}") + ": "

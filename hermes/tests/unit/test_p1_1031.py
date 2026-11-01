@@ -293,13 +293,13 @@ def test_shadow_records_and_never_cuts(monkeypatch):
     assert ctx.detector_shadow and ctx.detector_shadow[0][0] == "gave_up"
 
 
-def test_none_in_the_lesson_tutor_and_shadow_in_move_comments():
+def test_none_in_the_lesson_tutor_and_on_in_move_comments():
     ctx = _game("e4 c5", "w")
     ctx.relation_surface = "lesson"
     assert _last(["Чёрные отдали центральную пешку."], ctx)[1] == [] and not ctx.detector_shadow
     ctx = _game("e4 c5", "w")
-    ctx.relation_surface = "game"
-    assert _last(["Чёрные отдали центральную пешку."], ctx)[1] == [] and ctx.detector_shadow
+    ctx.relation_surface = "game"  # a move comment: the game-record detectors judge it as a chat answer (fix 01.11)
+    assert _last(["Чёрные отдали центральную пешку."], ctx)[1]
 
 
 # ── F2 owners in the move words ──────────────────────────────────────────────────────────────────────────────────

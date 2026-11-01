@@ -297,14 +297,17 @@ def test_detector_switches(monkeypatch):
     assert config.detector_mode("prevents") == "off" and config.detector_mode("race_distance") == "on"
 
 
-def test_detectors_stay_out_of_the_lesson_tutor_and_shadow_in_move_comments(monkeypatch):
+def test_detectors_stay_out_of_the_lesson_tutor_and_relations_shadow_in_move_comments(monkeypatch):
     monkeypatch.delenv("COACH_DETECTORS_OFF", raising=False)
     monkeypatch.delenv("COACH_DETECTORS_SHADOW", raising=False)
     monkeypatch.setattr(config, "COACH_RELATION_CHECK", "on")
     lesson, game = CheckContext.from_fens(), CheckContext.from_fens()
     lesson.relation_surface, game.relation_surface = "lesson", "game"
     assert all(config.detector_mode(n, lesson) == "off" for n in PLAN_NAMES)
-    assert config.detector_mode("recap_scope", game) == "shadow"
+    # fix 01.11: a move comment caps the relation detectors only; the others judge it as a chat answer
+    assert config.detector_mode("recap_scope", game) == "on"
+    assert all(config.detector_mode(n, game) == "shadow" for n in config.RELATION_DETECTORS
+               if config.detector_mode(n) == "on")
 
 
 def test_trade_swing_named_needs_its_flag(monkeypatch):

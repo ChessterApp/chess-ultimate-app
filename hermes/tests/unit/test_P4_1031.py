@@ -145,8 +145,8 @@ def test_switches(monkeypatch):
     ctx.relation_surface = "lesson"  # the /learn tutor gets no detector
     assert _piece_claims("Здесь решает ферзь.", ctx) == []
     ctx = _ctx(MATE2_NO)
-    ctx.relation_surface = "game"  # a game move comment: at most shadow
-    assert [c["mode"] for c in _piece_claims("Здесь решает ферзь.", ctx)] == ["shadow"]
+    ctx.relation_surface = "game"  # a game move comment: the engine claims judge it as a chat answer (fix 01.11)
+    assert [c["mode"] for c in _piece_claims("Здесь решает ферзь.", ctx)] == ["on"]
 
 
 @pytest.mark.parametrize("words,value", [
