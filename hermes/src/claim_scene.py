@@ -2026,6 +2026,8 @@ def extract(text: str, ctx: Any, state: dict) -> list:
     except Exception:  # noqa: BLE001
         pass
     try:
+        if not _PLACE_VERB.search((text or "").lower()):
+            return out  # no stative verb: no placement to read, under a cue or not (cheap check first)
         cue = _cue(state)
         if (cue == "start" and _mode("start_cue", ctx) != "off") or _mode("placement", ctx) != "off":
             out += _placement_claims(text, ctx, state, cue if cue == "start" else "")

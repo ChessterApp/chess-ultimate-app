@@ -1466,14 +1466,13 @@ _CUE_RULES = re.compile(r"тольк|единствен|выбор|ходов|о
                         r"отнимает|перекрывает|мож|могу|смож|занят|свободн|пуст|шах|давая|позволяя|мешая|пуская|откуда|"
                         r"придется|приходится")
 _HAS_SQUARE = re.compile(r"[a-h][1-8]|o-o|0-0|рокир")
-_CUE = re.compile(r"тольк|единствен|выбор|ходов|обязан|вынужден|должн|некуда|нет\s|заперт|отрезан|прижат|зажат|загород|"
-                  r"закрыл|занял|отнял|перекрыл|забрал|закрывает|занимает|загораживает|забирает|отбирает|отнимает|перекрывает|"
-                  r"мож|могу|смож|занят|свободн|пуст|шах|давая|позволяя|мешая|пуская|откуда|придется|приходится|"
-                  # fix 01.11: the parts a prevention or a lost cover is told with
-                  r"не\s+да|позвол|пуска|пуст|допус|меша|лиша|лиши|запре|предотвра|пресе|исключ|отним|отбир|отбер|блокир|"
-                  r"перекр|закр|смог|сумеют|сумеет|успе|удаст|получит|нельзя|невозможн|чтобы|пропад|исчез|отпад|"
-                  r"дойд|пройд|попад|прорв|добер|освобо|простре|перестан|контрол|теря|рокир|покин|отгон|отогна|"
-                  r"выгон|выгна|прогон|прогна|держ|прикр|под\s+удар|под\s+бо|атак|свобод|отступ|уйд|уход|отой|отход|бить|бьет|бьют|видит|смотрит")
+# The words fix 01.11 added for the parts a prevention or a lost cover is told with (F3).
+_CUE_NEW = re.compile(r"не\s+да|позвол|пуска|пуст|допус|меша|лиша|лиши|запре|предотвра|пресе|исключ|отним|отбир|отбер|блокир|"
+                      r"перекр|закр|смог|сумеют|сумеет|успе|удаст|получит|нельзя|невозможн|чтобы|пропад|исчез|отпад|"
+                      r"дойд|пройд|попад|прорв|добер|освобо|простре|перестан|контрол|теря|рокир|покин|отгон|отогна|"
+                      r"выгон|выгна|прогон|прогна|держ|прикр|под\s+удар|под\s+бо|атак|свобод|отступ|уйд|уход|отой|отход|"
+                      r"бить|бьет|бьют|видит|смотрит")
+_CUE = re.compile(_CUE_RULES.pattern + "|" + _CUE_NEW.pattern)  # the union, for callers outside extract
 
 
 # Pieces the sentence places on squares («чёрный конь забрался на h5», «пешку e5», «прикрыта пешкой d3»): a board
@@ -1513,19 +1512,19 @@ def extract(text: str, state: dict) -> list[Claim]:
     low = conv.lower()
     moves = _moves(conv) if re.search(r"[a-h][1-8]|O-O", conv) else []
     claims: list[Claim] = []
-    if _CUE.search(low):
+    old_cue = bool(_CUE_RULES.search(low))
+    # F3's readers (retreat_cover, prevents) read a chase or a stopper, both written moves: a square or castling first,
+    # then their own cue words (one short regex each, not the union of all — the union cost the relation p99 gate)
+    new_cue = bool(_HAS_SQUARE.search(low)) and (old_cue or bool(_CUE_NEW.search(low)))
+    if old_cue or new_cue:
         st = state if isinstance(state, dict) else {}
-        old_cue = bool(_CUE_RULES.search(low))
-        for part in ((_only_move, _no_flight, _can_capture, _occupied) if old_cue else ()) + (_checks_along,):
-            claims += part(conv, low, moves, st)
+        if old_cue:  # every check word («шах…») is an old cue word too
+            for part in (_only_move, _no_flight, _can_capture, _occupied, _checks_along):
+                claims += part(conv, low, moves, st)
         # plan 31.10 (P3D): each detector has its own switch (src/config.py detector_mode; off = not read at all)
-        for name, part in (("retreat_cover", _retreat_cover), ("prevents", _prevents),
-                           ("only_move_orders", _only_move_orders)):
-            if name == "only_move_orders" and not old_cue:
-                continue
-            if name != "only_move_orders" and not _HAS_SQUARE.search(low):
-                continue  # a chase and a stopper are written moves: a sentence with no square or castling has neither
-            if detector_mode(name) != "off":
+        for name, part, cued in (("retreat_cover", _retreat_cover, new_cue), ("prevents", _prevents, new_cue),
+                                 ("only_move_orders", _only_move_orders, old_cue)):
+            if cued and detector_mode(name) != "off":
                 claims += part(conv, low, moves, st)
     if isinstance(state, dict):
         state["rules_text"] = text if claims else ""
