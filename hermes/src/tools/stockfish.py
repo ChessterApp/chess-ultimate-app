@@ -1,5 +1,6 @@
 """Tool 5: analyze_position — Stockfish engine analysis."""
 
+import contextlib
 import json
 import os
 import shutil
@@ -265,13 +266,31 @@ def _go_spec(depth: int, movetime_ms: int | None, searchmoves=()) -> str:
     return f"depth {depth}{restrict}"
 
 
+# A watcher of the search the calling thread is about to start on the pool (progress()): it sees the engine's output
+# lines as they come — src/voice_engine_note.engine_note starts the threat search after the best move from the
+# line's best move so far, beside the line, instead of after it (review-wiring 01.11: 1.81 s → ~1.5 s).
+_progress = threading.local()
+
+
+@contextlib.contextmanager
+def progress(on_line):
+    """Searches this thread starts on the pool inside the block report each output line to *on_line(line)*."""
+    old = getattr(_progress, "fn", None)
+    _progress.fn = on_line
+    try:
+        yield
+    finally:
+        _progress.fn = old
+
+
 def _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline=None, searchmoves=()) -> dict:
     """analyze_position on the pool: the same `go`, the same parsing, the same result as a new process gives."""
     from src import engine_pool
 
     out = engine_pool.search(fen, go=_go_spec(depth, movetime_ms, searchmoves), multipv=multipv,
                              deadline=deadline, clear_hash=True,
-                             timeout=None if movetime_ms or timeout == TIMEOUT_SECONDS else timeout)
+                             timeout=None if movetime_ms or timeout == TIMEOUT_SECONDS else timeout,
+                             on_line=getattr(_progress, "fn", None))
     if "error" in out:
         return {"error": out["error"]}
     if out.get("stopped"):

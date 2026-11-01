@@ -86,8 +86,41 @@ _RECENT_MAX = 256
 _lock = threading.Lock()
 
 
+# A caller that must keep the facts as they were before plan 31.10 — the /learn lesson tutor (its model input
+# stays exactly as main's, review-wiring 01.11) — runs inside suspended(): every provider then answers as with
+# COACH_TURN_FACTS=0, in that context only. A context variable: the server's engine executor carries it to the
+# worker threads the lesson's searches run on (src/server._ContextExecutor).
+import contextlib as _contextlib  # noqa: E402
+import contextvars as _contextvars  # noqa: E402
+
+_SUSPENDED: "_contextvars.ContextVar[bool]" = _contextvars.ContextVar("turn_facts_suspended", default=False)
+
+
+@_contextlib.contextmanager
+def suspended():
+    """Inside the block the turn facts are off (as COACH_TURN_FACTS=0) for this context only."""
+    token = _SUSPENDED.set(True)
+    try:
+        yield
+    finally:
+        _SUSPENDED.reset(token)
+
+
+def without(fn):
+    """*fn* wrapped to run inside suspended() (for a function submitted to another thread)."""
+    def run(*args, **kwargs):
+        with suspended():
+            return fn(*args, **kwargs)
+
+    run.__name__ = getattr(fn, "__name__", "run")
+    run.__doc__ = getattr(fn, "__doc__", None)
+    return run
+
+
 def enabled() -> bool:
-    """COACH_TURN_FACTS (default on); off: no provider runs and the prompts are as before."""
+    """COACH_TURN_FACTS (default on); off: no provider runs and the prompts are as before. Off inside suspended()."""
+    if _SUSPENDED.get():
+        return False
     try:
         from src import config
 

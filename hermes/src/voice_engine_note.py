@@ -28,11 +28,137 @@ MATE_PLIES = 11  # a forced mate up to mate in 6 is written to the end
 _slots = threading.BoundedSemaphore(2)
 # The opponent's-threat search runs beside the main analysis (it does not need
 # the best move), so the facts add one short search to the line, not two.
-_threat_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="threat")
+_threat_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="threat")
 
 
 def _threat_analysis(fen: str) -> dict:
     return analyze_timed(fen, THREAT_MOVETIME_MS, multipv=1, min_depth=10)
+
+
+def _at_caller_priority(fn, at_least: Optional[int] = None):
+    """*fn* to run on another thread at the calling thread's engine-pool priority and job (src/engine_pool): the
+    threat searches of a line computed in advance stay background work, those of a held check stay in front.
+    *at_least*: no further forward than this level (a guess runs as background work: any answer stops it)."""
+    try:
+        from src import engine_pool
+
+        level, job = engine_pool.current_priority(), engine_pool.current_job()
+        if at_least is not None:
+            level = max(level, at_least)
+    except Exception:  # noqa: BLE001
+        return fn
+
+    def run(*args, **kwargs):
+        with engine_pool.priority(level, job):
+            return fn(*args, **kwargs)
+
+    return run
+
+
+def _null_fen_after(board: chess.Board, uci: Optional[str]) -> Optional[str]:
+    """The position after *uci* with the other side passing — the position position_facts._threat searches for the
+    threat after the best move — or None (illegal, a check or a mate after it, no pass possible)."""
+    try:
+        move = chess.Move.from_uci(uci or "")
+    except ValueError:
+        return None
+    if move not in board.legal_moves:
+        return None
+    after = board.copy(stack=False)
+    after.push(move)
+    if after.is_check() or after.is_game_over():
+        return None
+    null = after.copy(stack=False)
+    null.push(chess.Move.null())
+    if null.is_check() or not null.is_valid():
+        return None
+    return null.fen()
+
+
+# The threat after the best move needs the best move: it was searched after the line (1.5 s + 0.3 s). On the pool it
+# starts from the line's two best moves so far (its first two lines), SPECULATE_MOVES × THREAT_MOVETIME_MS +
+# SPECULATE_LEAD_MS before the line ends, on a process no other search wants — the same search
+# (src/position_facts._threat, through the analysis cache), so dynamic_facts reads it when the line's final best is
+# one of them, and searches it after the line as before when it is not (review-wiring 01.11). Under load (no free
+# process, a search waiting) nothing is guessed: the pool's time goes to the turns.
+SPECULATE_LEAD_MS = 150
+SPECULATE_MIN_DEPTH = 8
+SPECULATE_MOVES = 2
+
+
+class _AfterBestThreat:
+    def __init__(self, board: chess.Board, movetime_ms: int):
+        self.board = board
+        self.best: Optional[str] = None
+        self.tops: dict = {}  # multipv → its first move, at the latest depth
+        self.fired: Optional[list] = None
+        self._lock = threading.Lock()
+        self._delay = (movetime_ms - SPECULATE_MOVES * THREAT_MOVETIME_MS - SPECULATE_LEAD_MS) / 1000.0
+        from src.engine_pool import PRIORITY_BACKGROUND
+
+        # a guess: background work (an answer that needs the process stops it, and the threat is searched after the
+        # line as before); the turn's own search of the same position joins it and promotes it (stockfish._merged)
+        self._run = _at_caller_priority(_threat_analysis, at_least=PRIORITY_BACKGROUND)
+        self._timer: Optional[threading.Timer] = None
+        self._closed = False
+
+    @classmethod
+    def start(cls, board: chess.Board, movetime_ms: Optional[int]) -> "Optional[_AfterBestThreat]":
+        """A speculator for a timed line on the pool (None otherwise: the process-per-search path stays as it was)."""
+        from src.tools.stockfish import pool_on
+
+        if not movetime_ms or movetime_ms < SPECULATE_MOVES * THREAT_MOVETIME_MS + SPECULATE_LEAD_MS + 300 \
+                or not pool_on():
+            return None
+        return cls(board, movetime_ms)
+
+    def on_line(self, line: str) -> None:
+        """An output line of the line's search: the best move of the latest depth (the first line, multipv 1). The
+        first line starts the clock — the search may have waited for a process."""
+        if self._timer is None:
+            with self._lock:
+                if self._timer is None and not self._closed:
+                    self._timer = threading.Timer(max(0.0, self._delay), self.fire)
+                    self._timer.daemon = True
+                    self._timer.start()
+        if not line.startswith("info ") or " pv " not in line:
+            return
+        parts = line.split()
+        try:
+            depth = int(parts[parts.index("depth") + 1])
+            mpv = int(parts[parts.index("multipv") + 1]) if "multipv" in parts else 1
+            move = parts[parts.index("pv") + 1]
+        except (ValueError, IndexError):
+            return
+        if depth >= SPECULATE_MIN_DEPTH and "upperbound" not in parts and "lowerbound" not in parts:
+            if mpv == 1:
+                self.best = move
+            if mpv <= SPECULATE_MOVES:
+                self.tops[mpv] = move
+
+    def fire(self) -> None:
+        with self._lock:
+            if self.fired is not None or self.best is None or self._closed:
+                return
+            moves = [self.best] + [m for k, m in sorted(self.tops.items()) if m != self.best]
+            self.fired = moves[:SPECULATE_MOVES]
+        try:
+            from src import engine_pool
+
+            if not engine_pool.has_spare():
+                return  # every process is wanted: no guessing on a busy pool
+        except Exception:  # noqa: BLE001
+            return
+        for uci in self.fired:
+            fen = _null_fen_after(self.board, uci)
+            if fen:
+                _threat_pool.submit(self._run, fen)
+
+    def done(self) -> None:
+        with self._lock:
+            self._closed = True
+            if self._timer is not None:
+                self._timer.cancel()
 
 
 def _passed_fen(board: chess.Board) -> Optional[str]:
@@ -92,6 +218,21 @@ def _tablebase_result(board: chess.Board) -> Optional[str]:
         return None
 
 
+def line_search(board: chess.Board, fen: str, movetime_ms: int, speculate: bool = True) -> dict:
+    """The turn's timed engine line (DEFAULT_MULTIPV lines), with the threat search after its best move started
+    beside it on the pool (_AfterBestThreat) when *speculate*."""
+    spec = _AfterBestThreat.start(board, movetime_ms) if speculate else None
+    if spec is None:
+        return analyze_timed(fen, movetime_ms, multipv=DEFAULT_MULTIPV)
+    from src.tools.stockfish import progress
+
+    try:
+        with progress(spec.on_line):
+            return analyze_timed(fen, movetime_ms, multipv=DEFAULT_MULTIPV)
+    finally:
+        spec.done()
+
+
 def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int] = None) -> Optional[dict]:
     """Return {fen, note, best, lines} for a legal position, or None when it cannot be analysed.
 
@@ -119,10 +260,10 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
 
     with_facts = os.environ.get("COACH_ENGINE_FACTS", "1").strip().lower() not in ("0", "false", "no", "off")
     passed_fen = _passed_fen(board) if with_facts else None
-    prefetch = _threat_pool.submit(_threat_analysis, passed_fen) if passed_fen else None
+    prefetch = _threat_pool.submit(_at_caller_priority(_threat_analysis), passed_fen) if passed_fen else None
     with _slots:
         if movetime_ms:
-            result = analyze_timed(fen, movetime_ms, multipv=DEFAULT_MULTIPV)
+            result = line_search(board, fen, movetime_ms, speculate=with_facts)
         else:
             result = analyze_cached(fen, depth=depth, multipv=DEFAULT_MULTIPV)
     if "error" in result or not result.get("lines"):
@@ -158,13 +299,15 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
 
     # COACH_ENGINE_FACTS=0 leaves the line as moves and evaluations only.
     facts = _facts(board, result["lines"][0], prefetch, lines=result["lines"]) if with_facts else []
+    typed: Optional[list] = None  # None: no line facts collected (COACH_ENGINE_FACTS=0) — the block falls back
     if with_facts:
         # The typed facts this line vets (src/turn_facts, plan 31.10 P8): the safe squares of an attacked piece that
         # start one of these lines, what one more attacker wins. Not in this note (the voice and lesson lines stay as
-        # they were): the coach's engine block reads them back (prompt_builder.engine_note_block).
+        # they were): the coach's engine block renders them from this note's "typed_facts" — this turn's own, not
+        # the last ones any session collected for the position (review-wiring 01.11).
         from src import turn_facts
 
-        turn_facts.collect(board, result["lines"], kinds=turn_facts.ENGINE_KINDS)
+        typed = turn_facts.collect(board, result["lines"], kinds=turn_facts.ENGINE_KINDS)
     if facts:
         parts.append("Facts (verified on the board and by the engine): " + "; ".join(facts) + ".")
     if with_facts:
@@ -186,7 +329,7 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
         except Exception:  # noqa: BLE001 — a bonus on top of the engine
             tb = None
     return {"fen": fen, "note": " ".join(parts), "best": best["moves"][0], "lines": lines, "facts": facts,
-            "tablebase": tb, "mate_in": mate_in}
+            "tablebase": tb, "mate_in": mate_in, "typed_facts": typed}
 
 
 def _opening(fen: str) -> Optional[str]:

@@ -14,8 +14,12 @@ it), with exactly the requests the turn will make, so the turn reads the analysi
                                    positions before the biggest moments as the tool asks them (depth 16, 3 lines)
   any other position               the text turn's engine line with its two threat searches, then depth 16 with
                                    3 lines (the site's prewarm, the voice note, the analyze_position tool)
-  after a turn's engine line       the positions after its top 3 moves, as the answer check's recommended-move
-                                   check asks them (COACH_MOVE_VERIFY_MOVETIME_MS)
+  after a turn's engine line       the positions after the moves a coach recommends here (the line's top moves, the
+                                   book's, castling, checks, captures, pawn moves), as the answer check's
+                                   recommended-move check asks them (COACH_MOVE_VERIFY_MOVETIME_MS); the forced-reply
+                                   confirm after the best move and the captures and checks among them; then every
+                                   other legal move, further back
+  the student's idea moves         the forced-reply confirm of the positions after them, ahead of the candidates
 
 Each board has a change counter: a new save cancels the board's old job (its waiting searches are dropped, a running
 one is stopped); the jobs for a turn's answer check are replaced by the next turn's. Nothing new reaches the model: a cached line is what a search at the turn would have found, and the
@@ -43,6 +47,8 @@ logger = logging.getLogger(__name__)
 REVIEW_MOMENTS = 3
 # The positions after the engine line's top moves the answer check is likely to ask about.
 LINE_TOP_MOVES = 3
+# How long the line step waits for its threat search beside it.
+THREAT_WAIT_S = 5.0
 # A stopped background search is asked again after this pause (the answer that needed the process goes first).
 RETRY_PAUSE_S = 0.05
 MAX_RETRIES = 50
@@ -50,7 +56,7 @@ MAX_RETRIES = 50
 _lock = threading.Condition()
 _pending: "OrderedDict[str, _Task]" = OrderedDict()
 _gen: dict = {}
-_running: dict = {}  # key → the job at work
+_running: dict = {}  # key → [the job at work, its steps at work]
 STATS = {"jobs": 0, "steps": 0, "cancelled": 0, "failed": 0}
 
 
@@ -68,7 +74,7 @@ class _Task:
         self.key, self.job, self.steps, self.gen = key, job, steps, gen
         self.queued_at = time.monotonic()
         self.level = level
-        self.busy = False
+        self.busy = 0  # steps at work (a short step may run beside another of its task: PARALLEL_STEPS)
 
 
 def enabled() -> bool:
@@ -128,6 +134,25 @@ def _line_steps(fen: str) -> list:
     def _text_line():
         return analyze_timed(fen, _note_movetime(), multipv=DEFAULT_MULTIPV)
 
+    def _line_with_threats():
+        # The line with both threat searches beside it, as the turn's engine_note runs them: the threat now on the
+        # second process from the start (a short background search may take it while no answer waits), the threat
+        # after the best move from the line's best move so far — all three end with the line, ~1.5 s after the save
+        # instead of 2.1 s (review-wiring 01.11). The steps after it read them from the cache (or search again what
+        # an answer stopped).
+        from src.voice_engine_note import _at_caller_priority, _threat_pool, line_search
+
+        now = _null_fen(board)
+        side = _threat_pool.submit(_at_caller_priority(_threat), now) if now else None
+        try:
+            return line_search(board, fen, _note_movetime(), speculate=True)
+        finally:
+            if side is not None:
+                try:
+                    side.result(timeout=THREAT_WAIT_S)
+                except Exception:  # noqa: BLE001 — the step after it asks again
+                    pass
+
     def _after_best():
         res = _text_line()  # in the cache by now: the line the turn will read, and its best move
         if "error" in res or not res.get("lines"):
@@ -142,7 +167,7 @@ def _line_steps(fen: str) -> list:
         after.push(best)
         return _threat(_null_fen(after))
 
-    return [("line", _text_line),
+    return [("line", _line_with_threats),
             ("threat", lambda: _threat(_null_fen(board))),
             ("threat_after_best", _after_best),
             ("line_depth", lambda: analyze_cached(fen, depth=DEFAULT_DEPTH, multipv=DEFAULT_MULTIPV))]
@@ -319,14 +344,29 @@ def _expire_locked() -> None:
         STATS["expired"] = STATS.get("expired", 0) + 1
 
 
+# Steps that are one short search each (the position after a candidate move, 300 ms) run two of a task at a time:
+# the pool lets a short background search take the second process while no answer waits (src/engine_pool), so the
+# candidates are covered twice as fast in the time the model takes to answer (review-wiring 01.11).
+PARALLEL_STEPS = ("after_move",)
+
+
+def _startable(task: "_Task") -> bool:
+    if not task.steps:
+        return False
+    if not task.busy:
+        return True
+    return task.busy < WORKERS and task.steps[0][0] in PARALLEL_STEPS
+
+
 def _next_locked():
-    """The next step to run: the lowest level first, then the oldest task; one step of a task at a time. A step is
-    not started while a task of a lower level still has steps: its next step would only stop this one."""
+    """The next step to run: the lowest level first, then the oldest task; one step of a task at a time (two short
+    ones). A step is not started while a task of a lower level still has steps: its next step would only stop this
+    one."""
     _expire_locked()
     best = None
     ahead = min((t.level for t in _pending.values() if t.steps or t.busy), default=None)
     for key, task in _pending.items():
-        if task.busy or not task.steps:
+        if not _startable(task):
             continue
         if best is None or task.level < best.level:
             best = task
@@ -342,9 +382,13 @@ def _work() -> None:
             while task is None:
                 _lock.wait(30.0)
                 task = _next_locked()
-            task.busy = True
+            task.busy += 1
             name, step = task.steps.pop(0)
-            _running[task.key] = task.job
+            run = _running.get(task.key)
+            if run is not None and run[0] is task.job:
+                run[1] += 1
+            else:
+                _running[task.key] = [task.job, 1]
         try:
             more = _run_step(task, name, step)
         except Exception:  # noqa: BLE001 — background work never surfaces
@@ -353,12 +397,15 @@ def _work() -> None:
             more = None
         finally:
             with _lock:
-                task.busy = False
+                task.busy -= 1
                 if more:
                     task.steps[:0] = more  # a plan's steps, right where the plan was
-                if _running.get(task.key) is task.job:
-                    _running.pop(task.key, None)
-                if (task.job.cancelled or not task.steps) and _pending.get(task.key) is task:
+                run = _running.get(task.key)
+                if run is not None and run[0] is task.job:
+                    run[1] -= 1
+                    if run[1] <= 0:
+                        _running.pop(task.key, None)
+                if (task.job.cancelled or (not task.steps and not task.busy)) and _pending.get(task.key) is task:
                     _pending.pop(task.key, None)
                 _lock.notify_all()
 
@@ -408,12 +455,19 @@ def board_changed(session, board) -> None:
     # whatever the coach's tools put up meanwhile; the next turn's line replaces them.
     with _lock:
         _cancel_locked(key)
+        _cancel_locked(key + "#rest")  # the old board's least likely moves: the new board's positions go first
     # The plan reads the PGN: built on a worker thread, never on the request's.
     _submit(key, [("plan", lambda: _plan(kind, fen, pgn, snap_state))], f"board {key}", replace=False)
 
 
-# How many positions after candidate moves are analysed for the recommended-move check per engine line.
+# How many positions after candidate moves are analysed for the recommended-move check per engine line, first (the
+# rest of the legal moves follow further back, LEVEL_BOARD: a coach recommends a quiet developing move too — Qe2,
+# Nf6, Be2 were checked at the turn in the replay of 01.11, 300 ms each).
 CANDIDATE_MOVES = 12
+# The positions after the best move and after the likely captures and checks among the candidates get the
+# forced-reply check's confirming search («после Nxe5 чёрные обязаны ответить dxe5»: trap-legal held its sentence
+# 1.4 s for it in the replay of 01.11).
+CONFIRM_MOVES = 4
 
 
 def _candidate_moves(board: chess.Board, note: dict) -> list:
@@ -458,24 +512,54 @@ def _candidate_moves(board: chess.Board, note: dict) -> list:
     return seen[:CANDIDATE_MOVES]
 
 
-def _after_move_steps(board: chess.Board, note: dict) -> tuple:
+def _other_moves(board: chess.Board, first: list) -> list:
+    """The legal moves not among *first*, the likelier first: minor pieces off their first rank, then the queen,
+    the rooks, the other minor-piece moves, the king."""
+    home = 0 if board.turn == chess.WHITE else 7
+
+    def rank(move):
+        piece = board.piece_type_at(move.from_square)
+        if piece in (chess.KNIGHT, chess.BISHOP) and chess.square_rank(move.from_square) == home:
+            return 0
+        return {chess.QUEEN: 1, chess.ROOK: 2, chess.KNIGHT: 3, chess.BISHOP: 3, chess.PAWN: 4}.get(piece, 5)
+
+    return sorted((m for m in board.legal_moves if m not in first), key=lambda m: (rank(m), m.uci()))
+
+
+def _after_move_steps(board: chess.Board, note: dict, rest: Optional[list] = None) -> tuple:
     """(the positions after the candidate moves, as the recommended-move check asks them; the forced-reply confirm
-    of the position after the best one)."""
+    of the positions after the best one and after the captures and checks among them). *rest*, when given, gets the
+    same step for every other legal move (src/engine_precompute: further back)."""
     from src import config
     from src.hypothetical import MIN_DEPTH
     from src.tools.stockfish import analyze_timed
 
     movetime = config.COACH_MOVE_VERIFY_MOVETIME_MS
-    steps, confirm = [], []
-    for move in _candidate_moves(board, note):
+
+    def step(move):
         after = board.copy(stack=False)
         after.push(move)
         if after.is_game_over():
+            return None, None
+        f = after.fen()
+        return ("after_move", lambda f=f: analyze_timed(f, movetime, multipv=1, min_depth=MIN_DEPTH)), f
+
+    steps, confirm_fens = [], []
+    candidates = _candidate_moves(board, note)
+    for i, move in enumerate(candidates):
+        s, f = step(move)
+        if s is None:
             continue
-        steps.append(("after_move", lambda f=after.fen(): analyze_timed(f, movetime, multipv=1, min_depth=MIN_DEPTH)))
-        if not confirm:
-            confirm = _confirm_steps([after.fen()])  # «после <лучший ход> чёрные обязаны ответить …»
-    return steps, confirm
+        steps.append(s)
+        # «после <лучший ход> чёрные обязаны ответить …», «после Nxe5 … обязаны взять»
+        if (i == 0 or board.is_capture(move) or board.gives_check(move)) and len(confirm_fens) < CONFIRM_MOVES:
+            confirm_fens.append(f)
+    if rest is not None:
+        for move in _other_moves(board, candidates):
+            s, _ = step(move)
+            if s is not None:
+                rest.append(s)
+    return steps, _confirm_steps(confirm_fens)
 
 
 def after_engine_line(session_id: str, board_id: str, fen: str, note: Optional[dict]) -> None:
@@ -490,8 +574,10 @@ def after_engine_line(session_id: str, board_id: str, fen: str, note: Optional[d
     key = f"{session_id}/{board_id}"
 
     def _plan():
-        steps, confirm = _after_move_steps(board, note)
+        rest: list = []
+        steps, confirm = _after_move_steps(board, note, rest)
         _submit(key + "#confirm", confirm, f"confirm {fen}", level=LEVEL_CONFIRM)
+        _submit(key + "#rest", rest, f"rest {fen}", level=LEVEL_BOARD)
         return steps
 
     _submit(key + "#line", [("plan", _plan)], f"line {fen}", level=LEVEL_CHECK)
@@ -523,7 +609,11 @@ def after_ideas(session_id: str, board_id: str, idea_fens: list) -> None:
     if not enabled() or not idea_fens:
         return
     steps = _confirm_steps([f for f in idea_fens[:3] if isinstance(f, str)])
-    _submit(f"{session_id}/{board_id}#ideas", steps, "ideas", level=LEVEL_CONFIRM)
+    # At the level of the check's own positions, and ahead of them (older): the student named these moves, so the
+    # answer is about them, and a forced-reply confirm costs the held sentence 0.8–1.4 s (a recommended move's check
+    # 0.3 s). Further back, the candidates' searches stopped it again and again (replay 01.11, trap-legal: «можно
+    # сыграть Nxe5?» — the confirm after 5.Nxe5 was stopped six times and the turn searched it itself, 1.6 s).
+    _submit(f"{session_id}/{board_id}#ideas", steps, "ideas", level=LEVEL_CHECK)
 
 
 def idle(timeout: float = 30.0) -> bool:

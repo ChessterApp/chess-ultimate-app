@@ -554,10 +554,39 @@ def _fail_open(fn, *args) -> list:
         return []
 
 
+# The check a shadow record belongs to when its detector judges away from the CheckContext — the engine stage's
+# verify_claims, the tablebase's judge_pending, run on a worker thread (shadow_into): (ctx, the sentence held).
+import contextlib as _contextlib  # noqa: E402
+import contextvars as _contextvars  # noqa: E402
+
+_SHADOW_SINK: "_contextvars.ContextVar[Optional[tuple]]" = _contextvars.ContextVar("detector_shadow_sink", default=None)
+
+
+@_contextlib.contextmanager
+def shadow_into(ctx, sentence: Optional[str] = None):
+    """Shadow records made inside the block without a context (record_shadow(None, …)) go to *ctx*, naming
+    *sentence*: the engine stage's detectors are graded from the same detector_shadow event as the sync ones."""
+    token = _SHADOW_SINK.set((ctx, sentence) if ctx is not None else None)
+    try:
+        yield
+    finally:
+        _SHADOW_SINK.reset(token)
+
+
 def record_shadow(ctx, name: str, issues, text: Optional[str] = None) -> None:
     """One shadow record for every plan-31.10 detector: (name, sentence, issues) on ctx.detector_shadow, and logged —
-    never shown or cut. *text* defaults to the sentence being judged (ctx.sentence_now). Fail-open."""
-    issues = [issues] if isinstance(issues, str) else list(issues or [])
+    never shown or cut. *text* defaults to the sentence being judged (ctx.sentence_now). *ctx* None: the check the
+    caller runs for (shadow_into); nothing when there is none. Fail-open."""
+    try:
+        issues = [issues] if isinstance(issues, str) else list(issues or [])
+        if ctx is None:
+            sink = _SHADOW_SINK.get()
+            if sink is not None:
+                ctx = sink[0]
+                if text is None:
+                    text = sink[1]
+    except Exception:  # noqa: BLE001
+        return
     if not issues or ctx is None:
         return
     try:
@@ -590,9 +619,13 @@ def _detector(name: str, ctx: Optional["CheckContext"], issues: list) -> list:
     them, 'shadow' records them in ctx.detector_shadow and logs them (never shown), 'off' drops them."""
     if not issues:
         return []
-    from src.config import detector_mode
+    try:
+        from src.config import detector_mode
 
-    mode = detector_mode(name, ctx)
+        mode = detector_mode(name, ctx)
+    except Exception:  # noqa: BLE001 — a switch that cannot be read is a switched-off detector (fail-open)
+        logger.debug("detector switch %s failed", name, exc_info=True)
+        return []
     if mode == "on":
         return list(issues)
     if mode == "shadow" and ctx is not None:

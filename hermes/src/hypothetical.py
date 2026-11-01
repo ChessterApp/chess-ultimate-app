@@ -88,19 +88,40 @@ ENDING_WON = 2.0
 
 def _ending_unproven(board: chess.Board, before: float, after: float) -> bool:
     """≤ 7 pieces, no tablebase answer, and the mover clearly winning before and after the move (White-side
-    pawns *before* / *after*, ≥ ENDING_WON for the mover): the engine's drop proves no mistake. Fail-closed."""
+    pawns *before* / *after*, ≥ ENDING_WON for the mover): the engine's drop proves no mistake. Fail-closed.
+    Its own switch, the detector ``ending_unproven`` (COACH_DETECTORS_OFF=ending_unproven: the engine stage judges
+    these endings as main did; review-wiring 01.11), and a log line each time it lets a move stand."""
     try:
         if len(board.piece_map()) > 7 or board.castling_rights:
             return False
         sign = 1 if board.turn == chess.WHITE else -1
         if before * sign < ENDING_WON or after * sign < ENDING_WON:
             return False
+        if not _switch_on("ending_unproven"):
+            return False
         from src import board_rules
 
         tb = board_rules.tablebase(board)
-        return not (tb and tb.get("keeping"))
+        if tb and tb.get("keeping"):
+            return False
+        logger.info("ending_unproven: %s %+.1f → %+.1f, no tablebase answer: the move is left unjudged", board.fen(),
+                    before, after)
+        return True
     except Exception:  # noqa: BLE001
         return False
+
+
+def _switch_on(name: str) -> bool:
+    """The detector *name*'s switch (src/config.detector_mode) is not 'off'. A name the config does not list yet
+    (the integration adds it to DETECTOR_DEFAULTS) counts as on, its default — unless COACH_DETECTORS_OFF names it."""
+    import os
+
+    from src import config
+
+    if name in config.DETECTOR_DEFAULTS:
+        return config.detector_mode(name) != "off"
+    off = {x.strip().lower() for x in (os.environ.get("COACH_DETECTORS_OFF") or "").split(",")}
+    return name not in off
 
 
 def _given_away(before: float, loss: float) -> str:

@@ -12,10 +12,11 @@ of start-up on every search (18 % of all engine time), and no bound on how many 
      number is background too, further back (the precompute: 3 the positions the turn's check will ask for, 4 the
      forced-reply confirms, 5 a board's own positions)
 
-Background searches use at most one process, and only when no other search waits; a search that arrives while
-every process is busy stops a running background search at once (its partial result is dropped, the precompute
-asks again later), so an answer waits for at most one stop. A background search waiting for the background's
-process stops a running one further back the same way.
+Background searches use at most one process, and only when no other search waits — a short one (≤
+SHORT_BACKGROUND_MS: a threat search, the position after a move) may take a second free process while nothing
+answer-time waits; a search that arrives while every process is busy stops a running background search at once (its
+partial result is dropped, the precompute asks again later), so an answer waits for at most one stop. A background
+search waiting for the background's process stops a running one further back the same way.
 
 An answer-time search starts from an empty hash (``ucinewgame``): a search to a fixed depth then gives the same
 lines a fresh process gives, every time (the forced-reply check's rule, src/hypothetical.py). A background run over
@@ -48,13 +49,21 @@ PRIORITY_LINE = 1
 PRIORITY_TOOL = 2
 PRIORITY_BACKGROUND = 3
 
-# Background searches never take more than this many processes.
+# Background searches never take more than this many processes — except a short one (a threat search, the position
+# after a move, ≤ SHORT_BACKGROUND_MS), which may take another free process while no answer-time search waits: the
+# board's engine line and its threat searches then end together, ~1.5 s after the save instead of 2.1 s
+# (review-wiring 01.11: an engine line asked 2 s after the save waited for the last threat search). An answer that
+# arrives meanwhile stops one of them (a stop is answered at once).
 MAX_BACKGROUND = 1
+SHORT_BACKGROUND_MS = 400
 PING_INTERVAL_S = 30.0
 DOWN_RETRY_S = 60.0
 START_TIMEOUT_S = 10.0
 READY_TIMEOUT_S = 5.0
 STOP_GRACE_S = 1.0
+# A timed search that has not answered this long after its movetime is asked to stop (a healthy process answers
+# ``stop`` at once: the result is used); one that does not answer within STOP_GRACE_S more is replaced.
+READ_SLACK_S = 0.5
 # A search given less than this is not started (the same floor as src/tools/stockfish.analyze_position).
 MIN_SEARCH_MS = 100
 
@@ -201,7 +210,7 @@ class _Worker:
             except (BrokenPipeError, OSError, ValueError, AttributeError):
                 pass
 
-    def read_until(self, prefix: str, deadline: float, out: Optional[list] = None) -> list:
+    def read_until(self, prefix: str, deadline: float, out: Optional[list] = None, on_line=None) -> list:
         out = [] if out is None else out
         while True:
             left = deadline - time.monotonic()
@@ -214,6 +223,11 @@ class _Worker:
             if line is _EOF:
                 raise EngineDied(f"engine exited while waiting for {prefix}")
             out.append(line)
+            if on_line is not None:
+                try:
+                    on_line(line)  # the caller watches the search as it goes (src/tools/stockfish.progress)
+                except Exception:  # noqa: BLE001 — a watcher never breaks the search
+                    on_line = None
             if line.startswith(prefix):
                 return out
 
@@ -246,7 +260,7 @@ class _Worker:
         self.start()
 
     # ── one search ───────────────────────────────────────────────────────────────────────────────────────────
-    def run(self, fen: str, go: str, multipv: int, clear_hash: bool, read_timeout: float) -> tuple:
+    def run(self, fen: str, go: str, multipv: int, clear_hash: bool, read_timeout: float, on_line=None) -> tuple:
         """(the engine's output up to ``bestmove``, whether ``stop`` cut the search short)."""
         # Anything left from an earlier command (a ping's readyok) is not this search's.
         while True:
@@ -273,11 +287,15 @@ class _Worker:
                 self.searching = True
             out: list = []
             try:
-                self.read_until("bestmove", time.monotonic() + read_timeout, out)
+                self.read_until("bestmove", time.monotonic() + read_timeout, out, on_line)
             except EngineTimeout:
+                # Late: stop it. A process that answers the stop gave a complete (if cut) search, like a movetime
+                # one — the caller gets it; one that does not answer is hung (EngineTimeout: it is replaced).
                 self.stop()
-                self.read_until("bestmove", time.monotonic() + STOP_GRACE_S, out)
-                raise EngineTimeout("bestmove") from None
+                try:
+                    self.read_until("bestmove", time.monotonic() + STOP_GRACE_S, out)
+                except EngineTimeout:
+                    raise EngineTimeout("bestmove") from None
             return out, self.stop_sent or self.want_stop
         finally:
             with self._wlock:
@@ -293,13 +311,19 @@ class _Worker:
 
 
 class _Waiter:
-    __slots__ = ("priority", "seq", "job")
+    __slots__ = ("priority", "seq", "job", "short")
 
-    def __init__(self, priority: int, seq: int, job: Optional[Job]):
-        self.priority, self.seq, self.job = priority, seq, job
+    def __init__(self, priority: int, seq: int, job: Optional[Job], short: bool = False):
+        self.priority, self.seq, self.job, self.short = priority, seq, job, short
 
     def key(self) -> tuple:
         return (self.priority, self.seq)
+
+
+def _is_short(go: str) -> bool:
+    """A search bounded by a short movetime and no depth (a threat search, a move's check)."""
+    m = re.search(r"\bmovetime (\d+)", go)
+    return bool(m) and int(m.group(1)) <= SHORT_BACKGROUND_MS and not re.search(r"\bdepth\b", go)
 
 
 def _with_time_cap(go: str, left_ms: int) -> str:
@@ -313,6 +337,16 @@ def _with_time_cap(go: str, left_ms: int) -> str:
         return go[:m.start(1)] + str(left_ms) + go[m.end(1):]
     head, sep, tail = go.partition(" searchmoves ")
     return f"{head} movetime {left_ms}" + (sep + tail if sep else "")
+
+
+def _read_timeout(spec: str, timeout: Optional[float], deadline: Optional[float]) -> float:
+    """How long a search's output is read before it is asked to stop: the caller's *timeout*, else the movetime plus
+    READ_SLACK_S (30 s for a search with no time bound) — never past the caller's *deadline* (plus the slack)."""
+    m = re.search(r"\bmovetime (\d+)", spec)
+    limit = timeout if timeout is not None else (int(m.group(1)) / 1000.0 + READ_SLACK_S if m else 30.0)
+    if deadline is not None:
+        limit = min(limit, max(0.0, deadline - time.monotonic()) + READ_SLACK_S)
+    return max(0.05, limit)
 
 
 class EnginePool:
@@ -414,6 +448,11 @@ class EnginePool:
             return (sum(1 for _, p, _ in self._busy.values() if p < PRIORITY_BACKGROUND)
                     + sum(1 for w in self._waiters if w.priority < PRIORITY_BACKGROUND))
 
+    def has_spare(self) -> bool:
+        """A process is free and no search waits for one."""
+        with self._cv:
+            return bool(self._free) and not self._waiters
+
     def pids(self) -> list:
         with self._cv:
             return [w.proc.pid for w in self._workers if w.proc is not None]
@@ -426,15 +465,30 @@ class EnginePool:
         return sum(1 for _, p, _ in self._busy.values() if p >= PRIORITY_BACKGROUND)
 
     def _preempt(self, level: int) -> None:
-        """A search at *level* waits and no process it may take is free: stop the background searches further back
-        than it (one stop each)."""
-        for w, p, _ in list(self._busy.values()):
-            if p >= PRIORITY_BACKGROUND and p > level and not w.want_stop:
-                self.stats["preempted"] += 1
-                w.stop()
+        """A search at *level* waits and no process it may take is free: stop background searches further back than
+        it — as many as there are searches at *level* or before waiting for one (minus the stops already on their
+        way), the furthest back first."""
+        need = sum(1 for wt in self._waiters if wt.priority <= level)
+        running = [(p, w) for w, p, _ in list(self._busy.values()) if p >= PRIORITY_BACKGROUND and p > level]
+        need -= sum(1 for _, w in running if w.want_stop)
+        for p, w in sorted((x for x in running if not x[1].want_stop), key=lambda x: (-x[0], -x[1].id)):
+            if need <= 0:
+                return
+            self.stats["preempted"] += 1
+            w.stop()
+            need -= 1
 
-    def _acquire(self, prio: int, deadline: Optional[float], job: Optional[Job]):
-        me = _Waiter(prio, next(self._seq), job)
+    def _background_may_take(self, me: "_Waiter") -> bool:
+        """A background waiter at the head may take a free process: below MAX_BACKGROUND, or a short search while no
+        answer-time search waits."""
+        busy = self._background_busy()
+        if busy < MAX_BACKGROUND:
+            return True
+        return me.short and busy < len(self._workers) and not any(
+            wt.priority < PRIORITY_BACKGROUND for wt in self._waiters)
+
+    def _acquire(self, prio: int, deadline: Optional[float], job: Optional[Job], short: bool = False):
+        me = _Waiter(prio, next(self._seq), job, short)
         with self._cv:
             self._waiters.append(me)
             try:
@@ -447,7 +501,7 @@ class EnginePool:
                         me.priority = job.boost  # promoted before (or while) it queued
                     head = self._head()
                     if head is me and self._free and (me.priority < PRIORITY_BACKGROUND
-                                                      or self._background_busy() < MAX_BACKGROUND):
+                                                      or self._background_may_take(me)):
                         w = next((x for x in self._free if job is not None and x.last_job == job.id), self._free[0])
                         self._free.remove(w)
                         w.want_stop = w.stop_sent = False
@@ -456,7 +510,7 @@ class EnginePool:
                     if me.priority < PRIORITY_BACKGROUND and not self._free:
                         self._preempt(me.priority)
                     elif head is me and me.priority >= PRIORITY_BACKGROUND and (
-                            not self._free or self._background_busy() >= MAX_BACKGROUND):
+                            not self._free or not self._background_may_take(me)):
                         self._preempt(me.priority)
                     wait = 1.0
                     if deadline is not None:
@@ -546,13 +600,14 @@ class EnginePool:
     # ── one search ───────────────────────────────────────────────────────────────────────────────────────────
     def search(self, fen: str, *, go: str, multipv: int = 1, priority: Optional[int] = None,
                deadline: Optional[float] = None, clear_hash: bool = True, job: Optional[Job] = None,
-               timeout: Optional[float] = None) -> dict:
+               timeout: Optional[float] = None, on_line=None) -> dict:
         """Run ``go <go>`` on *fen*; {"output": [lines up to bestmove], "stopped": bool, "wait_ms": float}, or
         {"error": …}.
 
         *deadline* (time.monotonic()) bounds the wait for a process and, for a depth search, the search itself: its
         ``movetime`` is set from the time left once a process is free. *timeout* is the read limit (default: the
-        movetime + 5 s, or 30 s). A stopped background search (``stopped``) is incomplete: the caller drops it.
+        movetime + READ_SLACK_S, or 30 s). A stopped background search (``stopped``) is incomplete: the caller drops
+        it. *on_line(line)* sees each line of the engine's output as it comes (from the caller's thread).
         """
         prio = current_priority() if priority is None else priority
         job = current_job() if job is None else job
@@ -561,7 +616,7 @@ class EnginePool:
         if job is not None and job.cancelled:
             return {"error": "cancelled"}
         t0 = time.monotonic()
-        w, why = self._acquire(prio, deadline, job)
+        w, why = self._acquire(prio, deadline, job, short=_is_short(go))
         if w is None:
             if why == "closed" and not self._closed and self._down_error:
                 why = self._down_error
@@ -569,20 +624,21 @@ class EnginePool:
         wait_ms = (time.monotonic() - t0) * 1000.0
         broken = False
         try:
-            spec = go
-            if deadline is not None:
-                left = int((deadline - time.monotonic()) * 1000)
-                if left < MIN_SEARCH_MS:
-                    self.stats["no_time"] += 1
-                    return {"error": "no time left for the search"}
-                spec = _with_time_cap(go, left)
-            m = re.search(r"\bmovetime (\d+)", spec)
-            read_timeout = timeout if timeout is not None else (int(m.group(1)) / 1000.0 + 5.0 if m else 30.0)
             for attempt in (1, 2):
+                # The time cap and the read limit from the time left now — on the retry after a crash too, which
+                # must not run past the caller's deadline either (review-wiring 01.11).
+                spec = go
+                if deadline is not None:
+                    left = int((deadline - time.monotonic()) * 1000)
+                    if left < MIN_SEARCH_MS:
+                        self.stats["no_time"] += 1
+                        return {"error": "no time left for the search"}
+                    spec = _with_time_cap(go, left)
+                read_timeout = _read_timeout(spec, timeout, deadline)
                 try:
                     if job is not None and job.cancelled:
                         return {"error": "cancelled"}
-                    out, stopped = w.run(fen, spec, multipv, clear_hash or attempt == 2, read_timeout)
+                    out, stopped = w.run(fen, spec, multipv, clear_hash or attempt == 2, read_timeout, on_line)
                     self.stats["searches"] += 1
                     if stopped and job is not None and job.cancelled:
                         self.stats["cancelled"] += 1
@@ -667,9 +723,9 @@ def start() -> bool:
 
 
 def search(fen: str, *, go: str, multipv: int = 1, priority: Optional[int] = None, deadline: Optional[float] = None,
-           clear_hash: bool = True, job: Optional[Job] = None, timeout: Optional[float] = None) -> dict:
+           clear_hash: bool = True, job: Optional[Job] = None, timeout: Optional[float] = None, on_line=None) -> dict:
     return get_pool().search(fen, go=go, multipv=multipv, priority=priority, deadline=deadline,
-                             clear_hash=clear_hash, job=job, timeout=timeout)
+                             clear_hash=clear_hash, job=job, timeout=timeout, on_line=on_line)
 
 
 def cancel(job: Optional[Job]) -> None:
@@ -684,6 +740,11 @@ def promote(job: Optional[Job], level: int) -> None:
 
 def running() -> int:
     return _pool.running() if _pool is not None else 0
+
+
+def has_spare() -> bool:
+    """The server's pool has a free process and nothing waiting (work that is only a guess may run)."""
+    return _pool is not None and _pool.has_spare()
 
 
 def status() -> dict:

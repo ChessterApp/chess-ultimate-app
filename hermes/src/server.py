@@ -1024,7 +1024,19 @@ def _served_model(agent, routed_model: str) -> str:
 # carries the agent and the reaction; engine_note itself caps parallel engines.
 # 8 threads (plan 31.10 P7a): the Stockfish processes are the engine pool's now (src/engine_pool.py), so a thread
 # waiting here for a process costs nothing, and the pool is the CPU limit.
-_engine_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="engine-note")
+class _ContextExecutor(ThreadPoolExecutor):
+    """A thread pool whose tasks run in a copy of the submitter's context (contextvars), as asyncio.to_thread's do:
+    a caller's turn_facts.suspended() — the lesson tutor's, whose facts stay as main's — and its answer-check shadow
+    sink reach the engine work it submits."""
+
+    def submit(self, fn, /, *args, **kwargs):
+        import contextvars
+
+        ctx = contextvars.copy_context()
+        return super().submit(ctx.run, fn, *args, **kwargs)
+
+
+_engine_pool = _ContextExecutor(max_workers=8, thread_name_prefix="engine-note")
 
 # Every board save starts the analysis of its new position in the background (src/engine_precompute.py, plan 31.10
 # P7b; COACH_PRECOMPUTE=0 or STOCKFISH_POOL=0 switches it off at call time).
@@ -1084,6 +1096,21 @@ def _engine_priority(level: int):
     from src import engine_pool
 
     return lambda fn, *args, **kwargs: engine_pool.at_priority(level, fn, *args, **kwargs)
+
+
+def _held_check(ctx, sentence: Optional[str]):
+    """fn → fn(*args) for a sentence the answer check holds: its searches at the front of the engine pool's queue
+    (PRIORITY_CHECK — every engine check of a held sentence, not only the line verdict), and the shadow records its
+    detectors make on the worker thread go to the turn's check (src/answer_check.shadow_into), so they reach the
+    detector_shadow event like the sync detectors' (review-wiring 01.11)."""
+    from src import engine_pool
+    from src.answer_check import shadow_into
+
+    def run(fn, *args, **kwargs):
+        with shadow_into(ctx, sentence), engine_pool.priority(engine_pool.PRIORITY_CHECK):
+            return fn(*args, **kwargs)
+
+    return run
 
 
 _POSITION_ACTIONS = frozenset({"set_fen", "set_puzzle", "load_pgn", "clear_board"})
@@ -1187,6 +1214,22 @@ if not _timings_log.handlers:
     _timings_log.addHandler(_timings_handler)
     _timings_log.setLevel(logging.INFO)
     _timings_log.propagate = False
+
+
+# The final position's engine line of a reviewed game is read only when it is ready by the time the scan is: a
+# cached line (the precompute analysed the game while it was on the board) ends within this; a search still running
+# is left to the model's own analyze_position, as before 31.10.
+REVIEW_NOTE_GRACE_S = 0.05
+
+
+def _ready_result(future, grace_s: float):
+    """*future*'s result when it is done within *grace_s*, else None (never raises, never waits longer)."""
+    if future is None:
+        return None
+    try:
+        return future.result(timeout=grace_s)
+    except Exception:  # noqa: BLE001 — late or failed: left out
+        return None
 
 
 def _await_review(future, started: float, state: dict) -> Optional[dict]:
@@ -2175,7 +2218,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     if review_future is not None and config.COACH_ENGINE_NOTE and engine_precompute.enabled():
         final_fen = _game_final_fen(review_pgn)
         if final_fen:
-            review_note_future = _engine_pool.submit(engine_note, final_fen)
+            # Behind the scan in the engine pool's queue (a tool call's level): the scan's two halves keep both
+            # processes, and the note is read only when it is ready by the time the scan is (review-wiring 01.11:
+            # at the scan's level it took a process from it, and the game-load turn waited 2.1 s against 1.4 s).
+            review_note_future = _engine_pool.submit(_engine_priority(2), engine_note, final_fen)
     # An opening named in the message: its book line goes on the board and into
     # the turn before the model is called (src/opening_knowledge.py) — the engine
     # line below then describes the line's final position, not the old board.
@@ -2428,6 +2474,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     current_message = (
         f"{body.context_note.strip()}\n\n{body.message}" if body.context_note else body.message
     )
+    # The typed facts (src/turn_facts) the blocks below give the model this turn — the answer check's
+    # CheckContext.facts: this turn's own, never the last ones another session collected for the position.
+    given_facts: list = []
     # A live game on the active board: the coach must know it is playing, what
     # has been played, and that hints are hints (see game_mode.game_context).
     if active_board.kind == "game" and active_board.game_state:
@@ -2441,7 +2490,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 # board's own facts are not — what hangs is a fact, not a hint.
                 from src.prompt_builder import board_facts_block
 
-                facts_note = board_facts_block(session.board_state)
+                facts_note = board_facts_block(session.board_state, given=given_facts)
                 if facts_note:
                     turn_context = f"{turn_context}\n\n{facts_note}"
         except Exception:  # noqa: BLE001 — never block a turn on the game note
@@ -2621,7 +2670,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     bestofn_message = f"{bestofn_message}\n\n{hidden_note_block(note['note'], hidden_what)}"
                 elif note:
                     bestofn_message = (f"{bestofn_message}\n\n"
-                                       f"{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative), mate_in=note.get('mate_in'), fen=note.get('fen'))}")
+                                       f"{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative), mate_in=note.get('mate_in'), fen=note.get('fen'), facts=note.get('typed_facts'))}")
                 bestofn_message = f"{bestofn_message}\n\n{lang_note}"
                 async for frame in _bestofn_event_stream(
                     base_agent=agent, model=model, system_prompt=system_prompt,
@@ -2925,7 +2974,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     old_board_blocks.append(hidden_note_block(note['note'], hidden_what))
                     message = f"{message}\n\n{old_board_blocks[-1]}"
                 elif note:
-                    old_board_blocks.append(engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative), mate_in=note.get('mate_in'), fen=note.get('fen')))
+                    old_board_blocks.append(engine_note_block(
+                        note['note'], opening=bool(opening_plan and not opening_plan.relative), mate_in=note.get('mate_in'),
+                        fen=note.get('fen'), facts=note.get('typed_facts'), given=given_facts))
                     message = f"{message}\n\n{old_board_blocks[-1]}"
                 elif engine_future is not None and note_fen:
                     # The engine was late (load, a slow lookup): the board's own facts — what hangs,
@@ -2934,7 +2985,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     try:
                         from src.prompt_builder import board_facts_block
 
-                        facts_only = board_facts_block(note_fen)
+                        facts_only = board_facts_block(note_fen, given=given_facts)
                         if facts_only:
                             old_board_blocks.append(facts_only)
                             message = f"{message}\n\n{facts_only}"
@@ -2971,16 +3022,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 from src.endgame_claims import tablebase_from_cache
 
                 tablebase_from_cache(check_ctx)
-                # The typed facts the model was given on this board (src/turn_facts, plan 31.10 P8): with the engine's
-                # lines when they came in, else the board-only ones — what a detector may quote («you were given: …»).
-                try:
-                    from src import turn_facts
-
-                    if note_fen:
-                        check_ctx.facts = (turn_facts.recent(note_fen, engine=True) or turn_facts.recent(note_fen)
-                                           or [])
-                except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
-                    logger.debug("turn facts for the check failed", exc_info=True)
+                # The typed facts the model was given this turn (src/turn_facts, plan 31.10 P8): the ones the blocks
+                # above rendered — what a detector may quote («you were given: …»).
+                check_ctx.facts = list(given_facts)
                 hypo = _await_engine_note(hypo_future, engine_started, hypo_state)
                 if hypo:
                     old_board_blocks.append(
@@ -3003,8 +3047,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 review = _await_review(review_future, engine_started, review_state)
                 if review:
                     message = f"{message}\n\n{review_block(review)}"
-                    review_note = _await_review(review_note_future, engine_started, {})
-                    if review_note and review_note.get("note"):
+                    review_note = _ready_result(review_note_future, REVIEW_NOTE_GRACE_S)
+                    if isinstance(review_note, dict) and review_note.get("note"):
                         message = f"{message}\n\n{_review_final_block(review_note)}"
                     # The «Моменты» card of the review (src/review_moments.py): the scan ran
                     # here, not as a tool, so its tool_result frame is sent from here.
@@ -3168,7 +3212,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if pending and not issues and tb_line_state["left"] > 0:
                     tb_line_state["left"] -= 1
                     try:
-                        issue = await loop.run_in_executor(None, judge_pending, pending)
+                        issue = await loop.run_in_executor(None, _held_check(check_ctx, sentence), judge_pending,
+                                                           pending)
                     except Exception:  # noqa: BLE001 — the check is best-effort
                         issue = None
                     if issue:
@@ -3197,9 +3242,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         started_v = time.monotonic()
                         try:
                             issue = await loop.run_in_executor(
-                                _engine_pool, verify_recommendation, found[0], found[1], found[2],
-                                config.COACH_MOVE_VERIFY_MOVETIME_MS, config.COACH_MOVE_VERIFY_CP, not live_game,
-                                written_line_after(sentence, found[2]),
+                                _engine_pool, _held_check(check_ctx, sentence), verify_recommendation, found[0],
+                                found[1], found[2], config.COACH_MOVE_VERIFY_MOVETIME_MS, config.COACH_MOVE_VERIFY_CP,
+                                not live_game, written_line_after(sentence, found[2]),
                             )
                         except Exception:  # noqa: BLE001 — the check is best-effort
                             logger.debug("move verification failed", exc_info=True)
@@ -3219,7 +3264,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     started_v = time.monotonic()
                     try:
                         issue = await loop.run_in_executor(
-                            _engine_pool, _engine_priority(0), verify_claims, claims,
+                            _engine_pool, _held_check(check_ctx, sentence), verify_claims, claims,
                             config.COACH_MOVE_VERIFY_MOVETIME_MS, not live_game)
                     except Exception:  # noqa: BLE001 — the check is best-effort
                         logger.debug("line verdict failed", exc_info=True)
@@ -3246,8 +3291,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             verify_state["checked"] += 1
             started_f = time.monotonic()
             try:
-                issue = await loop.run_in_executor(_engine_pool, verify_forced_reply, claim,
-                                                   config.COACH_MOVE_VERIFY_MOVETIME_MS, not live_game)
+                issue = await loop.run_in_executor(_engine_pool, _held_check(check_ctx, sentence), verify_forced_reply,
+                                                   claim, config.COACH_MOVE_VERIFY_MOVETIME_MS, not live_game)
             except Exception:  # noqa: BLE001 — the check is best-effort
                 logger.debug("forced reply verification failed", exc_info=True)
                 issue = None
@@ -4099,6 +4144,13 @@ def _lesson_board_facts(message: str, fen: Optional[str], puzzle_fen: Optional[s
     return out
 
 
+# The lesson tutor's facts stay exactly as main's (plan 31.10 rule: /learn untouched): the plan-31.10 providers
+# (src/turn_facts: typed facts, fork vetting) are suspended for it and for the engine work it submits.
+from src import turn_facts as _turn_facts  # noqa: E402
+
+_lesson_board_facts = _turn_facts.without(_lesson_board_facts)
+
+
 @app.post("/api/lesson/chat")
 async def lesson_chat(body: LessonChatRequest, request: Request):
     """Lesson tutor chat — streams the tutor's reply as SSE token events.
@@ -4598,8 +4650,19 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         # What the relation checker flagged in this sentence (shadow: recorded, not returned) — for review, as the
         # text turn's relation_check event (src/answer_check_relations.py).
         relation_record[0] = _relation_voice_record(ctx)
+        # …and what the plan-31.10 detectors in shadow found in it (src/answer_check.record_shadow), as the text turn's
+        # detector_shadow event: a shadow detector is graded on every surface it would cut on.
+        shadow_record[0] = _shadow_voice_record(ctx)
         if not body.engine:
             return issues  # the board check alone: the site's engine checks of this answer are spent
+        # The engine part holds the sentence as the text coach's engine stage does: its searches at the front of the
+        # pool's queue, its shadow records on this check (review-wiring 01.11).
+        try:
+            return _held_check(ctx, spoken_text)(_engine_part, ctx, spoken_text, issues)
+        finally:
+            shadow_record[0] = _shadow_voice_record(ctx)
+
+    def _engine_part(ctx, spoken_text: str, issues: list) -> list:
         if not issues and config.COACH_TABLEBASE_LINE_CHECKS > 0:
             # An outcome claim at the end of a line the coach said («после Kd5 a6 Kc6 — ничья»): the tablebase is
             # asked here, as in the text coach's engine stage (src/endgame_claims.py, 30.10).
@@ -4643,18 +4706,32 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
             from src.line_verdict import verify_claims
 
             used[0] = True
-            why = _engine_priority(0)(verify_claims, claims, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal=False)
+            why = verify_claims(claims, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal=False)
             if why:
                 return [why]
         return issues
 
     used = [False]  # the engine or the tablebase was asked: the site counts it against the answer's engine checks
     relation_record = [None]
+    shadow_record = [None]
     issues = await asyncio.to_thread(_check)
     if relation_record[0]:
         log_event("relation_check", severity="warn" if relation_record[0]["relation_errors"] else "info",
                   surface="voice", user_id=user_id, session_id=body.session_id, payload=relation_record[0])
+    if shadow_record[0]:
+        log_event("detector_shadow", surface="voice", user_id=user_id, session_id=body.session_id,
+                  payload=shadow_record[0])
     return {"issues": issues, "engine": used[0]}
+
+
+def _shadow_voice_record(ctx) -> Optional[dict]:
+    """The detector_shadow payload of one voice sentence, or None (no shadow detector flagged it). Never raises."""
+    try:
+        from src.answer_check import shadow_event_payload
+
+        return shadow_event_payload(ctx)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _relation_voice_record(ctx) -> Optional[dict]:
@@ -4694,6 +4771,9 @@ def _replay_previous(ctx, said: str) -> None:
     # named, the end of the line they told) — and not their verdicts: each was checked when it was said.
     ctx.relation_shadow.clear()
     ctx.relation_stats.clear()
+    # …nor what a shadow detector noted in them: each was logged when it was checked (its own voice check).
+    if getattr(ctx, "detector_shadow", None):
+        ctx.detector_shadow.clear()
     # …and the side the earlier sentences spoke of («Под ударом у тебя слон c4» → «больше ничего» is about you).
     seed_facts_state(ctx, said)
 

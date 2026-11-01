@@ -1214,7 +1214,7 @@ BOARD_BLOCK_KINDS = ("check_replies", "piece_safety", "attack_balance", "recaptu
 ENGINE_BLOCK_KINDS = ("piece_safety", "attack_balance")
 
 
-def board_facts_block(fen: Optional[str]) -> str:
+def board_facts_block(fen: Optional[str], given: Optional[list] = None) -> str:
     """What hangs, what is attacked, what is pinned on the board — verified by
     python-chess, no engine, no best move. For a live game, where the engine
     line is withheld so the coach hints rather than tells (production,
@@ -1242,7 +1242,10 @@ def board_facts_block(fen: Optional[str]) -> str:
         # counted, the material by units. The forks are in static_facts above, checked by playing out every reply.
         from src import turn_facts
 
-        facts = facts + turn_facts.texts(turn_facts.collect(board, None, kinds=BOARD_BLOCK_KINDS))
+        typed = turn_facts.collect(board, None, kinds=BOARD_BLOCK_KINDS)
+        facts = facts + turn_facts.texts(typed)
+        if given is not None:  # the typed facts this block gives the model (the turn's CheckContext.facts)
+            given.extend(f for f in typed if getattr(f, "text", ""))
     except Exception:  # noqa: BLE001
         return ""
     if not facts:
@@ -1478,7 +1481,7 @@ def _mate_headline(mate_in: Optional[int], fen: Optional[str]) -> str:
             "answer: say it first, with its moves.\n")
 
 
-def _engine_turn_facts(fen: Optional[str]) -> str:
+def _engine_turn_facts(fen: Optional[str], facts: Optional[list] = None, given: Optional[list] = None) -> str:
     """The typed facts the turn's engine line vetted (plan 31.10 P8; voice_engine_note.engine_note collected them with
     its lines): where an attacked piece of the side to move is safe, what one more attacker wins. " Counted on the
     board (…): …." or ""."""
@@ -1491,17 +1494,21 @@ def _engine_turn_facts(fen: Optional[str]) -> str:
 
         if not turn_facts.enabled():
             return ""
-        facts = turn_facts.recent(fen, engine=True)
+        if facts is None:  # *facts*: the note's own (engine_note's "typed_facts"); else the last ones for the board
+            facts = turn_facts.recent(fen, engine=True)
         if facts is None:  # the line came from elsewhere: the board's own facts, without the engine's safe squares
             facts = turn_facts.collect(chess.Board(fen), None, kinds=turn_facts.ENGINE_KINDS)
-        told = turn_facts.texts([f for f in facts if f.kind in ENGINE_BLOCK_KINDS])
+        shown = [f for f in facts if f.kind in ENGINE_BLOCK_KINDS]
+        told = turn_facts.texts(shown)
+        if given is not None:
+            given.extend(f for f in shown if f.text)
     except Exception:  # noqa: BLE001 — a bonus on top of the engine line
         return ""
     return (" Counted on the board by exchange (the system's): " + "; ".join(told) + ".") if told else ""
 
 
 def engine_note_block(note: str, opening: bool = False, mate_in: Optional[int] = None,
-                      fen: Optional[str] = None) -> str:
+                      fen: Optional[str] = None, facts: Optional[list] = None, given: Optional[list] = None) -> str:
     """The turn's engine line (src/voice_engine_note.py) as a turn-context block.
 
     With *opening* the board shows the opening the student asked about (see
@@ -1509,7 +1516,7 @@ def engine_note_block(note: str, opening: bool = False, mate_in: Optional[int] =
     position to ignore for a general opening question. A forced mate of the side
     to move (*mate_in* > 0) heads the block.
     """
-    note = _mate_headline(mate_in, fen) + note + _engine_turn_facts(fen)
+    note = _mate_headline(mate_in, fen) + note + _engine_turn_facts(fen, facts, given)
     if opening:
         return (
             "## Engine analysis of the board (the opening line above, its final position)\n"
