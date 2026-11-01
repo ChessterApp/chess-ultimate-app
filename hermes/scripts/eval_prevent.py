@@ -3,7 +3,8 @@
 the truth that contradicts the graded errors of 29.10?
 
   (a) truth audit — every outcome fact given on the corpus positions (tests/fixtures/detect1031/corpus_positions.json,
-      318; game_positions.json, the game corpus's boards) checked by Stockfish at --depth (default 18): the fork facts
+      318; game_positions.json, every ply of the game corpus's games, scripts/build_game_positions.py) checked by
+      Stockfish at --depth (default 18): the fork facts
       of today's prompt paths (prompt_builder.board_facts_block, voice_engine_note._facts) and the typed facts of
       src/turn_facts when P8's provider exists (turn_facts.facts_for_board(board, engine_lines) -> [Fact]).
       Gates: 0 false outcome facts (typed), fork facts bad ≤ 5 % of those kept, every "safe square" holds.
@@ -96,19 +97,26 @@ def _positions() -> list:
     return out
 
 
+ENGINE_MOVETIME_MS: int | None = None  # --engine-movetime; None: the turn's own (COACH_ENGINE_NOTE_MOVETIME_MS)
+
+
 def _prompt_facts(board: chess.Board) -> dict:
-    """The fact lines today's two prompt paths give for *board*: the board-only block and the engine line's facts."""
+    """The fact lines today's two prompt paths give for *board*: the board-only block and the engine line's facts —
+    the engine path as production builds it (DEFAULT_MULTIPV lines at the turn's movetime: the forks are vetted against
+    all of them; review-wiring 01.11: one depth-12 line was stricter than production)."""
+    from src import config
     from src.prompt_builder import board_facts_block
-    from src.tools.stockfish import analyze_cached
+    from src.tools.stockfish import DEFAULT_MULTIPV, analyze_timed
     from src.voice_engine_note import _facts
 
     out = {"board": [], "engine": []}
     block = board_facts_block(board.fen()) or ""
     out["board"] = [ln[2:] for ln in block.splitlines() if ln.startswith("- ")]
     try:
-        res = analyze_cached(board.fen(), depth=12, multipv=1)
-        top = (res.get("lines") or [{}])[0]
-        out["engine"] = _facts(board, top, None) if top else []
+        movetime = ENGINE_MOVETIME_MS or config.COACH_ENGINE_NOTE_MOVETIME_MS
+        res = analyze_timed(board.fen(), movetime, multipv=DEFAULT_MULTIPV)
+        lines = res.get("lines") or []
+        out["engine"] = _facts(board, lines[0], None, lines=lines) if lines else []
     except Exception:  # noqa: BLE001
         out["engine"] = []
     return out
@@ -177,6 +185,7 @@ def audit(depth: int, limit: int | None) -> dict:
     return {"positions": len(seen), "depth": depth, "seconds": round(time.monotonic() - t0, 1),
             "fork_facts": len(forks), "fork_facts_bad": len(bad),
             "fork_bad_rate": round(len(bad) / len(forks), 3) if forks else 0.0,
+            "forks": forks,
             "typed_facts": typed, "typed_unproven": len(unproven), "typed_false": len(bad_typed),
             "bad_forks": bad, "unproven": unproven[:50], "false_typed": bad_typed[:50]}
 
@@ -300,7 +309,10 @@ def main():
     ap.add_argument("--limit", type=int)
     ap.add_argument("--gate", action="store_true")
     ap.add_argument("--json")
+    ap.add_argument("--engine-movetime", type=int, help="the engine path's movetime (default: the turn's own)")
     a = ap.parse_args()
+    global ENGINE_MOVETIME_MS
+    ENGINE_MOVETIME_MS = a.engine_movetime
     os.environ.setdefault("ENGINE_API_URL", "")
     res = {}
     if a.audit:

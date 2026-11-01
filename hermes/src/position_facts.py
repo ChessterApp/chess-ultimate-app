@@ -159,10 +159,11 @@ FORK_MIN_GAIN = 2
 
 
 def _vetting() -> bool:
+    """COACH_TURN_FACTS, and not inside turn_facts.suspended() (the lesson tutor keeps main's facts)."""
     try:
-        from src import config
+        from src import turn_facts
 
-        return bool(getattr(config, "COACH_TURN_FACTS", True))
+        return turn_facts.enabled()
     except Exception:  # noqa: BLE001
         return True
 
@@ -303,6 +304,47 @@ def starts_mate_in_two(board: chess.Board, move: chess.Move) -> bool:
     return True
 
 
+# A fork beside a mate by checks is not the point of the position: told as the thing to play, it walks past the mate
+# (fix1101 F8: «Nd3+ forks the king and the rook» where g3+ hxg3 Rf3+ Rxf3 Ng2# mates in 3; the eval audit's one bad
+# fork on the game corpus). Checks only for the mover, every reply for the other side, within a node budget — a
+# search that runs out of it counts as a possible mate (the fork is then not told: precision first).
+MATE_BY_CHECKS_MOVES = 3
+MATE_BY_CHECKS_NODES = 4000
+
+
+def has_mate_by_checks(board: chess.Board, moves: int = MATE_BY_CHECKS_MOVES, skip: Optional[chess.Move] = None,
+                       budget: Optional[list] = None) -> bool:
+    """The side to move mates within *moves* moves giving check on every move (not starting with *skip*)."""
+    budget = [MATE_BY_CHECKS_NODES] if budget is None else budget
+    for m in board.legal_moves:
+        if m == skip or not board.gives_check(m):
+            continue
+        budget[0] -= 1
+        if budget[0] < 0:
+            return True
+        board.push(m)
+        try:
+            if board.is_checkmate():
+                return True
+            if moves > 1:
+                replies = list(board.legal_moves)
+                ok = bool(replies)
+                for r in replies:
+                    board.push(r)
+                    try:
+                        if not has_mate_by_checks(board, moves - 1, None, budget):
+                            ok = False
+                    finally:
+                        board.pop()
+                    if not ok:
+                        break
+                if ok:
+                    return True
+        finally:
+            board.pop()
+    return False
+
+
 def has_mate_in_two_by_checks(board: chess.Board, skip: Optional[chess.Move] = None) -> bool:
     """The side to move mates in one, or in two starting with a check (other than *skip*)."""
     for m in board.legal_moves:
@@ -341,7 +383,7 @@ def vetted_forks(board: chess.Board, lines: Optional[list] = None) -> list[tuple
                 out.append((move, targets, after, "engine"))
         elif after.is_checkmate() or (after.is_check() and starts_mate_in_two(board, move)):
             out.append((move, targets, after, "see"))  # the fork is the start of a mate
-        elif fork_holds(board, move, targets) and not has_mate_in_two_by_checks(board, skip=move):
+        elif fork_holds(board, move, targets) and not has_mate_by_checks(board.copy(stack=False), skip=move):
             # A mate on the board is the point, not a fork beside it (Legal's mate: Nxf7 forks the queen and the
             # rook, Bxf7+ and Nd5# mate).
             out.append((move, targets, after, "see"))

@@ -118,9 +118,12 @@ def test_a_search_past_its_read_deadline_is_stopped(fake):
     pool = make(size=1, mode="hang")
     t = time.monotonic()
     res = pool.search(FEN, go="movetime 50", multipv=1, timeout=0.3)
-    assert res == {"error": "Stockfish analysis timed out."}
+    # fix1101 F8: a process that answers the stop gave a complete search, cut late — its result is used, and the
+    # process is kept (only one deaf to the stop is replaced: the next test)
+    assert "output" in res and any(ln.startswith("bestmove") for ln in res["output"])
     assert time.monotonic() - t < 2.0
     assert any(ln.endswith(" stop") for ln in _log(log))              # stop, and bestmove came back
+    assert pool.status()["timeouts"] == 0 and pool.status()["restarts"] == 0
 
 
 def test_a_process_deaf_to_stop_is_killed_and_replaced(fake, monkeypatch):
@@ -208,7 +211,8 @@ def test_background_is_stopped_when_an_answer_needs_the_process(fake):
 
 
 def test_background_further_back_gives_way_to_background_ahead(fake):
-    """A board's own long search (level 5) is stopped for the positions the turn's check will ask for (level 3)."""
+    """A board's own long search (level 5) is stopped for the positions the turn's check will ask for (level 3) when
+    no process is free (fix1101 F8: a short one takes a free process beside it instead — the next test)."""
     _, _, make = fake
     pool = make(size=2)
     res_board = {}
@@ -216,6 +220,10 @@ def test_background_further_back_gives_way_to_background_ahead(fake):
     def board():
         res_board.update(pool.search(FEN, go="movetime 5000", multipv=1, priority=engine_pool.PRIORITY_BACKGROUND + 2))
 
+    fg = threading.Thread(target=pool.search, args=(FEN2,), kwargs={"go": "movetime 1500", "multipv": 1,
+                                                                   "priority": engine_pool.PRIORITY_LINE})
+    fg.start()
+    time.sleep(0.1)
     th = threading.Thread(target=board)
     th.start()
     time.sleep(0.2)
@@ -223,19 +231,49 @@ def test_background_further_back_gives_way_to_background_ahead(fake):
     res = pool.search(FEN2, go="movetime 100", multipv=1, priority=engine_pool.PRIORITY_BACKGROUND)
     assert "output" in res and not res["stopped"] and time.monotonic() - t < 1.0
     th.join()
+    fg.join()
     assert res_board.get("stopped") is True
     # …and not the other way round: a search further back waits for the one ahead of it.
-    ahead = threading.Thread(target=pool.search, args=(FEN,), kwargs={"go": "movetime 400", "multipv": 1,
+    ahead = threading.Thread(target=pool.search, args=(FEN,), kwargs={"go": "movetime 600", "multipv": 1,
                                                                      "priority": engine_pool.PRIORITY_BACKGROUND})
     ahead.start()
     time.sleep(0.1)
     t = time.monotonic()
-    back = pool.search(FEN2, go="movetime 50", multipv=1, priority=engine_pool.PRIORITY_BACKGROUND + 2)
+    back = pool.search(FEN2, go="movetime 500", multipv=1, priority=engine_pool.PRIORITY_BACKGROUND + 2)
     ahead.join()
-    assert "output" in back and not back["stopped"] and time.monotonic() - t >= 0.25
+    assert "output" in back and not back["stopped"] and time.monotonic() - t >= 0.4
+
+
+def test_a_short_background_search_takes_a_free_process_beside_a_long_one(fake):
+    """fix1101 F8 (review-wiring: the board's line and its threat searches ended 2.1 s after the save): a short
+    background search (≤ SHORT_BACKGROUND_MS) runs beside the long one while nothing answer-time waits — the long one
+    is not stopped — and an answer that then arrives stops one of them and starts at once."""
+    _, _, make = fake
+    pool = make(size=2)
+    long_res = {}
+    th = threading.Thread(target=lambda: long_res.update(pool.search(
+        FEN, go="movetime 1500", multipv=1, priority=engine_pool.PRIORITY_BACKGROUND + 2)))
+    th.start()
+    time.sleep(0.1)
+    t = time.monotonic()
+    res = pool.search(FEN2, go="movetime 300", multipv=1, priority=engine_pool.PRIORITY_BACKGROUND)
+    assert "output" in res and not res["stopped"] and time.monotonic() - t < 0.6
+    short = threading.Thread(target=pool.search, args=("8/8/8/8/8/8/8/K1k5 w - - 0 1",),
+                             kwargs={"go": "movetime 1000", "multipv": 1, "priority": engine_pool.PRIORITY_BACKGROUND})
+    # a long background search does not take the second process
+    short.start()
+    time.sleep(0.1)
+    assert pool.status()["background"] == 1
+    t = time.monotonic()
+    ans = pool.search(FEN2, go="movetime 100", multipv=1, priority=engine_pool.PRIORITY_CHECK)
+    assert "output" in ans and time.monotonic() - t < 0.5
+    th.join()
+    short.join()
+    assert long_res.get("output")
 
 
 def test_background_takes_one_process_at_most(fake):
+    """Long background searches share one process (short ones may take a free second: the test above)."""
     _, _, make = fake
     pool = make(size=2)
     running = []
@@ -245,11 +283,11 @@ def test_background_takes_one_process_at_most(fake):
     def bg(n):
         with lock:
             running.append(n)
-        pool.search(f"8/8/8/8/8/8/8/K1k5 w - - 0 {n + 1}", go="movetime 150", multipv=1,
+        pool.search(f"8/8/8/8/8/8/8/K1k5 w - - 0 {n + 1}", go="movetime 450", multipv=1,
                     priority=engine_pool.PRIORITY_BACKGROUND)
 
     def watch():
-        end = time.monotonic() + 0.6
+        end = time.monotonic() + 1.2
         while time.monotonic() < end:
             peak[0] = max(peak[0], pool.status()["background"])
             time.sleep(0.005)
