@@ -2132,6 +2132,11 @@ def _pin_claims(t: str, low: str, toks: list, ante: dict) -> list:
                 # pinned before the move (the side the words name, else the mover's)
                 add("pin_exists", [side_ref], "before_move", vstart, cue_end, (ca, cb), tense, "pin_escape", move=move)
             elif proposal and (rel_word == "remove" or (ref is not None and ref.owner is not None)):
+                if re.search(W + r"(?:не\s+да\w*|не\s+позвол\w*|меша\w*|помешать)" + E, low[ca:vstart]):
+                    # «не даёт им развязаться», «мешает снять связку»: an agent keeps the pin — the pin_noun's claim
+                    # (holding a pin), not an escape
+                    add("pin_exists", [side_ref], "exists", vstart, cue_end, (ca, cb), "present", "pin_noun")
+                    return
                 # «снять связку» (a side or none named), «не даёт им развязаться»: some pin of some board of the
                 # sentence. A bare side leaving a pin with no move told («чёрные должны избавиться от связки») is a
                 # lesson's theme as often as this board's fact: unjudged

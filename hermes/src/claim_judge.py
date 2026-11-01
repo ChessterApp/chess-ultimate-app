@@ -865,21 +865,24 @@ def _lost_on(claim: Claim, board: chess.Board, ctx: Any, z: int) -> Optional[tup
     that led to *board* when it captured on *z*; None when none says."""
     to = claim.to
     if to is not None and not to.sq:
-        # the lost piece named by its kind alone («пешка g7 контролировала f6, и конь был потерян»): the game's last
-        # capture on z, of a piece of that kind (and of the side the words give) — else unbound (fix1101 F1)
+        # the lost piece not named on z («пешка g7 контролировала f6, и конь был потерян», «твой конь потерялся»):
+        # the game's last capture on z must be of that kind and side; with no capture there in the record, a side the
+        # words give still decides, a bare kind binds to nothing (fix1101 F1)
         try:
             from src.game_record import captures
 
             caps = [c for c in captures(ctx) if c.square == z]
         except Exception:  # noqa: BLE001
             caps = []
-        if not caps:
-            return None
-        cap = caps[-1]
         col = _colour(to, ctx, board) if (to.side is not None or to.owner in ("you", "their")) else None
-        if (to.piece and PIECE_TYPE.get(to.piece) != cap.captured) or (col is not None and col == cap.mover):
+        if caps:
+            cap = caps[-1]
+            if (to.piece and PIECE_TYPE.get(to.piece) != cap.captured) or (col is not None and col == cap.mover):
+                return None
+            return (not cap.mover), cap.captured, f"; it was taken by {_side(cap.mover)}'s {NAME[cap.piece]} ({cap.label})"
+        if col is None:
             return None
-        return (not cap.mover), cap.captured, f"; it was taken by {_side(cap.mover)}'s {NAME[cap.piece]} ({cap.label})"
+        return col, PIECE_TYPE.get(to.piece) if to.piece else None, ""
     if to is not None and (to.side is not None or to.owner in ("you", "their")):
         col = _colour(to, ctx, board)
         if col is not None:
@@ -1219,7 +1222,8 @@ def _escape_frames(claim: Claim, board: Optional[chess.Board], ctx: Any) -> list
 
     from src.claim_scene import _after, _same_move, board_before, last_move, move_readings
 
-    m = claim.move
+    # the told move; a claim built elsewhere (the llm schema, a fixture) may give it only as its position's last move
+    m = claim.move or (claim.pos.moves[-1] if claim.pos.moves else None)
     if board is None or m is None or m.castle:
         return []
     cands = []
