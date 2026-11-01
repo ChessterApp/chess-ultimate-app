@@ -1515,6 +1515,11 @@ _NOUN_BEFORE = re.compile(r"(?<![\w-])(?:корол\w*|ферз\w*|ладь\w*|�
                           r"(?:\s+(?:белых|черных))?\s+$", re.IGNORECASE)
 
 
+# Every pattern above has one of these verbs: a sentence without one has no placement to read (a cheap pre-check —
+# the patterns run on every sentence while 'placement' is in shadow).
+_PLACE_VERB = re.compile(r"стоит|стоят|наход|расположен|есть|занима|занят|(?<![\w-])(?:is|stands|sits)(?![\w-])")
+
+
 def _place_side(word: str, gen: str, ctx: Any) -> Optional[bool]:
     w = (gen or word or "").lower().replace("ё", "е")
     if w.startswith(("бел", "white")):
@@ -1528,6 +1533,8 @@ def _place_side(word: str, gen: str, ctx: Any) -> Optional[bool]:
 
 def _placement_claims(text: str, ctx: Any, state: dict, cue: str) -> list:
     """The «occupied» claims of what the sentence says stands where (kind 'placement'), on the board now (Pos now)."""
+    if not _PLACE_VERB.search((text or "").lower()):
+        return []
     try:
         from src.claim_grammar import normalize, written_moves
 
@@ -1535,7 +1542,7 @@ def _placement_claims(text: str, ctx: Any, state: dict, cue: str) -> list:
     except Exception:  # noqa: BLE001
         return []
     low = t.lower()
-    if "?" in low or not re.search(r"[a-h][1-8]", low):
+    if "?" in low or not re.search(r"[a-h][1-8]", low) or not _PLACE_VERB.search(low):
         return []
     out, seen = [], set()
     for pat in _PLACE_PATTERNS:

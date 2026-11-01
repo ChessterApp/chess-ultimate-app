@@ -1458,6 +1458,14 @@ def _only_move_orders(conv, low, moves, state):
     return out
 
 
+# The cue of the board rules read before fix 01.11 (only move, no flight, can capture, occupied, only-move orders):
+# those readers run only under it, as they did — the cue words added for F3's readers below would only make them
+# scan more sentences (integration 01.11: relation p99 back under its 1 ms gate).
+_CUE_RULES = re.compile(r"тольк|единствен|выбор|ходов|обязан|вынужден|должн|некуда|нет\s|заперт|отрезан|прижат|зажат|"
+                        r"загород|закрыл|занял|отнял|перекрыл|забрал|закрывает|занимает|загораживает|забирает|отбирает|"
+                        r"отнимает|перекрывает|мож|могу|смож|занят|свободн|пуст|шах|давая|позволяя|мешая|пуская|откуда|"
+                        r"придется|приходится")
+_HAS_SQUARE = re.compile(r"[a-h][1-8]|o-o|0-0|рокир")
 _CUE = re.compile(r"тольк|единствен|выбор|ходов|обязан|вынужден|должн|некуда|нет\s|заперт|отрезан|прижат|зажат|загород|"
                   r"закрыл|занял|отнял|перекрыл|забрал|закрывает|занимает|загораживает|забирает|отбирает|отнимает|перекрывает|"
                   r"мож|могу|смож|занят|свободн|пуст|шах|давая|позволяя|мешая|пуская|откуда|придется|приходится|"
@@ -1507,11 +1515,16 @@ def extract(text: str, state: dict) -> list[Claim]:
     claims: list[Claim] = []
     if _CUE.search(low):
         st = state if isinstance(state, dict) else {}
-        for part in (_only_move, _no_flight, _can_capture, _occupied, _checks_along):
+        old_cue = bool(_CUE_RULES.search(low))
+        for part in ((_only_move, _no_flight, _can_capture, _occupied) if old_cue else ()) + (_checks_along,):
             claims += part(conv, low, moves, st)
         # plan 31.10 (P3D): each detector has its own switch (src/config.py detector_mode; off = not read at all)
         for name, part in (("retreat_cover", _retreat_cover), ("prevents", _prevents),
                            ("only_move_orders", _only_move_orders)):
+            if name == "only_move_orders" and not old_cue:
+                continue
+            if name != "only_move_orders" and not _HAS_SQUARE.search(low):
+                continue  # a chase and a stopper are written moves: a sentence with no square or castling has neither
             if detector_mode(name) != "off":
                 claims += part(conv, low, moves, st)
     if isinstance(state, dict):
