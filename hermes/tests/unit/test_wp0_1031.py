@@ -268,7 +268,7 @@ PLAN_NAMES = {
     "propose_vocab", "plan_place", "start_scene", "open_plain", "open_recap", "open_character", "open_defining",
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",
     "retreat_cover", "prevents", "checks_geometry", "only_move_orders", "piece_decides", "trade_swing_named",
-    "race_distance", "mate_squares", "king_direction", "trades",
+    "race_distance", "mate_squares", "king_direction", "trades", "placement", "ending_unproven",
 }
 
 
@@ -279,7 +279,8 @@ def test_detector_names_and_defaults(monkeypatch):
     monkeypatch.setattr(config, "COACH_TRADE_SWING_NAMED", False)
     assert set(config.DETECTOR_DEFAULTS) == PLAN_NAMES
     shadow = {n for n in PLAN_NAMES if config.detector_mode(n) == "shadow"}
-    assert shadow == {"open_character", "open_defining", "loaded_line", "king_direction", "pin_noun", "bare_pawn_line"}
+    assert shadow == {"open_character", "open_defining", "loaded_line", "king_direction", "pin_noun", "bare_pawn_line",
+                      "placement"}
     assert {n for n in PLAN_NAMES if config.detector_mode(n) == "off"} == {"trade_swing_named"}
     assert config.detector_mode("no_such_detector") == "off"
 

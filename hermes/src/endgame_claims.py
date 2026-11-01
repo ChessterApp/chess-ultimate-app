@@ -852,7 +852,9 @@ def judge_pending(items: list) -> Optional[str]:
                 continue
             issue = _wrong(claim, board, tablebase_white_result(board, raw), raw, f" after {line}")
             if issue and claim.get("shadow"):
-                logger.info("detector %s (shadow): %s", claim["shadow"], issue)
+                from src.answer_check import record_shadow
+
+                record_shadow(None, claim["shadow"], [issue])  # the turn's check (answer_check.shadow_into)
                 continue
             if issue:
                 return issue

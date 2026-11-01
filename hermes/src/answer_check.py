@@ -576,7 +576,7 @@ def shadow_into(ctx, sentence: Optional[str] = None):
 def record_shadow(ctx, name: str, issues, text: Optional[str] = None) -> None:
     """One shadow record for every plan-31.10 detector: (name, sentence, issues) on ctx.detector_shadow, and logged —
     never shown or cut. *text* defaults to the sentence being judged (ctx.sentence_now). *ctx* None: the check the
-    caller runs for (shadow_into); nothing when there is none. Fail-open."""
+    caller runs for (shadow_into); with none it is only logged, as before. Fail-open."""
     try:
         issues = [issues] if isinstance(issues, str) else list(issues or [])
         if ctx is None:
@@ -587,7 +587,13 @@ def record_shadow(ctx, name: str, issues, text: Optional[str] = None) -> None:
                     text = sink[1]
     except Exception:  # noqa: BLE001
         return
-    if not issues or ctx is None:
+    if not issues:
+        return
+    if ctx is None:
+        try:
+            logger.info("detector %s (shadow): %r -> %s", name, " ".join((text or "").split())[:300], "; ".join(issues)[:300])
+        except Exception:  # noqa: BLE001
+            pass
         return
     try:
         if text is None:
@@ -646,9 +652,17 @@ def _recap_now(original: str, upto: int, ctx: Optional["CheckContext"]) -> bool:
     moves = getattr(ctx, "game_moves", None) if ctx is not None else None
     if not moves or ctx.current is None:
         return False
-    from src.game_record import recap_end
+    try:
+        from src.config import detector_mode
 
-    return recap_end(ctx, original[:upto]) == len(moves)
+        if detector_mode("recap_scope", ctx) == "off":
+            return False  # off is main: the record is not read at all
+        from src.game_record import recap_end
+
+        return recap_end(ctx, original[:upto]) == len(moves)
+    except Exception:  # noqa: BLE001 — a broken recap reader leaves the claim as main reads it (fail-open, F8)
+        logger.debug("recap_scope failed", exc_info=True)
+        return False
 
 
 def _is_hypothetical(text: str, original: str, upto: int, whole: bool = False, played: Optional[set] = None,
@@ -660,7 +674,7 @@ def _is_hypothetical(text: str, original: str, upto: int, whole: bool = False, p
     попал — доминировал бы»), for claims about whose piece stands where.
     *ctx*: in a game, written moves that retell the game's own record up to the board now are no line to imagine
     (plan 31.10 M1): the claim after them is about the board now."""
-    if not whole and ctx is not None and _recap_now(original, upto, ctx):
+    if not whole and ctx is not None and _fail_open(_recap_now, original, upto, ctx):  # [] when it raises
         head = _RECAP_AFTER.sub("", text[:upto])
         first = re.search(r"\d{1,3}\s?\.", head)
         if first:
@@ -1592,6 +1606,14 @@ def _opening_identity_issues(text: str, ctx: Optional[CheckContext]) -> list[str
     if truth is None:
         return []
     eco, real, real_line = truth
+    position = ctx.current
+    if moves:
+        try:
+            position = chess.Board()
+            for san in moves:
+                position.push_san(san)
+        except ValueError:
+            position = ctx.current
     converted, _ = _to_san(text)
     said_moves = [(x.group("san").rstrip("+#"), x.start()) for x in _MOVE.finditer(converted)]
     # …said of the line in general before it is named («чаще всего играют e6, это называется …», «или c6, это …»), not
@@ -1626,6 +1648,9 @@ def _opening_identity_issues(text: str, ctx: Optional[CheckContext]) -> list[str
             continue  # the named line is on the way to, or the way from, the board's
         if ":" not in name and real.split(":")[0] == name:
             continue
+        if position is not None and any(e[1] == name or e[1].startswith((name + ",", name + ":"))
+                                        for e in book.lineage(position)[0]):
+            continue  # the board is on that line by another move order (1.e4 c5 2.Nf3 d6 … 5...e6 is the Scheveningen; fix 01.11)
         out.append(f"the opening on the board is the {real} ({eco}) by the ECO book, not the {name}")
     return out
 
@@ -2425,9 +2450,13 @@ def _lead_holds(board: chess.Board, color: bool, units: list, more: bool, mode: 
     too); 'count': that many of the kind more («две лишние пешки»); 'atleast': at least that («лишняя пешка»);
     'kind': more of that kind («больше пешек»)."""
     if mode == "balance" and len(units) > 1:
-        from src.game_record import material as _material_of
+        try:
+            from src.game_record import material as _material_of
 
-        diff = _material_of(board)["diff"] * (1 if color == chess.WHITE else -1) * (1 if more else -1)
+            diff = _material_of(board)["diff"] * (1 if color == chess.WHITE else -1) * (1 if more else -1)
+        except Exception:  # noqa: BLE001 — a broken material count leaves the claim unjudged (fail-open, F8)
+            logger.debug("material count failed", exc_info=True)
+            return True
         return abs(diff - sum(n * p for n, _, p in units)) <= 1
     n, kind, points = units[0]
     if mode == "balance":
@@ -2880,9 +2909,12 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         return f"material {shown}{_imbalance(where)}" if shown else f"material: {_imbalance(where)}"
 
     def in_points(issue: str) -> str:
-        from src.game_record import material as _material_of
+        try:
+            from src.game_record import material as _material_of
 
-        diff = _material_of(where)["diff"]
+            diff = _material_of(where)["diff"]
+        except Exception:  # noqa: BLE001 — the points are a bonus on the issue (fail-open, F8)
+            diff = 0
         return issue.replace(" (not: ", f" — {'White' if diff > 0 else 'Black'} +{abs(diff)} in points (not: ", 1) \
             if diff else issue
 
@@ -4199,16 +4231,24 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
             and student_side(ctx, text) == ctx.current.turn and not _tells_line(text[you_play.end():]) \
             and not _review_asked(ctx):
         starts.insert(0, you_play)
+    from src.claim_rules import prevention_frame, prevention_start
+
     for m in starts:
         if _NEGATION.search(text[max(0, m.start() - 24): m.start()]):
             continue  # «не стоит играть Rg1», "don't play Rg1"
         if not lesson and _not_a_proposal(text, m):
             continue
+        if not lesson and prevention_frame(text[:m.start()]):
+            continue  # «d4, не давая чёрным спокойно сыграть e5»: the move the sentence says is stopped, not advice (F3)
         clause = text[m.end():]
         rest_conv = _to_san(clause)[0]
         end = (_PROPOSAL_END_V1031 if lesson else _PROPOSAL_END).search(clause)
         if end:
             clause = clause[: end.start()]
+        if not lesson:
+            stop = prevention_start(clause)
+            if stop is not None:
+                clause = clause[:stop]  # «стоит, не давая чёрным поставить коня на f6»: the stopped move is no proposal
         clause = clause[:90]
         converted, _ = _to_san(clause)
         for mv in _MOVE.finditer(converted):

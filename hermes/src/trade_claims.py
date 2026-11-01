@@ -808,7 +808,10 @@ def trade_issues(sentence: str, ctx: Any) -> list[str]:
             continue
         issue = verdicts[0]
         if mode == "shadow":
-            logger.info("trades shadow: %s — %s", sentence[:200], issue)
+            # one shadow sink for every detector (src/answer_check.record_shadow → the detector_shadow event)
+            from src.answer_check import record_shadow
+
+            record_shadow(ctx, DETECTOR, [issue], sentence)
             continue
         if issue not in issues:
             issues.append(issue)

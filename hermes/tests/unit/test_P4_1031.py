@@ -208,11 +208,13 @@ def test_a_live_game_names_no_move(engine_stage):
 @needs_engine
 def test_shadow_judges_but_never_cuts(engine_stage, monkeypatch, caplog):
     monkeypatch.setenv("COACH_DETECTORS_SHADOW", "piece_decides")
+    from src.answer_check import shadow_into
+
     ctx = _ctx(MATE2_NO)
     claims = _piece_claims("Здесь решает ферзь.", ctx)
-    with caplog.at_level("INFO", logger="src.line_verdict"):
+    with shadow_into(ctx, "Здесь решает ферзь."):  # fix1101 F8: the record lands on the turn's check
         assert lv.verify_claims(claims, 300, True) is None
-    assert any("detector shadow piece_decides" in r.message for r in caplog.records)
+    assert any(name == "piece_decides" for name, _t, _i in (ctx.detector_shadow or []))
 
 
 @needs_engine

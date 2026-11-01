@@ -450,6 +450,8 @@ DETECTOR_DEFAULTS = {
     # P3A grammar, P3B scene + judge, P3D board rules
     "pin_escape": "on", "pin_noun": "shadow", "locked": "on", "cover_cause": "on",
     "idea_scope": "on", "start_cue": "on", "bare_pawn_line": "shadow", "loaded_line": "shadow",
+    # fix1101 F2: «<piece> стоит на <square>» on the board now, read by the scene (src/claim_scene._placement_claims)
+    "placement": "shadow",
     "retreat_cover": "on", "prevents": "on", "checks_geometry": "on", "only_move_orders": "on",
     # P4 engine claims (trade_swing_named also needs COACH_TRADE_SWING_NAMED)
     "piece_decides": "on", "trade_swing_named": "off",
@@ -457,10 +459,13 @@ DETECTOR_DEFAULTS = {
     "race_distance": "on", "mate_squares": "on", "king_direction": "shadow",
     # P6 records
     "trades": "on",
+    # stage-3 integration (src/hypothetical._ending_unproven): a ≤7-piece ending the tablebase does not answer, won
+    # before and after the move by the engine, is left unjudged by the recommended-move check (fix1101 F8)
+    "ending_unproven": "on",
 }
 RELATION_DETECTORS = frozenset({
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",
-    "retreat_cover", "prevents", "checks_geometry", "only_move_orders",
+    "retreat_cover", "prevents", "checks_geometry", "only_move_orders", "placement",
 })
 _MODE_RANK = {"off": 0, "shadow": 1, "on": 2}
 

@@ -1028,7 +1028,9 @@ def _verify_swing(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
         if claim.get("named_mode") != "shadow":
             return named_why
         if named_why:
-            logger.info("detector shadow trade_swing_named: %s", named_why[:300])
+            from src.answer_check import record_shadow
+
+            record_shadow(None, "trade_swing_named", [named_why])
     if abs(said - material) < 1.0 or min(material, swing) <= said <= max(material, swing):
         # The coach counts the material the line loses («почти на четыре пешки» for a bishop, −3), or tells a figure
         # between that count and the engine's: not clearly wrong. (The count follows the engine's continuation, which
@@ -1142,7 +1144,11 @@ def verify_claims(claims: list, movetime_ms: int = 300, reveal: bool = True) -> 
             logger.debug("line verdict failed", exc_info=True)
             why = None
         if why and claim.get("mode") == "shadow":
-            logger.info("detector shadow %s: %s", _DETECTOR_OF.get(claim.get("kind"), claim.get("kind")), why[:300])
+            # the turn's check (src/answer_check.shadow_into, set by the engine stage) gets the record: the
+            # detector_shadow event, as for the sync detectors
+            from src.answer_check import record_shadow
+
+            record_shadow(None, _DETECTOR_OF.get(claim.get("kind"), claim.get("kind")), [why])
             continue
         if why:
             return why

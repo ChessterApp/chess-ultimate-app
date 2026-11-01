@@ -573,7 +573,8 @@ def _can_capture(conv, low, moves, state):
 
 # occupied ─────────────────────────────────────────────────────────────────────────────────────────────────────
 _OCCUPIED = re.compile(_W + r"(?P<neg>не\s+)?(?:уже\s+)?(?:занят[оаы]?|занимают|свободн(?:о|а|ы|ое|ая)|пуст(?:о|а|ое|ая|ые|ы))"
-                       r"(?:\s+(?P<own>свои\w*|собственн\w*|сво\w+\s+же))?(?:\s+(?:же\s+)?(?P<pw>[а-я]+))?" + _E)
+                       r"(?:\s+(?P<own>свои\w*|собственн\w*|сво\w+\s+же))?(?:\s+(?:же\s+)?(?P<col>бел(?:ой|ым|ыми)|черн(?:ой|ым|ыми)))?"
+                       r"(?:\s+(?:же\s+)?(?P<pw>[а-я]+))?" + _E)
 _SQ_LIST_BEFORE = re.compile(r"(?P<list>" + _SQ + r"(?:\s*(?:,|и)\s*" + _SQ + r")*)\s+(?:(?:тоже|уже|сейчас|все|всё)\s+)?$")
 _FIELD = re.compile(_W + r"(?:поле|клетка|пункт|поля|клетки)\s+(?:[а-я]+\s+){0,3}?$")
 
@@ -607,7 +608,10 @@ def _occupied(conv, low, moves, state):
         pw = m.group("pw") or ""
         piece = next((k for k, p in _PIECE_STEMS if re.fullmatch(p, pw)), None)
         neg = bool(m.group("neg")) != free
-        objs = tuple(Ref(sq=s, piece=piece if not neg else None) for s in sqs)
+        # «занято белой пешкой»: the colour adjective is the occupant's side, the word after it the piece
+        col = m.group("col") or ""
+        side = (chess.WHITE if col.startswith("бел") else chess.BLACK) if col and piece is not None and not neg else None
+        objs = tuple(Ref(sq=s, piece=piece if not neg else None, side=side) for s in sqs)
         out.append(_claim("occupied", None, objs, pos=_pos(moves, m.start(), low, state), span=(m.start(), m.end()), neg=neg))
     return out
 
@@ -2438,6 +2442,14 @@ def _shadowed(name: str, claim: Claim, verdict: Verdict, ctx) -> None:
             return
         seen.add(key)
         ctx.relation_shadow.append((st.get("rules_text", ""), [f"[{name}] {verdict.truth}"]))
+        # counted as a flag, so the turn's relation_check event carries it, and recorded with every other shadow
+        # detector's (the detector_shadow event; review-wiring 01.11)
+        stats = getattr(ctx, "relation_stats", None)
+        if isinstance(stats, dict):
+            stats["flags"] = stats.get("flags", 0) + 1
+        from src.answer_check import record_shadow
+
+        record_shadow(ctx, name, [verdict.truth], st.get("rules_text") or None)
     except Exception:  # noqa: BLE001 — a context without the shadow list: nothing to record
         pass
 
