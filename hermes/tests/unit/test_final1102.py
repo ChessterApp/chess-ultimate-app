@@ -323,3 +323,14 @@ def test_material_at_a_numbered_move_of_the_record(sentence, cut):
 def test_a_past_anchor_is_the_end_of_the_line_it_opens():
     ctx = _ctx("e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6", student=chess.WHITE)
     assert check_sentence("После 3.d4 cxd4 у чёрных была лишняя пешка, но 4.Nxd4 её вернул.", ctx) == []
+
+
+@pytest.mark.parametrize("sentence,cut", [
+    ("Слон c4 под ударом b3 уйдёт, и поле f1 станет безопасным.", True),
+    ("После b3 слон c4 уйдёт, и f1 окажется в безопасности.", True),
+    ("После b3 слон c4 уйдёт на d3, и поле f1 станет безопасным.", True),  # d3 is on the f1 diagonal
+    ("После b3 слон c4 уйдёт на d5, и поле f1 станет безопасным.", False),
+    ("После b3 слон c4 уйдёт, но поле f1 всё равно не станет безопасным.", False),
+])
+def test_a_safe_square_is_a_square_the_chased_piece_no_longer_covers(sentence, cut):
+    assert bool(_row_issues("castle-ru", sentence)) is cut, sentence
