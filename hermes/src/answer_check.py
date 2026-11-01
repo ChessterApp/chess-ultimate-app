@@ -1230,6 +1230,9 @@ def _recapture_issues(text: str, ctx: CheckContext) -> list[str]:
         return _recapture_issues_v1031(text, ctx)
     converted, _ = _to_san(text)
     moves = list(_MOVE.finditer(converted))
+    if not any("x" in a["san"] and re.fullmatch(r"[a-h]x[a-h][1-8]", b["san"]) and a["san"][-2:] == b["san"][-2:]
+               for a, b in zip(moves, moves[1:])):
+        return []  # no capture taken back by a pawn: nothing to judge (the anchors below cost a key per board)
     anchors = [b for b in ctx.boards if ctx.is_given(b) and (ctx.current is None or b.board_fen() != chess.STARTING_BOARD_FEN
                                                             or ctx.current.board_fen() == chess.STARTING_BOARD_FEN)]
     # …and the position after the student's asked move, on the board on the screen: the line the answer tells from there
@@ -3108,6 +3111,7 @@ def _material_frame_issues(text: str, original: str, ctx: CheckContext, boards: 
 
     out = []
     last = (str(ctx.game_moves[-1]).rstrip("+#") if getattr(ctx, "game_moves", None) else None)
+    diffs = None  # the balance of every board, computed once and only for a claim to judge
     for c in read(text):
         if any(a < c.end and c.at < b for a, b in read_spans):
             continue  # a pattern above read this clause
@@ -3118,12 +3122,13 @@ def _material_frame_issues(text: str, original: str, ctx: CheckContext, boards: 
         sans = [m["san"].rstrip("+#") for m in _MOVE.finditer(_to_san(text[c.at:c.end])[0])]
         if sans and (last is None or sans[-1] != last) and not anchored:
             continue  # «после 3.Nf3 материал …»: an earlier moment of the game or a line — another board
-        diffs = []
-        for b in boards:
-            try:
-                diffs.append(_material_of(b)["diff"])
-            except Exception:  # noqa: BLE001
-                return []
+        if diffs is None:
+            diffs = []
+            for b in boards:
+                try:
+                    diffs.append(_material_of(b)["diff"])
+                except Exception:  # noqa: BLE001
+                    return []
         if not diffs:
             continue
         if c.kind == "equal":

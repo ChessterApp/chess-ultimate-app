@@ -713,7 +713,7 @@ def frames(sentence: str) -> list:
     try:
         from src.capture_frames import events
 
-        for ev in events(text):
+        for ev in (events(text) if _TRADE_CUE.search(text) and _TRADE_VERB_CUE.search(text) else []):
             if ev.kind != "trade" or any(ev.at <= x["at"] < ev.end for x in out):
                 continue
             a = _units(ev.given[0], strict=False) if ev.given else None
@@ -740,6 +740,9 @@ def frames(sentence: str) -> list:
 # the words that may tell a trade the patterns above do not read (src/capture_frames): a loss or a capture with what
 # came back («ради», «в обмен», «за», «взамен», «получил»)
 _TRADE_CUE = re.compile(r"(?<![\w-])(?:ради|обмен\w*|взамен|за|получил\w*|получив)(?![\w-])", re.IGNORECASE)
+# …with a verb of giving, losing or taking in the sentence (a cheap test before the clause reader)
+_TRADE_VERB_CUE = re.compile(r"отда|пожертв|жертв|потер|расста|уступ|лиши|погиб|уш[её]л|ушла|взял|взяли|получил|получив|"
+                             r"разменя|обменя|променя|сменя", re.IGNORECASE)
 
 
 def _owner_side(ctx: Any, words: str, players: list) -> Optional[bool]:
@@ -762,7 +765,7 @@ def trade_issues(sentence: str, ctx: Any) -> list[str]:
     mode = detector_mode(DETECTOR, ctx)
     if mode == "off" or not sentence or not (_VERB.search(sentence) or _RECEIVE.search(sentence)
                                              or _PASSIVE.search(sentence) or _NOUN.search(sentence)
-                                             or _TRADE_CUE.search(sentence)):
+                                             or (_TRADE_CUE.search(sentence) and _TRADE_VERB_CUE.search(sentence))):
         return []
     found = frames(sentence)
     if not found:
