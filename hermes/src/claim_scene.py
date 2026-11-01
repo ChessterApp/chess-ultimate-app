@@ -1507,6 +1507,14 @@ _PLACE_SKIP = re.compile(r"(?<![\w-])(?:бы|если|когда|может|мо
                          r"can|if|when|will|ideal\w*|plan\w*|suppose|imagine|almost)(?![\w-])", re.IGNORECASE)
 
 
+# The piece the clause names is followed by a square of its own («слон e8», «слон на c1»): the square read before the
+# verb is not where that piece stands (integration 01.11: two corpus sentences misread so).
+_OWN_SQUARE_AFTER = re.compile(r"\s*(?:же\s+)?(?:(?:на|on)\s+(?:поле\s+)?)?[a-h][1-8](?![\w0-9])", re.IGNORECASE)
+# A piece noun in any case right before «на <square>» («ладьёй на a1», «короля на e1»): the square belongs to that noun.
+_NOUN_BEFORE = re.compile(r"(?<![\w-])(?:корол\w*|ферз\w*|ладь\w*|слон\w*|кон[ьяюеё]\w*|пешк\w*|фигур\w*)"
+                          r"(?:\s+(?:белых|черных))?\s+$", re.IGNORECASE)
+
+
 def _place_side(word: str, gen: str, ctx: Any) -> Optional[bool]:
     w = (gen or word or "").lower().replace("ё", "е")
     if w.startswith(("бел", "white")):
@@ -1536,6 +1544,10 @@ def _placement_claims(text: str, ctx: Any, state: dict, cue: str) -> list:
                 break
             if _PREP_BEFORE.search(low[max(0, m.start() - 12):m.start()]):
                 continue
+            if _OWN_SQUARE_AFTER.match(low, m.end()):
+                continue  # «на a8 стоит слон e8», «на a1 стоят слон на c1 и …»: the piece carries its own square
+            if low.startswith("на", m.start()) and _NOUN_BEFORE.search(low[max(0, m.start() - 40):m.start()]):
+                continue  # «между королём и ладьёй на a1 стоят …»: «на a1» is where that noun stands, not the subject
             b, e = _clause(low, m.start(), m.end())
             if _DENIES.search(low[b:e]) or _PLACE_SKIP.search(low[:e]):
                 continue
