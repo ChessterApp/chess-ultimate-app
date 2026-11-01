@@ -450,8 +450,10 @@ DETECTOR_DEFAULTS = {
     # P3A grammar, P3B scene + judge, P3D board rules
     "pin_escape": "on", "pin_noun": "shadow", "locked": "on", "cover_cause": "on",
     "idea_scope": "on", "start_cue": "on", "bare_pawn_line": "shadow", "loaded_line": "shadow",
-    # fix1101 F2: «<piece> стоит на <square>» on the board now, read by the scene (src/claim_scene._placement_claims)
-    "placement": "shadow",
+    # fix1101 F2: «<piece> стоит на <square>» on the board now, read by the scene (src/claim_scene._placement_claims);
+    # on since 02.11: 0 false records on the 1,021 true sentences of review-fp and review-fp2, 0 new corpus flags, 0 of
+    # the held-out true controls (review-miss2 place_now 1/16 in shadow, 15/16 on)
+    "placement": "on",
     "retreat_cover": "on", "prevents": "on", "checks_geometry": "on", "only_move_orders": "on",
     # P4 engine claims (trade_swing_named also needs COACH_TRADE_SWING_NAMED)
     "piece_decides": "on", "trade_swing_named": "off",

@@ -26,6 +26,7 @@ Negated claims («ладью он не достаёт») are skipped: they deny,
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import re
@@ -34,6 +35,12 @@ from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
 import chess
+
+# The checks build many patterns inline (re.search(W + r"…", …)); past re's 512-entry cache they were compiled again
+# on the hot path — the relation p99 tail (review-wiring2 01.11: about 900 compilations on one corpus run). A larger
+# cache keeps every one of them compiled once per process.
+if getattr(re, "_MAXCACHE", 4096) < 4096:
+    re._MAXCACHE = 4096
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +218,19 @@ def _cyrillic_files(text: str) -> str:
 def _to_san(text: str) -> tuple[str, set]:
     """*text* with figurines and Russian piece letters as SAN letters, and the
     positions (in the result) where a Cyrillic «К» became N — models write «Кh1»
-    for the king too, so there a king move is accepted as well."""
+    for the king too, so there a king move is accepted as well. Memoised (every check converts the same sentence;
+    review-wiring2 01.11): the set is a fresh copy each call."""
+    conv, cyr_k = _to_san_cached(text or "")
+    return conv, set(cyr_k)
+
+
+@functools.lru_cache(maxsize=512)
+def _to_san_cached(text: str) -> tuple:
+    conv, cyr_k = _to_san_now(text)
+    return conv, frozenset(cyr_k)
+
+
+def _to_san_now(text: str) -> tuple[str, set]:
     text = _cyrillic_files((text or "").translate(_FIGURINES))
     out, cyr_k, last = [], set(), 0
     for m in _RU_SAN.finditer(text):
@@ -2934,6 +2953,7 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     if ctx.current is None or not _MAT_ANY.search(text):
         return []
     issues = []
+    record = None
     told = _told_capture(text, ctx)
     if told:
         boards, where, shown = told[1], told[1][0], f"after {told[0]} (the capture this sentence tells as made): "
@@ -2944,6 +2964,15 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             # a game: the material now, not a move ago (prod 29.10), nor another game's — fail-open to every board
             # (review-wiring2 01.11), and behind material_order's switch (off = main's boards)
             boards = _fail_open(_now_boards, ctx) or boards
+        elif ctx.game_moves and _PAST_BE.search(text) and _switch_mode("material_order", ctx) != "off":
+            # «После 3...Nf6 у белых уже был лишний конь» (review-miss2 01.11): the past at a move of the game's record —
+            # the board right after it, rebuilt from the record; another past is left as before
+            past = _fail_open(_past_ply_board, original, ctx)
+            if past:
+                boards, where, shown = [past[0]], past[0], f"right after {past[1]} (the moment this sentence names): "
+                record = {str(x).rstrip("+#") for x in ctx.game_moves}  # the record's moves are no line to imagine
+                blank = lambda m_: " " * len(m_.group(0))  # noqa: E731 — the anchor is no condition («после» it names)
+                text, original = _PAST_ANCHOR.sub(blank, text), _PAST_ANCHOR.sub(blank, original)
 
     def said(span: str) -> str:
         return f"material {shown}{_imbalance(where)}" if shown else f"material: {_imbalance(where)}"
@@ -2964,7 +2993,7 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     for rx in _MATERIAL:
         for m in rx.finditer(text):
             judged.add(m.start("side"))
-            if _is_hypothetical(text, original, m.start(), ctx=ctx):
+            if _is_hypothetical(text, original, m.start(), played=record, ctx=ctx):
                 continue
             if _FUTURE_FILL.search(text[m.start("side"): m.start("dir")]):
                 continue  # «ты останешься без фигуры»: what will be, not what is (replay, 2026-10-05)
@@ -2990,7 +3019,7 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     for at, color, units, more, mode, span, frame in claims:
         if at in judged and not (frame in ("extra", "extra_after") and mode in ("count", "balance")):
             continue  # the patterns above read this very claim (only a stricter count of an extra unit is added)
-        if _is_hypothetical(text, original, at, ctx=ctx):
+        if _is_hypothetical(text, original, at, played=record, ctx=ctx):
             continue
         try:
             holds = any(_lead_holds(b, color, units, more, mode, counts_points) for b in boards)
@@ -3002,7 +3031,7 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     eq_old = {m.start() for m in _MATERIAL_EQUAL.finditer(text)}
     eq_new = []
     for m in _MATERIAL_EQUAL_ANY.finditer(text):
-        if _is_hypothetical(text, original, m.start(), ctx=ctx):
+        if _is_hypothetical(text, original, m.start(), played=record, ctx=ctx):
             continue
         if "?" in text[m.end():] or _NEGATION.search(text[: m.start()]) \
                 or re.match(r"\s*(?:нет|не\s|отсутству)", text[m.end():]):
@@ -3016,7 +3045,7 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     for m in _MATERIAL_EQUAL.finditer(text):  # the fixed forms the wider one does not read («лишней пешки ни у кого нет»)
         if any(x.start() <= m.start() < x.end() for x in _MATERIAL_EQUAL_ANY.finditer(text)):
             continue
-        if _is_hypothetical(text, original, m.start(), ctx=ctx) or _NEGATION.search(text[: m.start()]):
+        if _is_hypothetical(text, original, m.start(), played=record, ctx=ctx) or _NEGATION.search(text[: m.start()]):
             continue
         if not any(_counts(b, chess.WHITE)["nonpawn"] + _counts(b, chess.WHITE)[chess.PAWN]
                    == _counts(b, chess.BLACK)["nonpawn"] + _counts(b, chess.BLACK)[chess.PAWN] for b in boards):
@@ -3026,12 +3055,39 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         [(m.start(), m.end()) for m in _MATERIAL_EQUAL_ANY.finditer(text)] + \
         [(m.start(), m.end()) for m in _MATERIAL_EQUAL.finditer(text)] + \
         [(at, at + len(span)) for at, _c, _u, _mo, _md, span, _f in claims]
-    eq_new += _fail_open(_material_frame_issues, text, original, ctx, boards, read_spans, said)
+    eq_new += _fail_open(_material_frame_issues, text, original, ctx, boards, read_spans, said, record)
     issues += _detector("material_order", ctx, ordered + eq_new)
     return issues
 
 
-def _material_frame_issues(text: str, original: str, ctx: CheckContext, boards: list, read_spans: list, said) -> list:
+_PAST_ANCHOR = re.compile(r"(?<![а-яa-z])(?:после|after)\s+(?P<num>\d{1,3})\s?(?P<dots>\.\.\.|…|\.)\s?"
+                          r"(?P<san>[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8](?:=[QRBN])?"
+                          r"|O-O(?:-O)?)", re.IGNORECASE)
+
+
+def _past_ply_board(original: str, ctx: CheckContext):
+    """[(the board right after the numbered move «после N.X» of the game's record, its label)] — the past the sentence
+    anchors there; [] when it names none or the move is not the record's at that number."""
+    conv, _ = _to_san(original)
+    found = list(_PAST_ANCHOR.finditer(conv))
+    if len(found) != 1:
+        return []
+    m = found[0]
+    ply = 2 * int(m["num"]) - (0 if m["dots"] in ("...", "…") else 1)
+    moves = [str(x).rstrip("+#") for x in ctx.game_moves]
+    if not (1 <= ply <= len(moves)) or moves[ply - 1] != m["san"].rstrip("+#"):
+        return []
+    board = chess.Board()
+    try:
+        for san in moves[:ply]:
+            board.push_san(san)
+    except ValueError:
+        return []
+    return [board, f"{m['num']}{m['dots']}{m['san']}"]
+
+
+def _material_frame_issues(text: str, original: str, ctx: CheckContext, boards: list, read_spans: list, said,
+                           record=None) -> list:
     from src.capture_frames import resolve
     from src.game_record import material as _material_of
     from src.material_frames import read
@@ -3041,10 +3097,12 @@ def _material_frame_issues(text: str, original: str, ctx: CheckContext, boards: 
     for c in read(text):
         if any(a < c.end and c.at < b for a, b in read_spans):
             continue  # a pattern above read this clause
-        if _is_hypothetical(text, original, min(c.at, max(0, len(text) - 1)), ctx=ctx) or _PAST_BE.search(text[c.at:c.end]):
+        anchored = len(boards) == 1 and boards[0] is not ctx.current and bool(_PAST_ANCHOR.search(_to_san(original)[0]))
+        if _is_hypothetical(text, original, min(c.at, max(0, len(text) - 1)), played=record, ctx=ctx) or \
+                (_PAST_BE.search(text[c.at:c.end]) and not anchored):
             continue
         sans = [m["san"].rstrip("+#") for m in _MOVE.finditer(_to_san(text[c.at:c.end])[0])]
-        if sans and (last is None or sans[-1] != last):
+        if sans and (last is None or sans[-1] != last) and not anchored:
             continue  # «после 3.Nf3 материал …»: an earlier moment of the game or a line — another board
         diffs = []
         for b in boards:

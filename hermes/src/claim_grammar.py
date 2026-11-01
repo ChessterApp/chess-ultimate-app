@@ -266,8 +266,10 @@ _TAKE_SURE = re.compile(r"берет|берут|забирает|забираю�
 _FORK = re.compile(W + r"(?:вилк\w*|двойн\w+\s+удар\w*|fork\w*|double\s+attack)" + E)
 
 
+@lru_cache(maxsize=512)
 def normalize(text: str) -> str:
-    """ё → е, emphasis out, Russian piece letters and Cyrillic files of written moves as SAN («Кf6», «Сg4», «Фxg2#»)."""
+    """ё → е, emphasis out, Russian piece letters and Cyrillic files of written moves as SAN («Кf6», «Сg4», «Фxg2#»).
+    Memoised: every reader of a sentence normalises it again."""
     t = (text or "").replace("ё", "е").replace("Ё", "Е").replace("*", " ").replace(" ", " ")
     t = re.sub(r"(?<![А-Яа-яA-Za-z])(Кр|[КСЛФKQRBN])([x:×х]?)([абвсцдеэфгх])(?=[1-8](?![0-9]))",
                lambda m: m.group(1) + ("x" if m.group(2) else "") + _CYR_FILE[m.group(3)], t)
@@ -312,13 +314,29 @@ _GEN_HEAD = re.compile(W + r"(?:удар[ау]?|атак[иу]|защит[ыу]|
 
 
 def _free(taken, a, b):
-    return all(b <= x or a >= y for x, y in taken)
+    return taken.free(a, b) if isinstance(taken, _Taken) else all(b <= x or a >= y for x, y in taken)
+
+
+class _Taken:
+    """The spans of the sentence already read as tokens: a mask of the characters, so that «is this span free» costs
+    the span's length and not the number of tokens (the relation p99 on long sentences, review-wiring2 01.11)."""
+    __slots__ = ("mask",)
+
+    def __init__(self, n: int):
+        self.mask = bytearray(n + 1)
+
+    def append(self, span) -> None:
+        a, b = span
+        self.mask[a:b] = b"\x01" * max(0, b - a)
+
+    def free(self, a: int, b: int) -> bool:
+        return 1 not in self.mask[a:b]
 
 
 def tokenize(t: str) -> list:
     low = t.lower()
     toks: list = []
-    taken: list = []
+    taken = _Taken(len(low))
 
     for m in _SEP.finditer(low):
         toks.append(Tok("SEP", m.start(), m.end(), m.group(0)))
@@ -1964,7 +1982,7 @@ def _remember(toks, text, state, focus, cur):
 # (a piece, a square, or a side-only ref = any piece of that side; any piece when ``objs`` is empty) and whose piece
 # behind fits ``to`` (when given).
 _PRESUP_CUE = re.compile(r"связк|связанн|развяз|заперт|запир|замуров|взаперти|в\s+клетке|заблокир|блокиру|обездвиж|застр[яе]|"
-                         r"ходов|хода|некуда|"
+                         r"(?:ни\s+(?:одного|единого)\s+|без\s+(?:единого\s+)?|нет\s+|не\s+имеет\s+|не\s+имеют\s+)ход|ходов\s+(?:нет|не)|некуда|"
                          r"не\s+(?:может|могут|сможет|смогут|в\s+состоянии)\s+(?:\w+\s+){0,2}?(?:выйти|выбраться|двинуться|"
                          r"сдвинуться|пошевел|шевельн|сделать|ходить|пойти|уйти|отступить)|не\s+(?:выйти|выбраться|двинуться|"
                          r"сдвинуться)|без\s+ходов|"
@@ -2499,6 +2517,7 @@ def _pin_claims(t: str, low: str, toks: list, ante: dict) -> list:
 _FRENCH = "rnbqkbnr/ppp2ppp/4p3/3pP3/3P4/8/PPP2PPP/RNBQKBNR b KQkq - 0 3"
 
 
+@lru_cache(maxsize=1)
 def _locked_judge_ready() -> bool:
     """The judge reads 'locked' as «no way out» — at most one legal move or one square of reach (P3B, plan 31.10): the
     French bishop c8 after 1.e4 e6 2.d4 d5 3.e5, whose one move is d7, is locked. The judge of WP-0 reads it as «no

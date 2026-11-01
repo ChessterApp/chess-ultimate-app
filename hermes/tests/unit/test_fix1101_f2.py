@@ -168,8 +168,9 @@ def test_start_cue_switch_off_reads_no_placement(monkeypatch):
 
 
 # ── placement on the board now: its own switch ──────────────────────────────────────────────────────────────────
-def test_placement_without_a_cue_is_off_until_config_lists_it():
-    assert "placement" not in config.DETECTOR_DEFAULTS or config.detector_mode("placement") != "on"
+def test_placement_without_a_cue_follows_its_switch(monkeypatch):
+    # on by default since the final fix 02.11 (0 false records on the review-fp / review-fp2 true sentences)
+    monkeypatch.setitem(config.DETECTOR_DEFAULTS, "placement", "shadow")
     assert _last(["Белый ферзь стоит на e2."], _ctx(RUY)) == []
 
 

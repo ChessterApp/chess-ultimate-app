@@ -36,6 +36,7 @@ loses") are not either.
 """
 from __future__ import annotations
 
+import functools
 import re
 from typing import Any, Callable, Optional
 
@@ -79,8 +80,9 @@ _FUTURE = re.compile(_W + r"(?:смож\w+|смогут|смогу|будет|б
 _THEN = re.compile(r"^\W*(?:затем|потом|дальше|далее|после\s+этого|тогда)" + _E)
 
 
+@functools.lru_cache(maxsize=512)
 def _prep(text: str) -> str:
-    """Lower case, ё → е, Markdown emphasis gone, Cyrillic file letters as Latin, moves in SAN letters."""
+    """Lower case, ё → е, Markdown emphasis gone, Cyrillic file letters as Latin, moves in SAN letters (memoised)."""
     from src.answer_check import _to_san
 
     t = _EMPH.sub("", text or "").replace("ё", "е").replace("Ё", "Е")
@@ -890,8 +892,9 @@ def _checks_along(conv, low, moves, state):
                 kside = defender
             if kside is not None and subj.side is not None and kside == subj.side:
                 told = None  # the checker's own king walking: the king the checks are aimed at is not told
-        if rank_too is not None and (told is None or _on_line(rank_too, chess.parse_square(told[0]))):
-            continue  # a check from a square judged only on a king off both its lines
+        if rank_too is not None and (told is None or _on_line(rank_too, chess.parse_square(told[0])) or subj.piece != "R"):
+            continue  # a check from a square: a rook's, judged only on a king off both its lines (a queen there checks
+            # along its diagonals too — «Qf3+ — ферзь встаёт на f3 с шахом»)
         if told is not None:
             flags = "|aimed" if aimed else ""
             if not _on_line(kind, chess.parse_square(sq)):
@@ -1070,10 +1073,33 @@ def _retreat_cover(conv, low, moves, state):
     return _retreat_consequence(conv, low, moves, state)
 
 
+# A word one of each _GONE_COVER pattern needs (a cheap test before its scan: the relation p99, review-wiring2 01.11).
+_GONE_COVER_KEYS = [("сможет", "может", "будет", "станет", "перестан", "переста", "не "),
+                    ("не ",),
+                    ("теря", "утрат", "уход", "уйд", "пропад", "исчез"),
+                    ("освобо", "свобод", "откро", "открыва", "не ", "перестан", "выход"),
+                    ("покин", "покида", "уйти", "уйд", "уход", "сойти", "сойд", "убра", "отогна", "отгоня", "прогна",
+                     "прогоня", "выгна", "выгоня", "оттесн"),
+                    ("рокир", "рокиру"),
+                    ("откуда", "где", "которо"),
+                    ("лиш", "теря", "утрат", "брос", "остав", "уход", "уйд", "пропад", "исчез", "отказ"),
+                    ("никто", "ничто", "ничего"),
+                    ("никто", "ничто", "ничего"),
+                    ("из-под", "от "),
+                    ("некуда",),
+                    ("рокир", "o-o", "0-0", "путь", "дорог")]
+
+
+_GONE_COVER_KEY_RX = [re.compile("|".join(re.escape(k) for k in keys)) for keys in _GONE_COVER_KEYS]
+_RETREAT_ANY = re.compile("|".join(re.escape(k) for keys in _GONE_COVER_KEYS for k in keys)
+                          + "|вынужден|придется|приходится|должен|должна|обязан")
+
+
 def _retreat_consequence(conv, low, moves, state):
     """The chase and the cover it is said to take away, told in any clause after the chase (see above)."""
     # the cover lost and the castling made possible before «покинет c4» (leaving a square may be its own square)
-    cands = sorted(((m.start(), i, what, m) for i, (what, rx) in enumerate(_GONE_COVER) for m in rx.finditer(low)),
+    cands = sorted(((m.start(), i, what, m) for i, (what, rx) in enumerate(_GONE_COVER)
+                    if _GONE_COVER_KEY_RX[i].search(low) for m in rx.finditer(low)),
                    key=lambda x: (x[2] == "line", x[0], x[1]))
     for _s, _i, what, m in cands:
         got = _retreat_one(conv, low, moves, state, what, m)
@@ -1406,11 +1432,24 @@ def _if_only_move(low: str, at: int, mover) -> bool:
                      "пойти", "пойдешь", "сделать", "сделаешь", "сыграют", "сыграет", "сначала", "сразу") for w in rest)
 
 
+_CUE_KEYS = {"permit": ("не ",), "stop": ("меша", "препятств", "лиш", "запре", "предотвра", "пресе", "исключ", "отним", "отня",
+                                       "отбир", "отбер", "отобра", "останав", "останов", "удерж", "сдерж", "блокир",
+                                       "перекр", "закр"),
+             "cant": ("не ", "нельзя", "невозможн", "лишен"), "reach": ("не ",), "purpose": ("чтобы",),
+             "gone": ("пропад", "исчез", "отпад", "снимается"), "imposs": ("невозмож", "неосуществим")}
+
+
+_CUE_KEY_RX = {kind: re.compile("|".join(re.escape(k) for k in keys)) for kind, keys in _CUE_KEYS.items()}
+_PREVENT_ANY = re.compile("|".join(re.escape(k) for keys in _CUE_KEYS.values() for k in keys))
+
+
 def _prevention_cues(low: str):
     """(kind, match) of every cue of a prevention in *low*, in order."""
     out = []
     for rx, kind in ((_PERMIT, "permit"), (_STOP, "stop"), (_CANT, "cant"), (_REACH_NOT, "reach"), (_PURPOSE, "purpose"),
                      (_GONE, "gone"), (_IMPOSS, "imposs")):
+        if not _CUE_KEY_RX[kind].search(low):
+            continue
         for m in rx.finditer(low):
             out.append((m.start(), kind, m))
     out.sort(key=lambda x: x[0])
@@ -1672,7 +1711,10 @@ def extract(text: str, state: dict) -> list[Claim]:
             for part in (_only_move, _no_flight, _can_capture, _occupied, _checks_along):
                 claims += part(conv, low, moves, st)
         # plan 31.10 (P3D): each detector has its own switch (src/config.py detector_mode; off = not read at all)
-        for name, part, cued in (("retreat_cover", _retreat_cover, new_cue), ("prevents", _prevents, new_cue),
+        # each reader only where a word it needs stands (a cheap test: the relation p99, review-wiring2 01.11)
+        retreat_cued = new_cue and bool(_RETREAT_ANY.search(low))
+        prevent_cued = new_cue and bool(_PREVENT_ANY.search(low))
+        for name, part, cued in (("retreat_cover", _retreat_cover, retreat_cued), ("prevents", _prevents, prevent_cued),
                                  ("only_move_orders", _only_move_orders, old_cue)):
             if cued and detector_mode(name) != "off":
                 claims += part(conv, low, moves, st)
