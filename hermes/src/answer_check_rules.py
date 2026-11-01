@@ -308,6 +308,20 @@ _MATE_AGAINST = re.compile(
     r"подставля\w*|себе|allow\w*|walk\w*\s+into|get\s+mated|after)" + _E, re.IGNORECASE)
 
 
+def _mate_in_one(board: chess.Board) -> Optional[str]:
+    """The SAN of a move that mates at once on *board*, or None: a mate in one is a fact of the board, whatever the
+    engine's note carried."""
+    b = board.copy(stack=False)
+    for mv in list(b.legal_moves):
+        if b.gives_check(mv):
+            b.push(mv)
+            mate = b.is_checkmate()
+            b.pop()
+            if mate:
+                return board.san(mv)
+    return None
+
+
 def _mate_in_issues(text: str, ctx) -> list[str]:
     if getattr(ctx, "engine_eval", None) is None or ctx.current is None:
         return []  # no engine look at this board this turn
@@ -329,6 +343,10 @@ def _mate_in_issues(text: str, ctx) -> list[str]:
             # «ты сам пропускаешь мат в один ход» after the student's idea: the mate after that move,
             # not this board's (the lesson tutor's true sentence was cut, 2026-10-08).
             continue
+        if mate is None and _mate_in_one(ctx.current) is not None:
+            mate = 1  # «у них мат в один ход» in Legal's mate (review-fp 01.11): the board says so, the note did not
+        if mate is None and abs(ctx.engine_eval) >= 15:
+            return []  # the score is a mate (or a tablebase win) whose length the note did not carry: not judged
         has = mate is not None and 0 < mate <= n
         if neg and has:
             return [f"there IS a forced mate in {mate} here (engine)"]
