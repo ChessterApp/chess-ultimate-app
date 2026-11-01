@@ -155,9 +155,10 @@ def test_switch_off_and_shadow(monkeypatch, caplog):
     assert trade_issues(s, _ctx("wch2021-g6")) == []
     monkeypatch.delenv("COACH_DETECTORS_OFF")
     monkeypatch.setenv("COACH_DETECTORS_SHADOW", "trades")
-    with caplog.at_level("INFO", logger="src.trade_claims"):
-        assert trade_issues(s, _ctx("wch2021-g6")) == []
-    assert any("trades shadow" in r.message for r in caplog.records)
+    ctx = _ctx("wch2021-g6")
+    assert trade_issues(s, ctx) == []
+    # fix1101 F8: one shadow sink for every detector — the record lands on the check (the detector_shadow event)
+    assert any(name == "trades" for name, _t, _i in (ctx.detector_shadow or []))
     monkeypatch.delenv("COACH_DETECTORS_SHADOW")
     assert trade_issues(s, _ctx("wch2021-g6"))
 
