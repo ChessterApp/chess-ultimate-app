@@ -594,11 +594,19 @@ def _scene_board(ctx) -> Optional[chess.Board]:
 # nothing else but the owner, the piece's square, the game as the object («партию», «всё», «исход»), a place («в
 # центре», «на короля e6»: a target) and adverbs. Any other word, a denial, a hedge, a second piece or a pawn or king
 # as an actor leaves the clause unjudged: unjudged is fine, a false cut is not.
-_PV_DECIDE = re.compile(r"^(?:реша(?:ет|ют|ешь|ете)|выигрыва(?:ет|ют|ешь|ете)|побежда(?:ет|ют|ешь|ете))$")
-_PV_BRING = re.compile(r"^(?:принос(?:ит|ят|ишь|ите))$")
-_PV_BRING_OBJ = frozenset("победу выигрыш".split())
-_PV_DECISIVE = re.compile(r"^решающ(?:ий|ее|ую|им|ая|его)$")
+# the outcome predicate as a lemma class (review-miss2 01.11): the present and the future of «решать / выигрывать /
+# побеждать / решить / выиграть / победить», «приносит / обеспечивает победу», «решающий удар / ход / фигура»,
+# «решение за X», «козырь», «(всё) кончается X-ом»
+_PV_DECIDE = re.compile(r"^(?:реша(?:ет|ют|ешь|ете)|выигрыва(?:ет|ют|ешь|ете)|побежда(?:ет|ют|ешь|ете)|"
+                        r"реш(?:ит|ат|ишь|ите)|выигра(?:ет|ют|ешь|ете)|побед(?:ит|ят|ишь|ите))$")
+_PV_DECIDE_INF = re.compile(r"^(?:выиграть|решить|победить)$")  # with «можно»: «выиграть здесь можно ферзём»
+_PV_BRING = re.compile(r"^(?:принос(?:ит|ят|ишь|ите)|принес(?:ет|ут)|обеспечива(?:ет|ют)|обеспечит|обеспечат)$")
+_PV_BRING_OBJ = frozenset("победу выигрыш успех".split())
+_PV_DECISIVE = re.compile(r"^решающ(?:ий|ее|ую|им|ая|его|ей)$")
 _PV_DECISIVE_NOUN = frozenset("удар слово ход".split())
+_PV_DECISIVE_PIECE = frozenset("фигура фигурой силой сила".split())  # «ферзь — решающая фигура»: no verb needed
+_PV_TRUMP = re.compile(r"^(?:козыр[ьяем]|козырем)$")
+_PV_END = re.compile(r"^(?:конча(?:ет|ют)ся|заканчива(?:ет|ют)ся|заверша(?:ет|ют)ся)$")
 _PV_DECISIVE_VERB = frozenset("наносит наносят делает делают принадлежит остается за у".split())
 _PV_NOM = {"ферзь": chess.QUEEN, "ферзи": chess.QUEEN, "ладья": chess.ROOK, "ладьи": chess.ROOK, "конь": chess.KNIGHT,
            "кони": chess.KNIGHT, "слон": chess.BISHOP, "слоны": chess.BISHOP}
@@ -614,7 +622,8 @@ _PV_OBJECT = frozenset("все дело исход исхода партии п�
 _PV_OWNER = re.compile(r"^(?:бел(?:ый|ая|ые|ых|ого|ым)|черн(?:ый|ая|ые|ых|ого|ым)|тво(?:й|я|и|его|им)|сво(?:й|я|и)|"
                        r"мо(?:й|я|и)|его|ее|их|соперника|противника|ты|вы)$")
 _PV_FUNCTION = frozenset("и а же ведь вот да тут здесь теперь сейчас уже сразу именно просто один одна одни сам сама "
-                         "одиночку вмиг тотчас немедленно лично".split())
+                         "одиночку вмиг тотчас немедленно лично главный главная главное это он она позиции этой "
+                         "можно".split())
 _PV_HEDGE = frozenset("почти возможно наверное наверно вероятно пожалуй видимо кажется скорее может могут вряд едва "
                       "иногда часто обычно потом позже скоро рано поздно когда-нибудь якобы будто ли бы".split())
 _PV_DENY = frozenset("не нет ни ничего никак никогда нельзя".split())
@@ -636,6 +645,17 @@ def _outcome_parts(clause: str):
     for i, w in enumerate(words):
         if _PV_DECIDE.match(w):
             preds.append((i, [i]))
+        elif _PV_DECIDE_INF.match(w) and "можно" in words:
+            preds.append((i, [i, words.index("можно")]))
+        elif _PV_TRUMP.match(w) or _PV_END.match(w):
+            preds.append((i, [i]))
+        elif w == "решение" and i + 1 < len(words) and words[i + 1] == "за":
+            preds.append((i, [i, i + 1]))
+        elif _PV_DECISIVE.match(w) and i + 1 < len(words) and words[i + 1] in _PV_DECISIVE_PIECE:
+            preds.append((i, [i, i + 1]))
+        elif _PV_DECISIVE.match(w) and (i + 1 == len(words) or words[i + 1] not in _PV_DECISIVE_NOUN) and \
+                any(_PV_ACTION.match(x) for x in words[:i]):
+            preds.append((i, [i]))  # «ферзевый удар здесь решающий»: the adjective as the predicate
         elif _PV_BRING.match(w):
             obj = [j for j, x in enumerate(words) if x in _PV_BRING_OBJ]
             if obj:
@@ -646,9 +666,11 @@ def _outcome_parts(clause: str):
             if not verb:
                 continue
             preds.append((i, span + verb[:1]))
-    if len(preds) != 1:
+    if not preds:
         return None
     pi, pspan = preds[0]
+    for _, extra in preds[1:]:
+        pspan = pspan + extra  # «главный козырь — ферзь, он и решает»: one claim said twice
     for j in pspan:
         used[j] = True
     second_person = words[pi].endswith(("ешь", "ете"))
@@ -666,14 +688,16 @@ def _outcome_parts(clause: str):
         elif w in _PV_INS:
             if prev and _PV_ACTION.match(prev):
                 actors.append((i, _PV_INS[w], [i - 1, i]))
-            elif prev == "за" and words[pi].startswith("решающ"):
-                actors.append((i, _PV_INS[w], [i - 1, i]))  # «решающее слово за ферзём»
+            elif prev == "за" and (words[pi].startswith("решающ") or words[pi] == "решение"):
+                actors.append((i, _PV_INS[w], [i - 1, i]))  # «решающее слово за ферзём», «решение за ферзём»
             elif prev in _PV_PREP:
                 return None  # «вместе с ладьёй», «за конём»: another role
             else:
                 actors.append((i, _PV_INS[w], [i]))  # «ферзём ты выигрываешь», «белые решают ладьёй»
         elif w in _PV_GEN and prev and _PV_ACTION.match(prev):
             actors.append((i, _PV_GEN[w], [i - 1, i]))  # «ход ферзя»
+        elif w in _PV_GEN and i >= 2 and words[i - 2] == "за" and prev == "счет":
+            actors.append((i, _PV_GEN[w], [i - 2, i - 1, i]))  # «выигрывают за счёт ферзя»
         else:
             for rx, pt in _PV_ADJ:
                 if rx.match(w) and i + 1 < len(words) and _PV_ACTION.match(words[i + 1]):
@@ -738,12 +762,15 @@ def _outcome_parts(clause: str):
     return ptype, own, sq, toks[ai][1]
 
 
+_OUTCOME_CUE = re.compile(r"реш|выигр|побед|принос|принес|обеспечи|козыр|конча|заканчива|заверша")
+
+
 def _piece_claims(low: str, converted: str, ctx) -> list:
     """«решает ферзь»: the claims that a piece of the side to move decides the game on the board now."""
     from src import config
     from src.claim_scope import denied_before, denied_in
 
-    if "?" in low or not (_DECIDES_VERB.search(low) or re.search(r"выигрыва|принос|побежда", low)):
+    if "?" in low or not (_DECIDES_VERB.search(low) or _OUTCOME_CUE.search(low)):
         return []  # the cheap test first: this runs on every sentence without a written move
     mode = config.detector_mode("piece_decides", ctx)
     if mode == "off":
@@ -781,16 +808,19 @@ def _piece_claims(low: str, converted: str, ctx) -> list:
             found.append((ptype, own, gd.get("sq"), at_piece, m.start(), m.end()))
     if not found and not _NOT_NOW.search(low) and "«" not in converted and '"' not in converted:
         norm = low.replace("ё", "е")
-        bounds = [0] + [m.end() for m in _PV_CLAUSE.finditer(norm)] + [len(norm)]
-        for a, b in zip(bounds, bounds[1:]):
-            parts = _outcome_parts(norm[a:b])
-            if parts is None or _BELIEF.search(norm[:a + parts[3]]):
-                continue
-            ptype, own, sq, at_piece = parts
-            if not own:
-                at_side = _AT_SIDE.findall(norm[a:b])
-                own = at_side[-1] if at_side else ""
-            found.append((ptype, own, sq, a + at_piece, a, b))
+        for text_ in (norm, re.sub(r"\s[—–]\s", "   ", norm)):  # a dash may be the copula: «Ферзь — решающая фигура»
+            bounds = [0] + [m.end() for m in _PV_CLAUSE.finditer(text_)] + [len(text_)]
+            for a, b in zip(bounds, bounds[1:]):
+                parts = _outcome_parts(text_[a:b])
+                if parts is None or _BELIEF.search(text_[:a + parts[3]]):
+                    continue
+                ptype, own, sq, at_piece = parts
+                if not own:
+                    at_side = _AT_SIDE.findall(text_[a:b])
+                    own = at_side[-1] if at_side else ""
+                found.append((ptype, own, sq, a + at_piece, a, b))
+            if found:
+                break
     out = []
     for ptype, own, sq_name, _at_piece, start, end in found:
         board = _scene_board(ctx)

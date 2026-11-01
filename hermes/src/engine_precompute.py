@@ -62,17 +62,19 @@ STATS = {"jobs": 0, "steps": 0, "cancelled": 0, "failed": 0}
 
 # The background's own order (src/engine_pool: any priority from PRIORITY_BACKGROUND on is background, a smaller
 # number first, and a waiting search stops a running one further back):
-LEVEL_CHECK = engine_pool.PRIORITY_BACKGROUND        # the positions the turn's recommended-move check will ask for
-LEVEL_CONFIRM = engine_pool.PRIORITY_BACKGROUND + 1  # the forced-reply check's confirming searches
-LEVEL_BOARD = engine_pool.PRIORITY_BACKGROUND + 2    # a board's own positions
+LEVEL_IDEA = engine_pool.PRIORITY_BACKGROUND         # the forced-reply confirm after the student's own idea moves
+LEVEL_CHECK = engine_pool.PRIORITY_BACKGROUND + 1    # the positions the turn's recommended-move check will ask for
+LEVEL_CONFIRM = engine_pool.PRIORITY_BACKGROUND + 2  # the forced-reply check's confirming searches
+LEVEL_BOARD = engine_pool.PRIORITY_BACKGROUND + 3    # a board's own positions
 
 
 class _Task:
-    __slots__ = ("key", "job", "steps", "gen", "queued_at", "level", "busy")
+    __slots__ = ("key", "job", "steps", "gen", "queued_at", "level", "busy", "not_before")
 
     def __init__(self, key: str, job: engine_pool.Job, steps: list, gen: int, level: int = LEVEL_BOARD):
         self.key, self.job, self.steps, self.gen = key, job, steps, gen
         self.queued_at = time.monotonic()
+        self.not_before = 0.0  # a task held back until then (#rest: after the board has been left alone)
         self.level = level
         self.busy = 0  # steps at work (a short step may run beside another of its task: PARALLEL_STEPS)
 
@@ -284,7 +286,7 @@ WORKERS = 2
 
 
 def _submit(key: str, steps: list, label: str, replace: bool = True,
-            level: int = LEVEL_BOARD) -> Optional[engine_pool.Job]:
+            level: int = LEVEL_BOARD, delay_s: float = 0.0) -> Optional[engine_pool.Job]:
     if not steps:
         return None
     with _lock:
@@ -293,6 +295,7 @@ def _submit(key: str, steps: list, label: str, replace: bool = True,
         gen = _gen.get(key, 0)
         job = engine_pool.Job(label)
         task = _Task(key, job, list(steps), gen, level)
+        task.not_before = time.monotonic() + delay_s if delay_s > 0 else 0.0
         _pending[key] = task
         _pending.move_to_end(key)
         STATS["jobs"] += 1
@@ -353,6 +356,8 @@ PARALLEL_STEPS = ("after_move",)
 def _startable(task: "_Task") -> bool:
     if not task.steps:
         return False
+    if task.not_before and time.monotonic() < task.not_before:
+        return False
     if not task.busy:
         return True
     return task.busy < WORKERS and task.steps[0][0] in PARALLEL_STEPS
@@ -380,7 +385,8 @@ def _work() -> None:
         with _lock:
             task = _next_locked()
             while task is None:
-                _lock.wait(30.0)
+                held = [t.not_before for t in _pending.values() if t.not_before and t.steps]
+                _lock.wait(max(0.05, min(held) - time.monotonic()) if held else 30.0)
                 task = _next_locked()
             task.busy += 1
             name, step = task.steps.pop(0)
@@ -468,6 +474,10 @@ CANDIDATE_MOVES = 12
 # forced-reply check's confirming search («после Nxe5 чёрные обязаны ответить dxe5»: trap-legal held its sentence
 # 1.4 s for it in the replay of 01.11).
 CONFIRM_MOVES = 4
+# The other legal moves (#rest): one search at a time (one process), and only once the board has been left alone for
+# REST_DELAY_S (review-wiring2 01.11: every turn put both Stockfish processes to full load for about 9 s, and the
+# time over the requested search rose to 4.6–5.8 % against 4 %).
+REST_DELAY_S = 2.0
 
 
 def _candidate_moves(board: chess.Board, note: dict) -> list:
@@ -558,7 +568,7 @@ def _after_move_steps(board: chess.Board, note: dict, rest: Optional[list] = Non
         for move in _other_moves(board, candidates):
             s, _ = step(move)
             if s is not None:
-                rest.append(s)
+                rest.append(("rest_move", s[1]))  # one at a time (not a PARALLEL_STEPS name): a single process
     return steps, _confirm_steps(confirm_fens)
 
 
@@ -577,7 +587,7 @@ def after_engine_line(session_id: str, board_id: str, fen: str, note: Optional[d
         rest: list = []
         steps, confirm = _after_move_steps(board, note, rest)
         _submit(key + "#confirm", confirm, f"confirm {fen}", level=LEVEL_CONFIRM)
-        _submit(key + "#rest", rest, f"rest {fen}", level=LEVEL_BOARD)
+        _submit(key + "#rest", rest, f"rest {fen}", level=LEVEL_BOARD, delay_s=REST_DELAY_S)
         return steps
 
     _submit(key + "#line", [("plan", _plan)], f"line {fen}", level=LEVEL_CHECK)
@@ -613,7 +623,9 @@ def after_ideas(session_id: str, board_id: str, idea_fens: list) -> None:
     # answer is about them, and a forced-reply confirm costs the held sentence 0.8–1.4 s (a recommended move's check
     # 0.3 s). Further back, the candidates' searches stopped it again and again (replay 01.11, trap-legal: «можно
     # сыграть Nxe5?» — the confirm after 5.Nxe5 was stopped six times and the turn searched it itself, 1.6 s).
-    _submit(f"{session_id}/{board_id}#ideas", steps, "ideas", level=LEVEL_CHECK)
+    # Strictly ahead of the candidates (review-wiring2 01.11: at their level, trap-legal's confirm after 5.Nxe5 was
+    # still at work when the sentence was held in 1 of 3 full replays, and the turn's own 1 s search fell short).
+    _submit(f"{session_id}/{board_id}#ideas", steps, "ideas", level=LEVEL_IDEA)
 
 
 def idle(timeout: float = 30.0) -> bool:

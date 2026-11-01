@@ -708,6 +708,24 @@ def frames(sentence: str) -> list:
         if a and b:
             out.append({"at": m.start(), "a": a, "b": b, "giver": "owner", "head": text[:m.start()],
                         "owner": clause[:sep.start()]})
+    # every other frame the clause reader finds (src/capture_frames, review-miss2 01.11): the object first («Ферзя белые
+    # пожертвовали за ладью»), «за A взяли B», «расстался с A ради B», «получил B в обмен на A», «A ушёл / погиб за B»
+    try:
+        from src.capture_frames import events
+
+        for ev in events(text):
+            if ev.kind != "trade" or any(ev.at <= x["at"] < ev.end for x in out):
+                continue
+            a = _units(ev.given[0], strict=False) if ev.given else None
+            b = _units(ev.got[0], strict=False) if ev.got else None
+            if not a or not b:
+                continue
+            head = ev.subject_words or {"W": "белые", "B": "черные", "S": "ты", "E": "я"}.get(ev.who, "")
+            if not head:
+                continue
+            out.append({"at": ev.at, "a": a, "b": b, "giver": "subject", "head": head, "owner": ""})
+    except Exception:  # noqa: BLE001 — a broken reading never blocks an answer
+        logger.debug("trade frames failed", exc_info=True)
     keep = []
     for x in out:
         aw = [s for s in x["a"]]
@@ -717,6 +735,11 @@ def frames(sentence: str) -> list:
             continue  # «фигуру за фигурой», «пешку за пешкой»
         keep.append(x)
     return keep
+
+
+# the words that may tell a trade the patterns above do not read (src/capture_frames): a loss or a capture with what
+# came back («ради», «в обмен», «за», «взамен», «получил»)
+_TRADE_CUE = re.compile(r"(?<![\w-])(?:ради|обмен\w*|взамен|за|получил\w*|получив)(?![\w-])", re.IGNORECASE)
 
 
 def _owner_side(ctx: Any, words: str, players: list) -> Optional[bool]:
@@ -738,7 +761,8 @@ def trade_issues(sentence: str, ctx: Any) -> list[str]:
 
     mode = detector_mode(DETECTOR, ctx)
     if mode == "off" or not sentence or not (_VERB.search(sentence) or _RECEIVE.search(sentence)
-                                             or _PASSIVE.search(sentence) or _NOUN.search(sentence)):
+                                             or _PASSIVE.search(sentence) or _NOUN.search(sentence)
+                                             or _TRADE_CUE.search(sentence)):
         return []
     found = frames(sentence)
     if not found:

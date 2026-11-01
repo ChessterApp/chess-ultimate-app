@@ -1100,6 +1100,15 @@ def _rule_judge(claim: Claim) -> Optional[Callable]:
     return claim_rules.RULE_JUDGES.get(claim.rel)
 
 
+def _move_fits(claim: Claim, board: chess.Board, ctx: Any) -> bool:
+    try:
+        from src.claim_rules import move_fits
+
+        return move_fits(claim, board, ctx)
+    except Exception:  # noqa: BLE001
+        return True
+
+
 def _on(claim: Claim, board: chess.Board, ctx: Any, rule: Optional[Callable]) -> tuple:
     if rule is not None:
         try:
@@ -1368,7 +1377,7 @@ def _decide(claim: Claim, boards: BoardSet, ctx: Any) -> Verdict:
         return UNDECIDED
     if v:
         return Verdict("true", boards.where)
-    if boards.shown is not None and boards.shown is not boards.primary:
+    if boards.shown is not None and boards.shown is not boards.primary and _move_fits(claim, boards.shown, ctx):
         sv, _ = _on(claim, boards.shown, ctx, rule)
         if sv is None:
             return UNDECIDED  # the board the coach showed cannot judge it: the claim may be about something else

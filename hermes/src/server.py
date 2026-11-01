@@ -4262,7 +4262,7 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
             if verify_left[0] <= 0 or check_ctx.current is None:
                 return pairs
             from src.answer_check import proposed_move, written_line_after
-            from src.hypothetical import verify_recommendation
+            from src.hypothetical import main_rules, verify_recommendation
 
             out = []
             for piece, issues, sentence in pairs:
@@ -4272,7 +4272,7 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
                         verify_left[0] -= 1
                         try:
                             issue = await loop.run_in_executor(
-                                _engine_pool, verify_recommendation, found[0], found[1], found[2],
+                                _engine_pool, main_rules(verify_recommendation), found[0], found[1], found[2],
                                 config.COACH_MOVE_VERIFY_MOVETIME_MS, config.COACH_MOVE_VERIFY_CP, False,
                                 written_line_after(sentence, found[2]))
                         except Exception:  # noqa: BLE001 — the check is best-effort
@@ -5238,7 +5238,9 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
     # was given up, the material by the record) judge a comment against the moves of this game — without them every
     # one of them was silent here. Only a record that leads to the board's position: a comment is about that board.
     moves = list(state.get("moves") or [])
-    if moves and _record_leads_to(moves, board.fen):
+    # its own switch (review-wiring2 01.11): off, a comment's context is main's — no game record, so main's own checks
+    # that read one (the opening identity) stay off on comments too
+    if moves and _record_leads_to(moves, board.fen) and config.detector_mode("comment_record") != "off":
         check_ctx.game_moves = moves
         check_ctx.game_engine_moves = _engine_moves(state)
     gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
@@ -5309,6 +5311,15 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
                           payload={"path": "game/comment", **relation_record})
         except Exception:  # noqa: BLE001 — bookkeeping never breaks a comment
             logger.debug("relation check: the game comment's record failed", exc_info=True)
+        try:  # the shadow detectors' records of the comment (review-wiring2 01.11: they were lost on this surface)
+            from src.answer_check import shadow_event_payload
+
+            shadow_record = shadow_event_payload(check_ctx)
+            if shadow_record:
+                log_event("detector_shadow", surface="game", user_id=user_id, session_id=session.id, model=model,
+                          payload={"path": "game/comment", **shadow_record})
+        except Exception:  # noqa: BLE001
+            logger.debug("detector shadow: the game comment's record failed", exc_info=True)
         if reply is not None and reply.error and not text:
             log_event("llm_error", severity="warn", surface="game", user_id=user_id, session_id=session.id,
                       model=model, ok=False, error_code=str(reply.error)[:80],

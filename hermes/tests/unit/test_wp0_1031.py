@@ -268,7 +268,7 @@ PLAN_NAMES = {
     "propose_vocab", "plan_place", "start_scene", "open_plain", "open_recap", "open_character", "open_defining",
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",
     "retreat_cover", "prevents", "checks_geometry", "only_move_orders", "piece_decides", "trade_swing_named",
-    "race_distance", "mate_squares", "king_direction", "trades", "placement", "ending_unproven",
+    "race_distance", "mate_squares", "king_direction", "trades", "placement", "ending_unproven", "tablebase_keeps", "comment_record",
 }
 
 
@@ -307,8 +307,9 @@ def test_detectors_stay_out_of_the_lesson_tutor_and_relations_shadow_in_move_com
     assert all(config.detector_mode(n, lesson) == "off" for n in PLAN_NAMES)
     # fix 01.11: a move comment caps the relation detectors only; the others judge it as a chat answer
     assert config.detector_mode("recap_scope", game) == "on"
-    assert all(config.detector_mode(n, game) == "shadow" for n in config.RELATION_DETECTORS
+    assert all(config.detector_mode(n, game) == "shadow" for n in config.RELATION_DETECTORS - config.GAME_RECORD_RELATIONS
                if config.detector_mode(n) == "on")
+    assert config.detector_mode("cover_cause", game) == config.detector_mode("cover_cause")
 
 
 def test_trade_swing_named_needs_its_flag(monkeypatch):

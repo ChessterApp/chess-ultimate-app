@@ -206,6 +206,14 @@ def _row_of(table: list, lab: dict):
     return None
 
 
+_ENGINE_LINE = re.compile(r"^\[Engine\][^\n]*$", re.MULTILINE)
+
+
+def _without_engine(text):
+    """*text* without the engine's own lines («[Engine] … Best: d4 (+0.26; line d4 d5 e5 Bf5)»)."""
+    return _ENGINE_LINE.sub("", text or "")
+
+
 def _hits(patterns, text) -> bool:
     return any(re.search(p, text or "", re.IGNORECASE | re.DOTALL) for p in patterns or [])
 
@@ -228,6 +236,10 @@ def prompts(run: dict, analysis: dict, base: dict | None) -> dict:
                "poisoned": _hits(lab["poison"], msg),
                "covered": _hits(lab["antidote"], msg) if lab["antidote"] else None,
                "covered_base": (_hits(lab["antidote"], bmsg) if lab["antidote"] and bmsg is not None else None),
+               # the antidote in the base outside the engine's own line: an antidote only the engine line carries comes and
+               # goes with the line the search picks (review-wiring2 01.11: Bf5 in «line d4 d5 e5 Bf5»), not lost
+               "covered_base_fact": (_hits(lab["antidote"], _without_engine(bmsg)) if lab["antidote"] and bmsg is not None
+                                     else None),
                "caught": bool(t and t["branch"]), "caught_base": bool(t and t["base"]),
                "issue": (t or {}).get("branch_issue"),
                "issue_ok": (_hits(lab["issue"], str((t or {}).get("branch_issue") or "")) if lab["issue"] else None)}
@@ -244,7 +256,7 @@ def prompts(run: dict, analysis: dict, base: dict | None) -> dict:
             c["absent"] += 1
     poisoned = [r for r in rows if r["poisoned"]]
     prevent_only = [r for r in rows if r["prevent_only"]]
-    lost = [r for r in rows if r["covered_base"] and not r["covered"]]
+    lost = [r for r in rows if r["covered_base_fact"] and not r["covered"]]
     new_cuts = [r for r in rows if r["caught"] and not r["caught_base"]]
     issue_bad = [r for r in new_cuts if r["issue_ok"] is False]
     # (d) prompt cost against the base run

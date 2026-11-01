@@ -462,11 +462,19 @@ DETECTOR_DEFAULTS = {
     # stage-3 integration (src/hypothetical._ending_unproven): a ≤7-piece ending the tablebase does not answer, won
     # before and after the move by the engine, is left unjudged by the recommended-move check (fix1101 F8)
     "ending_unproven": "on",
+    # stage-2 integration (src/hypothetical._tablebase_keeps): a move the tablebase says keeps the result is no mistake,
+    # whatever the engine's number drops by; its own switch since review-wiring2 01.11 (off = main's engine rule)
+    "tablebase_keeps": "on",
+    # a game move comment's context carries the game's record (fix 01.11 F7); off = main's comment context
+    "comment_record": "on",
 }
 RELATION_DETECTORS = frozenset({
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",
     "retreat_cover", "prevents", "checks_geometry", "only_move_orders", "placement",
 })
+# Relation detectors whose judge reads the game's record (the capture on the square), not a board the comment
+# describes: on a game move comment they follow the game-record rule, not the relation cap (review-miss2 01.11).
+GAME_RECORD_RELATIONS = frozenset({"cover_cause"})
 _MODE_RANK = {"off": 0, "shadow": 1, "on": 2}
 
 
@@ -505,7 +513,7 @@ def detector_mode(name: str, ctx=None) -> str:
     surface = getattr(ctx, "relation_surface", "text") if ctx is not None else "text"
     if surface == "lesson":
         return "off"
-    if surface == "game" and key in RELATION_DETECTORS:
+    if surface == "game" and key in RELATION_DETECTORS and key not in GAME_RECORD_RELATIONS:
         # A game move comment caps the relation detectors (not reviewed on comments yet); the game-record, opening,
         # engine and endgame detectors judge a comment as they judge a chat answer in the same game (fix 01.11: with
         # every detector capped the comment surface caught 0 of the 8 graded game sentences).

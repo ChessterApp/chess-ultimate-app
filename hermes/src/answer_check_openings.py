@@ -127,7 +127,7 @@ _PEOPLE = [
     (r"меранск\w{0,3}|meran", "Meran"),
     # fix 01.11: heads the book names variations by that are not people — «Дракон» (Dragon 0/7 in review-miss), and
     # the names players say bare («это Найдорф», «Чёрные выбрали Дракон»), read as names only in a frame below
-    (r"дракон(?:а|у|ом|е)?|dragon", "Dragon"),
+    (r"дракон(?:а|у|ом|е|ий|ья|ье|ьего|ьей|ьему|ьим|ью|ьи)?|dragon", "Dragon"),
     (r"челябинск\w{0,3}|chelyabinsk", "Chelyabinsk"),
     (r"велимирович\w{0,3}|velimirovi[cć]", "Velimirovic"),
     (r"полугаевск\w{0,3}|polugaevsky", "Polugaevsky"),
@@ -143,6 +143,8 @@ _KIND_EN = r"(?:variation|attack|gambit|defen[cs]e|system|line|countergambit|cou
 _PERSON = "|".join(f"(?:{p})" for p, _ in _PEOPLE)
 _PERSON_PHRASE = re.compile(
     rf"{_W}{_KIND_RU}\s+(?:[а-яё-]+\s+){{0,2}}?(?P<ru>{_PERSON}){_E}"
+    # any other name of the book after the kind noun (book_name decides: «вариант Левенфиша»)
+    rf"|{_W}(?:вариант\w*|систем\w*|атак\w*|гамбит\w*)\s+(?P<ru2>[а-яё]{{4,}}(?:-[а-яё]{{3,}})?){_E}"
     rf"|{_W}(?P<en>{_PERSON})(?:'s)?\s+{_KIND_EN}{_E}"
     rf"|{_W}{_KIND_EN}\s+of\s+(?P<en2>{_PERSON}){_E}", re.IGNORECASE)
 # Plain words that name a variation of an opening («открытый вариант сицилианской», "the Open Sicilian") — judged
@@ -219,7 +221,8 @@ _PREDICATE = re.compile(
     r"(?:это|перед\s+(?:нами|тобой|вами)|у\s+(?:нас|тебя|вас|бел\w+|ч[её]рн\w+)|на\s+доске|разыграли|сыграли|называется|"
     # fix 01.11: the identity told as what came out or what a side chose — «Получился Дракон», «Чёрные выбрали
     # Дракон», «Ты играешь против Дракона» (past or the present of the game; «выбирай», «выбор» stay hedges)
-    r"получил(?:ся|ась|ось|ись|и|а)?|выбрал[аи]?|(?:ты|мы|вы)\s+(?:сейчас\s+)?игра(?:ешь|ем|ете)(?:\s+(?:против|в|за))?|"
+    r"получил(?:ся|ась|ось|ись|и|а)?|получается|выбрал[аи]?|избрал[аи]?|"
+    r"(?:ты|мы|вы|белые|ч[её]рные|соперник)\s+(?:сейчас\s+)?игра(?:ешь|ем|ете|ют|ет)(?:\s+(?:против|в|за))?|"
     r"(?:мы|ты|вы)\s+(?:сейчас\s+|уже\s+)?во?|переш(?:ла|ли|[её]л)\s+в|"
     r"(?:you\s+are|you'?re|we\s+are|we'?re)\s+(?:now\s+)?(?:playing|facing|in)(?:\s+against)?|"
     r"(?:black|white|you|we)\s+(?:chose|picked|went\s+for)|(?:it|this)\s+(?:has\s+)?(?:became|become|turned\s+into)|"
@@ -263,11 +266,98 @@ def _book_knows(word: str) -> bool:
 
 
 def _person(match) -> Optional[str]:
-    said = (match["ru"] or match["en"] or match["en2"] or "").lower().replace("ё", "е")
+    said = (match["ru"] or match.groupdict().get("ru2") or match["en"] or match["en2"] or "").lower().replace("ё", "е")
     for pattern, word in _PEOPLE:
         if re.fullmatch(pattern, said, re.IGNORECASE):
             return word if _book_knows(word) else None
+    return book_name(said)
+
+
+# ── every variation name of the book, said in Russian (review-miss2 01.11) ──────────────────────────────────────────
+# The list above is the names the coach said in the reviewed answers; «Это Калашников», «вариант Левенфиша» name
+# lines of the book too. Each capitalised word of a variation name (after «:») is indexed by a Latin skeleton, and a
+# Russian word is looked up by its transliteration with its case ending taken off: Калашникова → kalashnikov,
+# Левенфиша → levenfish, Найдорфа → naidorf. Generic words (Variation, Classical, Line…) are not names.
+_GENERIC_NAME_WORDS = frozenset(
+    "Variation Gambit Defense Attack Classical Line System Modern Knights Closed Fianchetto Exchange Countergambit Main "
+    "King's Anglo- Two English Orthodox Accepted Normal Advance Open Symmetrical Indian Anti- Four Slav Spanish Semi- "
+    "Reversed Declined Yugoslav Mc Smith- Scotch Benoni Bishop's Pawn Accelerated Formation Sicilian Three Pawns Double "
+    "O' Wing Neo- Queen's Old New Black White Center Centre Central Counterattack Countergambit Trap Opening Game "
+    "Hedgehog Hyperaccelerated Deferred Improved Lines Grand Little Great Short Long Quiet Wild Dutch French Italian "
+    "Russian Polish Swedish Danish Norwegian Hungarian Czech Austrian German Dutch Portuguese Catalan Vienna Ruy Lopez "
+    "Giuoco Piano Pianissimo Two Knights Elephant Latvian Philidor Petrov Petroff Pirc Robatsch Modern Caro Kann Slav "
+    "Semi-Slav Grünfeld Nimzo Bogo Benko Budapest Englund Bird Larsen Réti Reti King Queen Rook Knight Bishop".split())
+_FAMOUS_PEOPLE = frozenset("morphy steinitz lasker capablanca alekhine alekhin botvinnik petrosian karpov tarrasch chigorin "
+                           "tal fischer kasparov spassky smyslov euwe anand carlsen kramnik nimzowitsch nimzovich "
+                           "anderssen philidor staunton".split())
+_LAT = [("sch", "sh"), ("tsch", "ch"), ("tch", "ch"), ("tz", "ts"), ("ck", "k"), ("ph", "f"), ("w", "v"), ("j", "i"),
+        ("y", "i"), ("x", "ks"), ("qu", "kv"), ("q", "k")]
+_CYR = {"а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh", "з": "z", "и": "i", "й": "i",
+        "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f",
+        "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sh", "ъ": "", "ы": "i", "ь": "", "э": "e", "ю": "iu", "я": "ia"}
+_RU_ENDINGS = ("ого", "ему", "ому", "ыми", "ими", "ая", "ое", "ий", "ый", "ой", "ую", "ом", "ым", "им", "ов", "ах", "ам",
+               "ей", "а", "у", "е", "ы", "и", "я", "ю", "")
+
+
+def _skeleton(latin: str) -> str:
+    import unicodedata
+
+    w = unicodedata.normalize("NFKD", latin.lower())
+    w = "".join(ch for ch in w if not unicodedata.combining(ch))
+    w = re.sub(r"[^a-z]", "", w)
+    for a, b in _LAT:
+        w = w.replace(a, b)
+    w = w.replace("c", "k").replace("kh", "h")
+    return re.sub(r"(.)\1+", r"\1", w)
+
+
+@lru_cache(maxsize=1)
+def _book_name_index() -> dict:
+    """{skeleton: the book's word} for every name word of the book's variation names."""
+    out: dict = {}
+    try:
+        for e in _book().entries:
+            tail = e[1].split(":", 1)[1] if ":" in e[1] else ""
+            for w in re.findall(r"[A-ZÀ-Þ][a-zà-ÿ]+(?:-[A-ZÀ-Þ][a-zà-ÿ]+)?", tail):
+                if w in _GENERIC_NAME_WORDS or len(w) < 4:
+                    continue
+                for variant in {w, w.replace("ch", "kh")}:
+                    out.setdefault(_skeleton(variant), w)
+    except Exception:  # noqa: BLE001 — no book, no names
+        return {}
+    return out
+
+
+def book_name(said: str) -> Optional[str]:
+    """The book's name word a Russian (or Latin) word *said* is, with its case ending, or None."""
+    w = (said or "").lower().replace("ё", "е")
+    if len(w) < 4:
+        return None
+    index = _book_name_index()
+    if re.fullmatch(r"[a-z'-]+", w):
+        return index.get(_skeleton(w))
+    if not re.fullmatch(r"[а-я-]+", w):
+        return None
+    for end in _RU_ENDINGS:
+        if end and not w.endswith(end):
+            continue
+        stem = w[: len(w) - len(end)] if end else w
+        if len(stem) < 4:
+            continue
+        lat = "".join(_CYR.get(ch, ch) for ch in stem)
+        got = index.get(_skeleton(lat))
+        if got:
+            return got
     return None
+
+
+def _bare_book_name(said: str) -> Optional[str]:
+    """A name said bare that the book gives to the lines of one opening, not a great player's (talked about as a person
+    as often): «Это Калашников», «Получился Левенфиш»."""
+    word = book_name(said)
+    if word is None or _skeleton(word) in {_skeleton(x) for x in _FAMOUS_PEOPLE}:
+        return None
+    return word if _home_family(word) is not None else None
 
 
 def _start(board: chess.Board) -> bool:
@@ -528,7 +618,10 @@ def _said_of_board(lowered: str, start: int, end: int, after_told: bool = False,
 _BARE_HEAD = re.compile(rf"{_W}(?P<head>{_PERSON})(?P<adj>ск(?:ий|ая|ое|ие|ого|ой|ую|им|ом|их))?"
                         rf"(?:\s+(?:вариант|систем|структур|схем|построени|variation|system|structure|line)\w*)?{_E}",
                         re.IGNORECASE)
-_BARE_TAIL = re.compile(r"\s*(?:$|[,.;:!?)(\]—–]|\s-\s|(?:без|с|со|without|with)\s)", re.IGNORECASE)
+_BARE_TAIL = re.compile(r"\s*(?:$|[,.;:!?)(\]—–]|\s-\s|(?:без|с|со|without|with)\s|в\s+(?:чистом|классическом|полном)\s+виде|"
+                        r"как\s+(?:он|она)\s+есть|in\s+its\s+pure\s+form)", re.IGNORECASE)
+# any other word said bare in the same place: a name of the book (_bare_book_name)
+_BARE_ANY = re.compile(rf"{_W}(?P<head>[а-яё]{{4,}}(?:-[а-яё]{{3,}})?){_E}", re.IGNORECASE)
 # a family word right before the head: «сицилианский Дракон», «сицилианская защита, Найдорф», "the Sicilian Najdorf"
 _FAMILY_GAP = re.compile(r"\w*(?:\s+(?:защит|парти|дебют)\w*)?\s*,?\s*$", re.IGNORECASE)
 
@@ -582,11 +675,21 @@ def _bare_heads(lowered: str, taken: list) -> list:
         if word is None or not _BARE_TAIL.match(lowered[m.end():]):
             continue
         start = m.start()
+        taken = taken + [(m.start(), m.end())]
         for rx, _name in _FAMILIES_RE:
             for f in rx.finditer(lowered[:start]):
                 if _FAMILY_GAP.fullmatch(lowered[f.end():start]) and f.start() < start:
                     start = min(start, f.start())
         out.append((start, m.end(), word))
+    for m in _BARE_ANY.finditer(lowered):
+        if any(a <= m.start() < b or a < m.end() <= b for a, b in taken) or \
+                any(a <= m.start() < b for a, b, _w in out):
+            continue
+        if not _BARE_TAIL.match(lowered[m.end():]) or not _PREDICATE.match(lowered[:m.start()]):
+            continue
+        word = _bare_book_name(m["head"])
+        if word is not None and _book_knows(word):
+            out.append((m.start(), m.end(), word))
     return out
 
 

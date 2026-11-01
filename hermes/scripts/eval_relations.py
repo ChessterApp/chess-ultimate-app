@@ -57,7 +57,27 @@ FIX = H / "tests" / "fixtures" / "relations"
 # The local runs the corpus and the timing sample come from (outside the repository; override by flag or env).
 SCRATCH = Path(os.environ.get("RELATION_SCRATCH", "/private/tmp/claude-501/-Users-asansabitov-Projects-ChessApp/"
                               "69fad51f-f89e-44e6-8aa6-5764f59ee34e/scratchpad/live1028"))
-PROD_RUN = Path(os.environ.get("RELATION_PROD_RUN", str(H.parents[1] / "local-preview" / "prod-run")))
+def _prod_run() -> Path:
+    """The local production runs (local-preview/prod-run next to the repository): RELATION_PROD_RUN, else next to this
+    checkout, else next to the main checkout of a worktree (git's common dir) — review-wiring2 01.11: a worktree outside
+    ChessApp/ silently read 2,298 sentences instead of 7,045."""
+    env = os.environ.get("RELATION_PROD_RUN")
+    if env:
+        return Path(env)
+    cands = [H.parents[1] / "local-preview" / "prod-run"]
+    try:
+        import subprocess
+
+        common = subprocess.run(["git", "-C", str(H), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                capture_output=True, text=True, timeout=5).stdout.strip()
+        if common:
+            cands.append(Path(common).parent.parent / "local-preview" / "prod-run")
+    except Exception:  # noqa: BLE001
+        pass
+    return next((c for c in cands if c.is_dir()), cands[0])
+
+
+PROD_RUN = _prod_run()
 
 # ── the seams: the claims and the judge the relation checker uses for the item being run ──────────────────────
 CUR = {"claims": [], "env": None, "text": ""}

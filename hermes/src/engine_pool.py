@@ -64,6 +64,8 @@ STOP_GRACE_S = 1.0
 # A timed search that has not answered this long after its movetime is asked to stop (a healthy process answers
 # ``stop`` at once: the result is used); one that does not answer within STOP_GRACE_S more is replaced.
 READ_SLACK_S = 0.5
+# A search with a caller's deadline is read until DEADLINE_SLACK_S / 2 past it, then stopped and given the other half.
+DEADLINE_SLACK_S = 0.4
 # A search given less than this is not started (the same floor as src/tools/stockfish.analyze_position).
 MIN_SEARCH_MS = 100
 
@@ -260,7 +262,8 @@ class _Worker:
         self.start()
 
     # ── one search ───────────────────────────────────────────────────────────────────────────────────────────
-    def run(self, fen: str, go: str, multipv: int, clear_hash: bool, read_timeout: float, on_line=None) -> tuple:
+    def run(self, fen: str, go: str, multipv: int, clear_hash: bool, read_timeout: float, on_line=None,
+            stop_grace: float = STOP_GRACE_S) -> tuple:
         """(the engine's output up to ``bestmove``, whether ``stop`` cut the search short)."""
         # Anything left from an earlier command (a ping's readyok) is not this search's.
         while True:
@@ -293,7 +296,7 @@ class _Worker:
                 # one — the caller gets it; one that does not answer is hung (EngineTimeout: it is replaced).
                 self.stop()
                 try:
-                    self.read_until("bestmove", time.monotonic() + STOP_GRACE_S, out)
+                    self.read_until("bestmove", time.monotonic() + stop_grace, out)
                 except EngineTimeout:
                     raise EngineTimeout("bestmove") from None
             return out, self.stop_sent or self.want_stop
@@ -345,7 +348,7 @@ def _read_timeout(spec: str, timeout: Optional[float], deadline: Optional[float]
     m = re.search(r"\bmovetime (\d+)", spec)
     limit = timeout if timeout is not None else (int(m.group(1)) / 1000.0 + READ_SLACK_S if m else 30.0)
     if deadline is not None:
-        limit = min(limit, max(0.0, deadline - time.monotonic()) + READ_SLACK_S)
+        limit = min(limit, max(0.0, deadline - time.monotonic()) + DEADLINE_SLACK_S / 2)
     return max(0.05, limit)
 
 
@@ -635,10 +638,13 @@ class EnginePool:
                         return {"error": "no time left for the search"}
                     spec = _with_time_cap(go, left)
                 read_timeout = _read_timeout(spec, timeout, deadline)
+                # A search with a deadline: a hung process costs the caller at most DEADLINE_SLACK_S past it, in all
+                # (the read slack and the grace after ``stop`` come out of that; review-wiring2 01.11: 1.5 s before)
+                grace = STOP_GRACE_S if deadline is None else DEADLINE_SLACK_S / 2
                 try:
                     if job is not None and job.cancelled:
                         return {"error": "cancelled"}
-                    out, stopped = w.run(fen, spec, multipv, clear_hash or attempt == 2, read_timeout, on_line)
+                    out, stopped = w.run(fen, spec, multipv, clear_hash or attempt == 2, read_timeout, on_line, grace)
                     self.stats["searches"] += 1
                     if stopped and job is not None and job.cancelled:
                         self.stats["cancelled"] += 1

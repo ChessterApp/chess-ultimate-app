@@ -557,16 +557,23 @@ def _king_can_go(board: chess.Board, sq: int) -> Optional[bool]:
     return any(verdicts) if verdicts else None
 
 
+# A denial anywhere between the king and the square (review fp2 01.11): «не может пойти на», «нельзя встать на», «не
+# пойдёт на», «никак не уйдёт на», "cannot go to".
+_KING_DENIED = re.compile(r"(?<![а-яёa-z])(?:не|нельзя|некуда|никак|невозможно|not|cannot|can'?t|unable)(?![а-яёa-z])",
+                          re.IGNORECASE)
+
+
 def _king_issues(text: str, ctx) -> list[str]:
     board = ctx.current
     if board is None:
         return []
     issues = []
     for m in _KING_GOES.finditer(text):
+        at_sq = m.start("sq") if m.group("sq") else m.start("sq2")
         if _negated_before(text, m.start()) or re.search(r"(?:не|not|can'?t|cannot)\s+(?:\w+\s+)?$",
-                                                         text[max(0, m.start("sq") if m.group("sq") else m.start("sq2")) - 30:
-                                                              m.start("sq") if m.group("sq") else m.start("sq2")]):
-            continue
+                                                         text[max(0, at_sq - 30): at_sq]) or \
+                _KING_DENIED.search(text[m.start(): at_sq]):
+            continue  # «Король не может пойти на d1»: the denial inside the words, up to three words before the square
         name = (m.group("sq") or m.group("sq2")).lower()
         sq = chess.parse_square(name)
         # After the student's move when the sentence is about it («если ферзь на b6, король пойдёт на a7»).

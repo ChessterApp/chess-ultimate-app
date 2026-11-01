@@ -129,9 +129,26 @@ def _walk(sans: Sequence[str], start: Optional[chess.Board] = None):
         board.push(mv)
 
 
+_CAPS_CACHE: "dict" = {}
+
+
 def captures(ctx) -> list:
-    """Every capture of the game on the board (ctx.game_moves from the initial position), in order."""
+    """Every capture of the game on the board (ctx.game_moves from the initial position), in order. Memoised by the
+    record and the student's colour (review-wiring2 01.11: the game-record detectors re-walked the game on every claim
+    of a game answer)."""
     student = getattr(ctx, "student_color", None)
+    key = (tuple(_sans(ctx)), student)
+    hit = _CAPS_CACHE.get(key)
+    if hit is not None:
+        return list(hit)
+    out = _captures(ctx, student)
+    if len(_CAPS_CACHE) > 256:
+        _CAPS_CACHE.clear()
+    _CAPS_CACHE[key] = tuple(out)
+    return out
+
+
+def _captures(ctx, student) -> list:
     out = []
     for ply, board, mv, san in _walk(_sans(ctx)):
         if not board.is_capture(mv):
@@ -264,6 +281,21 @@ def _famous_sans() -> list:
 
 
 def _players(ctx) -> list:
+    key = tuple((rb.board_fen(), rb.turn, tuple(str(x) for x in rs)) for rb, rs in list(getattr(ctx, "line_records", None) or []))
+    hit = _PLAYERS_CACHE.get(key)
+    if hit is not None:
+        return list(hit)
+    out = _players_now(ctx)
+    if len(_PLAYERS_CACHE) > 256:
+        _PLAYERS_CACHE.clear()
+    _PLAYERS_CACHE[key] = tuple(out)
+    return out
+
+
+_PLAYERS_CACHE: "dict" = {}
+
+
+def _players_now(ctx) -> list:
     """(name stem, colour) for the players of the famous games among the turn's records (src/famous_games.GAMES): the
     record's moves are that game's from the initial position (at least 8 plies of it, or all of a shorter one). The
     English names, the Russian names in the game's title («Карлсен — Непомнящий») and white_ru/black_ru when the

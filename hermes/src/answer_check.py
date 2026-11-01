@@ -620,6 +620,16 @@ def shadow_event_payload(ctx, limit: int = 12) -> Optional[dict]:
             "total": len(rows)}
 
 
+def _switch_mode(name: str, ctx=None) -> str:
+    """src/config.detector_mode, 'off' when the switch cannot be read."""
+    try:
+        from src.config import detector_mode
+
+        return detector_mode(name, ctx)
+    except Exception:  # noqa: BLE001
+        return "off"
+
+
 def _detector(name: str, ctx: Optional["CheckContext"], issues: list) -> list:
     """The issues of the plan-31.10 detector *name* as its switch says (src/config.detector_mode): 'on' returns
     them, 'shadow' records them in ctx.detector_shadow and logs them (never shown), 'off' drops them."""
@@ -1909,6 +1919,9 @@ def _hanging_kind(verb: str) -> str:
     return "hanging"
 
 
+# The attacker named right after «под ударом / атакован»: a bare square («под ударом b3») or a move («под ударом Nd5»).
+_ATTACKER_AFTER = re.compile(r"\s+(?:(?:пешки|пешкой|by)\s+)?(?:(?:ход\w*|move)\s+)?(?:(?P<san>[KQRBN][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x[a-h][1-8])"
+                             r"|(?P<sq>[a-h][1-8]))(?![0-9a-z])", re.IGNORECASE)
 _EXCEPT = re.compile(r"\s*,?\s*(?:кроме|помимо|except|other\s+than|apart\s+from|but\s+(?:the|your|my|a))(?![а-яa-z])", re.IGNORECASE)
 
 
@@ -1946,7 +1959,7 @@ def _ghost_issues(text: str, ctx: CheckContext) -> list[str]:
         if ptype is None:
             continue
         sq = chess.parse_square(sq_name.lower())
-        if any((pc := b.piece_at(sq)) is not None and pc.piece_type == ptype for b in _turn_boards(ctx)):
+        if any((pc := b.piece_at(sq)) is not None and pc.piece_type == ptype for b in _turn_boards(ctx, text)):
             continue
         there = ctx.current.piece_at(sq)
         here = f"there is a {_NAMES[there.piece_type]} there" if there else "nothing stands there"
@@ -2007,12 +2020,21 @@ def _clauses_about_now(text: str) -> list[str]:
     return out
 
 
-def _turn_boards(ctx: CheckContext) -> list:
+def _turn_boards(ctx: CheckContext, text: str = "") -> list:
     """The boards of the turn a named piece may stand on — without the bare start position unless it is
-    the position in front of the student."""
+    the position in front of the student, or the sentence names it («в начальной позиции», review fp2 01.11)."""
     if ctx.current is not None and ctx.current.board_fen() == chess.STARTING_BOARD_FEN:
         return ctx.boards
-    return [b for b in ctx.boards if b.board_fen() != chess.STARTING_BOARD_FEN]
+    out = [b for b in ctx.boards if b.board_fen() != chess.STARTING_BOARD_FEN]
+    if text:
+        try:
+            from src.claim_scene import _START_CUE
+
+            if _START_CUE.search(text.replace("ё", "е")):
+                out.append(chess.Board())
+        except Exception:  # noqa: BLE001
+            pass
+    return out
 
 
 def _objects(clause: str):
@@ -2055,7 +2077,7 @@ def _object_ghost_issues(text: str, ctx: CheckContext) -> list[str]:
         return []
     if re.search(r"(?<![а-яa-z])(?:партии|партия|партию|game|played)(?![а-яa-z])", text):
         return []
-    boards = _turn_boards(ctx)
+    boards = _turn_boards(ctx, text)
     for clause in _clauses_about_now(text):
         if not _OBJECT_VERB_IN_CLAUSE.search(clause) or not _clause_judged_here(clause, ctx):
             continue
@@ -2253,6 +2275,9 @@ def _hanging_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         if "прикрыт" in verb.lower() and (re.match(r"(?:корол|king)", (m["p1"] or "").lower())
                                           or re.search(r"между|смотрит|лини[яюи]|вертикал|диагонал|горизонтал|рентген", text, re.I)):
             continue  # «король ничем не прикрыт» is about its shelter, not about pieces next to it
+        if kind == "hanging" and (am := _ATTACKER_AFTER.match(text, m.end())) and (
+                am["san"] or ctx.current.piece_at(chess.parse_square(am["sq"].lower())) is None):
+            continue  # «Слон c4 под ударом b3 уйдёт …» (review miss2 01.11): the attacker is a move to come, not the board now
         if kind == "hanging" and re.match(r"\s+(?:в\s+воздухе|in\s+the\s+air|без\s+дела)", text[m.end():]):
             continue  # «ладья висит в воздухе и ничего не делает»: idle, not en prise (replay, 2026-10-05)
         if kind != "undefended" and _NEGATION.search(text[: m.start(verb and ("v" if m["v"] else "v2" if m["v2"] else "v3"))]):
@@ -2690,6 +2715,14 @@ _EVAL_CLAIMS = [
 ]
 
 
+# A unit as the object of «выиграть/проиграть»: «выиграли (у тебя) (целых) две пешки», «проиграл качество», "won a pawn".
+_UNIT_OBJECT = re.compile(
+    r"(?:\s+(?:у|для)\s+\w+)?(?:\s+(?:уже|ещё|еще|сразу|целых|целую|целого|всего|лишь|только|одну|одного|один|две|два|"
+    r"три|четыре|пару|несколько|лишнюю|лишнего|лишний|ещё\s+одну|a|an|one|two|three|the|another|extra|back))*\s+"
+    r"(?:пешк\w*|фигур\w*|кон[ьяе]\w*|слон\w*|ладь\w*|ферз\w*|качеств\w*|материал\w*|темп\w*|pawns?|pieces?|knights?|"
+    r"bishops?|rooks?|queens?|exchange|material)(?![а-яa-z])", re.IGNORECASE)
+
+
 def _fmt_eval(ev: float) -> str:
     if abs(ev) >= 99.5:
         return "a forced mate for " + ("White" if ev > 0 else "Black")
@@ -2719,6 +2752,9 @@ def _eval_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             e = ev if color == chess.WHITE else -ev
             name = "White" if color == chess.WHITE else "Black"
             w = gd["w"].lower().replace("ё", "е")
+            if w.startswith(("выигр", "проигр", "won", "lost", "winning", "losing")) and \
+                    _UNIT_OBJECT.match(text, m.end("w")):
+                continue  # «Чёрные выиграли две пешки» (review miss2 01.11): a material gain or loss, not the evaluation
             if w.startswith(("лучше", "перевес", "преимуществ", "better", "ahead", "advantage")):
                 if e <= -0.6:
                     issues.append(f"the engine evaluates the position at {_fmt_eval(ev)}: {name} is worse, not better")
@@ -2889,6 +2925,7 @@ def _told_capture(text: str, ctx: CheckContext) -> Optional[tuple]:
 
 # Every material pattern below needs one of these words: a sentence without any is not looked at further.
 _MAT_ANY = re.compile(r"больше|меньше|впереди|позади|лишн|без|материал|перевес|преимуществ|отста|уступа|вед[уеё]|лучше|хуже|"
+                      r"опережа|обгоня|сильнее|слабее|богаче|беднее|поровну|одинаков|паритет|сравня|баланс|разниц|"
                       r"выигрыва|проигрыва|плюс|минус|равн|равен|up|down|ahead|behind|extra|spare|material|equal|even|level|"
                       r"balanced", re.IGNORECASE)
 
@@ -2902,8 +2939,11 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         boards, where, shown = told[1], told[1][0], f"after {told[0]} (the capture this sentence tells as made): "
     else:
         boards, where, shown = ctx.boards[1:] or ctx.boards, ctx.current, ""
-        if ctx.game_moves and not _PAST_BE.search(text) and not _OTHER_GAME.search(original):
-            boards = _now_boards(ctx)  # a game: the material now, not a move ago (prod 29.10), nor another game's
+        if ctx.game_moves and not _PAST_BE.search(text) and not _OTHER_GAME.search(original) and \
+                _switch_mode("material_order", ctx) != "off":
+            # a game: the material now, not a move ago (prod 29.10), nor another game's — fail-open to every board
+            # (review-wiring2 01.11), and behind material_order's switch (off = main's boards)
+            boards = _fail_open(_now_boards, ctx) or boards
 
     def said(span: str) -> str:
         return f"material {shown}{_imbalance(where)}" if shown else f"material: {_imbalance(where)}"
@@ -2952,7 +2992,12 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             continue  # the patterns above read this very claim (only a stricter count of an extra unit is added)
         if _is_hypothetical(text, original, at, ctx=ctx):
             continue
-        if not any(_lead_holds(b, color, units, more, mode, counts_points) for b in boards):
+        try:
+            holds = any(_lead_holds(b, color, units, more, mode, counts_points) for b in boards)
+        except Exception:  # noqa: BLE001 — fail-open (review-wiring2 01.11)
+            logger.debug("material lead failed", exc_info=True)
+            holds = True
+        if not holds:
             ordered.append(in_points(f"{said(span)} (not: {span})"))
     eq_old = {m.start() for m in _MATERIAL_EQUAL.finditer(text)}
     eq_new = []
@@ -2976,8 +3021,68 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         if not any(_counts(b, chess.WHITE)["nonpawn"] + _counts(b, chess.WHITE)[chess.PAWN]
                    == _counts(b, chess.BLACK)["nonpawn"] + _counts(b, chess.BLACK)[chess.PAWN] for b in boards):
             issues.append(f"{said(m.group(0))} (not equal)")
+    # every other material claim of the sentence, read by its parts (src/material_frames, review-miss2 01.11)
+    read_spans = [(m.start(), m.end()) for rx in _MATERIAL for m in rx.finditer(text)] + \
+        [(m.start(), m.end()) for m in _MATERIAL_EQUAL_ANY.finditer(text)] + \
+        [(m.start(), m.end()) for m in _MATERIAL_EQUAL.finditer(text)] + \
+        [(at, at + len(span)) for at, _c, _u, _mo, _md, span, _f in claims]
+    eq_new += _fail_open(_material_frame_issues, text, original, ctx, boards, read_spans, said)
     issues += _detector("material_order", ctx, ordered + eq_new)
     return issues
+
+
+def _material_frame_issues(text: str, original: str, ctx: CheckContext, boards: list, read_spans: list, said) -> list:
+    from src.capture_frames import resolve
+    from src.game_record import material as _material_of
+    from src.material_frames import read
+
+    out = []
+    last = (str(ctx.game_moves[-1]).rstrip("+#") if getattr(ctx, "game_moves", None) else None)
+    for c in read(text):
+        if any(a < c.end and c.at < b for a, b in read_spans):
+            continue  # a pattern above read this clause
+        if _is_hypothetical(text, original, min(c.at, max(0, len(text) - 1)), ctx=ctx) or _PAST_BE.search(text[c.at:c.end]):
+            continue
+        sans = [m["san"].rstrip("+#") for m in _MOVE.finditer(_to_san(text[c.at:c.end])[0])]
+        if sans and (last is None or sans[-1] != last):
+            continue  # «после 3.Nf3 материал …»: an earlier moment of the game or a line — another board
+        diffs = []
+        for b in boards:
+            try:
+                diffs.append(_material_of(b)["diff"])
+            except Exception:  # noqa: BLE001
+                return []
+        if not diffs:
+            continue
+        if c.kind == "equal":
+            if c.unit:
+                key = {"пешек": chess.PAWN, "коней": chess.KNIGHT, "слонов": chess.BISHOP, "ладей": chess.ROOK,
+                       "ферзей": chess.QUEEN}.get(c.unit)
+                if key is None:
+                    holds = any(_counts(b, chess.WHITE)["nonpawn"] == _counts(b, chess.BLACK)["nonpawn"] for b in boards)
+                else:
+                    holds = any(_counts(b, chess.WHITE)[key] == _counts(b, chess.BLACK)[key] for b in boards)
+            else:
+                holds = any(abs(d) <= (2 if c.hedged else 0) for d in diffs)
+            if not holds:
+                out.append(f"{said(c.span)} (not {'about ' if c.hedged else ''}equal: {c.span})")
+            continue
+        if c.kind == "diff":
+            if not any(abs(abs(d) - c.points) <= 1 for d in diffs):
+                out.append(f"{said(c.span)} (not a difference of {c.points} points: {c.span})")
+            continue
+        color = resolve(c.who, ctx)
+        if color is None:
+            continue
+        sign = (1 if color == chess.WHITE else -1) * (1 if c.more else -1)
+        if c.points is None:
+            holds = any(d * sign > 0 for d in diffs)
+        else:
+            tol = 0 if c.points <= 2 else 1  # pawns are counted exactly; a piece's worth within a pawn
+            holds = any(abs(d * sign - c.points) <= tol for d in diffs)
+        if not holds:
+            out.append(f"{said(c.span)} (not: {c.span})")
+    return out
 
 
 # «твой конь на c5» (the student's), «слон на e1» (a rook stands there).
@@ -3669,7 +3774,7 @@ _TOPIC_TARGET = re.compile(
 _PROPOSES = re.compile(
     # «Спокойнее всего уйти слоном — например, сыграть Bb5» (prod 09.10: Bb5 hangs the bishop) — not «если сыграть …»
     r"(?<![а-яa-z])(?:(?<!если\s)(?<!если\sбы\s)(?:например,?\s+)?сыграть|спокойнее(?:\s+всего)?|сыграй(?:те)?|играй(?:те)?|поставь(?:те)?|ставь(?:те)?|пойди(?:те)?|ходи(?:те)?|бей(?:те)?|"
-    r"бери(?:те)?|возьми(?:те)?|забирай(?:те)?|сыграем|берём|берем|ставим|идём|идем|"
+    r"бери(?:те)?|возьми(?:те)?|забирай(?:те)?|сыграем|играем|берём|берем|ставим|идём|идем|выбирай(?:те)?|выбери(?:те)?|"
     r"лучше(?:\s+всего)?|сильнее(?:\s+всего)?|правильно|точнее|надо|нужно|стоит|можно|рекомендую|советую|предлагаю|"
     r"попробуй(?:те)?|я\s+бы\s+(?:сыграл\w*|поставил\w*|пошл\w+|взял\w*|отв[её]л\w*|ув[её]л\w*)|хороший\s+ход|лучший\s+ход|сильный\s+ход|"
     r"отвести|отведи(?:те)?|увести|уведи(?:те)?|перевести|переведи(?:те)?|разменять|разменяй(?:те)?|"
@@ -3717,7 +3822,11 @@ _F_EVAL = re.compile(
 _F_NEXT = re.compile(
     r"(?<![а-яa-z])(?:(?:тво\w+|наш\w+|мой|ваш\w+)\s+)?(?:следующ\w+|лучш\w+|сильнейш\w+|естественн\w+|логичн\w+|"
     r"правильн\w+|верн\w+|точн\w+|разумн\w+|хорош\w+|отличн\w+|сильн\w+|полезн\w+)\s+(?:ход|вариант|выбор|ответ|продолжение|шаг)"
-    r"(?:\s+(?:здесь|тут|сейчас|теперь|в\s+этой\s+позиции|за\s+\w+|для\s+\w+))*\s*(?:[:—–]|-\s|,?\s+это\s)"
+    r"(?:\s+(?:здесь|тут|сейчас|теперь|в\s+этой\s+позиции|за\s+\w+|для\s+\w+|белых|ч[её]рных|соперника|противника))*"
+    r"\s*(?:[:—–]|-\s|,?\s+это\s)"
+    # «Лучшее место для коня g8 — поле f6»: the best square of a piece (review-miss2 01.11)
+    r"|(?<![а-яa-z])(?:лучш\w+|естественн\w+|идеальн\w+|правильн\w+)\s+(?:место|поле)\s+для\s+\w+(?:\s+[a-h][1-8])?\s*[:—–]\s*"
+    r"(?:(?:поле|клетка)\s+)?(?=[a-h][1-8])"
     r"|(?<![a-z])(?:your\s+|the\s+)?(?:next|best|natural|logical)\s+(?:move|reply|continuation)(?:\s+here)?\s*(?:is\s+|:|—|–)",
     re.IGNORECASE)
 _F_IMPER = re.compile(
@@ -3728,7 +3837,7 @@ _F_IMPER = re.compile(
     r"\s*(?:[:—–]|-\s|\s(?:ходом|ходами|через|например|with|by|e\.g\.)(?![а-яa-z]))", re.IGNORECASE)
 _F_THIRD = re.compile(
     r"(?<![а-яa-z])(?P<side>белые|черные)\s+(?:(?:здесь|тут|сейчас|теперь|обычно|часто|как\s+правило|в\s+этой\s+позиции|"
-    r"в\s+этом\s+варианте|спокойно|просто|сразу|дальше|уже)\s+)*(?:(?:хотят|собираются|планируют|стремятся|могут|должны|"
+    r"в\s+этом\s+варианте|спокойно|просто|сразу|дальше|уже|первым\s+делом|прежде\s+всего|сначала|сперва|в\s+первую\s+очередь)\s+)*(?:(?:хотят|собираются|планируют|стремятся|могут|должны|"
     r"готовы)\s+)?(?P<verb>ставят|поставят|развивают|разовьют|выводят|выведут|готовят|подготовят|играют|сыграют|переводят|"
     r"переведут|двигают|продвигают|сыграть|поставить|вывести|развить|перевести|играть|продвинуть)(?![а-я])"
     r"|(?<![a-z])(?P<eside>white|black)\s+(?:usually\s+|often\s+|here\s+|now\s+)*(?:wants\s+to\s+|will\s+|plans\s+to\s+)?"
@@ -3744,12 +3853,12 @@ _F_GOES = re.compile(
 # «Ферзь на e2 — лучший вариант», «Конь на f6 — естественный ход»: the placement first, the praise after it.
 _F_PRAISED_PLACE = re.compile(
     r"(?<![а-яa-z])(?:ход\s+)?(?P<piece>конь|слон|ладья|ферзь|пешка|кон[её]м|слоном|ладь[её]й|ферз[её]м|пешкой)(?:\s+(?P<from>[a-h][1-8]))?"
-    r"(?:\s+(?:с|из)\s+(?P<from2>[a-h][1-8]))?\s+(?:на|в)\s+(?P<sq>[a-h][1-8])(?![0-9])\s*(?:[—–:-]|,)?\s*"
-    r"(?:это\s+|здесь\s+|тут\s+|сейчас\s+|как\s+раз\s+)*(?:сам\w+\s+)?(?:лучш|логич|естествен|полез|сильн|точн|правильн|верн|"
-    r"хорош|отличн|разумн)\w*\s+(?:вариант|ход|выбор|решение|продолжение|идея|план)(?![а-яa-z])", re.IGNORECASE)
+    r"(?:\s+(?:с|из)\s+(?P<from2>[a-h][1-8]))?\s+(?:(?:на|в)\s+)?(?P<sq>[a-h][1-8])(?![0-9])\s*(?:[—–:-]|,)?\s*"
+    r"(?:это\s+|здесь\s+|тут\s+|сейчас\s+|как\s+раз\s+)*(?:(?:тво|ваш|наш)\w*\s+)?(?:сам\w+\s+)?(?:лучш|логич|естествен|полез|сильн|точн|"
+    r"правильн|верн|хорош|отличн|разумн)\w*\s+(?:вариант|ход|выбор|решение|продолжение|идея|план)(?![а-яa-z])", re.IGNORECASE)
 # «Ход Qe2 здесь логичен», «Nf6 — естественное развитие»: a written move, then an evaluation _PRAISED does not read.
 _F_PRAISED_SAN = re.compile(
-    r"(?<![A-Za-z0-9.])(?:ход\s+)?(?P<san>[KQRBN][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x[a-h][1-8]|O-O(?:-O)?)[+#]?[*_]*\s*(?:[—–:-]|,)?\s*"
+    r"(?<![A-Za-z0-9])(?:ход\s+)?(?:\.{2,3}|…)?(?P<san>[KQRBN][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x[a-h][1-8]|O-O(?:-O)?)[+#]?[*_]*\s*(?:[—–:-]|,)?\s*"
     r"(?:это\s+|здесь\s+|тут\s+|сейчас\s+|как\s+раз\s+|вполне\s+)*(?:сам\w+\s+)?(?:логич|естествен|полез|разум|умест|"
     r"целесообраз|рациональн)\w*(?![а-яa-z])", re.IGNORECASE)
 _F_FIRST = re.compile(r"(?:^|[.!?:;—–]\s*|,\s*)[\s*_>#«\"-]*(?:сначала|сперва|для\s+начала|прежде\s+всего|first(?:\s+of\s+all)?|"
@@ -4012,7 +4121,13 @@ def _plan_place_move(text: str, ctx: CheckContext) -> Optional[tuple]:
 _GOVERNOR_NOT = re.compile(
     r"(?<![а-яa-z])(?:не\s+(?:[а-я]+\s+)?(?:дава\w*|дать|даст|дает|дадут|даю|позвол\w*|пуска\w*|пуст\w*)|меша\w*|помеша\w*|"
     r"лиша\w*|запреща\w*|запрет\w*|предотвра\w*|препятству\w*|not\s+(?:letting|allowing)|without\s+letting|"
-    r"prevent\w*|stopping|denying)(?:\s+[^\s,.;:!?—–]+){0,3}\s*$", re.IGNORECASE)
+    r"prevent\w*|stopping|denying|"
+    # difficulty, danger or impossibility governing the infinitive (review fp2 01.11: «чёрным трудно сыграть d5»):
+    # what the words say the side cannot or should not play — not a proposal
+    r"трудно|тяжело|сложно|непросто|опасно|рискованно|нельзя|невозможно|не\s+стоит|не\s+следует|не\s+надо|не\s+нужно|"
+    r"не\s+получится|не\s+удастся|не\s+удаётся|не\s+удается|не\s+(?:сможет|смогут|сможешь|может|могут|можешь)|"
+    r"(?:hard|difficult|dangerous|risky|impossible|tough)\s+(?:for\s+\w+\s+)?to|cannot|can'?t|should\s+not|shouldn'?t)"
+    r"(?:\s+[^\s,.;:!?—–]+){0,3}\s*$", re.IGNORECASE)
 _PAST_MODAL = re.compile(r"\s*(?:бы\s+)?(?:был[аио]?|had)(?![а-яa-z])", re.IGNORECASE)
 _WEAK_PROPOSAL = re.compile(r"можно|могу|можешь|could|can|might", re.IGNORECASE)
 _OUTRANKED = re.compile(r"(?<![а-яa-z])(?:но|а|однако|but|however|though)(?![а-яa-z])[^.!?;]*?(?<![а-яa-z])(?:лучше|сильнее|точнее|"
@@ -4618,8 +4733,10 @@ def _student_capture_issues(text: str, ctx: CheckContext) -> list[str]:
         return []
     claims = [m for m in _STUDENT_TOOK.finditer(text) if not _NOT_TOLD.search(text[max(0, m.start() - 40):])
               and not _TOOK_IDIOM.match(text, m.end())]
+    framed = _frame_take_issues(text, text, ctx, [(m.start(), m.end()) for m in _STUDENT_TOOK.finditer(text)]
+                                + [(m.start(), m.end()) for m in _COACH_TOOK.finditer(text)])
     if not claims:
-        return []
+        return framed
     from src.game_record import _players, captures
 
     caps = captures(ctx)
@@ -4673,7 +4790,7 @@ def _student_capture_issues(text: str, ctx: CheckContext) -> list[str]:
             mine = [c.label for c in caps if c.mover == color]
             out.append(f"in this game {owner} never captured a {what}: {owner}'s captures so far are "
                        + (", ".join(mine) if mine else "none"))
-    return out
+    return out + framed
 
 
 # M4: a block of the check claimed — «закрыться конём — Nxd8», «перекрыть шах ходом Bd2», «Шах можно перекрыть»,
@@ -4689,15 +4806,20 @@ def _student_capture_issues(text: str, ctx: CheckContext) -> list[str]:
 # description), and not «пешечный заслон» (a pawn shield).
 _BLOCK_WORD = re.compile(
     r"(?<![а-яa-z])(?:"
-    r"(?P<refl>(?:за|пере|при)кр(?:ыться|ываться|ывайся|ывайтесь|ойся|ойтесь|оешься|оется|оются|ыл(?:ся|ась|ись))"
-    r"|заслон(?:иться|ись|итесь|ишься|ится|яться|яйся)|загород(?:иться|ись|итесь|ишься|ится)|загоражива(?:ться|йся|ешься))"
-    r"|(?P<trans>(?:за|пере|при)кр(?:ыть|ой|ойте|оешь|оет|ывать|ывай)|заслон(?:ить|и|ите|ишь|ит|ять|яй)|"
-    r"загород(?:ить|и|ите|ишь|ит)|(?:за)?блокир(?:овать|уй|уйте|уешь|овав)|block(?![a-z]))"
+    # every voice of the block lemmas (review-miss2 01.11: «шах закрывается ходом Bd7», «шах перекрывается конём»,
+    # «конём c6 ты загораживаешь короля» were not read)
+    r"(?P<refl>(?:за|пере|при)кр(?:ыться|ываться|ывайся|ывайтесь|ойся|ойтесь|оешься|оется|оются|ыл(?:ся|ась|ись)|"
+    r"ывается|ываются|ываешься)"
+    r"|заслон(?:иться|ись|итесь|ишься|ится|яться|яйся|яется|яешься)|загород(?:иться|ись|итесь|ишься|ится)|"
+    r"загоражива(?:ться|йся|ешься|ется))"
+    r"|(?P<trans>(?:за|пере|при)кр(?:ыть|ой|ойте|оешь|оет|ывать|ывай|ываешь|ывает)|заслон(?:ить|и|ите|ишь|ит|ять|яй|яешь|яет)|"
+    r"загород(?:ить|и|ите|ишь|ит)|загоражива(?:ть|ешь|ет|й)|(?:за)?блокир(?:овать|уй|уйте|уешь|овав)|block(?![a-z]))"
     r"|(?P<noun>(?<!пешечн[ыо]м\s)(?<!пешечный\s)(?<!пешечного\s)заслон(?:ом|а|ы|е)?|перекрыти\w*|блокировк\w*|interpos\w*|"
     r"a\s+block)"
     r"|(?P<between>вста(?:ть|нь|ньте|нет|вать)|поставить|поставь|ставь|put|place))(?![а-яa-z])", re.IGNORECASE)
 _BLOCK_OBJ = re.compile(r"(?<![а-яa-z])(?:шах\w*|корол[яю]|линию\s+шаха|от\s+шаха|check|the\s+king)(?![а-яa-z])", re.IGNORECASE)
-_BLOCK_BETWEEN = re.compile(r"(?<![а-яa-z])(?:между|between)(?![а-яa-z])[^.;!?]*?(?:корол\w*|king)", re.IGNORECASE)
+_BLOCK_BETWEEN = re.compile(r"(?<![а-яa-z])(?:(?:между|between)(?![а-яa-z])[^.;!?]*?(?:корол\w*|king)|на\s+(?:е[её]\s+|его\s+)?пути|"
+                            r"на\s+лини(?:ю|и)\s+шаха|in\s+the\s+way)", re.IGNORECASE)
 _BLOCK_NOT = re.compile(r"(?<![а-яa-z])(?:не|ни|нельзя|нечем|некуда|невозможно|никак|cannot|can'?t|no\s+way|nothing)(?![а-яa-z])"
                         r"(?:\s+[а-яa-z]+){0,2}\s*$", re.IGNORECASE)
 _BLOCK_NOT_AFTER = re.compile(r"^[^.;!?:—–]*?(?<![а-яa-z])(?:нельзя|нечем|некуда|невозможно|не\s+(?:получится|выйдет|удастся|"
@@ -4726,6 +4848,20 @@ def _ptype_word(word: Optional[str]) -> Optional[int]:
     return next((t for stem, t in _PTYPE_WORD.items() if w.startswith(stem)), None)
 
 
+# A bare square right after a piece noun («от слона b4», «шах ферзём e4»), after «с/со/от/из/на», or after «шах(ом)» names
+# a piece or a place, never a pawn move (review fp2 01.11: «Тебе шах от слона b4: закройся …» bound b4 as the block).
+_NOUN_BEFORE_SQ = re.compile(r"(?<![а-яa-z])(?:(?:пешк|кон|слон|ладь|ферз|корол|фигур)[а-яё]*|шах\w*|check|"
+                             r"с|со|от|из|на|по|у|под|над|between|from|on|by|of|the|a|bishop|knight|rook|queen|king|pawn)"
+                             r"\s+$", re.IGNORECASE)
+
+
+def _square_of_noun(text: str, m) -> bool:
+    san = m["san"]
+    if not re.fullmatch(r"[a-h][1-8]", san or ""):
+        return False
+    return bool(_NOUN_BEFORE_SQ.search(text[: m.start("san")].rstrip("*_ ") + " "))
+
+
 def _block_claims(conv: str) -> list:
     """The block claims of *conv*: dicts with the move bound (san), the piece named (ptype, from, only), the target."""
     out = []
@@ -4742,11 +4878,14 @@ def _block_claims(conv: str) -> list:
         if m["trans"] and not _BLOCK_OBJ.search(near):
             continue  # «закрыть диагональ», «прикрыть f1»: not the check
         if m["trans"] and m["trans"].lower().startswith("прикр") and not re.search(
-                r"(?<![а-яa-z])(?:от\s+шаха|шах\w*|check)(?![а-яa-z])", near):
-            continue  # «прикрыть короля»: shelter in general, not a block of this check
+                r"(?<![а-яa-z])(?:от\s+шаха|шах\w*|check)(?![а-яa-z])", near) and not (
+                re.search(r"(?<![а-яa-z])корол[яю](?![а-яa-z])", near) and (_PIECE_INSTR.search(after[:30])
+                                                                     or _SAN_AFTER.match(after))):
+            continue  # «прикрыть короля»: shelter in general, not a block of this check (but «прикрыть короля конём»)
         if m["noun"] and not re.search(r"(?<![а-яa-z])(?:от\s+шаха|шах\w*|check)(?![а-яa-z])", near) \
-                and not (m["noun"].lower().startswith("заслон") and _PIECE_INSTR.search(after[:30])):
-            continue  # «блокировка пешки», «зажат своим заслоном»: not a block of the check
+                and not (_PIECE_INSTR.search(after[:30]) or re.match(r"\s*(?:[:—–]\s*)?[*_]*(?:" + _SAN_HERE + r")(?![A-Za-z0-9])",
+                                                                     after)):
+            continue  # «блокировка пешки», «зажат своим заслоном»: not a block of the check (but «заслон: Nxd8»)
         if m["between"] and not _BLOCK_BETWEEN.search(after):
             continue
         clause = conv[cs: ce]
@@ -4764,7 +4903,7 @@ def _block_claims(conv: str) -> list:
             claim["san"] = sa["san"]
         elif re.match(r"\s*[*_]*(?P<san>" + _SAN_HERE + r")(?![A-Za-z0-9])", after):
             claim["san"] = re.match(r"\s*[*_]*(?P<san>" + _SAN_HERE + r")(?![A-Za-z0-9])", after)["san"]
-        elif sb and (m["noun"] or re.search(r"[—–:-]", before[sb.end("san"):])):
+        elif sb and (m["noun"] or re.search(r"[—–:-]", before[sb.end("san"):])) and not _square_of_noun(before, sb):
             claim["san"] = sb["san"]
         own = re.split(r"(?:,\s*|\s)(?:но|а|однако|или|либо|кроме|but|or|except)(?![а-яa-z])", after[:40], maxsplit=1)[0]
         pi = next((p for p in _PIECE_INSTR.finditer(own) if not re.search(r"(?<![а-яa-z])(?:не|ни|not)\s+$", own[:p.start()])),
@@ -4814,6 +4953,9 @@ def _check_tail(board: chess.Board) -> str:
 def _block_verdict(board: chess.Board, claim: dict) -> Optional[str]:
     """Why *claim* is false on *board* (in check), '' when it holds, None when the words name nothing judgeable here."""
     blocks = _real_blocks(board)
+    if claim["san"] and re.fullmatch(r"[a-h][1-8]", claim["san"]) and \
+            board.piece_at(chess.parse_square(claim["san"])) is not None:
+        return None  # a bare square that is taken (the checker's, a piece's): a pawn never moves onto it — a reference
     if claim["san"]:
         try:
             mv = board.parse_san(claim["san"])
@@ -4905,7 +5047,10 @@ def _reply_in_check_issues(conv: str, ctx: CheckContext, boards: list) -> list[s
     if not board.is_check() or "?" in conv or _DENIES.search(conv):
         return []
     first = next(iter(_MOVE.finditer(conv)), None)
-    if first is None or first["num"] or first["san"].startswith("O-O") or first["san"] in ctx.quoted:
+    if first is None or first["num"] or first["san"] in ctx.quoted:
+        return []
+    imper = _REPLY_IMPER.search(conv[max(conv.rfind(c, 0, first.start()) for c in ".;!?\n") + 1: first.start()])
+    if first["san"].startswith("O-O") and not imper:
         return []
     san = first["san"] + (first["check"] or "")
     cs = max(conv.rfind(c, 0, first.start()) for c in ".;!?\n") + 1
@@ -4913,17 +5058,60 @@ def _reply_in_check_issues(conv: str, ctx: CheckContext, boards: list) -> list[s
     if first["san"][0] not in "KQRBN" and "x" not in first["san"] and not first["bdots"] \
             and not re.search(r"(?:[:—–]|(?<![а-яa-z])(?:ходом|сыграй|играй|сыграть|лучше|ответ\w*))\s*[*_]*$", head):
         return []  # «перекрой шах ферзём на d7»: a square, not a move
-    trig = [m for m in list(_PROPOSES.finditer(head)) + list(_F_NEXT.finditer(head))
+    trig = [m for m in list(_PROPOSES.finditer(head)) + list(_F_NEXT.finditer(head)) + list(_REPLY_IMPER.finditer(head))
             if not _not_a_proposal(head, m) and not _NEGATION.search(head[max(0, m.start() - 24): m.start()])]
     if not trig or _COND_BEFORE.search(conv[:first.start()]) or _PAST_PLAN.search(head):
         return []
     if _parses(board, san):
+        return []
+    if _not_the_reply(conv, first.start(), san, board, ctx):
         return []
     if any(b is not board and b.turn == board.turn and ctx.is_given(b) and ctx._key(b) not in ctx.passed_keys
            and ctx._key(b) not in ctx.other_board_keys and _parses(b, san) for b in ctx.boards):
         return []  # another position of the turn (not one the game passed through on its way here) allows it
     side = "White" if board.turn else "Black"
     return [f"{san} is not a legal move here: {side} is in check, and {san} does not answer it — {_check_tail(board)}"]
+
+
+# An imperative of replying to the check (review-miss2 01.11): «Ответь Be6», «Защитись от шаха: Bd7», «Рокируйся:
+# O-O», «Подумай о ходе Bg4» — the move after it is proposed as the reply.
+_REPLY_IMPER = re.compile(r"(?<![а-яa-z])(?:ответь(?:те)?|отвечай(?:те)?|защит(?:ись|итесь)|защищайся|защищайтесь|"
+                          r"рокируйся|рокируйтесь|подумай(?:те)?\s+(?:о|об|про)\s+ход\w*|рассмотри(?:те)?|"
+                          r"уйди(?:те)?\s+от\s+шаха|выбирай(?:те)?|выбери(?:те)?)(?![а-яa-z])", re.IGNORECASE)
+
+
+# Whose move a proposal on a board in check names (review fp2 01.11: «Ты дал шах; следующим ходом сыграй Nc3» after the
+# student's 3.Bb5+ was read as Black's reply). The reply belongs to the side in check; the words propose another move
+# when they defer it («дальше», «следующим ходом», «потом», «после его ответа», "next", "then"), when the student is not
+# the side in check and the clause does not name the side that is, or — the student's side unknown — when the move is
+# the other side's after some legal reply.
+_LATER_MOVE = re.compile(r"(?<![а-яa-z])(?:дальше|далее|потом|затем|позже|следующ\w+\s+ход\w*|в\s+следующ\w+|"
+                         r"после\s+(?:(?:его|е[её]|их|твоего|вашего|этого|чужого|любого|их)\s+)?(?:ответ\w*|хода)|"
+                         r"на\s+следующ\w+\s+ходу|next|then|later|afterwards)(?![а-яa-z])", re.IGNORECASE)
+_SIDE_WORD_OF = {chess.WHITE: re.compile(r"(?<![а-яa-z])(?:бел\w+|white)(?![а-яa-z])", re.IGNORECASE),
+                 chess.BLACK: re.compile(r"(?<![а-яa-z])(?:ч[её]рн\w+|black)(?![а-яa-z])", re.IGNORECASE)}
+_OPPONENT_WORD = re.compile(r"(?<![а-яa-z])(?:соперник\w*|противник\w*|opponent)(?![а-яa-z])", re.IGNORECASE)
+
+
+def _not_the_reply(conv: str, at: int, san: str, board: chess.Board, ctx: CheckContext) -> bool:
+    cs = max(conv.rfind(c, 0, at) for c in ".;!?\n") + 1
+    head = conv[cs: at]
+    if _LATER_MOVE.search(head):
+        return True
+    student = getattr(ctx, "student_color", None)
+    if student is not None and student != board.turn:
+        named = _SIDE_WORD_OF[board.turn].search(head) or _OPPONENT_WORD.search(head)
+        return not named
+    if student is None:
+        try:
+            for reply in list(board.legal_moves)[:40]:
+                after = board.copy(stack=False)
+                after.push(reply)
+                if _parses(after, san):
+                    return True
+        except Exception:  # noqa: BLE001
+            return True
+    return False
 
 
 # M6 (with eval C3): «белые забирают фигуру бесплатно» about a capture of the game (prod st2#4 29.10: after 4.exf6
@@ -5172,8 +5360,9 @@ def _gave_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     claims = [m for m in _GAVE.finditer(text) if not _NOT_TOLD.search(text[max(0, m.start() - 40): m.start()])
               and not _NEGATED_WORD.search(m["gap"] or "") and not _FUTURE_VERB.search(m["gap"] or "")
               and not _is_hypothetical(text, original, m.start(), ctx=ctx)]
+    framed = _frame_lose_issues(text, original, ctx, [(m.start(), m.end()) for m in _GAVE.finditer(text)])
     if not claims or _players(ctx):
-        return []
+        return framed
     converted, _ = _to_san(original)
     if any(m["num"] or m["bdots"] or m["san"][0] in "KQRBN" or "x" in m["san"] for m in _MOVE.finditer(converted)) \
             and recap_end(ctx, original) is None:
@@ -5195,7 +5384,12 @@ def _gave_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         want, name = next((w, nm) for k, w, nm in _GAVE_UNIT if unit.startswith(k))
         n = _num(m["n"]) if m["n"] else 1
         lost = [c for c in caps if c.mover != color and c.captured in want]
-        if len(lost) >= n:
+        # «одну пешку», «всего пешку», «пешку e4 и больше ничего»: that count exactly (review-miss2 01.11)
+        exact = bool(re.search(r"(?<![а-яё])(?:одн(?:у|ого|а)|всего|только|лишь|ровно)\s+(?:[а-яё-]+\s+)?$",
+                               text[m.start(): m.start("unit")])) or bool(_MAT_NOTHING_ELSE.match(
+                                   text, m.end() + (len(re.match(r"\s*[a-h][1-8]", text[m.end():]).group(0))
+                                                    if re.match(r"\s*[a-h][1-8]", text[m.end():]) else 0)))
+        if len(lost) >= n and not (exact and len(lost) != n):
             continue
         verb = m["verb"].lower()
         if re.search(r"(?<![а-яё])(?:не\s+(?:взял\w*|принял\w*|забрал\w*|стал\w*\s+брать)|отказал\w*|отклонил\w*)(?![а-яё])",
@@ -5213,7 +5407,167 @@ def _gave_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             # can only be traded off evenly (Bxd5+ Qxd5 after 6...Kxf7) is no sacrifice on offer.
         theirs = [f"{c.label} ({_NAMES.get(c.captured, 'pawn')})" for c in caps if c.mover != color]
         out.append(f"in this game {_owner_words(ctx, color)} has lost "
-                   + (f"no {name}" if not lost else f"only {len(lost)} {name}{'s' if len(lost) > 1 else ''}, not {n}") + ": "
+                   + (f"no {name}" if not lost else f"{'only ' if len(lost) < n else ''}{len(lost)} {name}"
+                      f"{'s' if len(lost) > 1 else ''}, not {n}") + ": "
+                   + (f"its losses so far are {', '.join(theirs)}" if theirs else "nothing of it has been captured yet"))
+    return out + framed
+
+
+# ── the game-record claims read by their parts (src/capture_frames, review-miss2 01.11) ─────────────────────────────
+# What the closed patterns above miss («Слона e7 съела твоя пешка», «Чёрные расстались с d-пешкой», «Ход fxe7 сделал
+# ты», «Ты потерял одну пешку»): the clause's events, judged by the game's record exactly as the patterns' claims are.
+# A clause one of the patterns already read is left to it.
+def _frame_owner(who: str, ctx: CheckContext, ptypes) -> Optional[bool]:
+    from src.capture_frames import resolve
+
+    if who.startswith("@"):
+        # «Пешка c5 отдана»: the owner of the unit that stood on that square in this game
+        sq = chess.parse_square(who[1:])
+        from src.game_record import _walk, _sans
+
+        colour = None
+        for _ply, board, _mv, _san in _walk(_sans(ctx)):
+            p = board.piece_at(sq)
+            if p is not None and p.piece_type in ptypes:
+                colour = p.color if colour is None or colour == p.color else "both"
+        if ctx.current is not None and (p := ctx.current.piece_at(sq)) is not None and p.piece_type in ptypes:
+            colour = p.color if colour is None or colour == p.color else "both"
+        return None if colour in (None, "both") else colour
+    return resolve(who, ctx)
+
+
+def _frame_guarded(text: str, original: str, ctx: CheckContext) -> bool:
+    """The sentence may be read for game-record events: a game on the board, no question, no quote, no other game,
+    no line of moves the game did not play."""
+    moves = getattr(ctx, "game_moves", None)
+    if not moves or ctx.current is None or "?" in text or "«" in text or '"' in text or _OTHER_GAME.search(original):
+        return False
+    from src.game_record import _players
+
+    if _players(ctx):
+        return False
+    converted, _ = _to_san(original)
+    played = {str(x).rstrip("+#") for x in moves}
+    return not any(x["san"].rstrip("+#") not in played for x in _MOVE.finditer(converted)
+                   if x["num"] or x["bdots"] or x["san"][0] in "KQRBNO" or "x" in x["san"])
+
+
+def _frame_events(original: str, kinds: tuple, taken: list) -> list:
+    """The events of *kinds* in *original* whose clause none of the spans in *taken* (the patterns' claims) touches."""
+    from src.capture_frames import events
+
+    converted, _ = _to_san(original)
+    out = []
+    for ev in events(converted):
+        if ev.kind not in kinds:
+            continue
+        if any(a < ev.end and ev.at < b for a, b in taken):
+            continue
+        out.append(ev)
+    return out
+
+
+def _frame_take_issues(text: str, original: str, ctx: CheckContext, taken: list) -> list[str]:
+    if not _frame_guarded(text, original, ctx):
+        return []
+    from src.game_record import captures
+
+    caps = captures(ctx)
+    moves = [str(x).rstrip("+#") for x in ctx.game_moves]
+    out = []
+    for ev in _frame_events(original, ("take", "played"), taken):
+        if _is_hypothetical(text, original, min(ev.at, len(text) - 1), ctx=ctx) or \
+                _NOT_TOLD.search(original[max(0, ev.at - 40): ev.end]):
+            continue
+        color = _frame_owner(ev.who, ctx, set())
+        if color is None:
+            continue
+        who_words = "the student" if ev.who == "S" else _owner_words(ctx, color)
+        if ev.kind == "played":
+            mm = re.fullmatch(r"(?:(\d{1,3})\s?(\.{1,3})\s?)?(.+?)[+#]?", ev.san or "")
+            if not mm:
+                continue
+            san = mm.group(3)
+            plies = [i + 1 for i, m in enumerate(moves) if m == san]
+            if mm.group(1):
+                want = 2 * int(mm.group(1)) - (0 if len(mm.group(2)) == 3 else 1)
+                plies = [p for p in plies if p == want]
+            if not plies:
+                continue
+            if all((chess.WHITE if p % 2 else chess.BLACK) != color for p in plies):
+                p = plies[-1]
+                mover = chess.WHITE if p % 2 else chess.BLACK
+                out.append(f"{(p - 1) // 2 + 1}{'.' if p % 2 else '...'}{san} was {_owner_words(ctx, mover, True)} move, "
+                           f"not {who_words}'s")
+            continue
+        def fits(c) -> bool:
+            if c.captured not in ev.ptypes or (ev.sq and chess.square_name(c.square) != ev.sq):
+                return False
+            if ev.instr is not None and ev.instr != c.piece and not (c.piece == chess.PAWN and "=" in c.san):
+                return False
+            if ev.instr_sq and c.from_square >= 0:
+                where = {chess.square_name(c.from_square)} if ev.instr_from else \
+                    {chess.square_name(c.from_square), chess.square_name(c.to_square)}
+                if ev.instr_sq not in where:
+                    return False
+            if ev.san and c.san.rstrip("+#") != re.sub(r"^\d{1,3}\s?\.{1,3}\s?", "", ev.san).rstrip("+#"):
+                return False
+            return True
+        hits = [c for c in caps if fits(c)]
+        mine = [c for c in hits if c.mover == color]
+        unit = " or ".join(sorted({_NAMES.get(t, "piece") for t in ev.ptypes})) if len(ev.ptypes) < 4 else "piece"
+        if not mine:
+            if hits:
+                c = hits[-1]
+                out.append(f"{c.label} was {_owner_words(ctx, c.mover, True)} capture, not {who_words}'s: it took "
+                           f"{_owner_words(ctx, not c.mover, True)} {_NAMES.get(c.captured, 'pawn')} on "
+                           f"{chess.square_name(c.square)}")
+            else:
+                done = [c.label for c in caps if c.mover == color]
+                out.append(f"in this game {who_words} never captured a {unit}"
+                           + (f" on {ev.sq}" if ev.sq else "") + ": its captures so far are "
+                           + (", ".join(done) if done else "none"))
+            continue
+        all_mine = [c for c in caps if c.mover == color and c.captured in ev.ptypes]
+        if (ev.exact and len(all_mine) != ev.count) or len(all_mine) < ev.count:
+            out.append(f"in this game {who_words} captured {len(all_mine)} {unit}{'s' if len(all_mine) != 1 else ''}, "
+                       f"not {ev.count}: " + ", ".join(c.label for c in all_mine))
+    return out
+
+
+def _frame_lose_issues(text: str, original: str, ctx: CheckContext, taken: list) -> list[str]:
+    if not _frame_guarded(text, original, ctx):
+        return []
+    from src.board_math import see
+    from src.game_record import captures
+
+    caps = captures(ctx)
+    board = ctx.current
+    out = []
+    for ev in _frame_events(original, ("lose",), taken):
+        if _is_hypothetical(text, original, min(ev.at, len(text) - 1), ctx=ctx) or \
+                _NOT_TOLD.search(original[max(0, ev.at - 40): ev.end]):
+            continue
+        color = _frame_owner(ev.who, ctx, set(ev.ptypes))
+        if color is None:
+            continue
+        lost = [c for c in caps if c.mover != color and c.captured in ev.ptypes
+                and (not ev.sq or chess.square_name(c.square) == ev.sq)]
+        if (len(lost) == ev.count) or (not ev.exact and len(lost) > ev.count):
+            continue
+        if re.search(r"(?<![а-яё])(?:не\s+(?:взял\w*|принял\w*|забрал\w*|стал\w*\s+брать)|отказал\w*|отклонил\w*)(?![а-яё])",
+                     text):
+            continue  # an offer declined, not a loss
+        if not lost and board.turn != color and any(
+                board.is_capture(mv) and (v := board.piece_at(mv.to_square)) is not None and v.color == color
+                and v.piece_type in ev.ptypes and see(board, mv) > 0 for mv in board.legal_moves):
+            continue  # a sacrifice still on offer
+        unit = " or ".join(sorted({_NAMES.get(t, "piece") for t in ev.ptypes})) if len(ev.ptypes) < 4 else "piece"
+        who_words = _owner_words(ctx, color)
+        theirs = [f"{c.label} ({_NAMES.get(c.captured, 'pawn')})" for c in caps if c.mover != color]
+        out.append(f"in this game {who_words} has lost "
+                   + (f"no {unit}" if not lost else f"{len(lost)} {unit}{'s' if len(lost) > 1 else ''}, not {ev.count}")
+                   + (f" on {ev.sq}" if ev.sq else "") + ": "
                    + (f"its losses so far are {', '.join(theirs)}" if theirs else "nothing of it has been captured yet"))
     return out
 

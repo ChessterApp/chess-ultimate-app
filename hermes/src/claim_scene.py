@@ -249,6 +249,10 @@ def _repeats(m: MoveRef, board: chess.Board) -> bool:
     last, prev = last_move(board), board_before(board)
     if last is None or prev is None:
         return False
+    if m.side is not None and m.side == board.turn:
+        return False  # «4...Nxe4 5.Nxe4»: the number says it is the other side's move — a recapture, not a repeat
+    if m.capture and prev.is_capture(last) and to_move(board, m) is not None:
+        return False  # «Nxe4 Nxe4»: a capture back on the same square, legal for the side to move (review fp2 01.11)
     if m.castle:
         return prev.is_castling(last)
     if not m.to or chess.parse_square(m.to) != last.to_square:
@@ -877,6 +881,29 @@ def _past_boards(ctx: Any, cur: chess.Board) -> Optional[list]:
     return [b0.copy(stack=False) for b0, _mv in hist[-2:]]
 
 
+def _past_named(ctx: Any, cur: chess.Board, claim: Claim):
+    """For a past-tense claim: the last board of the story to *cur* where each named piece the board now lacks stood
+    on its square (a list), [] when every named piece stands now, False when one never stood there in the story."""
+    missing = []
+    for ref in [claim.subj] + list(claim.objs):
+        got = _ref_square(ref)
+        if got is None:
+            continue
+        p = cur.piece_at(got[0])
+        if p is None or p.piece_type != got[1]:
+            missing.append(got)
+    if not missing:
+        return []
+    hist = _history_to(ctx, cur)
+    out = []
+    for sq, ptype in missing:
+        found = next((b0 for b0, _mv in reversed(hist) if b0.piece_type_at(sq) == ptype), None)
+        if found is None:
+            return False
+        out.append(found.copy(stack=False))
+    return out
+
+
 # A position the turn cannot build (the past with no record of it): the judge decides only what holds in every
 # position — the empty-board geometry of the named piece («пешка b2 прикрывала c2» is false whatever the board).
 ANY_POSITION = BoardSet(primary=None, where="in any position")
@@ -900,6 +927,11 @@ def _diagram_only(claim: Claim, primary: chess.Board, cur: Optional[chess.Board]
     moves = claim.pos.moves
     if claim.pos.at in ("now", "after") and (len(moves) >= 2 or any(m.number for m in moves)):
         return False
+    # a claim that carries its own move (prevents' stopper, retreat_cover's chase) legal from the start: a line from
+    # the start, not a diagram (review-miss2 01.11: «Ход 1.d4 не даёт чёрным сыграть d5» on the start board)
+    for m in (getattr(claim, "move", None),):
+        if m is not None and cur is not None and to_move(cur, m) is not None:
+            return False
     return True
 
 
@@ -1084,6 +1116,12 @@ def boards_for(claim: Claim, ctx: Any, state: dict) -> Optional[BoardSet]:
                 # «конь f6 держал поле g6»: a past we have no record of — only what no position can make true.
                 return ANY_POSITION
             alts.extend(past)
+            # «Раньше пешку b4 никто не защищал» (review fp2 01.11): the past of a named piece the board now lacks is the
+            # last position of the story where it stood on its square — never the board now; no such position, no verdict
+            named = _past_named(ctx, primary, claim)
+            if named is False:
+                return None
+            alts.extend(named or [])
         alts.extend(shown)
         shown_board = shown[0] if shown else None
         if cur is not None and primary is not cur and pos.at == "now":
@@ -1319,6 +1357,9 @@ _START_CUE = re.compile(
     r"в\s+самом\s+начале\s+(?:партии|игры)|"
     r"в\s+(?:самой\s+|самом\s+)?(?:начальн|исходн|стартов|первоначальн)\w*\s+(?:позици|расстановк|положени)\w*" + _NOT_GAME_START + "|"
     r"(?:до|перед)\s+(?:самым\s+|самого\s+)?(?:первого|первым)\s+ход\w*|"
+    # «на старте», «пока никто не сходил», «до начала партии», «в начальной расстановке» (review-miss2 01.11)
+    r"на\s+старте(?:\s+партии)?|пока\s+(?:еще\s+)?никто\s+(?:еще\s+)?не\s+(?:сходил|сделал\s+(?:ни\s+одного\s+)?хода)|"
+    r"до\s+начала\s+(?:партии|игры)|"
     r"(?:in|at)\s+the\s+(?:starting|initial|start)\s+(?:position|setup)" + _NOT_GAME_START + r"|"
     r"at\s+the\s+very\s+start\s+of\s+the\s+game|before\s+the\s+first\s+move)(?![\w-])",
     re.IGNORECASE)
@@ -1326,6 +1367,8 @@ _START_CUE = re.compile(
 _STRICT_START = re.compile(
     r"(?<![\w-])(?:в\s+(?:самой\s+|самом\s+)?(?:начальн|исходн|стартов|первоначальн)\w*\s+(?:позици|расстановк|положени)\w*"
     + _NOT_GAME_START + r"|(?:до|перед)\s+(?:самым\s+|самого\s+)?(?:первого|первым)\s+ход\w*|"
+    r"на\s+старте(?:\s+партии)?|пока\s+(?:еще\s+)?никто\s+(?:еще\s+)?не\s+(?:сходил|сделал\s+(?:ни\s+одного\s+)?хода)|"
+    r"до\s+начала\s+(?:партии|игры)|"
     r"(?:in|at)\s+the\s+(?:starting|initial|start)\s+(?:position|setup)" + _NOT_GAME_START + r"|before\s+the\s+first\s+move)"
     r"(?![\w-])", re.IGNORECASE)
 _BOARD_CUE = re.compile(r"(?<![\w-])(?:на\s+доске\s+(?:прямо\s+)?сейчас|сейчас\s+на\s+доске|on\s+the\s+board\s+(?:right\s+)?now)"
@@ -1386,10 +1429,25 @@ def _cue_covers(low: str, start: int, end: int, strict: bool = False) -> bool:
         b = m.end()
     nxt = _SEGMENT_END.search(low, end)
     e = nxt.start() if nxt else len(low)
-    for m in (_STRICT_START if strict else _START_CUE).finditer(low, b, e):
+    rx = _STRICT_START if strict else _START_CUE
+    for m in rx.finditer(low, b, e):
         if not _COMPARE.search(low[max(0, m.start() - 16):m.start()]):
             return True
+    # A cue earlier in the sentence carries on past «:», «?» and a contrast (review fp2 01.11: «В исходной позиции король
+    # e1 окружён своими: d1, f1, d2, e2 и f2 заняты», «В начальной позиции …? Нет, пешка e2 бьёт d3 и f3») until a word
+    # moves the words to another board: «сейчас», «теперь», «на доске», «в партии», a written move.
+    for m in rx.finditer(low, 0, b):
+        if _COMPARE.search(low[max(0, m.start() - 16):m.start()]):
+            continue
+        if not _CUE_RESET.search(low, m.end(), max(m.end(), end)):
+            return True
     return False
+
+
+_CUE_RESET = re.compile(r"(?<![\w-])(?:сейчас|теперь|на\s+доске|в\s+(?:этой\s+|нашей\s+|твоей\s+)?(?:партии|игре)|"
+                        r"после|потом|затем|now|currently|after|then|in\s+(?:the|this|our|your)\s+game)(?![\w-])|"
+                        r"(?<![a-z0-9])(?:[kqrbn][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x[a-h][1-8]|o-o)(?![a-z0-9])|\d+\s?\.{1,3}\s?[a-z]",
+                        re.IGNORECASE)
 
 
 def _claim_cued(claim: Claim, state: dict, strict: bool = False) -> bool:
@@ -1473,21 +1531,28 @@ _COL_NOM = r"(?:бел(?:ый|ая|ое|ые)|черн(?:ый|ая|ое|ые)|т
 _COL_INS = r"(?:бел(?:ым|ой|ыми)|черн(?:ым|ой|ыми)|тво(?:им|ей|ими)|сво(?:им|ей|ими)|чуж(?:им|ой|ими)|собственн\w+|его|ее|их)"
 _GEN_SIDE = r"(?:\s+(?P<gen>белых|черных))?"
 _ADV = r"(?:(?:уже|сейчас|теперь|все\s+еще|по-прежнему|пока|тоже|также|изначально|исходно|как\s+раз)\s+)*"
-_ON_SQ = r"на\s+(?:поле\s+|клетке\s+)?(?P<sq>[a-h][1-8])(?![\w0-9])"
+_ON_SQ = r"на\s+(?:поле\s+|клетке\s+)?(?P<sq>[a-h][1-8])(?![\w0-9])(?:\s*(?:,|и)\s*(?P<sq2>[a-h][1-8])(?![\w0-9]))?"
+# a few words between the piece and its verb that are neither a verb nor another piece («белый слон в начальной
+# позиции занимает g1», «конь у белых стоит на d2»)
+_GAP3 = r"(?:(?!(?:корол|ферз|ладь|слон|кон[ьяи]|пешк|фигур|стоит|стоят|наход|занима|не)\w*)[а-я]+\s+){0,3}?"
+_AT_SIDE = r"(?:у\s+(?P<at>белых|черных|тебя|вас|соперника|противника)\s+)?"
 _STAND = r"(?:стоит|стоят|находится|находятся|расположен[аоы]?)"
 _PLACE_PATTERNS = (
-    # «(белый) король стоит на e2»
-    re.compile(r"(?<![\w-])(?:(?P<adj>" + _COL_NOM + r")\s+)?(?:" + _alt(_P_NOM) + r")" + _GEN_SIDE + r"\s+" + _ADV + _STAND
-               + r"\s+" + _ADV + _ON_SQ, re.IGNORECASE),
-    # «на e5 стоит (белая) пешка», «на поле e5 есть фигура»
-    re.compile(r"(?<![\w-])" + _ON_SQ + r"\s+" + _ADV + r"(?:" + _STAND + r"|есть)\s+" + _ADV + r"(?:(?P<adj>" + _COL_NOM
-               + r")\s+)?(?:" + _alt(_P_NOM) + r")" + _GEN_SIDE + r"(?![\w-])", re.IGNORECASE),
+    # «(белый) король стоит на e2», «у белых конь стоит на d2», «белые кони стоят на c1 и f1»
+    re.compile(r"(?<![\w-])" + _AT_SIDE + r"(?:(?P<adj>" + _COL_NOM + r")\s+)?(?:" + _alt(_P_NOM) + r")" + _GEN_SIDE + r"\s+"
+               + _GAP3 + _ADV + _STAND + r"\s+" + _ADV + _ON_SQ, re.IGNORECASE),
+    # «на e5 стоит (белая) пешка», «на поле e5 есть фигура», «на c3 у белых стоит слон»
+    re.compile(r"(?<![\w-])" + _ON_SQ + r"\s+" + _ADV + _AT_SIDE + _ADV + r"(?:" + _STAND + r"|есть)\s+" + _ADV + r"(?:(?P<adj>"
+               + _COL_NOM + r")\s+)?(?:" + _alt(_P_NOM) + r")" + _GEN_SIDE + r"(?![\w-])", re.IGNORECASE),
+    # the verb left out after the first clause: «король стоит на e1, а ферзь — на e2»
+    re.compile(r"(?<=[,;]\s)(?:а|и)\s+(?:(?P<adj>" + _COL_NOM + r")\s+)?(?:" + _alt(_P_NOM) + r")" + _GEN_SIDE
+               + r"\s*[—–-]\s*" + _ON_SQ, re.IGNORECASE),
     # «(поле) e5 занимает белый король»
     re.compile(r"(?<![\w-])(?:(?:поле|клетку)\s+)?(?P<sq>[a-h][1-8])\s+" + _ADV + r"занима(?:ет|ют)\s+(?:(?P<adj>" + _COL_NOM
                + r")\s+)?(?:" + _alt(_P_NOM) + r")" + _GEN_SIDE + r"(?![\w-])", re.IGNORECASE),
-    # «белый король занимает (поле) e1»
-    re.compile(r"(?<![\w-])(?:(?P<adj>" + _COL_NOM + r")\s+)?(?:" + _alt(_P_NOM) + r")" + _GEN_SIDE + r"\s+" + _ADV
-               + r"занима(?:ет|ют)\s+(?:поле\s+|клетку\s+)?(?P<sq>[a-h][1-8])(?![\w0-9])", re.IGNORECASE),
+    # «белый король занимает (поле) e1», «белый слон в начальной позиции занимает поле g1»
+    re.compile(r"(?<![\w-])" + _AT_SIDE + r"(?:(?P<adj>" + _COL_NOM + r")\s+)?(?:" + _alt(_P_NOM) + r")" + _GEN_SIDE + r"\s+"
+               + _GAP3 + _ADV + r"занима(?:ет|ют)\s+(?:поле\s+|клетку\s+)?(?P<sq>[a-h][1-8])(?![\w0-9])", re.IGNORECASE),
     # «(поле) e5 занято белой пешкой», «… занято своими же фигурами»
     re.compile(r"(?<![\w-])(?:(?:поле|клетка)\s+)?(?P<sq>[a-h][1-8])\s+" + _ADV + r"занят[оаы]?\s+(?:же\s+)?(?:(?P<adj>"
                + _COL_INS + r")\s+)?(?:же\s+)?(?:" + _alt(_P_INS) + r")" + _GEN_SIDE + r"(?![\w-])", re.IGNORECASE),
@@ -1520,14 +1585,20 @@ _NOUN_BEFORE = re.compile(r"(?<![\w-])(?:корол\w*|ферз\w*|ладь\w*|�
 _PLACE_VERB = re.compile(r"стоит|стоят|наход|расположен|есть|занима|занят|(?<![\w-])(?:is|stands|sits)(?![\w-])")
 
 
+_PLURAL_SIDE = re.compile(r"$^")
+
+
 def _place_side(word: str, gen: str, ctx: Any) -> Optional[bool]:
     w = (gen or word or "").lower().replace("ё", "е")
     if w.startswith(("бел", "white")):
         return chess.WHITE
     if w.startswith(("черн", "black")):
         return chess.BLACK
-    if w.startswith(("тво", "your")):
+    if w.startswith(("тво", "your", "тебя", "вас")):
         return getattr(ctx, "student_color", None)
+    if w.startswith(("соперник", "противник")):
+        st = getattr(ctx, "student_color", None)
+        return None if st is None else (not st)
     return None  # свой, чужой, его, их: a side relative to a piece the clause may not name
 
 
@@ -1568,14 +1639,18 @@ def _placement_claims(text: str, ctx: Any, state: dict, cue: str) -> list:
             piece = next((k for k in ("K", "Q", "R", "B", "N", "P") if m.group("p" + k)), None)
             if piece is None and not m.group("pX"):
                 continue
-            sq = m.group("sq")
-            side = _place_side(m.group("adj") or "", m.group("gen") or "", ctx)
-            key = (sq, piece, side)
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(Claim(rel="occupied", subj=None, objs=(Ref(sq=sq, piece=piece, side=side, text=m.group(0)),),
-                             pos=Pos(), span=(m.start(), m.end()), source="rules", kind="placement"))
+            gd = m.groupdict()
+            if gd.get("adj") is None and re.match(r"на\s", m.group(0)) is None and gd.get("at") is None and \
+                    _PLURAL_SIDE.search(low[max(0, m.start() - 12):m.start()]):
+                pass
+            side = _place_side(gd.get("adj") or "", gd.get("gen") or gd.get("at") or "", ctx)
+            for sq in [x for x in (gd.get("sq"), gd.get("sq2")) if x]:
+                key = (sq, piece, side)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(Claim(rel="occupied", subj=None, objs=(Ref(sq=sq, piece=piece, side=side, text=m.group(0)),),
+                                 pos=Pos(), span=(m.start(), m.end()), source="rules", kind="placement"))
     return out
 
 

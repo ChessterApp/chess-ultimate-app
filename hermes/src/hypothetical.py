@@ -13,6 +13,7 @@ is checked against.
 
 from __future__ import annotations
 
+import contextvars
 import functools
 import logging
 import time
@@ -62,11 +63,36 @@ def _keeps_decided(before: float, after: float, mover: chess.Color) -> bool:
     return before * sign >= DECIDED and after * sign >= DECIDED
 
 
+# The /learn lesson tutor keeps main's move check exactly (Асан 19.10; review-wiring2 01.11: the two ending exits
+# below changed what it shows). Its call runs inside main_rules(), where neither exit applies.
+_MAIN_RULES: "contextvars.ContextVar[bool]" = contextvars.ContextVar("hypothetical_main_rules", default=False)
+
+
+def main_rules(fn):
+    """*fn* wrapped to run with main's recommended-move rules (no tablebase or unproven-ending exit), in whatever
+    thread it is submitted to."""
+
+    @functools.wraps(fn)
+    def run(*args, **kwargs):
+        token = _MAIN_RULES.set(True)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _MAIN_RULES.reset(token)
+
+    return run
+
+
 def _tablebase_keeps(board: chess.Board, san: str) -> bool:
     """The endgame tablebase (≤ 7 pieces) says *san* keeps the result of *board* — a win stays a win, a draw a draw:
     no mistake, whatever the engine's number drops by (lucena «Rd1+», +6.1 → +4.3, still the textbook win; stage-2
-    integration 31.10). Asked only when the engine would cut; fail-open (unknown → False)."""
+    integration 31.10). Asked only when the engine would cut; fail-open (unknown → False). Its own switch, the
+    detector ``tablebase_keeps``; never inside main_rules() (the lesson tutor)."""
+    if _MAIN_RULES.get():
+        return False
     try:
+        if not _switch_on("tablebase_keeps"):
+            return False
         from src import board_rules
 
         if len(board.piece_map()) > 7 or board.castling_rights:
@@ -91,6 +117,8 @@ def _ending_unproven(board: chess.Board, before: float, after: float) -> bool:
     pawns *before* / *after*, ≥ ENDING_WON for the mover): the engine's drop proves no mistake. Fail-closed.
     Its own switch, the detector ``ending_unproven`` (COACH_DETECTORS_OFF=ending_unproven: the engine stage judges
     these endings as main did; review-wiring 01.11), and a log line each time it lets a move stand."""
+    if _MAIN_RULES.get():
+        return False
     try:
         if len(board.piece_map()) > 7 or board.castling_rights:
             return False

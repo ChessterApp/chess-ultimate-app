@@ -107,7 +107,7 @@ def test_prevents_not_read(sentence):
 
 def test_prevents_target_after_a_capture_verb_is_the_victim_square():
     c = _rel("Лучше всего d3, не давая коню f6 спокойно забрать пешку e4.", "prevents")[0]
-    assert c.to.sq == "e4" and c.to.piece == "N" and c.kind == "from:f6"
+    assert c.to.sq == "e4" and c.to.piece == "N" and c.kind.startswith("from:f6")  # (|calm: «спокойно», final 02.11)
     # after 4.d3 Nxe4 dxe4 loses the knight: true, not cut
     assert not _issues("Лучше всего d3, не давая коню f6 спокойно забрать пешку e4.", chess.STARTING_FEN,
                        "e4 e5 Nf3 Nc6 Bc4 Nf6")

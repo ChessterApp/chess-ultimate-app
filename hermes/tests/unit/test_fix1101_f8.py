@@ -554,7 +554,7 @@ def test_the_students_idea_moves_are_confirmed_ahead_of_the_candidates(monkeypat
     monkeypatch.setattr(ep, "_submit", lambda key, steps, label, replace=True, level=ep.LEVEL_BOARD:
                         got.setdefault(key, level))
     ep.after_ideas("s", "b", ["rn1qkbnr/ppp2p1p/3p2p1/4N3/2B1P1b1/2N5/PPPP1PPP/R1BQK2R b KQkq - 0 5"])
-    assert got == {"s/b#ideas": ep.LEVEL_CHECK}
+    assert got == {"s/b#ideas": ep.LEVEL_IDEA}
 
 
 def test_two_short_steps_of_a_task_run_at_once_but_one_long(monkeypatch):

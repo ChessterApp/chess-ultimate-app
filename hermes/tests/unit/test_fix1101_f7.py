@@ -74,7 +74,8 @@ def test_a_move_comment_caps_only_the_relation_detectors():
     game.relation_surface = "game"
     for name in config.DETECTOR_DEFAULTS:
         plain = config.detector_mode(name)
-        expected = min(plain, "shadow", key=config._MODE_RANK.get) if name in config.RELATION_DETECTORS else plain
+        capped = config.RELATION_DETECTORS - config.GAME_RECORD_RELATIONS  # cover_cause reads the record (miss2 01.11)
+        expected = min(plain, "shadow", key=config._MODE_RANK.get) if name in capped else plain
         assert config.detector_mode(name, game) == expected, name
     lesson = CheckContext.from_fens()
     lesson.relation_surface = "lesson"
@@ -105,7 +106,9 @@ def test_a_true_game_sentence_stays_in_a_move_comment(moves, student, sentence):
 def test_the_relation_detectors_stay_shadow_in_a_move_comment(monkeypatch):
     ctx = _game_ctx("e4 e5 Nf3 Nc6 Bb5 a6", comment=True)
     # a relation claim is recorded at most: the relation detectors are not reviewed on comments yet
-    assert all(config.detector_mode(n, ctx) != "on" for n in config.RELATION_DETECTORS)
+    assert all(config.detector_mode(n, ctx) != "on" for n in config.RELATION_DETECTORS - config.GAME_RECORD_RELATIONS)
+    # a relation detector judged by the game's record follows the game-record rule (review-miss2 01.11)
+    assert config.detector_mode("cover_cause", ctx) == config.detector_mode("cover_cause")
 
 
 def test_the_record_must_lead_to_the_board():

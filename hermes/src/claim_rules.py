@@ -579,6 +579,10 @@ _SQ_LIST_BEFORE = re.compile(r"(?P<list>" + _SQ + r"(?:\s*(?:,|и)\s*" + _SQ + r
 _FIELD = re.compile(_W + r"(?:поле|клетка|пункт|поля|клетки)\s+(?:[а-я]+\s+){0,3}?$")
 
 
+_PIECE_NOUN_END = re.compile(_W + r"(?:пешк|кон|слон|ладь|ферз|корол|фигур)[а-я]*\s+$")
+_FIELD_NAMED = re.compile(_W + r"(?:поле|клетка|пункт)\s+(?P<sq>" + _SQ + r")")
+
+
 def _occupied(conv, low, moves, state):
     out = []
     for m in _OCCUPIED.finditer(low):
@@ -595,6 +599,13 @@ def _occupied(conv, low, moves, state):
             before = head[:lst.start()]
             if re.search(r"(?:на|с)\s+$", before) and not _FIELD.search(before):
                 continue
+            if _PIECE_NOUN_END.search(before):
+                # «Поле e2 между конём f3 и ферзём d1 пустое» (review fp2 01.11): a square right after a piece noun is
+                # that piece's own square, not the field the words call empty — the field is the one «поле» names
+                fld = list(_FIELD_NAMED.finditer(head))
+                if not fld:
+                    continue
+                sqs = [fld[-1].group("sq")]
         elif _FIELD.search(head) and not free:
             # «поле слишком далеко и занято своими»: the field written before in the sentence
             prev = [x for x in re.finditer(_SQ, low[:m.start()])]
@@ -623,7 +634,7 @@ def _occupied(conv, low, moves, state):
 # шахов» are not claims; «закрыть короля от шахов» takes the checks for granted), the checker (a piece word with its
 # colour or square, or a side as the subject) and the king the checks are aimed at — told by a king move (SAN), in
 # words («король выходит на c7», «короля на c7»), or as the object of the check verb («шахует его»).
-_CHECK_WORD = re.compile(_W + r"шах(?!мат)[а-я]*" + _E)
+_CHECK_WORD = re.compile(_W + r"(?:за|по)?шах(?!мат)[а-я]*" + _E)
 _ORDINAL = {"перв": 1, "втор": 2, "трет": 3, "четверт": 4, "пят": 5, "шест": 6, "седьм": 7, "восьм": 8}
 _LINE_PHRASE = re.compile(
     r"(?:по|вдоль|на)\s+(?:(?:всей|всю|той\s+же|одной|открытой|открытую|соседней)\s+)?(?:"
@@ -770,10 +781,54 @@ def _defender(low: str, clause: int, end: int) -> Optional[bool]:
     """The side the sentence says answers the checks («белые закрываются», «чёрные закроются ладьёй»)."""
     m = None
     for x in _DEFENDS.finditer(low, clause, end):
+        if re.match(r"\w*\s+на\s+(?:[kqrbn]?[a-h]?[1-8]?x?[a-h][1-8]|ход\w*)", low[x.end():x.end() + 20]):
+            continue  # «чёрные ответят на Kc7 шахами»: they answer the move, with the checks — they are the checker
         m = x
     if m is None:
         return None
     return chess.WHITE if m.group("w") else chess.BLACK
+
+
+# A king put on a square anywhere in the sentence (review-miss2 01.11): a gerund («Выйдя на c7, белый король …»), the
+# square before the noun («На c7 короля будут беспокоить шахи»), a time clause after the checks («…, как только король
+# выйдет на c7»).
+_KING_GERUND = re.compile(_W + r"(?:выйдя|придя|встав|перейдя|шагнув|оказавшись|уйдя|отойдя|пройдя)\s+на\s+(?P<sq>" + _SQ + r")"
+                          r"[^.;!?]{0,40}?" + _W + r"корол[ьяюе]" + _E)
+_SQ_KING = re.compile(_W + r"на\s+(?P<sq>" + _SQ + r")\s+(?:[а-я]+\s+)?корол(?:я|ю|ь)" + _E)
+# A check from a square: «шахует с поля d2», «перейдёт на d2 с шахом», «зайдёт на d2 и объявит шах»
+_CHECK_FROM = re.compile(r"\s+(?:[а-я]+\s+){0,2}?(?:с|со)\s+(?:поля\s+|клетки\s+)(?P<sq>" + _SQ + r")" + _E)
+_TO_SQ_CHECK = re.compile(_W + r"(?:перейд\w*|перейти|переход\w*|зайд\w*|зайти|заход\w*|вста\w*|пойд\w*|ид[её]т|прыгн\w*|"
+                          r"сыгра\w*)\s+на\s+(?P<sq>" + _SQ + r")\s+(?:и\s+(?:[а-я]+\s+)?)?с\s+шах\w*" + _E)
+
+
+def _king_anywhere(low: str, moves: list, clause: int, cend: int, at: int) -> Optional[tuple]:
+    """(square, MoveRef or None, side, start, motion, end) of a king the sentence puts on a square outside the clause
+    before the check word: a king move written after it, a gerund, «на c7 короля», a king told after the checks."""
+    # after the checks only a king put there first in time («…, когда / как только король выйдет на c7», «… после
+    # Kc7»): a king move told plainly after them is the reply to the checks («Шах по первой горизонтали: король уходит
+    # на d2», review fp2 01.11 integration)
+    for s, e, mv in moves:
+        if clause <= s < cend and s >= at and (mv.piece or "P") == "K" and not mv.castle and mv.to and \
+                re.search(_W + r"(?:после|after)\s*(?:\d{1,3}\s?\.{1,3}\s?)?$", low[max(clause, s - 12):s]):
+            return (mv.to, mv, mv.side, s, True, e)
+    g = _KING_GERUND.search(low, clause, cend)
+    if g is not None:
+        return (g.group("sq"), None, _side_word(low, max(clause, g.end() - 30), g.end()), g.start(), True, g.end())
+    sk = _SQ_KING.search(low, clause, cend)
+    if sk is not None:
+        return (sk.group("sq"), None, None, sk.start(), False, sk.end())
+    for km in _KING_LOC.finditer(low, at, cend):
+        words = km.group("mid").split()
+        if _KING_NOT.search(km.group("mid")):
+            continue
+        if not re.search(_W + r"(?:когда|как\s+только|лишь\s+только|стоит\s+только|едва|после\s+того,?\s+как)\s+(?:[а-я]+\s+){0,2}$",
+                         low[max(clause, km.start() - 30):km.start()]):
+            continue
+        if any(not (_MOTION_W.fullmatch(w) or _STAND_W.fullmatch(w) or _SIDE.fullmatch(w)) for w in words):
+            continue
+        side = _side_word(low, max(clause, km.start() - 20), km.start())
+        return (km.group("sq"), None, side, km.start(), any(_MOTION_W.fullmatch(w) for w in words), km.end())
+    return None
 
 
 def _checks_along(conv, low, moves, state):
@@ -781,8 +836,21 @@ def _checks_along(conv, low, moves, state):
     for cw in _CHECK_WORD.finditer(low):
         bound = _bound_line(low, cw)
         if bound is None:
-            continue
+            # a check from a square («шахует с поля d2», «перейдёт на d2 с шахом»): a rook there checks along that
+            # square's file and rank only — read as its file, judged when the king is off both (below)
+            fm = _CHECK_FROM.match(low, cw.end())
+            tm = None
+            if fm is None:
+                tm = _TO_SQ_CHECK.search(low, max(0, cw.start() - 40), cw.end())
+            got = fm or tm
+            if got is None:
+                continue
+            bound = (f"file:{got.group('sq')[0]}|rank:{got.group('sq')[1]}", got.end() if fm else cw.end())
         kind, end = bound
+        rank_too = None
+        if "|rank:" in kind:
+            kind, _, rk = kind.partition("|")
+            rank_too = rk  # a check from a square: the king must be off its rank as well
         if not _check_polar(low, cw, end):
             continue
         moves_before = any(s < cw.start() for s, _, _ in moves)
@@ -794,6 +862,10 @@ def _checks_along(conv, low, moves, state):
         subj = _checker(low, clause, cw, end, shield)
         span = (min(cw.start(), max(clause, cw.start() - 45)), end)
         told = _king_told(low, moves, cw.start(), clause) if detector_mode("checks_geometry") != "off" else None
+        cend_m = re.search(r"[.;!?]", low[cw.end():])
+        cend = cw.end() + cend_m.start() if cend_m else len(low)
+        if told is None and detector_mode("checks_geometry") != "off":
+            told = _king_anywhere(low, moves, clause, cend, cw.start())
         obj = _CHECK_OBJ.match(low, cw.end())
         if obj is not None and obj.group("sq"):
             told = (obj.group("sq"), None, None, obj.start(), False, obj.end())  # «шахует короля на c7»
@@ -801,7 +873,7 @@ def _checks_along(conv, low, moves, state):
         if told is not None and told[5] <= cw.start() and \
                 _KING_WALK.search(low, told[5], cw.start()):
             told = None  # the king walks on between the square told and the checks («…, король пойдёт к ладье, а … шах»)
-        if told is not None:
+        if told is not None and told[3] < cw.start():
             # the king may walk on after the move told, and the checks be about where it goes («…, как только король
             # вернётся на d6»); a king moved again between the move told and the checks is the one they are aimed at
             again = [x for x in moves if x[0] >= end and (x[2].piece or "P") == "K"]
@@ -818,6 +890,8 @@ def _checks_along(conv, low, moves, state):
                 kside = defender
             if kside is not None and subj.side is not None and kside == subj.side:
                 told = None  # the checker's own king walking: the king the checks are aimed at is not told
+        if rank_too is not None and (told is None or _on_line(rank_too, chess.parse_square(told[0]))):
+            continue  # a check from a square judged only on a king off both its lines
         if told is not None:
             flags = "|aimed" if aimed else ""
             if not _on_line(kind, chess.parse_square(sq)):
@@ -925,6 +999,31 @@ _GONE_COVER = [
     # «… — e6, откуда f1 не прикрыт»
     ("cover", re.compile(_W + r"(?:откуда|где|с\s+которого|с\s+которой)\s+(?P<z>" + _SQ + r")\s+" + _NO_LONGER
                          + r"не\s+(?:прикрыт\w*|защищ\w*|атакован\w*|простреливается|контролируется|под\s+(?:ударом|боем))")),
+    # The consequence as a class (review-miss2 01.11), not five phrases: a loss operator (лиш-, теря-, брос-, остав-,
+    # уход-, исчез-) over a cover noun (контроль, защита, давление, удар, прицел, обстрел) of Z — «лишит слона
+    # контроля над f1», «придётся бросить контроль над f1»
+    ("cover", re.compile(_W + r"(?:лиш\w*|теря\w*|потеря\w*|утрат\w*|брос\w*|оставл\w*|остав\w*|уход\w*|уйд\w*|"
+                         r"пропад\w*|исчез\w*|отказ\w*\s+от)\s+(?:[а-я]+\s+){0,3}?(?:контрол\w*|защит\w*|давлени\w*|удар\w*|"
+                         r"прицел\w*|обстрел\w*)\s+(?:над|на|по|за)\s+(?:пол\w+\s+)?(?P<z>" + _SQ + r")")),
+    # «никто не бьёт f1», «f1 уже никто не контролирует»
+    ("free", re.compile(_W + r"(?:(?:поле|пункт)\s+)?(?P<z>" + _SQ + r")\s+" + _NO_LONGER + r"(?:уже\s+)?(?:никто|ничто|ничего)\s+"
+                        r"(?:уже\s+|больше\s+)?не\s+" + _COVER_VERB + _E)),
+    ("free", re.compile(_W + r"(?:никто|ничто|ничего)\s+(?:уже\s+|больше\s+)?не\s+" + _COVER_VERB + r"\s+(?:(?:поле|пункт)\s+)?"
+                        r"(?P<z>" + _SQ + r")")),
+    # «f1 выйдет из-под обстрела / удара / контроля»
+    ("free", re.compile(_W + r"(?:(?:поле|пункт)\s+)?(?P<z>" + _SQ + r")\s+" + _NO_LONGER + r"(?:выйд\w*|выход\w*|выйти|уйд\w*|"
+                        r"уход\w*|освобо\w*)\s+(?:из-под|от)\s+(?:удара|боя|контроля|обстрела|атаки|прицела)" + _E)),
+    # «слону некуда отступить так, чтобы держать f1»: no retreat keeps the cover
+    ("cover", re.compile(_W + r"некуда\s+(?:отступить|уйти|отойти|деться)\s+(?:так,?\s+)?чтобы\s+(?:[а-я]+\s+)?"
+                         + _COVER_VERB + r"\s+(?:(?:поле|пункт)\s+)?(?P<z>" + _SQ + r")")),
+    # castling made possible: «рокировка» / O-O with a possibility predicate anywhere in its clause, «откроешь королю
+    # путь на g1», «королю ничто не мешает рокироваться»
+    ("castle", re.compile(_W + r"(?:(?:рокировк\w*|o-o(?:-o)?|0-0(?:-0)?)[^.;!?,:—–]{0,60}?(?:станет|будет|станут|откро\w*|"
+                          r"открыва\w*|становится|окажется)\s+(?:[а-я]+\s+)?(?:возможн|доступн|разреш|легальн|открыт)\w*|"
+                          r"(?:рокировк\w*|o-o(?:-o)?|0-0(?:-0)?)[^.;!?,:—–]{0,40}?(?:откро(?:ется|ются)|открыва(?:ется|ются))|"
+                          r"(?:король|королю|ты|вы)\s+(?:[а-я]+\s+){0,3}?смо(?:жет|жешь|жете)\s+(?:[а-я]+\s+){0,2}?рокир\w*|"
+                          r"ничто\s+(?:уже\s+|больше\s+)?не\s+меша\w*\s+(?:[а-я]+\s+){0,2}?рокир\w*|"
+                          r"(?:откро\w*|открыва\w*|освобо\w*|расчист\w*)\s+(?:[а-я]+\s+)?(?:путь|дорогу)\s+(?:на|к)\s+[gc][18])" + _E)),
 ]
 _KEEPS = re.compile(_W + r"(?:вс[её]\s+равно|по-прежнему|продолж\w*|сохран\w*|останет\w*|оста[её]тся|не\s+потеряет|"
                     r"не\s+теряет|не\s+уйд\w*|не\s+уход\w*|не\s+отступ\w*|не\s+освобод\w*|не\s+свободн\w*)" + _E)
@@ -973,13 +1072,27 @@ def _retreat_cover(conv, low, moves, state):
 
 def _retreat_consequence(conv, low, moves, state):
     """The chase and the cover it is said to take away, told in any clause after the chase (see above)."""
+    # the cover lost and the castling made possible before «покинет c4» (leaving a square may be its own square)
     cands = sorted(((m.start(), i, what, m) for i, (what, rx) in enumerate(_GONE_COVER) for m in rx.finditer(low)),
-                   key=lambda x: (x[0], x[1]))
+                   key=lambda x: (x[2] == "line", x[0], x[1]))
     for _s, _i, what, m in cands:
         got = _retreat_one(conv, low, moves, state, what, m)
         if got:
             return got
     return []
+
+
+def _when_is_chase(low: str, head: str, tok) -> bool:
+    """«Как только сыграешь b3, слон покинет c4 …»: the time clause is the chase move itself (only a verb of playing and
+    a person between «как только» and the move), not a condition on something else."""
+    w = None
+    for x in _WHEN.finditer(head):
+        w = x
+    if w is None or not w.group(0).startswith("как"):
+        return False
+    rest = low[w.end():tok.start()].split()
+    return all(x in ("сыграешь", "сыграете", "сыграют", "сыграет", "сыграем", "ты", "вы", "белые", "черные", "пойдешь",
+                     "сделаешь", "ходом", "ход", "будет", "сыгран", "сыграна") for x in rest)
 
 
 def _retreat_one(conv, low, moves, state, what, m):
@@ -1020,7 +1133,7 @@ def _retreat_one(conv, low, moves, state, what, m):
         # «Если сыграть b3, слон уйдёт, и поле f1 …»: the condition is the chase move itself
         if not _if_only_move(low, pm.start(), toks[0]):
             return []
-    elif _WHEN.search(head):
+    elif _WHEN.search(head) and not _when_is_chase(low, head, toks[0]):
         return []
     if _RETREAT_IF.search(low, toks[0].end(), m.start()) or _WHEN.search(low, toks[0].end(), m.start()):
         return []  # «после b3 рокировка станет возможна лишь тогда, когда слон уйдёт с диагонали»: a condition
@@ -1092,17 +1205,25 @@ _OWN_WORD = re.compile(r"(?:сво\w+|собственн\w+)")
 _PERMIT = re.compile(_W + r"(?P<neg>не)\s+(?:(?:уже|больше|просто|никак|даже|сразу|будет|станет|так)\s+){0,2}"
                      r"(?:дава\w*|да(?:ет|ют|ст|дут|м|шь|дим|ть|л|ла|ли|ло|вая|ешь)|позвол\w*|пуска\w*|допуска\w*|допуст\w*|"
                      r"пуст(?:ит|ят|ишь|ил|ила|или|ить)|разреш\w*|оставля\w*\s+(?:[а-я]+\s+)?(?:шанс\w*|возможност\w*))" + _E)
-_STOP = re.compile(_W + r"(?P<v>(?:по)?меша(?:ет|ют|л|ла|ли|ло|ть|я|ешь|ем)|воспрепятству\w*|препятству\w*|"
-                   r"лиша(?:ет|ют|л|ла|ли|ть|я|ешь)|лиши(?:т|л|ла|ли|ть|в)|запреща(?:ет|ют|л|ла|ли|ть|я)|"
-                   r"запрет(?:ит|ил|ила|или|ить)|предотвраща\w*|предотврат(?:ит|ил|ила|или|ить|ив)|пресека\w*|"
-                   r"пресеч\w*|исключа(?:ет|ют|я)|исключ(?:ит|ил|ила)|отнима(?:ет|ют|я)|отним(?:ет|ут)|"
-                   r"отбира(?:ет|ют|я)|отбер(?:ет|ут)|(?:за)?блокиру(?:ет|ют|я|ет)|перекрыва(?:ет|ют|я)|"
-                   r"перекро(?:ет|ют)|закрыва(?:ет|ют|я)|закро(?:ет|ют))" + _E)
-_NEEDS_NOUN = re.compile(r"(?:за)?блокир|перекр|закр")  # «блокирует продвижение d5», «перекрывает дорогу», not «блокирует d5»
+# The stop as a lemma class (review-miss2 01.11: «отнимаешь», «лишены», «запрещён», «исключён», «остановит»,
+# «удерживает от» were not read): every person, tense, participle and passive of меша-, препятств-, лиш-, запрет-,
+# предотвра-, пресе-, исключ-, отним-/отня-, отбир-/отобр-, останов-, удержива-/удерж- (от), сдержива-, блокир-,
+# перекр-, закр-.
+_STOP = re.compile(_W + r"(?P<v>(?:по)?меша\w*|(?:вос)?препятств\w*|лиша\w*|лиши\w*|лиш[её]н\w*|запреща\w*|запрет\w*|"
+                   r"запрещ[её]н\w*|предотвра\w*|пресека\w*|пресеч\w*|исключа\w*|исключ(?:ит|ил|ила|или|ат|ен|ена|ено|ены|"
+                   r"[её]н)\w*|отнима\w*|отним\w*|отнял\w*|отня\w*|отбира\w*|отбер\w*|отобра\w*|отобрал\w*|останавлива\w*|"
+                   r"останов(?:ит|ят|ил|ила|или|ишь|ить)\w*|удержива\w*|удерж(?:ит|ат|ал|ала|али|ать)\w*|сдержива\w*|"
+                   r"(?:за)?блокиру\w*|(?:за)?блокир(?:ует|овал|ован)\w*|перекрыва\w*|перекро\w*|перекрыл\w*|закрыва\w*|"
+                   r"закро\w*|закрыл\w*)" + _E)
+_NEEDS_NOUN = re.compile(r"(?:за)?блокир|перекр|закр")
+_NEEDS_FROM = re.compile(r"удерж|сдерж")  # «удерживает чёрных от хода d5»; «удерживает d5» is a hold, not a stop  # «блокирует продвижение d5», «перекрывает дорогу», not «блокирует d5»
 _CANT = re.compile(_W + r"(?:не\s+(?:(?:уже|больше|сразу|просто|так\s+просто|никак)\s+)?(?:смо(?:жет|гут|жешь|жете|г|гла|гли)|"
-                   r"сумеет|сумеют|могут|может|можешь|сможет|успе(?:ет|ют|ешь)|удаст(?:ся)?|получит(?:ся)?|"
-                   r"будет\s+(?:возможности|шанса)\s+)|(?:будет\s+|станет\s+)?(?:уже\s+)?(?:нельзя|невозможно)|"
-                   r"лишен\w*\s+возможности)" + _E)
+                   r"сумеет|сумеют|сумеешь|могут|может|можешь|сможет|успе(?:ет|ют|ешь)|удаст(?:ся)?|получит(?:ся)?|"
+                   r"будет\s+(?:возможности|шанса)\s+|будет(?=\s+(?:хода|ходов)))|(?:будет\s+|станет\s+)?(?:уже\s+)?(?:нельзя|невозможно)|"
+                   r"лишен\w*\s+возможности|"
+                   # a dative subject with a negated infinitive: «чёрным уже не сыграть d5», «коню не попасть на d5»
+                   r"не(?=\s+(?:уже\s+)?(?:сыграть|пойти|продвинуть|двинуть|поставить|занять|сделать|выйти|прорваться|"
+                   r"попасть|пробиться|вывести|ответить)" + _E + r"))" + _E)
 _REACH_NOT = re.compile(_W + r"не\s+(?:(?:уже|больше|сразу|никак)\s+)?(?:смож\w+\s+)?"
                         r"(?:дойд\w*|дойти|пройд\w*|пройти|попад\w*|попасть|прорв\w*|прорваться|пробь\w*|пробиться|"
                         r"добер\w*|добраться)" + _E)
@@ -1183,7 +1304,7 @@ def _target_after(conv: str, low: str, at: int, *, verb_needed: bool, needs_noun
         if _OWN_WORD.fullmatch(w):
             own = True
             continue
-        if w in ("у", "его", "ее", "их") or (w in ("с", "со") and last_piece is not None):
+        if w in ("у", "его", "ее", "их", "от", "для") or (w in ("с", "со") and last_piece is not None):
             continue
         pm = _PIECE.fullmatch(w)
         if pm:
@@ -1229,13 +1350,16 @@ def _target_before(conv: str, low: str, start: int, clause: int) -> Optional[dic
                 span=(clause + m.start(), start), tok_start=clause + m.start("tok"), noun=m.group("noun"))
 
 
-_BEFORE_CUE = re.compile(r"(?:(?P<noun>ход|хода|продвижени\w*|возможност\w*|иде[яи]|прорыв)\s+)?(?:\.{2,3}|…)?"
-                         r"(?P<tok>[kqrbn]?x?[a-h][1-8])(?![0-9])\s+(?:(?:у|для)\s+(?P<side>[а-я]+)\s+)?"
+_BEFORE_CUE = re.compile(r"(?:(?P<noun>ход|хода|продвижени\w*|возможност\w*|иде[яи]|прорыв|ответ)\s+)?(?:\.{2,3}|…)?"
+                         r"(?P<tok>[kqrbn]?x?[a-h][1-8])(?![0-9])\s+(?:(?:(?:у|для)\s+)?(?P<side>(?:бел|черн)(?:ым|ых)|"
+                         r"[а-я]+(?=\s+(?:уже\s+)?(?:будет|станет|исключ|запрещ|невозмож|отпад|пропад)))\s+)?"
                          r"(?:(?:уже|сразу|просто|тогда|будет|станет|становится|делается|окажется|у|для|них|черных|белых)\s+)*$")
 _PIECE_TAIL = re.compile(r"(?:" + "|".join(p for _, p in _PIECE_STEMS) + r")\s+(?:(?:на|с|со)\s+)?$")
 _INTRO = re.compile(r"(?:^|[—–:;,(]|" + _W + r"(?:играй|играйте|сыграй|сыграйте|играть|сыграть|сыграв|сыграем|играем|"
                     r"ход|ходом|хода|план|после|сначала|продвинь|толкни|двинь|поставь|ставь|лучше|с|через|выбирай|"
-                    r"выбери|предлагаю|советую|рекомендую|выбор|ответ|ответь|отвечай|ответив|напрашивается))"
+                    r"выбери|предлагаю|советую|рекомендую|выбор|ответ|ответь|отвечай|ответив|напрашивается|благодаря|"
+                    r"пойти|пойдя|сделав|продвинув|поставив|если|(?:с|со)\s+пешкой\s+на|поставленн\w*\s+на|"
+                    r"вставш\w*\s+на|пешка\s+на))"
                     r"\s*[*_«\"]*(?:всего\s+)?[*_«\"]*(?:\d{1,3}\s?\.{1,3}\s?)?$")
 
 
@@ -1245,6 +1369,8 @@ def _mover_token(low: str, clause: int, end: int, skip_at: Optional[int] = None)
     toks = [t for t in _TOKEN.finditer(low, clause, end) if t.start() != skip_at]
     for t in reversed(toks):
         before = low[clause:t.start()]
+        if re.search(_W + r"(?:с|со)\s+пешкой\s+на\s*$", before):
+            return "move", t  # «С пешкой на d4 чёрным уже не сыграть d5»: the pawn put there is the stopper
         if _PIECE_TAIL.search(before):
             continue  # the square of a piece phrase («пешка d7», «конь на f6»): not the move
         if not _INTRO.search(before):
@@ -1337,9 +1463,15 @@ def prevention_start(text: str) -> Optional[int]:
     return min(starts) if starts else None
 
 
+_FROM_TO = re.compile(r"(?<![a-z0-9])([a-h][1-8])\s*[–—-]\s*([a-h][1-8])(?![0-9])")
+
+
 def _prevents(conv, low, moves, state):
     out = []
     seen = set()
+    # «путь d7–d5», «продвижению d7-d5»: a move written from–to is its destination (the length kept, for the offsets)
+    pad = lambda m_: " " * (len(m_.group(0)) - 2) + m_.group(2)  # noqa: E731
+    conv, low = _FROM_TO.sub(pad, conv), _FROM_TO.sub(pad, low)
     for kind, m in _prevention_cues(low):
         if kind == "stop" and re.search(_W + r"не\s+(?:[а-я]+\s+)?$", low[max(0, m.start() - 12):m.start()]):
             continue  # «не мешает»: a denied stop says the move stays possible — not this claim
@@ -1369,6 +1501,12 @@ def _prevents(conv, low, moves, state):
         else:
             tgt = _target_after(conv, low, m.end(), verb_needed=False,
                                 needs_noun=kind == "stop" and bool(_NEEDS_NOUN.match(m.group("v"))))
+            if tgt is not None and kind == "stop" and _NEEDS_FROM.match(m.group("v")) and \
+                    not re.search(r"(?<![а-я])от(?![а-я])", low[m.end():tgt["span"][1]]):
+                tgt = None
+            if tgt is None and kind == "stop" and re.match(r"(?:исключ|запрещ|лиш)[её]?н", m.group("v")):
+                # a passive with the move as its subject: «ход d5 для чёрных исключён», «ответ d5 чёрным запрещён»
+                tgt = _target_before(conv, low, m.start(), clause)
         if tgt is None or tgt["own"] or (tgt["sq"] is None and tgt["castle"] is None):
             continue
         if "tok_start" in tgt:
@@ -1377,7 +1515,13 @@ def _prevents(conv, low, moves, state):
             limit = m.start()
         what, t = _mover_token(low, clause, limit)
         if what != "move":
-            continue  # no move written as the stopper («атакуя c5 и не давая …», «конь на f6, не давая …»)
+            # «Ответ d5 чёрным запрещён после d4»: the stopper told after the cue with «после»
+            pm = re.search(r"(?<![а-я])после\s+(?:\d{1,3}\s?\.{1,3}\s?)?(?=[kqrbn]?[a-h]?[1-8]?x?[a-h][1-8](?![0-9]))",
+                           low[tgt["span"][1]:sentence_end])
+            nt = _TOKEN.match(low, tgt["span"][1] + pm.end()) if pm else None
+            if nt is None:
+                continue  # no move written as the stopper («атакуя c5 и не давая …», «конь на f6, не давая …»)
+            t = nt
         if kind in ("permit", "stop") and re.search(r"(?:" + "|".join(p for _, p in _PIECE_STEMS) + r")\s+(?:на\s+)?"
                                                      + _SQ + r"\s+(?:[а-я]+\s+){0,2}$", low[t.end():m.start()]):
             continue  # «Играй d4: конь c3 не даёт …» — a piece standing is the stopper, not the move
@@ -1411,6 +1555,10 @@ def _prevents(conv, low, moves, state):
         if key in seen:
             continue
         seen.add(key)
+        # «не давая слону спокойно выйти на b4»: the words say the move is not comfortable, not that it is illegal or
+        # loses — a move met at once by an attack on the piece (3...Bb4 4.c3) is not calm (review-fp 01.11 v-prev-05)
+        calm = bool(re.search(_W + r"(?:спокойно|безнаказанно|легко|свободно|удобно|комфортно|без\s+проблем|"
+                               r"без\s+последствий)" + _E, low[m.start():tgt["span"][1]]))
         piece = tgt["piece"]
         to = Ref(sq=tgt["sq"], piece=piece) if tgt["sq"] else Ref(piece="K", text="castle")
         out.append(_claim("prevents", _stopped_side(side_d), (Ref(sq=tgt["sq"], piece=piece) if tgt["sq"] else
@@ -1418,8 +1566,8 @@ def _prevents(conv, low, moves, state):
                           pos=_pos(moves, next((s0 for s0, e0, _m in moves if s0 <= t.start() < e0), t.start()), low, state,
                                    ends=True), span=(t.start(), tgt["span"][1]),
                           move=mover, to=to,
-                          kind=("castle:" + tgt["castle"]) if tgt["castle"] is not None else
-                          ("from:" + tgt["frm"] if tgt["frm"] else "")))
+                          kind=(("castle:" + tgt["castle"]) if tgt["castle"] is not None else
+                                ("from:" + tgt["frm"] if tgt["frm"] else "")) + ("|calm" if calm else "")))
     return out
 
 
@@ -1467,11 +1615,13 @@ _CUE_RULES = re.compile(r"тольк|единствен|выбор|ходов|о
                         r"придется|приходится")
 _HAS_SQUARE = re.compile(r"[a-h][1-8]|o-o|0-0|рокир")
 # The words fix 01.11 added for the parts a prevention or a lost cover is told with (F3).
-_CUE_NEW = re.compile(r"не\s+да|позвол|пуска|пуст|допус|меша|лиша|лиши|запре|предотвра|пресе|исключ|отним|отбир|отбер|блокир|"
+_CUE_NEW = re.compile(r"не\s+да|позвол|пуска|пуст|допус|меша|лиш|запре|предотвра|пресе|исключ|отним|отня|отбир|отбер|отобра|блокир|"
+                      r"препятств|останов|удерж|сдерж|не\s+(?:уже\s+)?(?:сыграть|пойти|продвинуть|двинуть|поставить|занять|"
+                      r"сделать|выйти|прорваться|попасть|пробиться)|не\s+будет\s+ход|"
                       r"перекр|закр|смог|сумеют|сумеет|успе|удаст|получит|нельзя|невозможн|чтобы|пропад|исчез|отпад|"
                       r"дойд|пройд|попад|прорв|добер|освобо|простре|перестан|контрол|теря|рокир|покин|отгон|отогна|"
                       r"выгон|выгна|прогон|прогна|держ|прикр|под\s+удар|под\s+бо|атак|свобод|отступ|уйд|уход|отой|отход|"
-                      r"бить|бьет|бьют|видит|смотрит")
+                      r"бить|бьет|бьют|видит|смотрит|лиш|брос|остав|никто|из-под|обстрел|путь|дорог|рокир|o-o|0-0")
 _CUE = re.compile(_CUE_RULES.pattern + "|" + _CUE_NEW.pattern)  # the union, for callers outside extract
 
 
@@ -2318,10 +2468,17 @@ def judge_prevents(claim: Claim, board: chess.Board, ctx) -> Verdict:
     board; a castling target is judged by its legality and the same loss."""
     if claim.move is None or not (claim.move.san or claim.move.castle) or claim.to is None:
         return UNDECIDED
-    castle = claim.kind.startswith("castle:")
+    calm = claim.kind.endswith("|calm")
+    kind_ = claim.kind[:-5] if calm else claim.kind
+    castle = kind_.startswith("castle:")
     if not castle and not claim.to.sq:
         return UNDECIDED
     after = _playable(board, claim.move, strict=True)
+    if after is None:
+        # the stopper already played (review-miss2 01.11: «Ход d6 не даёт белым сыграть d4» on the board after 2...d6):
+        # the move that led to this board — judged here, with the side to move as the one stopped
+        if any(_same_board(_playable(b0, claim.move, strict=True), board) for b0, _mv in _last_played(board, ctx)):
+            after = board
     if after is None:
         return UNDECIDED  # the move is not this board's (for the side to move)
     mover = not after.turn
@@ -2335,7 +2492,7 @@ def judge_prevents(claim: Claim, board: chess.Board, ctx) -> Verdict:
     if stopped is None or stopped == mover:
         return UNDECIDED
     if castle:
-        wing = claim.kind.partition(":")[2]
+        wing = kind_.partition(":")[2]
         cands = [m for m in after.legal_moves if after.is_castling(m)
                  and (not wing or (wing == "O-O") == after.is_kingside_castling(m))]
     else:
@@ -2344,7 +2501,7 @@ def judge_prevents(claim: Claim, board: chess.Board, ctx) -> Verdict:
         there = after.piece_at(t)
         if there is not None and there.color == stopped:
             return UNDECIDED  # its piece stands there already: the words are about a board before that move
-        frm = claim.kind.partition(":")[2] if claim.kind.startswith("from:") else None
+        frm = kind_.partition(":")[2] if kind_.startswith("from:") else None
         cands = [m for m in after.legal_moves if m.to_square == t and (pt is None or after.piece_type_at(m.from_square) == pt)
                  and not after.is_castling(m) and (frm is None or chess.square_name(m.from_square) == frm)]
     if not cands:
@@ -2354,7 +2511,7 @@ def judge_prevents(claim: Claim, board: chess.Board, ctx) -> Verdict:
         loss = _stop_loss(after, m)
         if loss is None:
             return UNDECIDED  # the forcing line could not be searched out: no verdict
-        if loss == 0:
+        if loss == 0 and not (calm and _harassed(after, m)):
             free.append(m)
     if not free:
         return Verdict("true")  # every such move loses material: «не давая спокойно …» holds
@@ -2365,6 +2522,66 @@ def judge_prevents(claim: Claim, board: chess.Board, ctx) -> Verdict:
     why = _safety(a, m.to_square) if not castle else "nothing attacks the king's path"
     return Verdict("false", "", f"after {claim.move.san.rstrip('!?') if claim.move.san else 'the move'} {_colour(stopped)} "
                    f"can still play {played}: it is legal and loses nothing ({why})")
+
+
+def move_fits(claim: Claim, board: chess.Board, ctx) -> bool:
+    """The move a prevention claim names is this board's: playable here by the side to move, or the move that led
+    here. A board where it is neither is not the one the sentence talks about (claim_judge: a shown board of another
+    moment does not hold the verdict back)."""
+    if claim.rel != "prevents" or claim.move is None or not (claim.move.san or claim.move.castle):
+        return True
+    if _playable(board, claim.move, strict=True) is not None:
+        return True
+    return any(_same_board(_playable(b0, claim.move, strict=True), board) for b0, _mv in _last_played(board, ctx))
+
+
+def _last_played(board: chess.Board, ctx) -> list:
+    """[(the board before, the move)] of the moves that may have led to *board*: the game or line of the turn that
+    ends on it, the board's own stack, the resolver's story."""
+    out = []
+    try:
+        from src.claim_scene import _history_to, board_before, last_move
+
+        hist = _history_to(ctx, board)
+        if hist:
+            out.append((hist[-1][0], hist[-1][1]))
+        if board.move_stack:
+            b = board.copy()
+            mv = b.pop()
+            out.append((b, mv))
+        if last_move(board) is not None and board_before(board) is not None:
+            out.append((board_before(board), last_move(board)))
+    except Exception:  # noqa: BLE001
+        return out
+    return out
+
+
+def _same_board(a: Optional[chess.Board], b: chess.Board) -> bool:
+    return a is not None and a.board_fen() == b.board_fen() and a.turn == b.turn
+
+
+def _harassed(board: chess.Board, move: chess.Move) -> bool:
+    """After *move* on *board*, the other side can at once attack the moved piece with a cheaper one (3...Bb4 4.c3):
+    the move is not made in peace."""
+    a = board.copy(stack=False)
+    a.push(move)
+    t = move.to_square
+    mine = a.piece_at(t)
+    if mine is None or mine.piece_type in (chess.PAWN, chess.KING):
+        return False
+    val = _VALUE_OF.get(mine.piece_type, 0)
+    for m in a.legal_moves:
+        p = a.piece_at(m.from_square)
+        if p is None or _VALUE_OF.get(p.piece_type, 9) >= val or m.to_square == t:
+            continue
+        b = a.copy(stack=False)
+        b.push(m)
+        if t in b.attacks(m.to_square):
+            return True
+    return False
+
+
+_VALUE_OF = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 100}
 
 
 def _playable(board: chess.Board, m: MoveRef, *, strict: bool = False) -> Optional[chess.Board]:
