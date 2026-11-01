@@ -1958,7 +1958,11 @@ _LOCK_BLOCKER = re.compile(W + r"(?:за|своими|своей|своим|св
 # a hedge: «почти заперт», «наполовину», «фактически», «как бы» — not the strict «no way out»
 _LOCK_HEDGE = re.compile(W + r"(?:почти|наполовину|полу\w*|фактически|практически|в\s+каком-то\s+смысле|как\s+бы|"
                          r"своего\s+рода|в\s+некотором\s+роде|отчасти|частично|довольно|слегка|немного|"
-                         r"по\s+сути|можно\s+сказать|считай|как\s+будто|словно|будто)" + E)
+                         r"по\s+сути|можно\s+сказать|считай|как\s+будто|словно|будто|"
+                         # a scope that narrows «no way out» to some moves: «некуда ходить, кроме e7», «не может выйти в
+                         # игру», «по вертикали», «вперёд» — the piece may well have other moves
+                         r"кроме|за\s+исключением|только|лишь|except|в\s+игру|полезн\w*|хорош\w*|активн\w*|"
+                         r"по\s+(?:вертикал|горизонтал|диагонал|лини)\w*|вперед|назад|в\s+центр|на\s+фланг\w*)" + E)
 # «заперт» meaning trapped (it can move, every way out loses) or confined (a king's net): not a claim about moves
 _TRAPPED = re.compile(W + r"(?:отступ\w*|ловушк\w*|пойма\w*|поймать|окруж\w*|сбежа\w*|убежа\w*|бежать)" + E)
 _LOSS = re.compile(W + r"(?:потерял\w*|потерян\w*|потеря(?:ть|ешь|ет|ем|ют)|погиб\w*|пропал\w*|пропада\w*|висел\w*|"
@@ -2127,8 +2131,10 @@ def _pin_claims(t: str, low: str, toks: list, ante: dict) -> list:
                 # «Сначала Nd2, чтобы развязаться», «4...Be7 снимает эту связку»: some piece of the mover's side was
                 # pinned before the move (the side the words name, else the mover's)
                 add("pin_exists", [side_ref], "before_move", vstart, cue_end, (ca, cb), tense, "pin_escape", move=move)
-            elif side_ref is not None or rel_word == "remove":
-                # «снять связку» with no piece and no side named: some pin of some board of the sentence
+            elif proposal and (rel_word == "remove" or (ref is not None and ref.owner is not None)):
+                # «снять связку» (a side or none named), «не даёт им развязаться»: some pin of some board of the
+                # sentence. A bare side leaving a pin with no move told («чёрные должны избавиться от связки») is a
+                # lesson's theme as often as this board's fact: unjudged
                 add("pin_exists", [side_ref], "exists", vstart, cue_end, (ca, cb), "present", "pin_escape")
             return
         letter = _LETTER[ref.ptype]
@@ -2165,10 +2171,16 @@ def _pin_claims(t: str, low: str, toks: list, ante: dict) -> list:
             return
         if rel_word == "gone":
             return  # «больше не связан» with no move told: the denial is the ordinary claim of bind
-        if proposal or tense == "past" or rel_word == "remove":
-            # «снять связку», «связка исчезает» with no move told name the pin they end whatever the mood: some board
-            # of the sentence has it
+        if proposal or tense == "past":
+            # «надо развязать коня», «сними связку»: the pin the proposal ends is on the board it is made on (or some
+            # board of the sentence). «Конь вышел из-под связки» with no move told: the pin held before a move the
+            # sentence does not name — claim_judge leaves the past unjudged (the board now is after it, where the pin
+            # is gone by the words' own account; fix1101 F1)
             add("pin_exists", [obj], "exists", vstart, cue_end, (ca, cb), tense, "pin_escape")
+        elif rel_word == "remove":
+            # «это снимает связку с коня» with no move told: the move is in another sentence, and the board now may
+            # be before it or after it — unjudged rather than judged on the wrong ply
+            return
         else:
             # a report with no move of its own: the board now (present) is the board before the escape
             add("pinned", [obj], "", vstart, cue_end, (ca, cb), tense, "pin_escape",

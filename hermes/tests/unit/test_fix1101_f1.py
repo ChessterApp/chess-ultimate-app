@@ -257,3 +257,13 @@ def test_two_san_moves_alike_are_two_moves():
     assert [m.san for m in cg.written_moves("Тогда после Nxd4 Nxd4 exd4 Qxd4 ферзь в центре.")] == \
         ["Nxd4", "Nxd4", "exd4", "Qxd4"]
     assert len(cg.written_moves("Nc6: конь с b8 встал на c6.")) == 1
+
+
+def test_an_untold_move_leaves_the_end_of_a_pin_unjudged():
+    # the move that ended the pin is not in the sentence: the board now is after it — never judged there
+    after_bd2 = NIMZO + " Bd2"
+    assert _issues(after_bd2, "Это снимает связку с коня c3.") == []
+    assert _issues(after_bd2, "Конь c3 вышел из-под связки.") == []
+    assert _issues(after_bd2, "Белые развязали коня c3.") == []
+    c = _kinds("Конь ушёл из-под связки.", "pin_escape")[0]
+    assert J.decide(c, J.BoardSet(primary=chess.Board(), where=""), None).status == "undecided"

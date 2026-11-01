@@ -1336,6 +1336,10 @@ def _decide(claim: Claim, boards: BoardSet, ctx: Any) -> Verdict:
         return UNDECIDED
     if claim.presup == "before_move":
         return _decide_escape(claim, boards, ctx)
+    if claim.kind == "pin_escape" and claim.presup == "exists" and claim.pos.tense == "past":
+        # «конь ушёл из-под связки», «король увёл ферзя из-под связки» with no move told: the pin held right before
+        # a move the words do not name, and the boards here are after it (fix1101 F1) — unjudged, never false
+        return UNDECIDED
     if claim.presup == "no_longer" or (boards.primary is not None and claim.neg and
                                                        getattr(boards.primary, "rel_detector", None) == "loaded_line"):
         claim, boards = _presupposed(claim, boards)
