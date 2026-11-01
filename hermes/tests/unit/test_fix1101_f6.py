@@ -246,3 +246,15 @@ def test_frames_normalise_to_giver_given_received():
     got = [(f["a"], f["b"], f["giver"]) for f in frames("Ферзь белых был отдан за ладью.")]
     assert got == [(["Q"], ["R"], "owner")]
     assert frames("Размен ферзя на ладью выгоден белым.") == []
+
+
+def test_the_new_race_forms_follow_the_race_distance_switch(monkeypatch):
+    s = "Король чёрных не попадает в квадрат пешки."
+    assert _race_issues(s, _race(SQUARE, "draw"))
+    monkeypatch.setenv("COACH_DETECTORS_OFF", "race_distance")
+    assert _race_issues(s, _race(SQUARE, "draw")) == []
+    monkeypatch.delenv("COACH_DETECTORS_OFF")
+    monkeypatch.setenv("COACH_DETECTORS_SHADOW", "race_distance")
+    ctx = _race(SQUARE, "draw")
+    assert _race_issues(s, ctx) == []
+    assert [n for n, *_ in ctx.detector_shadow] == ["race_distance"]

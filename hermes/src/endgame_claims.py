@@ -70,24 +70,16 @@ _E = r"(?![а-яёa-zәғқңөұүһі])"
 # does not lose; «win» — the side wins. Polarity None: «не» before the verb decides; False: the form denies.
 _CHASE_RU = (r"догон(?:ит|ишь|ят|ите|яет|яешь|яют)|догонит|догнать|поймает|поймаешь|поймают|поймать|лов(?:ит|ишь|ят)|"
              r"перехват(?:ит|ишь|ят|ить)|"
-             r"успе(?:ет|ешь|ют|ете|вает|ваешь|вают|ть)|"
-             # the rule of the square (review 01.11): «попадает / входит / войдёт в квадрат» — the king catches the pawn
-             r"попада(?:ет|ешь|ют|ете)\s+в\s+квадрат|попад(?:[её]т|[её]шь|ут|[её]те)\s+в\s+квадрат|попасть\s+в\s+квадрат|"
-             r"вход(?:ит|ишь|ят|ите)\s+в\s+квадрат|войд(?:[её]т|[её]шь|ут|[её]те)\s+в\s+квадрат|войти\s+в\s+квадрат|"
-             r"вступа(?:ет|ешь|ют)\s+в\s+квадрат|вступит\s+в\s+квадрат")
+             r"успе(?:ет|ешь|ют|ете|вает|ваешь|вают|ть)")
 # «задержит пешку на пару ходов» is a delay, not the pawn stopped (review 30.10: a KPK lesson the defender loses
 # on the opposition was cut): only «остановит» says the pawn does not get through.
 _STOP_RU = r"останов(?:ит|ишь|ят|ить)"
-_CHASE_EN = (r"catch(?:es)?|caught|catching\s+up|stops?|stopping|make\s+it\s+in\s+time|in\s+time|"
-             r"(?:enters?|entering|gets?\s+into|steps?\s+into)\s+the\s+(?:pawn'?s\s+)?square")
+_CHASE_EN = r"catch(?:es)?|caught|catching\s+up|stops?|stopping|make\s+it\s+in\s+time|in\s+time"
 _RUN_RU = (r"проход(?:ит|ят)(?:\s+в\s+ферзи)?|пройд[её]т(?:\s+в\s+ферзи)?|прорв[её]тся|"
            r"превращ(?:ается|аются)|превратится|станет\s+ферз[её]м|ид[её]т\s+в\s+ферзи|выйдет\s+в\s+ферзи|"
            r"дойд[её]т\s+до\s+(?:поля\s+превращения|восьмой|первой|(?:поля\s+)?(?:[a-h][18]))|"
-           r"провед(?:[её]шь|[её]т|ут|[её]те)|провести|проводят|проводит|проводишь|"
-           # review 01.11: «становится ферзём», «выходит в ферзи», «прорывается»
-           r"станов(?:ится|ятся)\s+ферз[её]м|выход(?:ит|ят)\s+в\s+ферзи|прорыва(?:ется|ются)")
-_RUN_EN = (r"queens|promotes|will\s+queen|will\s+promote|goes\s+through|runs\s+through|is\s+unstoppable|can'?t\s+be\s+stopped|"
-           r"cannot\s+be\s+stopped|becomes\s+a\s+queen")
+           r"провед(?:[её]шь|[её]т|ут|[её]те)|провести|проводят|проводит|проводишь")
+_RUN_EN = r"queens|promotes|will\s+queen|will\s+promote|goes\s+through|runs\s+through|is\s+unstoppable|can'?t\s+be\s+stopped|cannot\s+be\s+stopped"
 _HOLD_RU = (r"удерж(?:ит|ишь|ат|ите|ать|ивает|иваешь)\s+(?:[а-я]+\s+)?ничь\w*|ничь\w*\s+(?:[а-я]+\s+)?удерж(?:ит|ишь|ат|ать|ивается)|"
             r"спас(?:[её]шься|[её]тся|ешься|утся|тись|ти\s+партию)|спасения\s+нет|спасения\s+не\s+будет")
 _HOLD_EN = r"holds?\s+(?:the\s+)?draw|hold\s+(?:the\s+)?draw|save\s+the\s+game|saves\s+the\s+game|no\s+way\s+to\s+save"
@@ -131,6 +123,22 @@ _FAR_CLAIMS = [
     (re.compile(_W + r"(?P<v>" + _FAR_RU + r")" + _E), "chase", "far"),
     (re.compile(r"(?<![a-z])(?P<v>" + _FAR_EN + r")(?![a-z])"), "chase", "far"),
 ]
+# The same race in other words (review 01.11), under the race_distance switch too: the rule of the square («попадает
+# / входит / войдёт в квадрат» — the king catches the pawn; a denial before it decides), the queening said as
+# «становится ферзём», «выходит в ферзи», «прорывается».
+_SQUARE_RU = (r"попада(?:ет|ешь|ют|ете)\s+в\s+квадрат|попад(?:[её]т|[её]шь|ут|[её]те)\s+в\s+квадрат|попасть\s+в\s+квадрат|"
+              r"вход(?:ит|ишь|ят|ите)\s+в\s+квадрат|войд(?:[её]т|[её]шь|ут|[её]те)\s+в\s+квадрат|войти\s+в\s+квадрат|"
+              r"вступа(?:ет|ешь|ют)\s+в\s+квадрат|вступит\s+в\s+квадрат")
+_SQUARE_EN = r"(?:enters?|entering|gets?\s+into|steps?\s+into)\s+the\s+(?:pawn'?s\s+)?square"
+_QUEENS_RU = r"станов(?:ится|ятся)\s+ферз[её]м|выход(?:ит|ят)\s+в\s+ферзи|прорыва(?:ется|ются)"
+_QUEENS_EN = r"becomes\s+a\s+queen"
+_RACE_CLAIMS = [
+    (re.compile(_W + r"(?P<v>" + _SQUARE_RU + r")" + _E), "chase", None),
+    (re.compile(r"(?<![a-z])(?P<v>" + _SQUARE_EN + r")(?![a-z])"), "chase", None),
+    (re.compile(_W + r"(?P<v>" + _QUEENS_RU + r")" + _E), "run", None),
+    (re.compile(r"(?<![a-z])(?P<v>" + _QUEENS_EN + r")(?![a-z])"), "run", None),
+]
+_GATED = frozenset(id(rx) for rx, _r, _p in _FAR_CLAIMS + _RACE_CLAIMS)
 # The result named after a written line: «после Kd5 a6 Kc6 — ничья». Without a line, «это ничья» is
 # _result_issues' (answer_check_rules.py).
 _RESULT_AFTER_LINE = re.compile(_W + r"(?P<v>ничь[яюе]|ничейн\w+|выигрыш\w*|draw|win\s+for\s+(?:white|black))" + _E)
@@ -688,7 +696,7 @@ def _race_issues(text: str, ctx) -> list[str]:
         return []
     far_mode = _mode("race_distance", ctx)
     claims = []
-    for rx, role, polarity in _CLAIMS + _KK + (_FAR_CLAIMS if far_mode != "off" else []):
+    for rx, role, polarity in _CLAIMS + _KK + (_FAR_CLAIMS + _RACE_CLAIMS if far_mode != "off" else []):
         for m in rx.finditer(text):
             claims.append((m.start(), m, role, polarity))
     for m in _RESULT_AFTER_LINE.finditer(text):
@@ -756,7 +764,7 @@ def _race_issues(text: str, ctx) -> list[str]:
                 continue  # «выигрыш» after a line: whose is not said
         else:
             c = _claim(text, m, role, bool(positive), target, ctx, question if elliptic else "")
-            if c and polarity == "far" and far_mode != "on":
+            if c and id(m.re) in _GATED and far_mode != "on":
                 c["shadow"] = "race_distance"  # logged, never cut (COACH_DETECTORS_SHADOW)
             parsed = [c] if c else []
         for claim in parsed:
