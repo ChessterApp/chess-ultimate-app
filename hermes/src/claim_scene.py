@@ -599,8 +599,12 @@ def _materialize(then: tuple, ctx: Any) -> Optional[tuple]:
 def _then_board(ctx: Any, state: dict) -> Optional[tuple]:
     """The end of the line the sentence before told: this module's memory, else the answer's scene."""
     then = state.get(THEN_KEY) if isinstance(state, dict) else None
+    failed: tuple = ()
     if then and then[1] == "lazy":
+        told = tuple(then[3] or ())
         then = _materialize(then, ctx)
+        if then is None:
+            failed = told  # the line the sentence before told cannot be played on the board it was told on
     if then:
         fen, where, age = then[:3]
         if age <= THEN_MAX_AGE:
@@ -613,12 +617,30 @@ def _then_board(ctx: Any, state: dict) -> Optional[tuple]:
             except ValueError:
                 pass
     forced = getattr(ctx, "forced_line", None)
-    if forced and forced[0] is not None and forced[2] <= THEN_MAX_AGE:
+    if forced and forced[0] is not None and forced[2] <= THEN_MAX_AGE and _fits_told(forced[0], failed):
         return _with_story(forced[0]), "at the end of the line before"
     before = getattr(ctx, "scene_before", None)
-    if before and before[0] is not None and before[2] <= THEN_MAX_AGE:
+    if before and before[0] is not None and before[2] <= THEN_MAX_AGE and _fits_told(before[0], failed):
         return _with_story(before[0]), f"after {before[1]}" if before[1] else "at the end of the line before"
     return None
+
+
+def _fits_told(board: chess.Board, told: tuple) -> bool:
+    """The answer's scene *board* may stand for the end of the line *told* (which this module could not play): its
+    last numbered move must be the move that leads to that board — the side to move after it and the move number
+    («3...Nxd4 4.d5» ends with Black to move at move 4). A scene the answer check built by re-anchoring the line on
+    another board with the side to move changed (4.d5 played on the board now, at move 3) is not that line's end."""
+    last = next((m for m in reversed(told) if m.number), None) if told else None
+    if last is None:
+        return True
+    mm = re.fullmatch(r"(\d{1,3})(\.\.\.|\.)", last.number or "")
+    if not mm:
+        return True
+    n, white = int(mm.group(1)), mm.group(2) == "."
+    after = sum(1 for m in told[told.index(last) + 1:])
+    if after:
+        return True  # unnumbered moves after it: the count is the words', not checked
+    return board.turn == (chess.BLACK if white else chess.WHITE) and board.fullmove_number == (n if white else n + 1)
 
 
 def _with_story(board: chess.Board) -> chess.Board:
@@ -1022,7 +1044,7 @@ def boards_for(claim: Claim, ctx: Any, state: dict) -> Optional[BoardSet]:
             return ANY_POSITION  # an earlier position the turn has no record of
         return None
     primary, where, alts = got
-    for alt_pos in pos.alts:
+    for alt_pos in _end_alts(pos, ctx, state):
         other = _resolve(alt_pos, ctx, state)
         if other is not None:
             alts.append(other[0])
@@ -1091,7 +1113,84 @@ def boards_for(claim: Claim, ctx: Any, state: dict) -> Optional[BoardSet]:
     if pos.moves or pos.at == "then":
         alts.extend(_before_last(primary, claim))
     alts.extend(_implicit(primary, claim, ctx))
-    return BoardSet(primary=primary, where=where, alternatives=tuple(alts), shown=shown_board)
+    if not pos.moves:
+        alts.extend(_told_later(primary, claim, ctx, state))
+    return _placement_marked(_start_scene(BoardSet(primary=primary, where=where, alternatives=tuple(alts),
+                                                   shown=shown_board), claim, ctx, state), claim)
+
+
+def _end_alts(pos: Pos, ctx: Any, state: dict) -> tuple:
+    """The «X или Y» / earlier-line readings of *pos* to resolve. When one of them is a line that ends on the board now
+    (the line the answer told is the game's way to it: «Защита Каро-Канн — 1. e4 c6» with the board after 1...c6), a
+    present-tense claim about the board now does not mean that line's passing positions: a reading that is a proper
+    prefix of it is dropped («Nc3, не давая чёрным сыграть d5» is not about the board after 1.e4)."""
+    alts = tuple(pos.alts)
+    cur = getattr(ctx, "current", None)
+    if len(alts) < 2 or cur is None or pos.at != "now" or pos.moves or pos.tense == "past":
+        return alts
+    now = _key(cur)
+    ends = []
+    for a in alts:
+        if not a.moves:
+            continue
+        try:
+            got = _resolve(a, ctx, state)
+        except Exception:  # noqa: BLE001
+            got = None
+        if got is not None and _key(got[0]) == now:
+            ends.append(tuple(a.moves))
+    if not ends:
+        return alts
+    return tuple(a for a in alts
+                 if not any(len(a.moves) < len(e) and tuple(a.moves) == e[:len(a.moves)] for e in ends))
+
+
+def _told_later(primary: chess.Board, claim: Claim, ctx: Any, state: dict) -> list:
+    """«Тогда ферзь g5 нападает на коня e5 и на пешку g2: после Qg5 …»: a piece the claim names on a square where it
+    does not stand, put there by a move the same sentence tells later — the board after that move (from the claim's
+    board, by either side) is a reading of the words. Only an alternative: it never makes a claim false."""
+    refs = [r for r in [claim.subj] + list(claim.objs) if r is not None and r.sq and r.piece and not r.pronoun]
+    if not refs or primary is None:
+        return []
+    text = _text(state)
+    if not text or not re.search(r"[a-h][1-8]", text):
+        return []
+    missing = set()
+    for r in refs:
+        try:
+            sq, pt = chess.parse_square(r.sq), PIECE_TYPE[r.piece]
+        except (ValueError, KeyError):
+            continue
+        p = primary.piece_at(sq)
+        if p is None or p.piece_type != pt:
+            missing.add((r.sq, r.piece))
+    if not missing:
+        return []
+    try:
+        from src.claim_grammar import written_moves
+
+        moves = written_moves(text)
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for m in moves:
+        if not m.to or (m.to, m.piece or "P") not in missing:
+            continue
+        for b in (primary, _passed(primary)):
+            if b is None or (m.side is not None and m.side != b.turn):
+                continue
+            got = move_readings(b, m)
+            if 1 <= len(got) <= MAX_READINGS:
+                out.extend(_after(b, x) for x in got)
+                break
+    return out
+
+
+def _placement_marked(bs: Optional[BoardSet], claim: Claim) -> Optional[BoardSet]:
+    """A placement claim's board names its switch (claim_judge gates the verdict by it) — unless a start cue built it."""
+    if claim.kind != "placement" or bs is None or bs.primary is None or detector_of(bs.primary):
+        return bs
+    return BoardSet(primary=_marked(bs.primary, "placement"), where=bs.where, alternatives=bs.alternatives, shown=bs.shown)
 
 
 def remember(text: str, claims: list[Claim], ctx: Any, state: dict) -> None:
@@ -1212,11 +1311,23 @@ ADVISED_KEY = "scene.advised"  # (FEN, UCI): the bare pawn move the sentence bef
 DETECTOR_ATTR = "rel_detector"  # a board built by one of these mechanisms carries its name
 
 # «в начале партии» alone is the opening phase in general; with «самом» or «сейчас» it is the initial position now.
+# Not the initial position of the game but of something the turn may not have («в исходной позиции задачи»).
+_NOT_GAME_START = r"(?!\s+(?:эт\w+\s+)?(?:задач|урок|этюд|пример|упражнен|диаграм|вариант|эндшпил|окончани|схем|puzzle|lesson|" \
+                  r"exercise|study|diagram|ending))"
 _START_CUE = re.compile(
-    r"(?<![\w-])(?:в\s+начале\s+партии(?=[^.!?]*\bсейчас\b)|(?<=сейчас,\s)в\s+начале\s+партии|"
-    r"в\s+самом\s+начале\s+партии|в\s+(?:самой\s+)?(?:начальн|исходн|стартов)\w*\s+позици\w*|"
-    r"(?:in|at)\s+the\s+(?:starting|initial|start)\s+position|at\s+the\s+very\s+start\s+of\s+the\s+game)(?![\w-])",
+    r"(?<![\w-])(?:в\s+начале\s+(?:партии|игры)(?=[^.!?]*\bсейчас\b)|(?<=сейчас,\s)в\s+начале\s+(?:партии|игры)|"
+    r"в\s+самом\s+начале\s+(?:партии|игры)|"
+    r"в\s+(?:самой\s+|самом\s+)?(?:начальн|исходн|стартов|первоначальн)\w*\s+(?:позици|расстановк|положени)\w*" + _NOT_GAME_START + "|"
+    r"(?:до|перед)\s+(?:самым\s+|самого\s+)?(?:первого|первым)\s+ход\w*|"
+    r"(?:in|at)\s+the\s+(?:starting|initial|start)\s+(?:position|setup)" + _NOT_GAME_START + r"|"
+    r"at\s+the\s+very\s+start\s+of\s+the\s+game|before\s+the\s+first\s+move)(?![\w-])",
     re.IGNORECASE)
+# The cues that name the initial position itself (not «в (самом) начале партии», which may be the board now early on).
+_STRICT_START = re.compile(
+    r"(?<![\w-])(?:в\s+(?:самой\s+|самом\s+)?(?:начальн|исходн|стартов|первоначальн)\w*\s+(?:позици|расстановк|положени)\w*"
+    + _NOT_GAME_START + r"|(?:до|перед)\s+(?:самым\s+|самого\s+)?(?:первого|первым)\s+ход\w*|"
+    r"(?:in|at)\s+the\s+(?:starting|initial|start)\s+(?:position|setup)" + _NOT_GAME_START + r"|before\s+the\s+first\s+move)"
+    r"(?![\w-])", re.IGNORECASE)
 _BOARD_CUE = re.compile(r"(?<![\w-])(?:на\s+доске\s+(?:прямо\s+)?сейчас|сейчас\s+на\s+доске|on\s+the\s+board\s+(?:right\s+)?now)"
                         r"(?![\w-])", re.IGNORECASE)
 
@@ -1262,6 +1373,37 @@ def _cue(state: dict) -> str:
     return ""
 
 
+_SEGMENT_END = re.compile(r"[.;:!?]|,\s*(?:а|но|однако|зато|тогда\s+как|в\s+то\s+время\s+как|while|but|whereas)\s", re.IGNORECASE)
+_COMPARE = re.compile(r"(?<![\w-])(?:как|чем|словно|будто|точно|unlike|than|as|like)\s+(?:и\s+)?$", re.IGNORECASE)
+
+
+def _cue_covers(low: str, start: int, end: int, strict: bool = False) -> bool:
+    """A start cue (*strict*: one naming the initial position itself) in the part of the sentence the words at
+    low[start:end] belong to (up to a sentence mark or a contrast «, а», «, но»), not a comparison («как в начальной
+    позиции», «чем в исходной»): the words there are about the initial position."""
+    b = 0
+    for m in _SEGMENT_END.finditer(low, 0, start):
+        b = m.end()
+    nxt = _SEGMENT_END.search(low, end)
+    e = nxt.start() if nxt else len(low)
+    for m in (_STRICT_START if strict else _START_CUE).finditer(low, b, e):
+        if not _COMPARE.search(low[max(0, m.start() - 16):m.start()]):
+            return True
+    return False
+
+
+def _claim_cued(claim: Claim, state: dict, strict: bool = False) -> bool:
+    """The claim's own part of the sentence has a start cue (_cue_covers); a claim with no span: the whole sentence."""
+    try:
+        from src.claim_grammar import normalize
+
+        low = normalize(_text(state)).lower()
+    except Exception:  # noqa: BLE001
+        low = _text(state).replace("ё", "е").lower()
+    start, end = tuple(claim.span) if tuple(claim.span) != (0, 0) else (0, len(low))
+    return _cue_covers(low, min(start, len(low)), min(end, len(low)), strict)
+
+
 def _start_cued(claim: Claim, primary: chess.Board, where: str, alts: list, ctx: Any, state: dict) -> Optional[tuple]:
     """(primary, where, alternatives) of a claim the diagram guards would drop, when the sentence's words point at the
     board the turn has (start_cue); None otherwise. The board now must be the default initial position (nothing played):
@@ -1274,16 +1416,148 @@ def _start_cued(claim: Claim, primary: chess.Board, where: str, alts: list, ctx:
 
     shown = _shown_boards(ctx)
     if cue == "start" and shown and any(primary is b for b in shown):
-        if claim.pos.moves or not _binds(claim, cur):
+        if claim.pos.moves or (claim.rel != "occupied" and not _binds(claim, cur)):
             return None
         # «в начальной позиции» while an example board is shown: the initial position, the board shown an alternative
         return _marked(cur, "start_cue"), "in the initial position", alts + list(shown)
-    if not _binds(claim, primary):
+    if not (cue == "start" and primary is cur and claim.rel == "occupied") and not _binds(claim, primary):
+        # (a start cue names the initial position, which the turn has exactly: what the words say stands on a square
+        # there is judged there — «В исходной позиции король стоит на e2», «… поле d1 занято королём»; a relation
+        # of a piece that is not there may still describe another diagram, and stays unjudged)
         # «На доске сейчас первая задача урока: ферзь на d3, слон на b2 …» with neither there: the words point at a
         # board the turn does not have (the lesson's), not at this one
         return None
     return _marked(primary, "start_cue"), where if primary is not cur else (
         "in the initial position" if cue == "start" else "on the board now"), alts
+
+
+def _start_scene(bs: BoardSet, claim: Claim, ctx: Any, state: dict) -> BoardSet:
+    """A start cue on a board now that is not the initial position (a game is on it): the words name the initial
+    position, which the turn has exactly — it is the primary board, and every board the claim had before stays an
+    alternative («исходная позиция» may also be a puzzle's own start, the board now). Only a claim about the board now
+    (no move told, not the past); the start_cue switch gates it."""
+    pos = claim.pos
+    cur = getattr(ctx, "current", None)
+    if bs is None or bs.primary is None or pos.at != "now" or pos.moves or pos.tense == "past" or cur is None or \
+            _bare_start(cur, ctx) or _cue(state) != "start" or _mode("start_cue", ctx) == "off" or \
+            not _claim_cued(claim, state):
+        return bs
+    start = _marked(chess.Board(), "start_cue")
+    alts = (bs.primary,) + tuple(bs.alternatives)
+    hist = _history_to(ctx, cur)
+    if hist and _key(hist[0][0])[:-1] == _START and _claim_cued(claim, state, strict=True):
+        # «в начальной/исходной позиции», «до первого хода» while the board now is reached by a line from that very
+        # position: the words cannot mean the board now (a puzzle's own start) — only a board the coach showed
+        alts = tuple(_shown_boards(ctx))
+    return BoardSet(primary=start, where="in the initial position", alternatives=alts, shown=bs.shown)
+
+
+# ── placement: «<piece> стоит на <square>», «на <square> стоит <piece>», «<square> занято <piece>» ──────────────
+# What stands where, read from the parts of the clause: the piece (its kind by the noun in any number; «фигура» any
+# kind), its side (a colour adjective or «белых/чёрных»; a relative word — «свой», «чужой», «его» — leaves it open), the
+# square, and a stative verb in the present (стоит/находится/расположен/есть/занимает/занято) in either word order. Judged
+# as an «occupied» claim; a clause with a denial, a hedge, a modal, the future, a plan or a condition is left unjudged,
+# and so is a sentence that tells moves before it (the board it means is a line's, read elsewhere).
+_P_NOM = {"K": r"корол[ьи]", "Q": r"ферз[ьи]", "R": r"ладь[яи]", "B": r"слон[ы]?", "N": r"кон[ьи]", "P": r"пешк[аи]",
+          "": r"фигур[аы]"}
+_P_INS = {"K": r"корол[её]м", "Q": r"ферз[её]м|ферзями", "R": r"ладь[её]й|ладьями", "B": r"слон(?:ом|ами)",
+          "N": r"кон[её]м|конями", "P": r"пешк(?:ой|ами)", "": r"фигур(?:ой|ами)"}
+_P_EN = {"K": "king", "Q": "queen", "R": "rook", "B": "bishop", "N": "knight", "P": "pawn", "": "piece"}
+
+
+def _alt(words: dict) -> str:
+    return "|".join(f"(?P<p{k or 'X'}>{w})" for k, w in words.items())
+
+
+_COL_NOM = r"(?:бел(?:ый|ая|ое|ые)|черн(?:ый|ая|ое|ые)|тво(?:й|я|е|и)|сво(?:й|я|е|и)|чуж(?:ой|ая|ое|ие)|собственн\w+|его|ее|их)"
+_COL_INS = r"(?:бел(?:ым|ой|ыми)|черн(?:ым|ой|ыми)|тво(?:им|ей|ими)|сво(?:им|ей|ими)|чуж(?:им|ой|ими)|собственн\w+|его|ее|их)"
+_GEN_SIDE = r"(?:\s+(?P<gen>белых|черных))?"
+_ADV = r"(?:(?:уже|сейчас|теперь|все\s+еще|по-прежнему|пока|тоже|также|изначально|исходно|как\s+раз)\s+)*"
+_ON_SQ = r"на\s+(?:поле\s+|клетке\s+)?(?P<sq>[a-h][1-8])(?![\w0-9])"
+_STAND = r"(?:стоит|стоят|находится|находятся|расположен[аоы]?)"
+_PLACE_PATTERNS = (
+    # «(белый) король стоит на e2»
+    re.compile(r"(?<![\w-])(?:(?P<adj>" + _COL_NOM + r")\s+)?(?:" + _alt(_P_NOM) + r")" + _GEN_SIDE + r"\s+" + _ADV + _STAND
+               + r"\s+" + _ADV + _ON_SQ, re.IGNORECASE),
+    # «на e5 стоит (белая) пешка», «на поле e5 есть фигура»
+    re.compile(r"(?<![\w-])" + _ON_SQ + r"\s+" + _ADV + r"(?:" + _STAND + r"|есть)\s+" + _ADV + r"(?:(?P<adj>" + _COL_NOM
+               + r")\s+)?(?:" + _alt(_P_NOM) + r")" + _GEN_SIDE + r"(?![\w-])", re.IGNORECASE),
+    # «(поле) e5 занимает белый король»
+    re.compile(r"(?<![\w-])(?:(?:поле|клетку)\s+)?(?P<sq>[a-h][1-8])\s+" + _ADV + r"занима(?:ет|ют)\s+(?:(?P<adj>" + _COL_NOM
+               + r")\s+)?(?:" + _alt(_P_NOM) + r")" + _GEN_SIDE + r"(?![\w-])", re.IGNORECASE),
+    # «белый король занимает (поле) e1»
+    re.compile(r"(?<![\w-])(?:(?P<adj>" + _COL_NOM + r")\s+)?(?:" + _alt(_P_NOM) + r")" + _GEN_SIDE + r"\s+" + _ADV
+               + r"занима(?:ет|ют)\s+(?:поле\s+|клетку\s+)?(?P<sq>[a-h][1-8])(?![\w0-9])", re.IGNORECASE),
+    # «(поле) e5 занято белой пешкой», «… занято своими же фигурами»
+    re.compile(r"(?<![\w-])(?:(?:поле|клетка)\s+)?(?P<sq>[a-h][1-8])\s+" + _ADV + r"занят[оаы]?\s+(?:же\s+)?(?:(?P<adj>"
+               + _COL_INS + r")\s+)?(?:же\s+)?(?:" + _alt(_P_INS) + r")" + _GEN_SIDE + r"(?![\w-])", re.IGNORECASE),
+    # "the white king stands on e2", "on e5 there is a black pawn"
+    re.compile(r"(?<![\w-])(?:(?P<adj>white|black|your|their|its|his|her)\s+)?(?:" + _alt(_P_EN) + r")\s+(?:is|stands|sits)"
+               r"\s+(?:already\s+|now\s+|still\s+)?on\s+(?:the\s+)?(?:square\s+)?(?P<sq>[a-h][1-8])(?![\w0-9])", re.IGNORECASE),
+    re.compile(r"(?<![\w-])on\s+(?P<sq>[a-h][1-8])\s+(?:there\s+is|stands|sits)\s+(?:a|an|the)\s+(?:(?P<adj>white|black|your|"
+               r"their)\s+)?(?:" + _alt(_P_EN) + r")(?![\w-])", re.IGNORECASE),
+)
+# A preposition right before the piece noun: it is no subject («у короля на e1 …», «за пешкой»).
+_PREP_BEFORE = re.compile(r"(?<![\w-])(?:у|за|перед|под|над|с|со|от|до|для|без|к|ко|по|из|через|между|после|при|о|об|про|"
+                          r"в|во|на|of|with|by|for|from|to|behind)\s+$", re.IGNORECASE)
+_PLACE_SKIP = re.compile(r"(?<![\w-])(?:бы|если|когда|может|могут|мог\w*|можно|сможет|должн\w*|нужно|надо|лучш\w*|хорош\w*|"
+                         r"идеальн\w*|обычно|часто|иногда|правило|типичн\w*|как\s+правило|будет|будут|станет|встанет|"
+                         r"окажется|план\w*|цел[ьи]|хоч\w*|хотят|стрем\w*|чтобы|ради|например|представь\w*|допустим\w*|"
+                         r"предполож\w*|почти|кажется|видимо|наверн\w*|usually|typically|often|would|could|should|might|may|"
+                         r"can|if|when|will|ideal\w*|plan\w*|suppose|imagine|almost)(?![\w-])", re.IGNORECASE)
+
+
+def _place_side(word: str, gen: str, ctx: Any) -> Optional[bool]:
+    w = (gen or word or "").lower().replace("ё", "е")
+    if w.startswith(("бел", "white")):
+        return chess.WHITE
+    if w.startswith(("черн", "black")):
+        return chess.BLACK
+    if w.startswith(("тво", "your")):
+        return getattr(ctx, "student_color", None)
+    return None  # свой, чужой, его, их: a side relative to a piece the clause may not name
+
+
+def _placement_claims(text: str, ctx: Any, state: dict, cue: str) -> list:
+    """The «occupied» claims of what the sentence says stands where (kind 'placement'), on the board now (Pos now)."""
+    try:
+        from src.claim_grammar import normalize, written_moves
+
+        t = normalize(text)
+    except Exception:  # noqa: BLE001
+        return []
+    low = t.lower()
+    if "?" in low or not re.search(r"[a-h][1-8]", low):
+        return []
+    out, seen = [], set()
+    for pat in _PLACE_PATTERNS:
+        for m in pat.finditer(low):
+            if len(out) >= 4:
+                break
+            if _PREP_BEFORE.search(low[max(0, m.start() - 12):m.start()]):
+                continue
+            b, e = _clause(low, m.start(), m.end())
+            if _DENIES.search(low[b:e]) or _PLACE_SKIP.search(low[:e]):
+                continue
+            try:
+                if written_moves(t[:m.start()]):
+                    continue  # moves told before: the board of a line, not the board now
+            except Exception:  # noqa: BLE001
+                continue
+            if cue and _mode("placement", ctx) == "off" and not _cue_covers(low, m.start(), m.end()):
+                continue  # read under the start cue only: in its part of the sentence
+            piece = next((k for k in ("K", "Q", "R", "B", "N", "P") if m.group("p" + k)), None)
+            if piece is None and not m.group("pX"):
+                continue
+            sq = m.group("sq")
+            side = _place_side(m.group("adj") or "", m.group("gen") or "", ctx)
+            key = (sq, piece, side)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(Claim(rel="occupied", subj=None, objs=(Ref(sq=sq, piece=piece, side=side, text=m.group(0)),),
+                             pos=Pos(), span=(m.start(), m.end()), source="rules", kind="placement"))
+    return out
 
 
 # ── idea scope ───────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1329,15 +1603,145 @@ _PIECE_WORDS = {
     chess.PAWN: r"пешк(?:а|у|и|ой|е)|pawn",
     chess.KING: r"корол(?:ь|я|ю|[её]м|е)|king",
 }
-# The piece named is said to leave or be traded: the sentence tells the move itself, not a board where it still stands.
-_LEAVES = re.compile(r"^[^.;:!?—–]{0,30}?(?<![\w-])(?:уход\w*|уйд\w*|уш[её]л\w*|отход\w*|отойд\w*|отош\w*|прыга\w*|прыгн\w*|"
-                     r"исчез\w*|покида\w*|покин\w*|разменя\w*|меня\w*|бь[её]т|берет|забира\w*|встал\w*|станет|leaves|goes|jumps|"
-                     r"takes|captures)(?![\w-])", re.IGNORECASE)
+_ANY_PIECE_WORD = "|".join(f"(?P<{chess.piece_symbol(pt)}>{w})" for pt, w in _PIECE_WORDS.items())
+# The instrumental names the piece that makes a move («берёшь конём c6», «бить конём»: the agent) — unless «с» makes it
+# the one something happens to («что будет с конём c6»).
+_INSTRUMENTAL = re.compile(r"(?:кон[её]м|слоном|ладь[её]й|ферз[её]м|пешкой|корол[её]м)$")
+# The piece named is said to move, take, leave or be gone: the sentence tells the move itself (or its end), not a board
+# where the piece still stands — read in the rest of the piece's clause. A verb of being forced to move («коню c6
+# придётся отступать», «конь c6 вынужден уйти») says the piece is there and must go: no leave.
+_LEAVES = re.compile(
+    r"(?<![\w-])(?:уход\w*|уйд\w*|уш[её]л\w*|ушл\w*|отход\w*|отойд\w*|отош\w*|отступ\w*|прыга\w*|прыгн\w*|перепрыг\w*|"
+    r"ид[её]т|пойд\w*|пош[её]л|пошл\w*|переход\w*|перейд\w*|переш[её]л|перешл\w*|встал\w*|вста[её]т|встанет|станет|"
+    r"бь[её]т|побь\w*|бер[её]т|возьм\w*|взял\w*|забира\w*|забер\w*|забрал\w*|съед\w*|съест|съел\w*|уничтож\w*|"
+    r"сним\w*|снял\w*|исчез\w*|покида\w*|покин\w*|пропа\w*|погиб\w*|потерян\w*|теря\w*|разменя\w*|меня\w*|обменя\w*|"
+    r"отда\w*|жертв\w*|пожертвова\w*|снят\w*|взят\w*|съеден\w*|размен\w*|обмен\w*|"
+    r"leaves|left|goes|went|gone|jumps|jumped|takes|took|captures|captured|traded|exchanged|disappears|moves|moved)"
+    r"(?![\w-])", re.IGNORECASE)
+_FORCED = re.compile(r"(?<![\w-])(?:прид[её]тся|приходится|вынужден\w*|должен|должна|должно|нужно|надо|обязан\w*|"
+                     r"has\s+to|must|forced)(?![\w-])", re.IGNORECASE)
+# A clause that denies the piece is there, or denies what happens to it («коня c6 там уже нет», «d5 ни на кого не
+# нападает», «коню c6 некуда возвращаться»): left unjudged.
+_DENIES = re.compile(r"(?<![\w-])(?:не|нет|ни|без|некуда|негде|никто|никого|ничто|ничего|никак|not|no|never|without|"
+                     r"nothing|nobody)(?![\w-])", re.IGNORECASE)
+# A chase verb before «коня с c6»: the square the piece is driven from — where it stands («прогонят коня с c6»).
+_CHASE = re.compile(r"(?<![\w-])(?:прогон\w*|прогн\w*|выгон\w*|выгн\w*|сгон\w*|согн\w*|отгон\w*|отогн\w*|изгон\w*|"
+                    r"изгн\w*|drives?|chases?|kicks?)\s+(?:\w+\s+){0,2}$", re.IGNORECASE)
+# A bare square as the target of an attack («d5 с нападением на c6», «удар по c6»): a piece is meant to stand there.
+_HIT_ON = re.compile(r"(?<![\w-])(?:нападени\w*|напада\w*|напад[её]т|нападут|атак\w*|удар\w*|бь[её]т|бьют|угрож\w*|"
+                     r"угроз\w*|attack\w*|hits?)\s+(?:по|на|on)\s+$", re.IGNORECASE)
+_CLAUSE_END = ".;:!?—–,"
+
+
+def _clause(low: str, start: int, end: int) -> tuple:
+    """(begin, finish) of the clause around low[start:end]: up to the nearest mark of _CLAUSE_END on each side."""
+    b = max(low.rfind(c, 0, start) for c in _CLAUSE_END) + 1
+    ends = [i for i in (low.find(c, end) for c in _CLAUSE_END) if i >= 0]
+    return b, (min(ends) if ends else len(low))
+
+
+def _idea_told_at(t: str, before: chess.Board, mv: chess.Move, p: chess.Piece) -> Optional[int]:
+    """Where the sentence tells X itself (SAN, «3...Nxd4», «конём на d4», «взятие конём на d4»), or None."""
+    from src import claim_grammar as cg
+
+    try:
+        toks = cg._tokens(t)
+    except Exception:  # noqa: BLE001
+        return None
+    to = chess.square_name(mv.to_square)
+    for i, tok in enumerate(toks):
+        if tok.kind == "MOVE":
+            try:
+                if _same_move(before, cg._move_ref(tok), mv):
+                    return tok.start
+            except Exception:  # noqa: BLE001
+                continue
+        elif tok.kind == "PIECE" and tok.ptype == p.piece_type and _INSTRUMENTAL.search(tok.text.lower()) and \
+                i + 1 < len(toks) and toks[i + 1].kind in ("BOUND", "SQ") and toks[i + 1].text.lower() == to:
+            return tok.start  # «взятие конём на d4», «бей конём на d4»
+    return None
+
+
+def _hitters(t: str, low: str, before: chess.Board, mv: chess.Move, p: chess.Piece, skip: tuple) -> list:
+    """(piece type, square) of the other side's pieces the sentence puts on a square: the moves it names (a bare
+    square a pawn move) and the pieces it names on a square («пешка d5», «под пешку d5») — not *skip* (the from-square
+    mention), not a piece of X's side that stands there after X."""
+    from src.claim_types import find_moves
+
+    out = []
+    try:
+        for y in find_moves(t):
+            if y.to and not y.castle:
+                out.append((PIECE_TYPE.get(y.piece or "P", chess.PAWN), chess.parse_square(y.to)))
+    except Exception:  # noqa: BLE001
+        pass
+    after = _after(before, mv)
+    for m in re.finditer(r"(?<![\w-])(?:" + _ANY_PIECE_WORD + r")\s+(?:на\s+|on\s+)?(?P<sq>[a-h][1-8])(?![\w0-9])", low):
+        if (m.start(), m.end()) == skip:
+            continue
+        pt = next(chess.PIECE_SYMBOLS.index(k) for k in "pnbrqk" if m.group(k))
+        sq = chess.parse_square(m.group("sq"))
+        own = after.piece_at(sq)
+        if own is not None and own.color == p.color and own.piece_type == pt:
+            continue
+        out.append((pt, sq))
+    return out
+
+
+def _hits_old_square(text: str, before: chess.Board, mv: chess.Move, p: chess.Piece, hitters: Optional[list] = None) -> bool:
+    """The sentence names a later move Y of the other side (or one of its pieces on a square) whose piece, on Y's
+    square, would hit X's from-square and not the square X went to — the reason it gives is about the piece where it
+    stood before X («что случится с твоим конём c6 после d5» after 3...Nxd4: a pawn on d5 hits c6, not d4). A piece
+    named by the square it left is otherwise the moved piece, named the usual way («А почему не bxa7? Тогда слон бьёт
+    твою пешку b6»: the pawn now on a7)."""
+    if hitters is None:
+        from src.claim_types import find_moves
+
+        try:
+            hitters = [(PIECE_TYPE.get(y.piece or "P", chess.PAWN), chess.parse_square(y.to))
+                       for y in find_moves(text) if y.to and not y.castle]
+        except Exception:  # noqa: BLE001
+            return False
+    for pt, to in hitters:
+        empty = chess.Board(None)
+        empty.set_piece_at(to, chess.Piece(pt, not p.color))
+        hits = empty.attacks(to)
+        if mv.from_square in hits and mv.to_square not in hits and to not in (mv.from_square, mv.to_square):
+            return True
+    return False
+
+
+def _idea_mentions(low: str, frm: str, to: str, p: chess.Piece) -> list:
+    """(start, end, word) of the places the sentence speaks of a piece of X's kind on X's from-square as standing there:
+    «конь c6», «коня на c6», «коню c6», «прогонят коня с c6», «с нападением на c6» — not «конь с c6» (the piece that
+    came from c6), not the instrumental of the move's agent («берёшь конём c6»)."""
+    out = []
+    pat = re.compile(r"(?<![\w-])(?P<w>" + _PIECE_WORDS[p.piece_type] + r")\s+(?:(?P<prep>на|с|со|from|on)\s+)?" + frm
+                     + r"(?![\w0-9])", re.IGNORECASE)
+    for m in pat.finditer(low):
+        w = m.group("w")
+        if m.group("prep") in ("с", "со", "from") and not _CHASE.search(low[max(0, m.start() - 40):m.start()]):
+            continue  # «конь с c6»: the piece that came from c6 — the mover itself
+        if _INSTRUMENTAL.search(w) and \
+                not re.search(r"(?<![\w-])(?:с|со)\s+(?:[\w-]+\s+){0,2}$", low[max(0, m.start() - 30):m.start()]):
+            continue  # «бить конём c6»: the piece that makes the move
+        out.append((m.start(), m.end(), w))
+    for m in re.finditer(r"(?<![\w0-9])" + frm + r"(?![\w0-9])", low):
+        head = low[max(0, m.start() - 40):m.start()]
+        if _HIT_ON.search(head) and not re.search(r"(?:пол[еяю]|клетк\w*|square)\s+$", head):
+            out.append((m.start(), m.end(), ""))
+    return sorted(out)
 
 
 def _idea_claims(text: str, ctx: Any, state: dict) -> list:
-    """Occupied claims for the pieces the sentence names on the from-square of the idea move «почему не X?» of the
-    sentence before (X's kind and side), judged on the board after X (kind 'idea_scope')."""
+    """Occupied claims for the pieces the sentence speaks of on the from-square of the idea move «почему не X?» of the
+    sentence before (X's kind and side), judged on the board after X (kind 'idea_scope'): the sentence gives a reason
+    about a square (a later move or a piece on a square hits it, not the square X went to) where the piece no longer
+    stands. Read from the parts of the sentence, not its wording:
+      - where the sentence tells X itself («Если сыграешь 3...Nxd4, то после d5 …», «При Nxd4 конь c6 …», «Взятие
+        конём на d4 плохо из-за d5 с нападением на c6»), only what it says after X is about the board after X;
+      - a clause that denies the piece is there or what happens to it, or says it moves, leaves or is gone, or names
+        it where X took it, or a move of the sentence that goes back to that square: no claim (unjudged)."""
     idea = state.get(IDEA_KEY)
     if not idea or not text:
         return []
@@ -1348,61 +1752,45 @@ def _idea_claims(text: str, ctx: Any, state: dict) -> list:
     p = before.piece_at(mv.from_square)
     if p is None:
         return []
-    low = text.replace("ё", "е").lower()
     try:
-        san = before.san(mv).rstrip("+#")
+        from src.claim_grammar import normalize
+
+        t = normalize(text)
     except Exception:  # noqa: BLE001
+        t = text.replace("ё", "е")
+    low = t.lower()
+    frm, to = chess.square_name(mv.from_square), chess.square_name(mv.to_square)
+    mentions = _idea_mentions(low, frm, to, p)
+    if not mentions:
         return []
-    from src.claim_types import find_moves
+    x_at = _idea_told_at(t, before, mv, p)
+    from src.claim_grammar import written_moves
 
     try:
-        if any(_same_move(before, m, mv) for m in find_moves(text)):
-            return []  # the sentence tells X again: it narrates the move, and the piece is named where it starts
+        if any(y.to == frm and not _same_move(before, y, mv) for y in written_moves(text)):
+            return []  # a move of the sentence goes to that square: a piece may stand there again
     except Exception:  # noqa: BLE001
         return []
-    if not _hits_old_square(text, before, mv, p):
-        return []
-    frm = chess.square_name(mv.from_square)
-    pat = re.compile(r"(?<![\w-])(?P<w>" + _PIECE_WORDS[p.piece_type] + r")\s+(?:(?P<prep>на|с|со|from|on)\s+)?" + frm
-                     + r"(?![\w0-9])", re.IGNORECASE)
     out = []
-    for m in pat.finditer(low):
-        if m.group("prep") in ("с", "со", "from"):
-            continue  # «конь с c6»: the piece that came from c6 — the mover itself
-        if _LEAVES.match(low, m.end()):
+    for start, end, word in mentions:
+        if x_at is not None and start < x_at:
+            continue  # said before X: the board before it (the board now)
+        b, e = _clause(low, start, end)
+        clause, rest = low[b:e], low[end:e]
+        if _DENIES.search(clause):
             continue
+        if re.search(r"(?<![\w0-9])" + to + r"(?![\w0-9])", rest):
+            continue  # «конь c6 уже стоит на d4»: the moved piece, named by the square it left
+        leaves = _LEAVES.search(rest[:40])
+        if leaves and not _FORCED.search(low[b:end + leaves.start()]):
+            continue
+        if not _hits_old_square(t, before, mv, p, _hitters(t, low, before, mv, p, (start, end))):
+            return []
         out.append(Claim(rel="occupied", subj=None, objs=(Ref(sq=frm, piece=_LETTER[p.piece_type], side=p.color,
-                                                                 text=m.group("w")),),
-                         pos=Pos(at="then"), span=(m.start(), m.end()), source="rules", kind="idea_scope"))
+                                                                 text=word),),
+                         pos=Pos(at="then"), span=(start, end), source="rules", kind="idea_scope"))
         break
     return out
-
-
-def _hits_old_square(text: str, before: chess.Board, mv: chess.Move, p: chess.Piece) -> bool:
-    """The sentence names a later move Y of the other side whose piece, on Y's square, would hit X's from-square and
-    not the square X went to — the reason it gives is about the piece where it stood before X («что случится с твоим
-    конём c6 после d5» after 3...Nxd4: a pawn on d5 hits c6, not d4). A piece named by the square it left is otherwise
-    the moved piece, named the usual way («А почему не bxa7? Тогда слон бьёт твою пешку b6»: the pawn now on a7)."""
-    from src.claim_types import find_moves
-
-    try:
-        found = find_moves(text)
-    except Exception:  # noqa: BLE001
-        return False
-    for y in found:
-        if not y.to or y.castle:
-            continue
-        try:
-            to = chess.parse_square(y.to)
-        except ValueError:
-            continue
-        pt = PIECE_TYPE.get(y.piece or "P", chess.PAWN)
-        empty = chess.Board(None)
-        empty.set_piece_at(to, chess.Piece(pt, not p.color))
-        hits = empty.attacks(to)
-        if mv.from_square in hits and mv.to_square not in hits and to not in (mv.from_square, mv.to_square):
-            return True
-    return False
 
 
 _LETTER = {chess.PAWN: "P", chess.KNIGHT: "N", chess.BISHOP: "B", chess.ROOK: "R", chess.QUEEN: "Q", chess.KING: "K"}
@@ -1612,12 +2000,19 @@ def extract(text: str, ctx: Any, state: dict) -> list:
     if not isinstance(state, dict):
         return []
     state[TEXT_KEY] = text or ""
+    out: list = []
     try:
         if state.get(IDEA_KEY) and _mode("idea_scope", ctx) != "off":
-            return _idea_claims(text, ctx, state)
+            out += _idea_claims(text, ctx, state)
     except Exception:  # noqa: BLE001
-        return []
-    return []
+        pass
+    try:
+        cue = _cue(state)
+        if (cue == "start" and _mode("start_cue", ctx) != "off") or _mode("placement", ctx) != "off":
+            out += _placement_claims(text, ctx, state, cue if cue == "start" else "")
+    except Exception:  # noqa: BLE001
+        pass
+    return out
 
 
 def _told_bare_line(text: str, ctx: Any, state: dict) -> Optional[tuple]:
