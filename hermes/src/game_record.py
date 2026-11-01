@@ -38,6 +38,8 @@ class Capture:
     captured: int  # the captured piece type (a pawn for en passant)
     square: int  # where the captured piece stood (the en passant pawn's own square)
     by_student: Optional[bool]  # None when the student's colour is not known
+    from_square: int = -1  # where the capturing piece came from (fix 01.11: «пешка e5 съела коня» names it)
+    to_square: int = -1  # where it landed (the captured piece's square but for en passant)
 
     @property
     def label(self) -> str:
@@ -142,7 +144,8 @@ def captures(ctx) -> list:
             victim = board.piece_type_at(mv.to_square)
         out.append(Capture(ply=ply, san=san, mover=board.turn, piece=board.piece_type_at(mv.from_square),
                            captured=victim, square=square,
-                           by_student=None if student is None else board.turn == student))
+                           by_student=None if student is None else board.turn == student,
+                           from_square=mv.from_square, to_square=mv.to_square))
     return out
 
 
