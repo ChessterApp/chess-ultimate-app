@@ -125,6 +125,15 @@ _PEOPLE = [
     (r"мел[её]р\w{0,3}|m[øo]ller", "Møller"),
     (r"ленинградск\w{0,3}|leningrad", "Leningrad"),
     (r"меранск\w{0,3}|meran", "Meran"),
+    # fix 01.11: heads the book names variations by that are not people — «Дракон» (Dragon 0/7 in review-miss), and
+    # the names players say bare («это Найдорф», «Чёрные выбрали Дракон»), read as names only in a frame below
+    (r"дракон(?:а|у|ом|е)?|dragon", "Dragon"),
+    (r"челябинск\w{0,3}|chelyabinsk", "Chelyabinsk"),
+    (r"велимирович\w{0,3}|velimirovi[cć]", "Velimirovic"),
+    (r"полугаевск\w{0,3}|polugaevsky", "Polugaevsky"),
+    (r"чебаненк\w{0,2}|chebanenko", "Chebanenko"),
+    (r"стоунвол+\w{0,3}|stonewall", "Stonewall"),
+    (r"к[эе]мбридж[\s-]+спрингс|cambridge\s+springs", "Cambridge Springs"),
 ]
 # What a name is a name of: «вариант Алапина», «атака в стиле Алёхина», «система Ботвинника», "the Alapin
 # Variation", "Alekhine's Defense". A bare surname is a person, not a variation («Алёхин любил…»).
@@ -205,12 +214,24 @@ _HEDGE = re.compile(_W + r"(?:не|нет|похож\w*|напомина\w*|от
 # identity alone, not a sentence going on to another subject («Это сицилианская защита, и вариант Найдорфа…»,
 # «Это французская защита: здесь начинается выбор между вариантом Винавера…» — review 30.10).
 _PREDICATE = re.compile(
-    r"^[\s*_#>«\"'(-]*(?:(?:да|итак|так|ну|yes|so|well)[\s,]+)?(?:[а-яёa-z-]+\s+){0,3}?"
-    r"(?:это|перед\s+нами|у\s+нас|на\s+доске|разыграли|сыграли|называется|this\s+is|that'?s|it'?s|it\s+is|we\s+have|"
-    r"is\s+called|бұл)"
+    r"^[\s*_#>«\"'(-]*(?:(?:да|итак|так|ну|yes|so|well)[\s,]+)?"
+    r"(?:(?:[а-яёa-z-]+|(?:\d{1,3}\s?(?:\.\.\.|…|\.)\s?)?[kqrbnкфлс]?[a-h]?x?[a-h][1-8][+#]?)\s+){0,4}?"
+    r"(?:это|перед\s+(?:нами|тобой|вами)|у\s+(?:нас|тебя|вас|бел\w+|ч[её]рн\w+)|на\s+доске|разыграли|сыграли|называется|"
+    # fix 01.11: the identity told as what came out or what a side chose — «Получился Дракон», «Чёрные выбрали
+    # Дракон», «Ты играешь против Дракона» (past or the present of the game; «выбирай», «выбор» stay hedges)
+    r"получил(?:ся|ась|ось|ись|и|а)?|выбрал[аи]?|(?:ты|мы|вы)\s+(?:сейчас\s+)?игра(?:ешь|ем|ете)(?:\s+(?:против|в|за))?|"
+    r"(?:мы|ты|вы)\s+(?:сейчас\s+|уже\s+)?во?|переш(?:ла|ли|[её]л)\s+в|"
+    r"(?:you\s+are|you'?re|we\s+are|we'?re)\s+(?:now\s+)?(?:playing|facing|in)(?:\s+against)?|"
+    r"(?:black|white|you|we)\s+(?:chose|picked|went\s+for)|(?:it|this)\s+(?:has\s+)?(?:became|become|turned\s+into)|"
+    r"we(?:'ve|\s+have)?\s+got|this\s+is|that'?s|it'?s|it\s+is|we\s+have|is\s+called|бұл)"
     r"(?:\s+(?:здесь|тут|сейчас|теперь|уже|именно|как\s+раз|сам(?:ый|ая|ое)|настоящ\w+|типичн\w+|классическ\w+|"
-    r"на\s+доске|в\s+партии|here|now|already|exactly|the|an?|typical))*"
+    r"так\s+называем\w+|знаменит\w+|известн\w+|на\s+доске|в\s+партии|here|now|already|exactly|the|an?|typical|"
+    r"so-called|famous|well-known))*"
     r"\s*[—–:-]?\s*(?:[^,.;:!?—–]{1,40},\s*)?$", re.IGNORECASE)
+# «Наш дебют — Дракон», «Позиция: Найдорф» — the board's own noun as the subject, the name after the dash (fix 01.11);
+# not «Лучший вариант — Дракон», where «вариант» is a choice
+_SUBJECT_DASH = re.compile(r"^[\s*_#>«\"'(-]*(?:(?:наш|тво|мо|эт)\w*\s+)?(?:дебют|позици[яи])(?:\s+(?:сейчас|теперь|на\s+доске))?"
+                           r"\s*[—–:]\s*$", re.IGNORECASE)
 # A name opening the sentence is a headline («Открытый вариант сицилианской защиты, и у белых…») — unless the sentence
 # goes on to say what the variation is («Вариант Найдорфа — это то, что тебе подойдёт»): then it is the subject.
 _SUBJECT_TAIL = re.compile(r"[—–:]|\s-\s|(?<![а-яёa-z])(?:это|является|считается|бывает|is|was|means)(?![а-яёa-z])",
@@ -475,22 +496,98 @@ def _home_family(word: str) -> Optional[str]:
     return _HOME[word]
 
 
-def _said_of_board(lowered: str, start: int, end: int, after_told: bool = False) -> bool:
+def _said_of_board(lowered: str, start: int, end: int, after_told: bool = False, told: bool = False,
+                   headline: bool = True) -> bool:
     """The name at [start, end) is what the sentence says the board is: the predicate of an identity («Это
     открытый вариант…», «Перед нами вариант Найдорфа»), or a headline opening the sentence that the sentence does
     not go on to describe («Открытый вариант сицилианской защиты, и у белых…», prod 29.10). *after_told*
     (open_recap): the identity may follow the moves told, after the last «:», «—» or «;» before it («Nf3 — и чёрные
     ответили d6: это классическая сицилианская», st1#2)."""
-    if _PREDICATE.match(lowered[:start]):
+    if _PREDICATE.match(lowered[:start]) or _SUBJECT_DASH.match(lowered[:start]):
         return True
     if after_told:
         cut = max(lowered.rfind(sep, 0, start) for sep in (":", "—", "–", ";"))
         if cut >= 0 and _PREDICATE.match(lowered[cut + 1:start]):
             return True
-    if start > len(_HEADLINE.match(lowered).group(0)) + 1:
+        # fix 01.11: «Позиция после 1.e4 c5 2.Nf3 d6 — классический вариант сицилианской»: the game's record told up
+        # to now (*told*) is the subject, the dash the copula, the name its predicate
+        if told and cut >= 0 and lowered[cut] in "—–" and not lowered[cut + 1:start].strip(" «\"*_"):
+            return True
+    if not headline or start > len(_HEADLINE.match(lowered).group(0)) + 1:
         return False
     tail = re.split(r"[,.;!?]", lowered[end:], 1)[0]
     return not _SUBJECT_TAIL.search(tail)
+
+
+# fix 01.11 (review-miss: «это Дракон», «Перед нами Найдорф», «Чёрные выбрали Дракон», «это Najdorf» were never read):
+# a variation's head word said bare, without «вариант» — the head, or the adjective made from it with a kind noun
+# after it («шевенингенская структура», «меранский вариант»). A bare surname is a person as often as a variation («Это
+# Найдорф придумал…», «Алёхин любил…»), so it is read as a name only (_bare_heads) when it ends its clause — nothing
+# after it but the clause's end or a «без …»/«с …» that qualifies it — and below only as the predicate of «the board
+# is …», of an opening its lines mostly belong to, which is the board's own opening.
+_BARE_HEAD = re.compile(rf"{_W}(?P<head>{_PERSON})(?P<adj>ск(?:ий|ая|ое|ие|ого|ой|ую|им|ом|их))?"
+                        rf"(?:\s+(?:вариант|систем|структур|схем|построени|variation|system|structure|line)\w*)?{_E}",
+                        re.IGNORECASE)
+_BARE_TAIL = re.compile(r"\s*(?:$|[,.;:!?)(\]—–]|\s-\s|(?:без|с|со|without|with)\s)", re.IGNORECASE)
+# a family word right before the head: «сицилианский Дракон», «сицилианская защита, Найдорф», "the Sicilian Najdorf"
+_FAMILY_GAP = re.compile(r"\w*(?:\s+(?:защит|парти|дебют)\w*)?\s*,?\s*$", re.IGNORECASE)
+
+
+_AFTER_RECORD = re.compile(r"(?<![а-яёa-z])(?:после|after)\s*$", re.IGNORECASE)
+
+
+def _without_told_after(lowered: str, converted: str, start: int) -> str:
+    """*lowered* without the «после»/"after" that introduces the game's record told up to the name («Позиция после
+    1.e4 c5 2.Nf3 d6 — …»): the record is the game's past, not a condition (fix 01.11)."""
+    from src.answer_check import _MOVE
+
+    first = next((m.start() for m in _MOVE.finditer(converted[:start])), None)
+    if first is None:
+        return lowered
+    head = lowered[:first]
+    lead = _AFTER_RECORD.search(head)
+    return (head[:lead.start()] if lead else head) + lowered[first:]
+
+
+# The names players say alone for the line itself («это Найдорф», «у нас Земиш», «Получился Дракон»): eponyms known
+# for their line, places and things. The great players (Morphy, Steinitz, Lasker, Capablanca, Alekhine, Botvinnik,
+# Petrosian, Karpov, Tarrasch, Chigorin…) are talked about as people as often — «Это Морфи: развитие прежде всего» —
+# so said bare they stay unjudged.
+_BARE_OK = frozenset({
+    "Alapin", "Najdorf", "Winawer", "Panov", "Maróczy", "Rauzer", "Richter", "Averbakh", "Scheveningen", "Taimanov",
+    "Sozin", "Rossolimo", "Sveshnikov", "Pelikan", "Schliemann", "Zaitsev", "Sämisch", "Kieseritzky", "Falkbeer",
+    "Morra", "Jaenisch", "Kan", "Møller", "Leningrad", "Meran", "Dragon", "Chelyabinsk", "Velimirovic",
+    "Polugaevsky", "Chebanenko", "Stonewall", "Cambridge Springs", "Breyer", "Evans", "Marshall", "Paulsen",
+})
+
+
+def _bare_word(said: str) -> Optional[str]:
+    said = said.lower().replace("ё", "е")
+    for pattern, word in _PEOPLE:
+        if re.fullmatch(pattern, said, re.IGNORECASE):
+            return word if word in _BARE_OK and _book_knows(word) else None
+    return None
+
+
+def _bare_heads(lowered: str, taken: list) -> list:
+    """(start, end, word) of each head said bare in *lowered* outside the spans *taken* by other phrases; *start*
+    goes back over a family word before the head («сицилианский Дракон»), so the predicate is read before both."""
+    from src.openings_book import _FAMILIES_RE
+
+    out = []
+    for m in _BARE_HEAD.finditer(lowered):
+        if any(a <= m.start() < b or a < m.end() <= b for a, b in taken):
+            continue
+        word = _bare_word(m["head"])
+        if word is None or not _BARE_TAIL.match(lowered[m.end():]):
+            continue
+        start = m.start()
+        for rx, _name in _FAMILIES_RE:
+            for f in rx.finditer(lowered[:start]):
+                if _FAMILY_GAP.fullmatch(lowered[f.end():start]) and f.start() < start:
+                    start = min(start, f.start())
+        out.append((start, m.end(), word))
+    return out
 
 
 def _plain_phrases(lowered: str) -> list:
@@ -610,25 +707,35 @@ def _name_issues(text: str, ctx, plain_1031: bool = False, recap: bool = False) 
     for m in _PERSON_PHRASE.finditer(lowered):
         word = _person(m)
         if word:
-            phrases.append((m.start(), m.end(), word, False, False))
+            phrases.append((m.start(), m.end(), word, False, False, False))
     if plain_1031:
-        phrases += [(s, e, w, True, of_opening) for s, e, w, of_opening in _plain_phrases(lowered)]
+        phrases += [(s, e, w, True, of_opening, False) for s, e, w, of_opening in _plain_phrases(lowered)]
+        phrases += [(s, e, w, False, False, True)
+                    for s, e, w in _bare_heads(lowered, [(p[0], p[1]) for p in phrases])]
     else:
         for m in _PLAIN_PHRASE.finditer(lowered):
             said = (m["ru"] or "").lower()
             word = next((w for p, w in _PLAIN if said.startswith(p)), None) or _PLAIN_EN.get((m["en"] or "").lower())
             if word:
-                phrases.append((m.start(), m.end(), word, True, False))
+                phrases.append((m.start(), m.end(), word, True, False, False))
     if not phrases:
         return []
+    from src.game_record import recap_end
+
+    record = list(getattr(ctx, "game_moves", None) or [])
     book = _book()
     named = _named_in(converted)
     moves = _written_moves(converted, ctx)
     now = _board_now(ctx)
     out = []
-    for start, end, word, plain, of_opening in phrases:
+    for start, end, word, plain, of_opening, bare in phrases:
         if _HEDGE.search(lowered[max(0, start - 40):start]) or denied_before(lowered, start):
             continue
+        # open_recap (fix 01.11): the moves before the name are the game's record told up to now («Nf3 — и чёрные
+        # ответили d6: это вариант Найдорфа»): they end at the board, so the name is said of the board — not of a
+        # move of the record the walk met on an earlier position of the game (the move comment's boards are every
+        # position of the game: «Nf3» was read on the board after 2.Nf3, where the Najdorf is still ahead)
+        told = bool(recap and record and now is not None and recap_end(ctx, converted[:start], converted=True) == len(record))
         # A whole opening named by the person («защита Алехина», «защита Нимцовича») is the family check's; a named
         # line («вариант Найдорфа») said of the board is the identity check's (_opening_identity_issues), but
         # attached to a move («2.c3 — вариант Найдорфа») only this one reads it.
@@ -639,15 +746,19 @@ def _name_issues(text: str, ctx, plain_1031: bool = False, recap: bool = False) 
         # else the last one before it in the same clause — «2.Кf3 d6 3.d4, а вариант Алапина 2.c3 считается…» names
         # 2.c3, not 3.d4 (review 30.10).
         attached = None
-        after = [mv for mv in moves if mv[0] >= end]
+        if bare or (told and _said_of_board(lowered, start, end, after_told=True, told=True)):
+            moves_here = []  # a bare head is read only as the board's predicate; the told record ends at the board
+        else:
+            moves_here = moves
+        after = [mv for mv in moves_here if mv[0] >= end]
         if after and re.fullmatch(r"[\s*_—–:(-]*(?:\d{1,3}\s?(?:\.\.\.|…|\.)\s?)?", converted[end:after[0][0]]):
             attached = after[0]
-        before = [mv for mv in moves if mv[1] <= start]
+        before = [mv for mv in moves_here if mv[1] <= start]
         if attached is None and before:
             last = before[-1]
             gap = converted[last[1]:start]
             if len(gap) <= 90 and not re.search(r"[.!?;]", gap) and not _CONTRAST.search(gap):
-                attached = last
+                attached = last if not told else (last[0], last[1], record[-1], now)  # the told record ends at the board
         # open_recap: a plain name attached to the game's last move is said of the board now («…6...e5 — это
         # классический вариант»), judged below
         if attached is not None and not (plain and recap and now is not None and _key(attached[3]) == _key(now)
@@ -676,13 +787,14 @@ def _name_issues(text: str, ctx, plain_1031: bool = False, recap: bool = False) 
             continue  # a line of moves: the name may be about any position of it («…возникает после 2.Кf3 и 3.d4»)
         # Said of the board: the name is the predicate of «Это…», «Перед нами…», or the sentence's headline; and about
         # the board in front of the student — a game, a question for its name, «здесь».
-        if not _said_of_board(lowered, start, end, after_told=recap):
+        if not _said_of_board(lowered, start, end, after_told=recap, told=told, headline=not bare):
             continue
         q = ctx.question_raw or ctx.question or ""
         asks_board = bool(_ASKS_BOARD_NAME.search(q)) and not _named_in(q)
         if not (getattr(ctx, "game_moves", None) or asks_board or _ON_THE_BOARD.search(lowered)):
             continue
-        if CONDITIONAL.search(lowered) or _HEDGE.search(lowered) or lowered.rstrip().endswith("?"):
+        if CONDITIONAL.search(_without_told_after(lowered, converted, start) if told else lowered) \
+                or _HEDGE.search(lowered) or lowered.rstrip().endswith("?"):
             continue  # «…получится, если белые сыграют…», «это может перейти в…», a question
         board = now
         if board is None:
@@ -690,6 +802,11 @@ def _name_issues(text: str, ctx, plain_1031: bool = False, recap: bool = False) 
         reached, ahead = book.lineage(board)
         if not reached:
             continue
+        home = _home_family(word)
+        if bare and (home is None or home not in _families(reached + ahead)):
+            continue  # a bare name read as a variation only of the board's own opening, and only if it names one
+        if plain_1031 and not plain and _structure_shown(board, word, home):
+            continue  # the board already has the pawns of a line named so: players may call it that already
         family = None
         if plain:
             fams = [n.split(":")[0].strip() for n, _ in named] or sorted(_families(reached))
@@ -720,20 +837,80 @@ def _name_issues(text: str, ctx, plain_1031: bool = False, recap: bool = False) 
         if ahead_named and not shown:
             from src.openings_book import _split_moves
 
-            # the line named by the word itself before its synonyms («Classical» before «Normal»), then the shortest
+            # the line named by the word itself before its synonyms («Classical» before «Normal»), the variation
+            # itself before its sub-lines («Dragon Variation» before «Dragon Variation, Accelerated Dragon»), then the
+            # shortest
             first = min(ahead_named, key=lambda e: (word in _GENERIC and not _has_word(e[1].split(":", 1)[-1].split(",")[0], word),
+                                                    not _has_word(e[1].split(":", 1)[-1].split(",")[0], word), "," in e[1],
                                                     len(_split_moves(e[2]))))
             out.append(f"the board has not reached the {first[1]} yet — it begins {first[2]}; the position on the "
                        f"board is the {truth[1]} ({truth[0]}) by the ECO book")
-        elif not plain and not line_named and not _consistent(reached + ahead, word):
+        elif not plain and not _consistent(reached + ahead, word) and not shown \
+                and (not line_named or (plain_1031 and home in _families(reached + ahead))):
             # Another opening's name for the board («Это вариант Свешникова» in the Ruy Lopez): only for a name the
-            # book gives to one opening, and not this one — another branch of the board's own opening is the
-            # identity check's (one issue, not two), a spread name may be the players' usage.
-            home = _home_family(word)
+            # book gives to one opening — a spread name may be the players' usage. Another branch of the board's own
+            # opening («это сицилианская, вариант Свешникова» on 2...d6: the book's Sveshnikov lines all go 2...Nc6) is
+            # judged here under open_plain (fix 01.11) — for a name the identity check knows too (*line_named*), since
+            # that check reads only its own frames («Чёрные выбрали Тайманов» it does not).
             if home is not None and home not in _families(reached + ahead):
                 out.append(f"the position on the board is the {truth[1]} ({truth[0]}) by the ECO book: no book line "
                            f"through it is named after {word}; {word}'s lines are in the {home}")
+            elif home is not None and plain_1031 and not _other_eponym(reached, word) \
+                    and not _names_the_board(lowered, truth, reached, named):
+                out.append(f"the position on the board is the {truth[1]} ({truth[0]}) by the ECO book: no book line "
+                           f"through it or on from it is named after {word}; {word}'s lines are other branches of the "
+                           f"{home}")
     return out
+
+
+_STRUCTURES: dict = {}
+
+
+def _pawn_set(board: chess.Board) -> frozenset:
+    return frozenset((sq, color) for color in chess.COLORS for sq in board.pieces(chess.PAWN, color))
+
+
+def _structure_shown(board: chess.Board, word: str, home: Optional[str]) -> bool:
+    """The pawns of *board* are those of a position some book line named after *word* ends in (of its home opening):
+    the book names a line at one move order, players name the structure — «Получился Стоунволл» after 1.d4 f5 2.c4
+    Nf6 3.g3 e6 4.Bg2 d5 has the Stonewall's f5-e6-d5 the book's lines reach later, with Be7 and castling (fix 01.11).
+    A name whose line still needs a pawn the board lacks («Дракон» without g6, «Найдорф» without a6, «Свешников»
+    without e5, «Шевенинген» without e6) is not shown."""
+    key = (word, home)
+    if key not in _STRUCTURES:
+        from src.openings_book import _split_moves
+
+        sets = []
+        for e in _book().entries:
+            if not _names(e[1], word) or (home is not None and not e[1].startswith(home)):
+                continue
+            b = chess.Board()
+            try:
+                for san in _split_moves(e[2]):
+                    b.push_san(san)
+            except ValueError:
+                continue
+            sets.append(_pawn_set(b))
+        _STRUCTURES[key] = sets
+    have = _pawn_set(board)
+    return any(pawns == have for pawns in _STRUCTURES[key])
+
+
+def _names_the_board(lowered: str, truth, reached, named) -> bool:
+    """The sentence names the board's own line too — its book name, its ECO code, or a name the lexicon resolves to a
+    line the board has reached («…вариант Атака Панова — точнее, по книге это B12 «Caro-Kann Defense: Advance
+    Variation»»): it corrects itself, as src/answer_check._opening_identity_issues lets it."""
+    if truth and (truth[0].lower() in lowered or truth[1].split(":", 1)[-1].strip().lower() in lowered):
+        return True
+    own = {e[1] for e in reached}
+    return any(n in own for n, is_line in named if is_line)
+
+
+def _other_eponym(reached, word: str) -> bool:
+    """The board is already in a variation the book names after someone or something else (the Kan, the Najdorf):
+    another eponym said of it may be a name players give that line which the book lacks — no verdict there."""
+    heads = [e[1].split(":", 1)[1] for e in reached if ":" in e[1]]
+    return any(w != word and _book_knows(w) and any(_has_word(h, w) for h in heads) for _, w in _PEOPLE)
 
 
 def _index_at_hand() -> bool:

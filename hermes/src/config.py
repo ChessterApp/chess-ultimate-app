@@ -437,7 +437,8 @@ COACH_MCP_ENABLED = _env_flag("COACH_MCP_ENABLED", False)
 #   COACH_DETECTORS_SHADOW — comma list of detector names that compute and log their issue but never cut.
 # OFF wins over SHADOW, SHADOW over the default below. The relation detectors (RELATION_DETECTORS) also obey
 # COACH_RELATION_CHECK: off there turns them off, shadow there caps them at shadow. Whatever the switches say, the
-# /learn lesson tutor gets none of them (the team's feature, Асан 19.10) and a game move comment at most shadow.
+# /learn lesson tutor gets none of them (the team's feature, Асан 19.10); on a game move comment the relation detectors
+# are at most shadow, the others run as in a chat answer.
 DETECTOR_DEFAULTS = {
     # WP-0 (the replay warms the book index; production builds it in the warm-up)
     "book_wait": "on",
@@ -499,7 +500,10 @@ def detector_mode(name: str, ctx=None) -> str:
     surface = getattr(ctx, "relation_surface", "text") if ctx is not None else "text"
     if surface == "lesson":
         return "off"
-    if surface == "game":
+    if surface == "game" and key in RELATION_DETECTORS:
+        # A game move comment caps the relation detectors (not reviewed on comments yet); the game-record, opening,
+        # engine and endgame detectors judge a comment as they judge a chat answer in the same game (fix 01.11: with
+        # every detector capped the comment surface caught 0 of the 8 graded game sentences).
         got = min(got, "shadow", key=_MODE_RANK.get)
     return got
 
