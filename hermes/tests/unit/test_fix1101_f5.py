@@ -268,3 +268,25 @@ def test_a_denial_far_after_the_block_word_is_read():
 
     assert _block_claims("король обязан отойти, но закрыться или съесть слона он не может.") == []
     assert _block_claims("закрыться ферзём не выйдет.") == []
+
+
+# ── true sentences of the corpora (validate.sh, 01.11) that an earlier draft cut ──────────────────────────────────
+@pytest.mark.parametrize("fen, sentence", [
+    # a piece already standing between, described in the present — not a block to make
+    ("5rk1/6q1/8/8/8/8/8/5QK1 w - - 0 1", "Ключ в том, что ферзь белых сам связан: он прикрывает своего короля от шахов по линии f."),
+    ("8/8/8/8/4N3/5q2/6K1/8 w - - 0 1", "Смотри: Qf3+ бьёт и по королю на g2, и по коню e4, а заодно перекрывает королю выход."),
+    # a pawn shield is not a block
+    ("6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1", "Ладья идёт на h4 — король на h7 зажат своим же пешечным заслоном, и защиты нет."),
+    # a line from the start told with Black's first move: not judged after a board whose side was changed
+    (chess.STARTING_FEN, "**Оттеснение** — 1...a6 2.Ba4 b5: пешки прогоняют слона с диагонали."),
+])
+def test_corpus_true_sentences_pass(fen, sentence):
+    assert check_sentence(sentence, CheckContext.from_fens([fen])) == []
+
+
+def test_a_block_after_a_told_line_is_judged_only_where_the_line_stands():
+    # the board now is in check from the rook on h2; the block is told after Rc8+ … Qb1+, which the walk cannot reach
+    ctx = CheckContext.from_fens(["6k1/5pp1/7p/8/8/8/7r/2R1Q1K1 w - - 0 1"])
+    ctx.add("2R3k1/5pp1/7p/8/8/8/6Kr/4Q3 b - - 0 1")
+    assert not any("g6" in i for i in check_sentence(
+        "Белые цепляются за счёт шахов: Rc8+ загоняет твоего короля на h7, потом Qb1+ — и тут спокойно закройся g6.", ctx))

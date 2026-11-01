@@ -1312,6 +1312,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
     # unknown one («…13.Qe4 Rxf2 14.dxe5 Bg5+»), or re-begun mid-line, is not.
     prev_trusted = False
     prev_ghost = False  # *prev* comes from the start position standing in for a known board (plan 31.10 H)
+    prev_flipped = False  # the line reached *prev* with a move made on a board whose side to move was changed to fit
     from src.config import detector_mode
 
     start_scene = ctx.current is not None and ctx.current.board_fen() != chess.STARTING_BOARD_FEN \
@@ -1344,6 +1345,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
                 move = trial.parse_san(san + (m["check"] or ""))
                 trial.push(move)
                 prev_trusted = prev_trusted if followed is prev else ctx.is_given(followed)
+                prev_flipped = followed is prev and prev_flipped
                 prev, prev_ghost = trial, False
                 in_line_until = m.end()
                 ctx.add(trial.fen(), derived=True)
@@ -1390,7 +1392,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         # A move numbered as the next ply of the line it continues («3...Nxd4 4.d5») is that line's move: illegal
         # there, it is not re-anchored on a board where the other side is made to move (4.d5 on the board now with
         # White to move, the pawn still on d4 — review-miss 01.11, wrong-board path 3).
-        next_ply = prev is not None and bool(num) and not list_item and colors == [prev.turn] \
+        next_ply = prev is not None and bool(num) and not list_item and colors == [prev.turn] and not prev_flipped \
             and int(num) == prev.fullmove_number \
             and not (re.fullmatch(r"[a-h](?:x[a-h])?[18]", san) and _parses(prev, full + "=Q")) \
             and not _lesson(ctx)  # «4.a8 — и новый ферзь»; the lesson tutor keeps 31.10's walk
@@ -1442,6 +1444,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
                     legal_somewhere = True
                     scene_san = trial.san(move)
                     trial.push(move)
+                    prev_flipped = color != board.turn or (board is prev and prev_flipped)
                     prev, prev_trusted, ghost_now = trial, trusted, False
                     ctx.add(trial.fen(), derived=True)  # a line written in the answer goes on from here
                     ctx.scene, ctx.scene_san, ctx.scene_age = trial.copy(stack=False), scene_san, 0
@@ -4276,14 +4279,18 @@ def _student_capture_issues(text: str, ctx: CheckContext) -> list[str]:
 # before «— это заслон»), the piece it names (instrumental «конём», a subject «Конь может заслонить», «только …»), and
 # its square («конём c6» the piece, «на d7» the target). A claim with no move is judged against the board's blocks.
 # Not judged: a denial («закрыться нечем»), a question, a condition, the past.
+# Only the forms that propose or claim a block to make (infinitive, imperative, 2nd person, future) — not the present of a
+# piece already standing between («ферзь прикрывает короля от шахов по линии f», «Qf3+ перекрывает королю выход»: a
+# description), and not «пешечный заслон» (a pawn shield).
 _BLOCK_WORD = re.compile(
     r"(?<![а-яa-z])(?:"
     r"(?P<refl>(?:за|пере|при)кр(?:ыться|ываться|ывайся|ывайтесь|ойся|ойтесь|оешься|оется|оются|ыл(?:ся|ась|ись))"
-    r"|заслон(?:иться|ись|итесь|ишься|ится|яться|яйся)|загород(?:иться|ись|итесь|ишься|ится)|загоражива(?:ться|йся|ешься|ется))"
-    r"|(?P<trans>(?:за|пере|при)кр(?:ыть|ой|ойте|оешь|оет|ывать|ывай|ывает)|заслон(?:ить|и|ите|ишь|ит|ять|яй|яет)|"
-    r"загород(?:ить|и|ите|ишь|ит)|(?:за)?блокир(?:овать|уй|уйте|уешь|ует|овав)|block(?:s|ing)?)"
-    r"|(?P<noun>заслон(?:ом|а|ы|е)?|перекрыти\w*|блокировк\w*|interpos\w*|a\s+block)"
-    r"|(?P<between>вста(?:ть|нь|ньте|нет|вать|ет)|поставить|поставь|ставь|put|place))(?![а-яa-z])", re.IGNORECASE)
+    r"|заслон(?:иться|ись|итесь|ишься|ится|яться|яйся)|загород(?:иться|ись|итесь|ишься|ится)|загоражива(?:ться|йся|ешься))"
+    r"|(?P<trans>(?:за|пере|при)кр(?:ыть|ой|ойте|оешь|оет|ывать|ывай)|заслон(?:ить|и|ите|ишь|ит|ять|яй)|"
+    r"загород(?:ить|и|ите|ишь|ит)|(?:за)?блокир(?:овать|уй|уйте|уешь|овав)|block(?![a-z]))"
+    r"|(?P<noun>(?<!пешечн[ыо]м\s)(?<!пешечный\s)(?<!пешечного\s)заслон(?:ом|а|ы|е)?|перекрыти\w*|блокировк\w*|interpos\w*|"
+    r"a\s+block)"
+    r"|(?P<between>вста(?:ть|нь|ньте|нет|вать)|поставить|поставь|ставь|put|place))(?![а-яa-z])", re.IGNORECASE)
 _BLOCK_OBJ = re.compile(r"(?<![а-яa-z])(?:шах\w*|корол[яю]|линию\s+шаха|от\s+шаха|check|the\s+king)(?![а-яa-z])", re.IGNORECASE)
 _BLOCK_BETWEEN = re.compile(r"(?<![а-яa-z])(?:между|between)(?![а-яa-z])[^.;!?]*?(?:корол\w*|king)", re.IGNORECASE)
 _BLOCK_NOT = re.compile(r"(?<![а-яa-z])(?:не|ни|нельзя|нечем|некуда|невозможно|никак|cannot|can'?t|no\s+way|nothing)(?![а-яa-z])"
@@ -4332,9 +4339,9 @@ def _block_claims(conv: str) -> list:
         if m["trans"] and m["trans"].lower().startswith("прикр") and not re.search(
                 r"(?<![а-яa-z])(?:от\s+шаха|шах\w*|check)(?![а-яa-z])", near):
             continue  # «прикрыть короля»: shelter in general, not a block of this check
-        if m["noun"] and not m["noun"].lower().startswith("заслон") \
-                and not re.search(r"(?<![а-яa-z])(?:от\s+шаха|шах\w*|check)(?![а-яa-z])", near):
-            continue  # «блокировка пешки»: a blockade, not the check
+        if m["noun"] and not re.search(r"(?<![а-яa-z])(?:от\s+шаха|шах\w*|check)(?![а-яa-z])", near) \
+                and not (m["noun"].lower().startswith("заслон") and _PIECE_INSTR.search(after[:30])):
+            continue  # «блокировка пешки», «зажат своим заслоном»: not a block of the check
         if m["between"] and not _BLOCK_BETWEEN.search(after):
             continue
         clause = conv[cs: ce]
@@ -4455,7 +4462,19 @@ def _block_kind_issues(text: str, ctx: CheckContext) -> list[str]:
     out = []
     claims = _block_claims(converted)
     for claim in claims:
-        verdicts = [_block_verdict(b, claim) for b in boards]
+        here = boards
+        # A line written before the block word («Rc8+ загоняет короля на h7, потом Qb1+ — спокойно закройся g6»): the
+        # claim is about the position after its last move, which the walk must have reached in this sentence.
+        told = [mv for mv in _MOVE.finditer(converted[: claim["at"]])
+                if (mv["san"][0] in "KQRBNO" or mv["num"] or mv["bdots"] or "x" in mv["san"] or mv["check"])
+                and mv["san"] != claim["san"]]  # not the block's own move («Nxd8 — это заслон»)
+        if told:
+            last = told[-1]["san"].replace("x", "")
+            here = [b for san, b, _ in ctx.scene_trail[-1:] if san.rstrip("+#").replace("x", "") == last and b.is_check()]
+        here = [b for b in here if not b.is_checkmate()]  # mate: nothing answers it, no block to judge
+        if not here:
+            continue
+        verdicts = [_block_verdict(b, claim) for b in here]
         if any(v == "" for v in verdicts) or all(v is None for v in verdicts):
             continue  # holds on some board in check of the sentence, or names nothing here
         out.append(next(v for v in verdicts if v))
