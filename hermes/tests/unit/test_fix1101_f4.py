@@ -111,12 +111,18 @@ def test_what_is_not_a_material_lead_stays_unjudged(sentence):
 @pytest.mark.parametrize("sentence", [
     "Чёрные впереди на две пешки по материалу: конь за пешку.",
     "По очкам чёрные впереди на две пешки.",
-    "Белые позади на две пешки, но у них атака.",
     "Ты впереди на две пешки по материалу, но король на e6 под огнём.",
+    "Белые позади на две пешки в пересчёте на очки.",
 ])
 def test_a_lead_in_pawns_may_be_points(sentence):
     # review-fp 01.11 (Fried Liver, student Black): a knight for a pawn is +2 — the issue contradicted itself
     assert _issues(sentence, FRIED, "b") == [], sentence
+
+
+def test_without_a_points_frame_pawns_are_pawns():
+    # graded prod (tests/unit/test_answer_check.py: «Black is up two pawns already» with a knight for a pawn is wrong):
+    # with no «по материалу / по очкам» or trade told, «на две пешки» counts pawns — and White has one pawn more
+    assert _issues("Белые позади на две пешки, но у них атака.", FRIED, "b")
 
 
 def test_a_compound_quantity_is_summed():

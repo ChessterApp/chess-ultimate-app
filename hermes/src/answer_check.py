@@ -2239,6 +2239,9 @@ _MAT_GAP = re.compile(r"(?:\s*[—–:,]?\s*(?:уже|сейчас|теперь|
                       re.IGNORECASE)
 _MAT_AGAINST = re.compile(r"\s*(?:против|за|vs\.?|versus)\s+(?:[а-яё]+\s+)?(?:пешк|кон|слон|ладь|ферз|фигур|качеств)",
                           re.IGNORECASE)
+# The sentence counts in points: «по материалу», «по очкам», «в пересчёте», a trade told («конь за пешку»), "in points".
+_MAT_POINTS = re.compile(r"материал|очк|пересч[её]т|(?:кон[ья]|слон\w*|фигур\w*|ладь\w*|ферз\w*|качеств\w*)\s+за\s+(?:пешк|пару)|"
+                         r"material|points?(?![a-z])", re.IGNORECASE)
 _MAT_WORD = re.compile(r"материал|по\s+очкам", re.IGNORECASE)
 _MAT_FUTURE = re.compile(r"стан(?:ет|ут|ешь|ем)|окаж|получ(?:ат|ит|ишь|им)|выйд|будет|будут|будешь", re.IGNORECASE)
 _MAT_ONLY = re.compile(r"(?<![а-я])(?:всего|только|лишь|ровно)(?![а-я])")
@@ -2267,7 +2270,7 @@ def _mat_units(q: str) -> tuple[list, bool, bool]:
     return units, said_num, only
 
 
-def _lead_holds(board: chess.Board, color: bool, units: list, more: bool, mode: str) -> bool:
+def _lead_holds(board: chess.Board, color: bool, units: list, more: bool, mode: str, in_points: bool = False) -> bool:
     """*mode* 'balance': the whole balance is that much («впереди на ладью», «на две пешки больше» — in pawns of points
     too); 'count': that many of the kind more («две лишние пешки»); 'atleast': at least that («лишняя пешка»);
     'kind': more of that kind («больше пешек»)."""
@@ -2278,7 +2281,7 @@ def _lead_holds(board: chess.Board, color: bool, units: list, more: bool, mode: 
         return abs(diff - sum(n * p for n, _, p in units)) <= 1
     n, kind, points = units[0]
     if mode == "balance":
-        return _material_holds(board, color, kind, points, n, more, True)
+        return _material_holds(board, color, kind, points, n, more, True, in_points)
     if mode == "atleast":
         return _material_holds(board, color, kind, points, n, more, False)
     mine, theirs = _counts(board, color), _counts(board, not color)
@@ -2444,7 +2447,7 @@ def _counts(board: chess.Board, color: bool) -> dict:
 
 
 def _material_holds(board: chess.Board, color: bool, kind: str, points: int, n: int, more: bool,
-                    balance: bool = True) -> bool:
+                    balance: bool = True, in_points: bool = False) -> bool:
     """*balance*: «на пешку больше», "up a pawn" — the whole balance; otherwise
     («лишняя пешка», "an extra knight") only that count."""
     mine, theirs = _counts(board, color), _counts(board, not color)
@@ -2461,9 +2464,10 @@ def _material_holds(board: chess.Board, color: bool, kind: str, points: int, n: 
         pt = {"knight": chess.KNIGHT, "bishop": chess.BISHOP, "rook": chess.ROOK, "queen": chess.QUEEN}[kind]
         return (mine[pt] - theirs[pt]) * sign >= n
     if kind == "pawn":
-        # «впереди на две пешки» is a count of pawns or the balance in pawns of points (a knight for a pawn is +2):
-        # either reading holds (review-fp 01.11, Fried Liver: «Чёрные впереди на две пешки по материалу: конь за пешку»)
-        return (dp == n and abs(dnp) <= 1) or dp + dnp == n
+        # «впереди на две пешки по материалу / по очкам», «… : конь за пешку»: the balance in pawns of points (a knight
+        # for a pawn is +2) when the sentence counts in points (review-fp 01.11, Fried Liver); without that it is a count
+        # of pawns (graded prod 06.10, «Black is up two pawns already» with a knight for a pawn: wrong)
+        return (dp == n and abs(dnp) <= 1) or (in_points and dp + dnp == n)
     if kind == "exchange":
         return (mine[chess.ROOK] - theirs[chess.ROOK]) * sign == 1 and (mine["minors"] - theirs["minors"]) * sign == -1 \
             and abs(dp) <= 2
@@ -2712,6 +2716,7 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         return issue.replace(" (not: ", f" — {'White' if diff > 0 else 'Black'} +{abs(diff)} in points (not: ", 1) \
             if diff else issue
 
+    counts_points = bool(_MAT_POINTS.search(text))
     judged = set()  # the side words the fixed patterns judged: the grammar adds only what they miss or read looser
     ordered = []
     for rx in _MATERIAL:
@@ -2731,7 +2736,7 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             direction = m["dir"].lower().replace("ё", "е")
             more = any(direction.startswith(w) for w in _MORE)
             balance = not direction.startswith(("лишн", "без", "extra", "spare"))
-            if not any(_material_holds(b, color, kind, points, n, more, balance) for b in boards):
+            if not any(_material_holds(b, color, kind, points, n, more, balance, counts_points) for b in boards):
                 issues.append(f"{said(m.group(0))} (not: {m.group(0).strip()})")
     # the grammar (M2 material_order, rebuilt 01.11): every lead it reads that the patterns above did not judge, or
     # judged looser (an explicit count, «всего», «больше ничего»)
@@ -2745,7 +2750,7 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             continue  # the patterns above read this very claim (only a stricter count of an extra unit is added)
         if _is_hypothetical(text, original, at, ctx=ctx):
             continue
-        if not any(_lead_holds(b, color, units, more, mode) for b in boards):
+        if not any(_lead_holds(b, color, units, more, mode, counts_points) for b in boards):
             ordered.append(in_points(f"{said(span)} (not: {span})"))
     eq_old = {m.start() for m in _MATERIAL_EQUAL.finditer(text)}
     eq_new = []
