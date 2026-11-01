@@ -1391,11 +1391,11 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         ghost_now = False
         # A move numbered as the next ply of the line it continues («3...Nxd4 4.d5») is that line's move: illegal
         # there, it is not re-anchored on a board where the other side is made to move (4.d5 on the board now with
-        # White to move, the pawn still on d4 — review-miss 01.11, wrong-board path 3).
-        next_ply = prev is not None and bool(num) and not list_item and colors == [prev.turn] and not prev_flipped \
-            and int(num) == prev.fullmove_number \
-            and not (re.fullmatch(r"[a-h](?:x[a-h])?[18]", san) and _parses(prev, full + "=Q")) \
-            and not _lesson(ctx)  # «4.a8 — и новый ферзь»; the lesson tutor keeps 31.10's walk
+        # White to move, the pawn still on d4 — review-miss 01.11, wrong-board path 3). It stays a plan the lenient
+        # checks below may still accept; it sets no scene. (F2's patch; F5 adds: not after a line that reached its board
+        # with the side changed, and not on the lesson surface, which keeps 31.10's walk.)
+        next_ply = prev is not None and bool(num) and not list_item and colors == [prev.turn] \
+            and int(num) == prev.fullmove_number and not prev_flipped and not _lesson(ctx)
         line_prev, line_trusted = prev, prev_trusted
         candidates = ([(prev, [prev.turn])] if prev is not None and prev.turn in colors else []) \
             + [(b, [c for c in colors if c == b.turn]) for b in ordered] \
@@ -1465,8 +1465,10 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
             continue
         if bare_capture:
             continue
-        if next_ply and line_trusted:
-            # the line began on a board of the turn and every move so far was legal there: its next move is impossible
+        if next_ply and line_trusted and not (re.fullmatch(r"[a-h](?:x[a-h])?[18]", san) and _parses(line_prev, full + "=Q")):
+            # F5 (01.11): the line began on a board of the turn with its own side to move and every move so far was legal
+            # there: its next move, legal nowhere after it, is impossible — not a plan of some other position («После
+            # 3...Nxd4 4.d5 конь c6 под ударом»: the d-pawn is gone). «4.a8» without its piece is a promotion.
             issues.append(f"{num}{dots}{full} is impossible after the moves before it in this line "
                           f"(position {line_prev.fen()})")
             continue
@@ -4469,8 +4471,14 @@ def _block_kind_issues(text: str, ctx: CheckContext) -> list[str]:
                 if (mv["san"][0] in "KQRBNO" or mv["num"] or mv["bdots"] or "x" in mv["san"] or mv["check"])
                 and mv["san"] != claim["san"]]  # not the block's own move («Nxd8 — это заслон»)
         if told:
-            last = told[-1]["san"].replace("x", "")
-            here = [b for san, b, _ in ctx.scene_trail[-1:] if san.rstrip("+#").replace("x", "") == last and b.is_check()]
+            # only a line written out move by move («Rc8+ Kh7 Qb1+»), every move of it walked in this sentence: a move
+            # told in words between («Rc8+ загоняет короля на h7, потом Qb1+») leaves the walk on a guessed board
+            whole = all(re.fullmatch(r"[\s,]*(?:\d{1,3}\s?\.{1,3}\s*)?", converted[x.end(): y.start()])
+                        for x, y in zip(told, told[1:]))
+            walked = [san.rstrip("+#").replace("x", "") for san, _, _ in ctx.scene_trail]
+            if not whole or walked[-len(told):] != [x["san"].replace("x", "") for x in told]:
+                continue
+            here = [b for _, b, _ in ctx.scene_trail[-1:] if b.is_check()]
         here = [b for b in here if not b.is_checkmate()]  # mate: nothing answers it, no block to judge
         if not here:
             continue
