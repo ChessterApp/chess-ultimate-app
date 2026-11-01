@@ -3637,7 +3637,6 @@ _PROPOSE_VOCAB = re.compile(
 # right after it («…, но только после того, как …», «… — но сначала f4»); then the move «сначала» names is the move now.
 # Not judged: a question, a sentence that says the move fails, the past («план был»), a condition («если», «когда»), a
 # line written before the frame, the other side's plan, the game's own next move told in the present.
-_SIDE_RU = r"(?:бел\w*|черн\w*)"
 _F_PLAN = re.compile(
     r"(?<![а-яa-z])(?P<adj>(?:(?:мой|наш|твой|ваш|главн\w+|основн\w+|типичн\w+|стандартн\w+|обычн\w+|естественн\w+|логичн\w+|"
     r"прост\w+|хорош\w+|правильн\w+|сильн\w+|лучш\w+|ближайш\w+|перв\w+|разумн\w+|долгосрочн\w+|стратегическ\w+)\s+){0,2})"
