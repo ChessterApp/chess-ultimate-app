@@ -239,20 +239,14 @@ _EXCH_CACHE: dict = {}
 
 
 def _exchanges(moves: list) -> tuple:
-    """(runs of src/game_record.exchanges, the board after the last move), cached per score."""
+    """(runs of src/game_record.exchanges, the windows of _windows), cached per score."""
     key = tuple(moves)
     hit = _EXCH_CACHE.get(key)
     if hit is None:
         from src.game_record import exchanges
 
         runs = exchanges(list(moves))
-        b = chess.Board()
-        for s in moves:
-            try:
-                b.push_san(s)
-            except ValueError:
-                break
-        hit = (runs, b)
+        hit = (runs, _windows(runs, _ply_facts(list(moves))))
         if len(_EXCH_CACHE) > 64:
             _EXCH_CACHE.clear()
         _EXCH_CACHE[key] = hit
@@ -301,18 +295,65 @@ def _fits(lost: Counter, slots: list) -> bool:
     return len(minors) >= wild.count("minor")
 
 
-def _windows(runs: list) -> list:
-    """Every window (i, j, lost) of up to _MAX_RUNS neighbouring runs, each at most _GAP quiet plies after the one
-    before; *lost* is what each side lost in it."""
+_MAX_QUIET = 6  # quiet plies between two captures of one window, checks and the replies to them included
+_MAX_CAPTURES = 16  # captures in one window
+
+
+def _ply_facts(moves: list) -> list:
+    """For each ply of the score (1-based index i → item i - 1): (victim or None, the capture's square, gives check,
+    answers a check)."""
+    b, out = chess.Board(), []
+    for s in moves:
+        try:
+            mv = b.parse_san(s)
+        except ValueError:
+            break
+        in_check = b.is_check()
+        victim = chess.Piece(chess.PAWN, not b.turn) if b.is_en_passant(mv) else b.piece_at(mv.to_square)
+        b.push(mv)
+        out.append((victim, mv.to_square, b.is_check(), in_check))
+    return out
+
+
+def _windows(runs: list, facts: list) -> list:
+    """Every window (a, b, lost, runs touched − 1, aligned) of the game: plies a..b (1-based), a stretch of captures
+    told as one trade, and *lost* what each side lost in it.
+
+    A window is any stretch of captures that starts and ends where the exchange on a square is settled: it does not
+    start with the recapture of the ply before (26...Rxc8 after 26.Qxc8) and does not end where the next ply
+    recaptures on the same square (26.Qxc8 Rxc8 without 27.Rxc8). So an exchange inside a longer run of captures is
+    a window of its own (24.Rxd4 cxd4 in 24.Rxd4 cxd4 25.Re7+ Kb6 26.Qxd4+ …, review 01.11), and the whole run is one
+    too. Between two captures of a window at most _GAP quiet plies that are neither a check nor the reply to one, and
+    at most _MAX_QUIET in all: a combination driven by checks (the windmill 18.Bxb6 Bxc4+ 19.Kg1 Ne2+ 20.Kf1 Nxd4+ …)
+    is one trade. *aligned*: the window is a run of src/game_record.exchanges or several whole ones (the nearest-
+    exchange text prefers them)."""
+    caps = [i + 1 for i, f in enumerate(facts) if f[0] is not None]
+    run_of = {}
+    for ri, r in enumerate(runs):
+        for p in range(r.start_ply, r.end_ply + 1):
+            run_of[p] = ri
+    starts = {r.start_ply for r in runs}
+    ends = {r.end_ply for r in runs}
     out = []
-    for i in range(len(runs)):
+    for ai, a in enumerate(caps):
+        if a >= 2 and facts[a - 2][0] is not None and facts[a - 2][1] == facts[a - 1][1]:
+            continue  # the recapture of the ply before: not where an exchange starts
         lost = {chess.WHITE: Counter(), chess.BLACK: Counter()}
-        for j in range(i, min(len(runs), i + _MAX_RUNS)):
-            if j > i and runs[j].start_ply - runs[j - 1].end_ply - 1 > _GAP:
-                break
-            for c in (chess.WHITE, chess.BLACK):
-                lost[c] = lost[c] + runs[j].lost.get(c, Counter())
-            out.append((i, j, {c: Counter(lost[c]) for c in lost}))
+        prev = a
+        for k in range(ai, min(len(caps), ai + _MAX_CAPTURES)):
+            p = caps[k]
+            if p != a:
+                quiet = range(prev + 1, p)
+                free = sum(1 for q in quiet if not facts[q - 1][2] and not facts[q - 1][3])
+                if len(quiet) > _MAX_QUIET or free > _GAP:
+                    break
+            v = facts[p - 1][0]
+            lost[v.color][v.piece_type] += 1
+            prev = p
+            if p < len(facts) and facts[p][0] is not None and facts[p][1] == facts[p - 1][1]:
+                continue  # the next ply recaptures on this square: the exchange there is not over
+            touched = run_of.get(p, 0) - run_of.get(a, 0)
+            out.append((a, p, {c: Counter(lost[c]) for c in lost}, touched, a in starts and p in ends))
     return out
 
 
@@ -407,52 +448,75 @@ def _excess(lost: Counter, matched: int) -> int:
     return max(0, sum(c for t, c in lost.items() if t in _PIECES) - matched)
 
 
-def _verdict(game: dict, side: bool, give: list, get: list, move_no: Optional[int]) -> Optional[str]:
-    """None when some window of *game* fits; else the issue naming the nearest real exchange: the window where the
-    giver lost most of what it is said to give and least else, then where the other side lost most of what it is
-    said to give back and least else, then the fewest runs (then the one nearest the move the sentence names, then
-    the first). «белые отдали ферзя за коня» in the Opera game is 16.Qb8+ Nxb8 17.Rd8# — the queen for nothing,
-    not the long run 13.Rxd7 … Nxb8 that has a knight in it."""
-    runs, _ = _exchanges(game["moves"])
-    windows = _windows(runs)
-    for _, _, lost in windows:
+def _cited_plies(sentence: str, moves: list) -> set:
+    """The plies of *moves* (1-based) the sentence writes: «24.Rxd4 cxd4» (a move number fixes the ply, the moves
+    after it follow), or a bare SAN the game played once."""
+    sans = [str(m).rstrip("+#") for m in moves]
+    out, nxt = set(), None
+    for m in re.finditer(r"(?<![\w-])(?:(?P<n>\d{1,3})\s*\.(?P<dots>\.\.|…)?\s*)?"
+                         r"(?P<san>[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|O-O(?:-O)?)[+#!?]*(?![\w-])", sentence or ""):
+        san = m["san"]
+        if m["n"]:
+            ply = 2 * int(m["n"]) - (0 if m["dots"] else 1)
+        elif nxt is not None:
+            ply = nxt
+        else:
+            hits = [i + 1 for i, x in enumerate(sans) if x == san]
+            ply = hits[0] if len(hits) == 1 else None
+        if ply is not None and 1 <= ply <= len(sans) and sans[ply - 1] == san:
+            out.add(ply)
+            nxt = ply + 1
+        else:
+            nxt = None
+    return out
+
+
+def _verdict(game: dict, side: bool, give: list, get: list, move_no: Optional[int], cited: frozenset = frozenset()):
+    """(None, None) when some window of *game* fits; else (the issue naming the nearest real exchange, its score):
+    the window with most of the plies the sentence writes, then where the giver lost most of what it is said to give
+    and least else, then whole runs before a part of one, then where the other side lost most of what it is said to
+    give back and least else, then the fewest runs, then the one nearest the move the sentence names, then the
+    first. «белые отдали ферзя за коня» in the Opera game is 16.Qb8+ Nxb8 17.Rd8# — the queen for nothing, not the
+    long run 13.Rxd7 … Nxb8 that has a knight in it."""
+    runs, windows = _exchanges(game["moves"])
+    for _, _, lost, _, _ in windows:
         if _fits(lost[side], give) and _fits(lost[not side], get):
-            return None
+            return None, None
     who = "White" if side == chess.WHITE else "Black"
     claim = f"{who} never gave {_slots_phrase(give)} for {_slots_phrase(get)}"
     best, best_score = None, None
-    for i, j, lost in windows:
+    for a, b, lost, touched, aligned in windows:
         g = _overlap(lost[side], give)
         near = 0
         if move_no:
-            mid = (runs[i].start_ply + runs[j].end_ply) // 2
-            near = -abs((mid + 1) // 2 - move_no)
+            near = -abs(((a + b) // 2 + 1) // 2 - move_no)
         o = _overlap(lost[not side], get)
         swapped = _overlap(lost[side], get) + _overlap(lost[not side], give)  # «коня за слона» when it was the other way
         if not g and not o and not swapped:
             continue
-        score = (g, -_excess(lost[side], g), o, -_excess(lost[not side], o), swapped, -(j - i), near, -i)
+        on = sum(1 for p in cited if a <= p <= b)
+        score = (on, g, -_excess(lost[side], g), aligned, o, -_excess(lost[not side], o), swapped, -touched, near, -a)
         if best_score is None or score > best_score:
-            best, best_score = (i, j, lost), score
+            best, best_score = (a, b, lost), score
     if game["key"] != "board":
         where = f"In {game['name']}, "
     else:
         where = "In this game, " if game["name"] == "this game" else "In the game on the board, "
     lost_none = ""
-    if best is None or not best_score[0]:
+    if best is None or not best_score[1]:
         lost_none = f" ({who} lost no {_bare(give)} in it)"
     if best is None:
-        return f"{where}{claim}{lost_none}."
+        return f"{where}{claim}{lost_none}.", (-1,)
     claim += lost_none
-    i, j, lost = best
-    text = _run_text(_plies(game["moves"]), runs[i].start_ply, runs[j].end_ply, side)
+    a, b, lost = best
+    text = _run_text(_plies(game["moves"]), a, b, side)
     back = _phrase(lost[not side])
     told = f"{who} gave {_phrase(lost[side])}"
     if back == "nothing":
         told += " and got nothing back for it" + (", and the mate followed" if text.endswith("#") else "")
     else:
         told += f" for {back}"
-    return f"{where}{claim}: {text} — {told}."
+    return f"{where}{claim}: {text} — {told}.", best_score
 
 
 # ── the claims of a sentence ──────────────────────────────────────────────────────────────────────────────────
@@ -522,14 +586,161 @@ def claims(sentence: str) -> list:
     return out
 
 
+# ── the other frames: what was received, the passive, the noun (review 01.11) ─────────────────────────────────────
+# Every frame is normalised to (giver, A given, B received) before the same verdict:
+#   «X получил(и) B за A», «X получил(и) за A B», "X got / received B for A"   → X gave A for B;
+#   «A (X) был(а/и) отдан / пожертвован за B», «… разменян / обменян на B»      → the owner of A gave A for B;
+#   «был размен A на B», «размен: A за B», «жертва A за B (была …)»             → one of the sides gave A for B;
+#   «X отдал(и) A, получив (за него) B», «… а получили B», «… в обмен на B»     → X gave A for B.
+# A noun or a passive is a claim about the game only with a past auxiliary («был», «произошёл»): «размен ферзя на
+# ладью выгоден белым» is about a line on the board now.
+_RECEIVE = re.compile(r"(?<![\w-])(?:(?P<rv>получил[аи]?|получали|получает|получают)|(?P<erv>got|received))(?![\w-])",
+                      re.IGNORECASE)
+_PASSIVE = re.compile(r"(?<![\w-])(?P<aux>был[аио]?)\s+(?:(?:уже|сразу|тут|там|здесь|просто|фактически|в\s+итоге)\s+)*"
+                      r"(?:(?P<pg>отдан[аы]?|пожертвован[аы]?|отдан[оы]?)|(?P<ps>разменян[аоы]?|обменян[аоы]?|променян[аоы]?))"
+                      r"(?![\w-])", re.IGNORECASE)
+_NOUN = re.compile(r"(?<![\w-])(?:(?P<ns>размен|обмен)(?:ом|а|у|е|ы)?|(?P<ng>жертв)(?:а|у|ой|ы|е))(?![\w-])", re.IGNORECASE)
+_PAST = re.compile(r"(?<![\w-])(?:был[аио]?|произош(?:[её]л|ла|ло|ли)|случил(?:ся|ась|ось|ись)|состоял(?:ся|ась|ось|ись)|"
+                   r"последовал[аои]?|сделал[аи]?|провел[аи]?|провёл|there\s+was|it\s+was)(?![\w-])", re.IGNORECASE)
+_COMPLEMENT = re.compile(r"\s*,?\s*(?:(?:и|а)\s+)?(?:(?:взамен\s+)?получив|получил[аи]?|взяв|в\s+обмен\s+на|взамен)\s+"
+                         r"(?:(?:за\s+(?:него|нее|неё|них|это|этого)|взамен|только|лишь|всего)\s+)*(?P<b>[^.;:!?()—–]*)",
+                         re.IGNORECASE)
+_CLAUSE_START = re.compile(r"[.;:!?()—–]|,\s*(?:а|но|и|где|когда|после|чтобы|which|but|and|where|when)\s", re.IGNORECASE)
+
+
+def _units_prefix(span: str) -> tuple:
+    """(the units at the start of *span*, read as _units(strict=False) reads them, the rest of the span after them)."""
+    words = list(re.finditer(r"[\w'’-]+|[,;]", span))
+    for k in range(len(words), 0, -1):
+        part = span[:words[k - 1].end()]
+        got = _units(part, strict=True)
+        if got:
+            return got, span[words[k - 1].end():]
+    return None, span
+
+
+def _clause_from(text: str, at: int) -> int:
+    start = 0
+    for m in _CLAUSE_START.finditer(text, 0, at):
+        start = m.end()
+    return start
+
+
+def _owner_span(text: str) -> tuple:
+    """The units at the end of *text* (the A of a passive: «в этой партии ферзь белых»), the words they took."""
+    words = list(re.finditer(r"[\w'’-]+", text))
+    best = None
+    for k in range(len(words) - 1, max(-1, len(words) - 6), -1):
+        tail = text[words[k].start():]
+        got = _units(re.sub(r"(?<![\w-])[А-ЯЁA-Z][\w-]+", lambda x: x.group(0) if _unit(x.group(0)) else " ", tail),
+                     strict=True)  # a player's name («ферзь Карлсена») is the owner, not a unit
+        if got:
+            best = (got, tail)
+    return best or (None, "")
+
+
+def frames(sentence: str) -> list:
+    """[{at, a, b, giver, head, owner}] of every trade claim of *sentence*: *giver* 'subject' (the subject before
+    *at*), 'owner' (the side *owner* names, else either side) or 'any' (either side)."""
+    text = sentence or ""
+    out = [{"at": m.start(), "a": a, "b": b, "giver": "subject", "head": text[:m.start()], "owner": ""}
+           for m, a, b, _ in claims(text)]
+    done = {x["at"] for x in out}
+    # «отдали ферзя, получив за него ладью»
+    for m in _VERB.finditer(text):
+        if m.start() in done or not (m.group("give") or m.group("egive")):
+            continue
+        rest = text[m.end():]
+        a, after = _units_prefix(rest)
+        if not a:
+            continue
+        c = _COMPLEMENT.match(after)
+        if not c:
+            continue
+        b = _units(c["b"], strict=False)
+        if b:
+            out.append({"at": m.start(), "a": a, "b": b, "giver": "subject", "head": text[:m.start()], "owner": ""})
+    # «Белые получили за ферзя только ладью», «Чёрные получили ферзя за две ладьи»
+    for m in _RECEIVE.finditer(text):
+        rest = text[m.end():]
+        clause = re.split(r"[.;!?:—–()]|,\s*(?:а|но|и|где|когда|после|чтобы|which|but|and|where|when)\s", rest)[0]
+        sep = (_FOR_EN if m.group("erv") else _FOR_RU).search(clause)
+        if not sep:
+            continue
+        first, second = clause[:sep.start()], clause[sep.end():]
+        got = _units(first, strict=True)
+        if got:
+            given = _units(second, strict=False)
+        else:
+            if re.search(r"[\w]", re.sub(r"(?<![\w-])(?:только|лишь|всего|сразу|в\s+итоге|they|white|black)(?![\w-])", "",
+                                         first, flags=re.IGNORECASE)):
+                continue
+            given, tail = _units_prefix(second)
+            got = _units(tail, strict=False) if given else None
+        if given and got:
+            out.append({"at": m.start(), "a": given, "b": got, "giver": "subject", "head": text[:m.start()], "owner": ""})
+    # «Ферзь белых был отдан за ладью»
+    for m in _PASSIVE.finditer(text):
+        before = text[_clause_from(text, m.start()):m.start()]
+        a, owner = _owner_span(before)
+        after = text[m.end():]
+        clause = re.split(r"[.;!?:—–()]|,\s*(?:а|но|и|где|когда|после|чтобы)\s", after)[0]
+        sep = (_FOR_RU if m.group("pg") else _FOR_SWAP).search(clause)
+        if not sep:
+            continue
+        if not a:
+            a = _units(clause[:sep.start()], strict=True)  # «был отдан ферзь за ладью»
+            owner = clause[:sep.start()]
+        b = _units(clause[sep.end():], strict=False)
+        if a and b:
+            out.append({"at": m.start(), "a": a, "b": b, "giver": "owner", "head": text[:m.start()], "owner": owner})
+    # «Там был размен ферзя на ладью», «Был красивый размен: ферзь за ладью»
+    for m in _NOUN.finditer(text):
+        if not _PAST.search(text):
+            continue
+        rest = text[m.end():]
+        clause = re.split(r"[.;!?()]|,\s*(?:а|но|и|где|когда|после|чтобы)\s", re.sub(r"^\s*[:—–-]\s*", " ", rest))[0]
+        sep = (_FOR_RU if m.group("ng") else _FOR_SWAP).search(clause)
+        if not sep:
+            continue
+        a = _units(clause[:sep.start()], strict=True)
+        b = _units(clause[sep.end():], strict=False)
+        if a and b:
+            out.append({"at": m.start(), "a": a, "b": b, "giver": "owner", "head": text[:m.start()],
+                        "owner": clause[:sep.start()]})
+    keep = []
+    for x in out:
+        aw = [s for s in x["a"]]
+        if sorted(x["a"]) == ["B", "B"] or sorted(x["b"]) == ["B", "B"]:
+            continue  # the bishop pair, not two bishops taken
+        if len(aw) == 1 and x["b"] == aw and aw[0] in ("piece", "P+"):
+            continue  # «фигуру за фигурой», «пешку за пешкой»
+        keep.append(x)
+    return keep
+
+
+def _owner_side(ctx: Any, words: str, players: list) -> Optional[bool]:
+    """The side the owner words of a passive or a noun name («ферзь белых», «ферзь Карлсена», «твой ферзь»)."""
+    from src.game_record import side_words
+
+    low = (words or "").lower().replace("ё", "е")
+    for w in re.findall(r"[\w'’-]+", low):
+        for stem, colour in players:
+            if w.startswith(stem):
+                return colour
+    side = side_words(ctx, low)
+    return side
+
+
 def trade_issues(sentence: str, ctx: Any) -> list[str]:
     """The issues of *sentence* (the answer check's normalised text) about trades in a recorded game."""
     from src.config import detector_mode
 
     mode = detector_mode(DETECTOR, ctx)
-    if mode == "off" or not sentence or not _VERB.search(sentence):
+    if mode == "off" or not sentence or not (_VERB.search(sentence) or _RECEIVE.search(sentence)
+                                             or _PASSIVE.search(sentence) or _NOUN.search(sentence)):
         return []
-    found = claims(sentence)
+    found = frames(sentence)
     if not found:
         return []
     games = games_of(ctx)
@@ -547,10 +758,13 @@ def trade_issues(sentence: str, ctx: Any) -> list[str]:
         if not games:
             return []
     issues: list = []
-    for m, a, b, rev in found:
-        head = sentence[:m.start()]
+    for fr in found:
+        head = fr["head"]
         if _NOT_TOLD.search(sentence) or _NEG_BEFORE.search(head):
             continue
+        if re.search(r"(?<![\w-])(?:не|ни|not|never)(?![\w-])", sentence[fr["at"]:fr["at"] + 40], re.IGNORECASE) \
+                and fr["giver"] != "subject":
+            continue  # «размен не состоялся», «ферзь не был отдан»
         gm = None
         for x in _NAMES_A_GAME.finditer(sentence):
             gm = x
@@ -564,20 +778,31 @@ def trade_issues(sentence: str, ctx: Any) -> list[str]:
         verdicts = []
         undecided = False
         for g in cands:
-            side = _subject(ctx, head, g["players"])
-            if side is None or _told_line(sentence, ctx, g):
+            if _told_line(sentence, ctx, g):
                 undecided = True
                 break
-            give, get = (b, a) if rev else (a, b)
-            give_r, extra_get = _expand(give, get)
-            get_r, extra_give = _expand(get, give)
+            if fr["giver"] == "subject":
+                side = _subject(ctx, head, g["players"])
+                if side is None:
+                    undecided = True
+                    break
+                sides = [side]
+            else:
+                side = _owner_side(ctx, fr["owner"], g["players"]) if fr["owner"] else None
+                sides = [side] if side is not None else [chess.WHITE, chess.BLACK]
+            give_r, extra_get = _expand(fr["a"], fr["b"])
+            get_r, extra_give = _expand(fr["b"], fr["a"])
             give_all, get_all = give_r + extra_give, get_r + extra_get
             mn = _MOVE_NO.search(sentence)
             move_no = int(mn.group(1) or mn.group(2)) if mn else None
-            v = _verdict(g, side, give_all, get_all, move_no)
-            if v is None:
+            cited = frozenset(_cited_plies(sentence, g["moves"]))
+            results = [_verdict(g, sd, give_all, get_all, move_no, cited) for sd in sides]
+            if any(v is None for v, _ in results):
                 undecided = True
                 break
+            v = max(results, key=lambda r: r[1])[0]
+            if len(sides) == 2:
+                v = re.sub(r"(White|Black) never gave", "Neither side ever gave", v, count=1)
             verdicts.append(v)
         if undecided or not verdicts:
             continue
