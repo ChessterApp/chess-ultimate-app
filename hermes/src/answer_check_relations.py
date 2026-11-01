@@ -73,6 +73,24 @@ def mode(ctx: Any = None) -> str:
     return got
 
 
+def _record_kind(claim: Claim) -> bool:
+    """The claim belongs to a relation detector the game's record judges (src/config.GAME_RECORD_RELATIONS)."""
+    try:
+        from src.config import GAME_RECORD_RELATIONS
+
+        return claim.kind in GAME_RECORD_RELATIONS
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _game_capped(ctx: Any) -> bool:
+    """The checker is in shadow only because the surface is a game move comment (the configured mode is on)."""
+    from src import config
+
+    raw = str(getattr(config, "COACH_RELATION_CHECK", "on") or "").strip().lower()
+    return raw in _ON and getattr(ctx, "relation_surface", "text") == "game"
+
+
 def extract_claims(text: str, ctx: Any, state: dict) -> list[Claim]:
     """The claims of *text*: the grammar's and the board rules'."""
     from src import claim_grammar, claim_rules, claim_scene
@@ -140,6 +158,8 @@ def _issues(text: str, ctx: Any, stats: dict) -> list[str]:
             continue
         if verdict is not None and verdict.status == "false":
             out.append(issue_text(claim, verdict))
+            if _record_kind(claim):
+                ctx._rel_record_issues = tuple(getattr(ctx, "_rel_record_issues", ()) or ()) + (out[-1],)
     try:
         ctx._rel_named = ()
     except Exception:  # noqa: BLE001
@@ -163,6 +183,10 @@ def relation_issues(text: str, ctx: Any, prior: list[str]) -> list[str]:
     stats["calls"] += 1
     started = time.perf_counter()
     try:
+        ctx._rel_record_issues = ()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         issues = _issues(text, ctx, stats)
     except Exception:  # noqa: BLE001 — fail-open: the relation check never blocks an answer
         stats["errors"] += 1
@@ -179,12 +203,19 @@ def relation_issues(text: str, ctx: Any, prior: list[str]) -> list[str]:
     if issues:
         stats["flags"] += 1
     if current == "shadow":
-        if issues:
+        # a game move comment caps the relation checker at shadow, but a claim judged by the game's record
+        # (cover_cause, src/config.GAME_RECORD_RELATIONS) follows its own switch there (review-miss2 01.11)
+        passed = [i for i in issues if i in (getattr(ctx, "_rel_record_issues", ()) or ())] if _game_capped(ctx) else []
+        rest = [i for i in issues if i not in passed]
+        if rest:
             try:
-                ctx.relation_shadow.append((text, list(issues)))
+                ctx.relation_shadow.append((text, list(rest)))
             except Exception:  # noqa: BLE001
                 stats["errors"] += 1
-        return []
+        if passed:
+            issued = stats.setdefault("issued", [])
+            issued.extend(i for i in passed if i not in issued)
+        return passed
     if issues:
         issued = stats.setdefault("issued", [])
         issued.extend(i for i in issues if i not in issued)

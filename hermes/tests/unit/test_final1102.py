@@ -303,3 +303,10 @@ def test_an_antidote_only_the_engine_line_carries_is_not_lost():
     msg = "Board facts.\n[Engine] fen — White to move. Best: d4 (+0.26; line d4 d5 e5 Bf5).\nMore."
     assert "Bf5" not in eval_prevent._without_engine(msg)
     assert "Board facts." in eval_prevent._without_engine(msg)
+
+
+def test_cover_cause_cuts_a_move_comment_by_the_record():
+    r, ctx = _row("st2_4-attack")
+    ctx.relation_surface = "game"
+    got = run_answer(["Конь стал добычей на f6, ведь f6 под контролем пешки g7."], ctx)[-1][1]
+    assert got, "cover_cause follows the record on a move comment"
