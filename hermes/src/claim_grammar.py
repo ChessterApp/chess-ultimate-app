@@ -1488,6 +1488,34 @@ def _unread_number(low: str, toks: list) -> Optional[int]:
     return None
 
 
+_LONG_ALG = re.compile(r"[a-h][1-8][a-h][1-8]")
+_SAN_WRITTEN = re.compile(r"(?:[KQRBN][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x?[a-h]?[1-8](?:=[QRBN])?|O-O(?:-O)?)[+#]?[!?]*")
+
+
+def _drop_restated(seq: list) -> list:
+    """The moves of a written sequence without a pawn move restated in long notation next to it («e4 (e2e4)», «e2e4,
+    то есть e4»): the bare square goes, the long move stays. Only a long-algebraic neighbour restates — a capture
+    that later lands on the pawn's square («1.e4 e5 2.d4 … 5…exd4») is a move of its own (fix1101 F1: the line after
+    a recapture used to lose 2.d4 and never reach its board)."""
+    out = []
+    for i, t in enumerate(seq):
+        near = seq[max(0, i - 1):i] + seq[i + 1:i + 2]
+        if len(t.san) == 2 and any(_LONG_ALG.fullmatch(o.san) and o.san[2:] == t.san for o in near):
+            continue
+        out.append(t)
+    return out
+
+
+def _two_moves(a, b, low: str) -> bool:
+    """Two written SAN moves in a row are two moves even when they read alike («3...Nxd4 4.Nxd4»: each side takes on
+    d4): only a move told again in words or in another notation («Nc6: конь с b8 встал на c6») is one move twice."""
+    if a is None or b is None:
+        return False
+    if not (_SAN_WRITTEN.fullmatch(a.san or "") and _SAN_WRITTEN.fullmatch(b.san or "")):
+        return False
+    return bool(_LINE_GAP.fullmatch(low[a.end:b.start]))
+
+
 def _position(c: _Raw, text: str, toks: list, told_capture: Optional[tuple], unread_at: Optional[int] = None) -> Pos:
     """The position *c* is about, as the words say it."""
     low = text.lower()
@@ -1554,7 +1582,7 @@ def _position(c: _Raw, text: str, toks: list, told_capture: Optional[tuple], unr
     if unread_at is not None and unread_at < c.pos:
         return Pos(at=_SKIP, tense=tense, skip_reason="unparsed move")
     seq = [t if t.kind == "MOVE" else Tok("MOVE", t.start, t.end, t.text, san=t.text, told=t.told) for t in moves_seq]
-    seq = [t for t in seq if not (len(t.san) == 2 and any(o is not t and len(o.san) == 4 and o.san[2:] == t.san for o in seq))]
+    seq = _drop_restated(seq)
     seq = [t for i, t in enumerate(seq) if not (i and not t.ptype and re.fullmatch(r"[a-h][1-8][a-h][1-8]", t.san)
                                                  and _move_ref(seq[i - 1]).to == t.san[:2])]
     # «Nc3 или Nd2»: alternatives, not a line
@@ -1563,7 +1591,8 @@ def _position(c: _Raw, text: str, toks: list, told_capture: Optional[tuple], unr
         mr = _move_ref(t)
         if steps and re.fullmatch(r"\s*(?:или|or|/|либо)\s*(?:\S+\s+)?", low[steps[-1][-1][0].end:t.start]):
             steps[-1].append((t, mr))
-        elif steps and len(steps[-1]) == 1 and _same_move(steps[-1][0][1], mr):
+        elif steps and len(steps[-1]) == 1 and _same_move(steps[-1][0][1], mr) and \
+                not _two_moves(steps[-1][0][0], t, low):
             steps[-1] = [(t, _merge(steps[-1][0][1], mr))]  # «Nc6: конь с b8 встал на c6»
         else:
             steps.append([(t, mr)])
@@ -1871,18 +1900,40 @@ def _remember(toks, text, state, focus, cur):
 # pin_exists matching: a pin on the board whose pinner fits ``subj`` (when given), whose pinned piece fits ``objs[0]``
 # (a piece, a square, or a side-only ref = any piece of that side; any piece when ``objs`` is empty) and whose piece
 # behind fits ``to`` (when given).
-_PRESUP_CUE = re.compile(r"связк|развяз|заперт|не\s+может\s+выйти|без\s+ходов")
-_PIN_FROM_UNDER = re.compile(W + r"из-под\s+(?:(?:эт\w+|сво\w+|всех|всякой)\s+)?связ(?:ки|ок)" + E)
+_PRESUP_CUE = re.compile(r"связк|развяз|заперт|взаперти|замурован|не\s+может\s+(?:никуда\s+)?выйти|без\s+ходов|"
+                         r"некуда\s+(?:ходить|идти|пойти|двигаться|двинуться|ступить)|"
+                         r"(?:больше|уже|теперь)\s+не\s+(?:связан|под\s+связк)")
+# the escape cue (fix1101 F1): «из-под связки» with any verb; «из связки / от связки» with a verb of leaving or freeing
+_PIN_FROM_UNDER = re.compile(W + r"из-под\s+(?:(?:эт\w+|сво\w+|всех|всякой|любой|этой\s+неприятной)\s+)?связ(?:ки|ок)" + E)
+_PIN_OUT_OF = re.compile(W + r"(?:из|от)\s+(?:(?:эт\w+|сво\w+|всех|всякой|любой)\s+)?связ(?:ки|ок)" + E)
 _ESC_VERB = re.compile(
-    W + r"(?:(?:у|вы|от|с)(?:ход(?:ит|ят|ишь|им|и|ите|ить|я)|йти|йд[её]т|йдут|йд[её]шь|йди|йдите|ш[её]л|шла|шли)|"
+    W + r"(?:(?:у|вы|от|с)(?:ход(?:ит|ят|ишь|им|и|ите|ить|я)|йти|йд[её]т|йдут|йд[её]шь|йди|йдите|ш[её]л|шла|шли|шло)|"
     r"(?:у|вы)(?:вод(?:ит|ят|ишь|и|ите|ить|я)|вести|вед[её]т|ведут|вед[её]шь|веди|ведите|в[её]л|вела|вели)|"
-    r"убира\w*|убрать|убер\w*|убрал\w*|спаса\w*|спасти|спас(?:ет|ут|ешь|и|ите|л\w*)?|выскальзыва\w*|выскольз\w*)" + E)
-# the verbs that move another piece out («увести/вывести/убрать/спасти ферзя из-под связки»): the accusative escapes
-_ESC_TRANSITIVE = re.compile(r"^(?:увод|увест|увед|ув[её]л|увел|вывод|вывест|вывед|выв[её]л|вывел|убира|убра|убер|спас)")
+    r"убира\w*|убрать|убер\w*|убрал\w*|спаса\w*|спасти|спас(?:ет|ут|ешь|и|ите|л\w*)?|выскальзыва\w*|выскольз\w*|"
+    r"ускольза\w*|ускольз\w*|вырыва\w*|вырва\w*|освобожда\w*|освобод\w*|высвобо\w*|избавля\w*|избав\w*|"
+    r"выбира\w*|выбра\w*|выпута\w*|выручa\w*|выруча\w*|выруч\w*|убега\w*|убеж\w*|убежа\w*|сбега\w*|сбежа\w*|"
+    r"отступа\w*|отступ(?:ит|ят|и|ил\w*)|выпрыгива\w*|выпрыгн\w*|прыга\w*|прыгн\w*)" + E)
+# the verbs that move another piece out («увести/вывести/убрать/спасти/освободить ферзя из-под связки»): the accusative
+# piece is the one that escapes
+_ESC_TRANSITIVE = re.compile(r"^(?:увод|увест|увед|ув[её]л|увел|вывод|вывест|вывед|выв[её]л|вывел|убира|убра|убер|спас|"
+                             r"освобожда|освобод|высвобо|избавля|избав|выруча|выруч|выпута)(?!.*(?:ся|сь)$)")
+# any finite verb, infinitive or imperative right before the cue («конь прыгает из-под связки»): its tense and mood
+_ANY_VERB = re.compile(W + r"[а-я]{2,}(?:ть|ти|ться|тись|ет|ит|ут|ют|ат|ят|ется|ится|утся|ются|атся|ятся|ешь|ишь|ете|"
+                       r"ите|ал|ял|ил|ел|ул|ла|ли|ло|лся|лась|лись|ай|яй|ей|уй|йся|йте|ись|айся|ейся|ися)" + E)
 _REMOVE_PIN = re.compile(
-    W + r"(?P<v>сн(?:ять|ял\w*|има(?:ет|ют|ешь|ем|ть)|ими|имите|им[её]т|имут|им[её]шь|имем)|убра(?:ть|л\w*)|"
-    r"убер(?:и|ите|[её]т|ут|[её]шь|[её]м)|убира\w*)\s+(?:(?:эт\w+|сво\w+|эт\w+|все|всю)\s+)?связк(?:у|и)" + E)
-_UNPIN = re.compile(W + r"(?P<v>развяж\w*|развязыва\w*|развяза(?:ть|ться|л\w*|в\w*))" + E)
+    W + r"(?P<v>сн(?:ять|ял\w*|има(?:ет|ют|ешь|ем|ть|ется)|ими|имите|им[её]т|имут|им[её]шь|имем)|убра(?:ть|л\w*)|"
+    r"убер(?:и|ите|[её]т|ут|[её]шь|[её]м)|убира\w*|разорв\w*|разрыва\w*|разруша\w*|разруш(?:ить|ит|ил\w*|ат)|"
+    r"ликвидиру\w*|ликвидирова\w*|нейтрализу\w*|нейтрализова\w*|прерыва\w*|прерв\w*|избавля\w*|избав\w*)\s+"
+    r"(?:(?:эт\w+|сво\w+|все|всю|неприятн\w+|опасн\w+|неудобн\w+)\s+)?связк(?:у|и)" + E)
+# «связка (коня b1) исчезает / пропала / снята»: the pin as the subject of its own end
+_PIN_ENDS = re.compile(
+    W + r"связк[аи]\s+(?P<gap>(?:[^\s.;:!?,]+\s+){0,4}?)(?P<v>исчеза\w*|исчезн\w*|исчезл\w*|пропада\w*|пропад[её]т|"
+    r"пропал\w*|снят[аы]?|снимается|сняли|кончает\w*|кончил\w*|законч\w*|разрушен\w*|разрушает\w*|разорван\w*|"
+    r"ликвидирован\w*|уходит|ушла|уйд[её]т|пропадет|прекраща\w*|прекрат\w*|рассыпа\w*|распада\w*|распал\w*)" + E)
+# «после Nd2 конь больше не связан», «теперь конь не под связкой»: the denial of a pin the told move ended
+_PIN_GONE = re.compile(W + r"(?P<v>(?:больше|уже|теперь|наконец)\s+(?:[^\W\d]+\s+(?:[a-h][1-8]\s+)?){0,3}?(?:уже\s+)?не\s+"
+                       r"(?P<st>связан[аоы]?|под\s+связк(?:ой|ами)))" + E)
+_UNPIN = re.compile(W + r"(?P<v>развяж\w*|развязыва\w*|развяза(?:ть|ться|л\w*|в\w*|н\w*))" + E)
 _HOLD_PIN = re.compile(
     W + r"(?P<v>держ(?:ать|ит|ат|ал\w*|и|ишь|ите|у|им)|удержива\w*|удерж(?:ать|ит|ат|ал\w*|и)|"
     r"сохран(?:я\w*|ить|ит|ят|ил\w*|и|им)|усил(?:ить|ива\w*|ит|ят|ил\w*|ь|им)|поддержива\w*)\s+"
@@ -1894,12 +1945,27 @@ _PROPOSAL = re.compile(
     W + r"(?:нужно|надо|стоит|стоило|можно|можешь|может|можете|сможешь|сможет|должен|должна|должны|пора|придется|"
     r"приходится|хочешь|хочет|хотят|хочу|хотел\w*|попробуй\w*|попытайся|постарайся|старайся|чтобы|успева\w*|"
     r"успе(?:ет|ют|ешь|ть|л\w*)|давай(?:те)?|сначала|не\s+да(?:ет|ют|ст|дут|вая|вать)|позволя\w*|меша\w*|помешать|"
-    r"способ\w*|идея|цель|задача|план)" + E)
-_LOCKED_EXTRA = re.compile(W + r"(?:не\s+может\s+(?:никуда\s+)?выйти|без\s+ходов)" + E)
-_LOCK_BLOCKER = re.compile(W + r"(?:за|своими|своей|своим|собственн\w*|пешками|пешкой|фигурами|фигурой)" + E)
+    r"способ\w*|идея|цель|задача|план|главное|важно|лучше|полезно|логично)" + E)
+_LOCKED_EXTRA = re.compile(W + r"(?:не\s+может\s+(?:никуда\s+)?(?:выйти|выбраться|двинуться|пошевелиться)|"
+                           r"(?:сидит|сидят|остается|остаются|оста[её]тся|осталс\w+|оказал\w*)?\s*взаперти|без\s+ходов|"
+                           r"замурован\w*)" + E)
+# «слону f1 некуда ходить»: no square to go to — read as «no safe move» (rel trapped, the weaker claim)
+_NOWHERE = re.compile(W + r"некуда\s+(?:ходить|идти|пойти|двигаться|двинуться|ступить)" + E)
+# a blocker or a cause named with the lock («заперт пешками», «заперт цепью d6–e5», «упирается в свою пешку», «плохой
+# слон»): a structural restriction, not the strict «no way out» — the locked_by claim of bind judges what it can
+_LOCK_BLOCKER = re.compile(W + r"(?:за|своими|своей|своим|своею|собственн\w*|пешками|пешкой|фигурами|фигурой|цеп\w*|"
+                           r"пешечн\w*|центр\w*|структур\w*|упира\w*|уперт\w*|плох\w*|ходом|пешк[аи]\s+[a-h][1-8])" + E)
+# a hedge: «почти заперт», «наполовину», «фактически», «как бы» — not the strict «no way out»
+_LOCK_HEDGE = re.compile(W + r"(?:почти|наполовину|полу\w*|фактически|практически|в\s+каком-то\s+смысле|как\s+бы|"
+                         r"своего\s+рода|в\s+некотором\s+роде|отчасти|частично|довольно|слегка|немного|"
+                         r"по\s+сути|можно\s+сказать|считай|как\s+будто|словно|будто)" + E)
 # «заперт» meaning trapped (it can move, every way out loses) or confined (a king's net): not a claim about moves
-_TRAPPED = re.compile(W + r"(?:отступ\w*|некуда|ловушк\w*|пойма\w*|поймать|окруж\w*|сбежа\w*|убежа\w*|бежать)" + E)
-_LOSS = re.compile(W + r"(?:потерял\w*|потерян\w*|погиб\w*|пропал\w*|висел\w*|подставил\w*|подставлен\w*)" + E)
+_TRAPPED = re.compile(W + r"(?:отступ\w*|ловушк\w*|пойма\w*|поймать|окруж\w*|сбежа\w*|убежа\w*|бежать)" + E)
+_LOSS = re.compile(W + r"(?:потерял\w*|потерян\w*|потеря(?:ть|ешь|ет|ем|ют)|погиб\w*|пропал\w*|пропада\w*|висел\w*|"
+                   r"подставил\w*|подставлен\w*|подставлял\w*|съели|съел[аи]?|съеден\w*|забрали|забрал[аи]?|"
+                   r"взяли|отдал[аи]?|отдан\w*|погубил\w*|лишил\w*|стоил\w*\s+(?:тебе|вам|белым|черным)|"
+                   r"поплатил\w*|достал\w*\s+(?:белым|черным|сопернику)|"
+                   r"срубил\w*|срубили|побил[аи]?|выиграл[аи]?|lost|was\s+lost|hung|dropped)" + E)
 _NO_PIN = re.compile(W + r"(?:нет|никакой|никаких|без)\s+(?:\w+\s+)?связ(?:ки|ок|ку)" + E)
 _PIN_LETTERS = ("N", "B", "R", "Q")
 
@@ -1976,72 +2042,107 @@ def _sentence_side(toks: list, low: str, ca: int, at: int):
     return sides[-1].owner if sides else None
 
 
+def _escape_move(toks: list, low: str, at: int, verb_end: int, cb: int):
+    """The move the sentence tells for the pin's end at *at* (fix1101 F1), whoever makes it: the last told move before
+    the verb («Bd2 развязывает коня c3», «После 4...Be7 конь f6 выходит из-под связки», «Ход Nd2 снимает связку»), else
+    one the words attach right after it («развяжись ходом Nd2», «развяжи коня: Bd2», «чтобы развязать коня, сыграй
+    Bd2»). Not a move named as a threat or an idea, not one in another sentence. None when the sentence tells none."""
+    moves = [x if x.kind == "MOVE" else Tok("MOVE", x.start, x.end, x.text, san=x.text, told=x.told)
+             for x in toks if (x.kind == "MOVE" or (x.kind == "SQ" and x.move_cue)) and not x.threat]
+    before = [x for x in moves if x.end <= at]
+    if before:
+        return before[-1]
+    after = [x for x in moves if x.start >= verb_end]
+    if after:
+        x = after[0]
+        gap = low[verb_end:x.start]
+        if len(gap) <= 70 and not re.search(r"[.;!?]", gap) and \
+                re.search(W + r"(?:ход(?:ом)?|сыграй\w*|играй\w*|сыграть|move)\s*$|[:—–]\s*$", gap) and \
+                not re.search(W + r"(?:после|если|когда|after|if|when)" + E, gap):
+            return x
+    return None
+
+
+def _negated_at(low: str, ca: int, vstart: int) -> bool:
+    """«не развязывает», «не уйдёт из-под связки», «не снимает связку»: a negation governs the verb."""
+    return bool(re.search(W + r"(?:не|ни|никак|нельзя|никогда)\s+(?:(?:[^\W\d]+)\s+){0,2}$", low[ca:vstart]))
+
+
 def _pin_claims(t: str, low: str, toks: list, ante: dict) -> list:
-    """The pin presuppositions of the sentence (detectors pin_escape and pin_noun)."""
+    """The pin presuppositions of the sentence (detectors pin_escape and pin_noun).
+
+    pin_escape (fix1101 F1) reads the parts of the claim, not one phrase: the piece that leaves the pin (the subject of
+    an intransitive verb, the object of a transitive one, a genitive after «связку (с)», the side the clause names), the
+    verb's mood (report, proposal, question, negation) and the move the sentence tells for it — any piece's move, the
+    escaping piece's own or another one's (an interposition, a capture of the pinner). With a move M the claim is
+    Claim('pinned', objs=(the piece,), move=M, presup='before_move', escape=…): the pin held on the board right before
+    M (presupposition), and — for an affirmative report or proposal where M is another piece's move — it no longer
+    holds right after M (assertion). The judge finds the board M is played on: the board's last move when it is M,
+    or the board itself when M is a legal move there — of the escaping piece's side, from the square the words name."""
     out: list = []
     clauses = _clauses(t, toks)
     escape_on, noun_on = _detector_live("pin_escape"), _detector_live("pin_noun")
     if _NO_PIN.search(low):
         return out
+    question = t.rstrip().endswith("?")
+    seen: set = set()
 
-    def told_move_of(letter, before):
-        mv = [x for x in toks if x.kind == "MOVE" and not x.threat and x.end <= before]
-        mine = [x for x in mv if _move_ref(x).piece == letter and not _move_ref(x).castle]
-        return mine[-1] if mine else None
-
-    def add(rel, objs, presup, at, end, clause, tense, kind, subj=None, to=None, move=None, agent=None):
+    def add(rel, objs, presup, at, end, clause, tense, kind, subj=None, to=None, move=None, agent=None, escape=False):
         pos = _pres_pos(t, toks, at, end, clause, tense, agent)
         if pos.at == _SKIP:
             return
-        if presup == "before_move" and move is not None and not any(_same_move(m, move) for m in pos.moves):
-            return  # the move is not on the board the words reach (an alternative only): no single board before it
-        out.append(Claim(rel, subj, tuple(o for o in objs if o is not None), to=to, pos=pos, span=(at, end),
-                         presup=presup, move=move, kind=kind))
+        objs = tuple(o for o in objs if o is not None)
+        key = (rel, objs, presup, move, to)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(Claim(rel, subj, objs, to=to, pos=pos, span=(at, end), presup=presup, move=move, kind=kind,
+                         escape=escape))
 
-    def escape(verb_m, cue_start, cue_end, transitive, rel_word):
-        """«конь уходит из-под связки», «увести ферзя из-под связки», «уйти королём …», «развязать пешку c5»."""
-        ca, cb = _clause_of(clauses, cue_start, len(t))
-        verb = verb_m.group(0).split()[0]
-        vstart = verb_m.start()
-        noms = [x for x in toks if x.kind in ("PIECE", "PRON") and ca <= x.start < vstart and "N" in x.cases
-                and not (x.kind == "PIECE" and x.attr)]
-        subj = _piece_ref(noms[-1], ante) if noms else None
-        mover = None
-        if transitive:  # the accusative is the piece that leaves the pin («увести ферзя», «развязать пешку c5»)
-            upto = cue_start if cue_start > verb_m.end() else cb
-            acc = [x for x in toks if x.kind in ("PIECE", "PRON") and verb_m.end() <= x.start < upto and "A" in x.cases
-                   and (x.kind == "PRON" or x.start - verb_m.end() <= 30)]
-            mover = acc[0] if acc else None
-        if mover is None and not transitive:
-            ins = [x for x in toks if x.kind == "PIECE" and verb_m.end() <= x.start < cue_start and "I" in x.cases and x.ptype]
-            mover = ins[0] if ins else (noms[-1] if noms else None)  # «уйти королём», «конь уходит»
-            if mover is None:
-                dat = [x for x in toks if x.kind == "PRON" and ca <= x.start < vstart and "D" in x.cases]
-                mover = dat[-1] if dat else None  # «не даёт им развязаться»
-        ref = _piece_ref(mover, ante)
+    def emit(ref, owner_ref, verb, vstart, cue_end, ca, cb, rel_word, subj=None, verb_end=None):
+        """One escape: *ref* the piece that leaves the pin (an _R, or None with *owner_ref* a side), *verb* its verb."""
         proposal = _is_proposal(verb, low, ca, vstart)
         tense = "present" if proposal else _verb_tense(verb, low[ca:cb])
+        neg = _negated_at(low, ca, vstart)
+        mv = _escape_move(toks, low, vstart, verb_end if verb_end is not None else cue_end, cb)
+        if mv is not None and proposal and mv.end <= vstart and \
+                re.search(W + r"(?:после|если|когда|на|в\s+ответ\s+на|after|if|when|once)\s*(?:\d{1,3}\s?(?:\.\.\.|…|\.)\s?)?$",
+                          low[max(0, mv.start - 16):mv.start]):
+            # «После 3...Bb4 надо развязать коня c3»: the move told is the moment, not the means — the pin is on the
+            # board after it, some board of the sentence
+            mv = None
+        move = _move_ref(mv) if mv is not None else None
+        # the assertion «the pin is gone right after M» is the words' only for a report of M ending it now («Bd2
+        # развязывает коня», «После Bd2 конь выходит из-под связки», «Ход 4...Bd7 снял связку»): not for a proposal
+        # or a purpose («играй a3, чтобы развязать коня» — the pin may end a move later), not for the future («после a3
+        # конь выйдет из-под связки»), not with a word that puts the end later («потом», «в итоге»)
+        affirm = not neg and not question and not proposal and tense in ("present", "past") and \
+            not re.search(W + r"(?:потом|затем|позже|в\s+итоге|в\s+конце\s+концов|со\s+временем|рано\s+или\s+поздно|"
+                          r"скоро|вскоре|later|eventually)" + E, low[ca:cb])
         if ref is None or not ref.ptype:
-            if ref is not None and ref.owner is not None:  # «фигуры чёрных», «им» standing for a side's pieces
-                add("pin_exists", [_side_ref(ref.owner)], "exists", vstart, cue_end, (ca, cb), "present", "pin_escape")
+            side_ref = owner_ref
+            if side_ref is None and ref is not None and ref.owner is not None:
+                side_ref = _side_ref(ref.owner)
+            if move is not None and not move.castle:
+                # «Сначала Nd2, чтобы развязаться», «4...Be7 снимает эту связку»: some piece of the mover's side was
+                # pinned before the move (the side the words name, else the mover's)
+                add("pin_exists", [side_ref], "before_move", vstart, cue_end, (ca, cb), tense, "pin_escape", move=move)
+            elif side_ref is not None or rel_word == "remove":
+                # «снять связку» with no piece and no side named: some pin of some board of the sentence
+                add("pin_exists", [side_ref], "exists", vstart, cue_end, (ca, cb), "present", "pin_escape")
             return
         letter = _LETTER[ref.ptype]
         side, owner = _side_owner(ref.owner)
-        if letter == "P" and rel_word == "escape":
+        own_move = move is not None and move.piece == letter and (ref.sq is None or move.frm in (None, chess.square_name(ref.sq)))
+        if letter == "P" and rel_word == "escape" and (move is None or own_move):
             return  # a pawn steps out of a pin only by capturing: the words then name the capture
-        king_moves = letter == "K" or (transitive and subj is not None and subj.ptype == chess.KING)
-        mover_letter = "K" if king_moves else letter
-        mv = told_move_of(mover_letter, vstart) if not proposal else None
-        # a report with no move of its own: the board now (present) is the board before the escape; a past one
-        # happened on some board of the story
-        presup = "before_move" if mv is not None else ("exists" if proposal or tense == "past" else "")
-        move = _move_ref(mv) if mv is not None else None
+        king_moves = letter == "K" or (subj is not None and subj.ptype == chess.KING and rel_word == "escape")
         if king_moves:
             # the king steps off the line (or takes the piece with it): some piece of its side — the one named, when the
             # king leads it — was pinned to the king
             k = subj if letter != "K" else ref
             kside, kowner = _side_owner(k.owner)
-            king = Ref(sq=chess.square_name(k.sq) if k.sq is not None and mv is None else None, piece="K", side=kside,
+            king = Ref(sq=chess.square_name(k.sq) if k.sq is not None and move is None else None, piece="K", side=kside,
                        owner=kowner, text=k.text)
             if letter != "K":
                 objs = [Ref(sq=chess.square_name(ref.sq) if ref.sq is not None else None, piece=letter,
@@ -2049,44 +2150,119 @@ def _pin_claims(t: str, low: str, toks: list, ante: dict) -> list:
                             text=ref.text)]
             else:
                 objs = [Ref(side=kside, owner=kowner)] if kside is not None or kowner is not None else []
-            add("pin_exists", objs, presup, vstart, cue_end, (ca, cb), tense, "pin_escape", to=king, move=move)
-            return
-        if mv is not None:
-            add("pinned", [Ref(piece=letter, side=side, owner=owner, text=ref.text)], "before_move", vstart, cue_end,
-                (ca, cb), tense, "pin_escape", move=move)
+            if move is not None and move.piece != "K":
+                move = None  # «уйти королём» names the king's move: another piece's move is not it
+            presup = "before_move" if move is not None else ("exists" if proposal or tense == "past" else "")
+            if presup:
+                add("pin_exists", objs, presup, vstart, cue_end, (ca, cb), tense, "pin_escape", to=king, move=move)
             return
         obj = Ref(sq=chess.square_name(ref.sq) if ref.sq is not None else None, piece=letter, side=side, owner=owner,
                   pronoun=ref.pronoun, text=ref.text)
-        if presup == "exists":
+        if move is not None and not move.castle:
+            # whether M is the piece's own move the judge reads off the board (the from-square): the assertion is
+            # judged only for another piece's move
+            add("pinned", [obj], "before_move", vstart, cue_end, (ca, cb), tense, "pin_escape", move=move, escape=affirm)
+            return
+        if rel_word == "gone":
+            return  # «больше не связан» with no move told: the denial is the ordinary claim of bind
+        if proposal or tense == "past" or rel_word == "remove":
+            # «снять связку», «связка исчезает» with no move told name the pin they end whatever the mood: some board
+            # of the sentence has it
             add("pin_exists", [obj], "exists", vstart, cue_end, (ca, cb), tense, "pin_escape")
         else:
+            # a report with no move of its own: the board now (present) is the board before the escape
             add("pinned", [obj], "", vstart, cue_end, (ca, cb), tense, "pin_escape",
                 agent=_R("piece", ref.ptype, ref.sq, ref.owner, text=ref.text))
+
+    def subject_before(ca, at):
+        noms = [x for x in toks if x.kind in ("PIECE", "PRON") and ca <= x.start < at and "N" in x.cases
+                and not (x.kind == "PIECE" and x.attr)]
+        return noms[-1] if noms else None
+
+    def escape(verb_m, cue_start, cue_end, rel_word):
+        """«конь уходит из-под связки», «увести ферзя из-под связки», «уйти королём …», «развязать пешку c5»."""
+        ca, cb = _clause_of(clauses, cue_start, len(t))
+        verb = verb_m.group(0).split()[0]
+        vstart = verb_m.start()
+        reflexive = verb.endswith(("ся", "сь"))
+        nom = subject_before(ca, vstart)
+        subj = _piece_ref(nom, ante)
+        upto = cue_start if cue_start > verb_m.end() else cb
+        acc = [x for x in toks if x.kind in ("PIECE", "PRON") and verb_m.end() <= x.start < upto and "A" in x.cases
+               and "N" not in x.cases and (x.kind == "PRON" or x.start - verb_m.end() <= 30)]
+        transitive = not reflexive and (bool(_ESC_TRANSITIVE.match(verb)) or rel_word == "unpin" or bool(acc))
+        mover = None
+        if transitive:  # the accusative is the piece that leaves the pin («увести ферзя», «развязать пешку c5»)
+            mover = acc[0] if acc else None
+            if mover is None and rel_word == "unpin":
+                # «развязать коня» with the object before the verb («коня c3 Bd2 развязывает»): the accusative first
+                pre = [x for x in toks if x.kind == "PIECE" and ca <= x.start < vstart and "A" in x.cases and "N" not in x.cases]
+                mover = pre[-1] if pre else None
+        if mover is None and not transitive:
+            ins = [x for x in toks if x.kind == "PIECE" and verb_m.end() <= x.start < cue_start and "I" in x.cases and x.ptype]
+            mover = ins[0] if ins else nom  # «уйти королём», «конь уходит»
+            if mover is None:
+                dat = [x for x in toks if x.kind == "PRON" and ca <= x.start < vstart and "D" in x.cases]
+                mover = dat[-1] if dat else None  # «не даёт им развязаться»
+        ref = _piece_ref(mover, ante)
+        owner_ref = None
+        if ref is None:
+            side = _sentence_side(toks, low, ca, vstart)
+            if side is None and re.search(r"(?:и|ись|ите|итесь|ешь|ишься|ем|емся)$", verb):
+                side = "you"
+            owner_ref = _side_ref(side) if side is not None else None
+        emit(ref, owner_ref, verb, vstart, cue_end, ca, cb, rel_word, subj=subj, verb_end=verb_m.end())
+
+    def verb_before(ca, at, pat):
+        verbs = [m for m in pat.finditer(low, max(ca, at - 45), at)]
+        if verbs and not re.search(r"[,;:—–]", low[verbs[-1].end():at]):
+            return verbs[-1]
+        return None
 
     if escape_on:
         for cue in _PIN_FROM_UNDER.finditer(low):
             ca, _cb = _clause_of(clauses, cue.start(), len(t))
-            verbs = [m for m in _ESC_VERB.finditer(low, max(ca, cue.start() - 45), cue.start())]
-            if not verbs or re.search(r"[,;:—–]", low[verbs[-1].end():cue.start()]):
+            v = verb_before(ca, cue.start(), _ESC_VERB) or verb_before(ca, cue.start(), _ANY_VERB)
+            if v is None:
                 continue
-            v = verbs[-1]
-            escape(v, cue.start(), cue.end(), bool(_ESC_TRANSITIVE.match(v.group(0))), "escape")
+            escape(v, cue.start(), cue.end(), "escape")
+        for cue in _PIN_OUT_OF.finditer(low):
+            if low[max(0, cue.start() - 4):cue.start()].endswith("-"):
+                continue
+            ca, _cb = _clause_of(clauses, cue.start(), len(t))
+            v = verb_before(ca, cue.start(), _ESC_VERB)
+            if v is None:
+                continue
+            escape(v, cue.start(), cue.end(), "escape")
         for m in _UNPIN.finditer(low):
-            verb = m.group("v")
-            escape(m, m.end(), m.end(), not verb.endswith(("ся", "сь")), "unpin")
-        for m in _REMOVE_PIN.finditer(low):
+            if m.group("v").startswith("развязан"):
+                continue  # «развязанный», «развязана»: a state, not the act
+            escape(m, m.end(), m.end(), "unpin")
+        for m in list(_REMOVE_PIN.finditer(low)) + list(_PIN_ENDS.finditer(low)):
             ca, cb = _clause_of(clauses, m.start(), len(t))
             verb = m.group("v")
-            proposal = _is_proposal(verb, low, ca, m.start())
+            vstart = m.start("v") if m.re is _PIN_ENDS else m.start()
             owner = _sentence_side(toks, low, ca, m.start())
             if owner is None and re.search(r"(?:и|ите|ешь|ете|ем)$", verb):
                 owner = "you"  # «сними связку», «снимаешь связку»: the one addressed is pinned
-            pinned = [x for x in toks if x.kind == "PIECE" and m.end() <= x.start < cb and "G" in x.cases and x.ptype
-                      and x.start - m.end() < 20]
-            objs = [_out_ref(_piece_ref(pinned[0], ante))] if pinned else [_side_ref(owner)]
-            # «снять связку» names the pin it removes whatever the mood: some board of the sentence has it
-            add("pin_exists", objs, "exists", m.start(), m.end(), (ca, cb),
-                "present" if proposal else _verb_tense(verb, low[ca:cb]), "pin_escape")
+            if m.re is _PIN_ENDS:
+                head = m.start() + len("связк") + 1
+                pinned = [x for x in toks if x.kind == "PIECE" and head <= x.start < m.start("v") and "G" in x.cases and x.ptype]
+            else:
+                pinned = [x for x in toks if x.kind == "PIECE" and m.end() <= x.start < cb and "G" in x.cases and x.ptype
+                          and x.start - m.end() < 20]
+            ref = _piece_ref(pinned[0], ante) if pinned else None
+            emit(ref, _side_ref(owner) if ref is None and owner is not None else None, verb, vstart, m.end(), ca, cb,
+                 "remove", verb_end=m.end())
+        for m in _PIN_GONE.finditer(low):
+            ca, cb = _clause_of(clauses, m.start(), len(t))
+            if _escape_move(toks, low, m.start(), m.end(), cb) is None:
+                continue
+            nom = subject_before(ca, m.start("st"))
+            ref = _piece_ref(nom, ante)
+            if ref is None or not ref.ptype:
+                continue
+            emit(ref, None, "связан", m.start(), m.end(), ca, cb, "gone", verb_end=m.end())
     if noun_on:
         for m in list(_HOLD_PIN.finditer(low)) + list(_UNDER_PIN.finditer(low)):
             ca, cb = _clause_of(clauses, m.start(), len(t))
@@ -2159,23 +2335,41 @@ def _locked_judge_ready() -> bool:
 
 
 def _locked_claims(t: str, low: str, toks: list, ante: dict) -> list:
-    """«слон c8 заперт», «конь на g1 и слон на f1 пока заперты»: a piece with no way out (detector locked)."""
+    """«слон c8 заперт», «конь на g1 и слон на f1 пока заперты», «у белых пока заперт слон f1», «чёрный ферзь без ходов»,
+    «слону f1 некуда ходить»: a piece with no way out (detector locked). The parts are read, not a phrase (fix1101 F1):
+    the subject on either side of the cue (a nominative piece, a dative one before «некуда»), its square from the words
+    or «заперт на d1», the side from «у белых» / a colour word, the tense from the verb («окажется заперт» is the board
+    after the line the sentence tells). Left unjudged — the strict verdict is not what the words mean — when the clause
+    names a blocker or a cause («заперт пешками / цепью d6–e5 / центром», «упирается в свою пешку», «плохой слон»: the
+    locked_by claim of bind says what it can), when a hedge softens it («почти», «фактически»), or when it is denied."""
     out: list = []
     if not _detector_live("locked") or _TRAPPED.search(low) or not _locked_judge_ready():
         return out
     clauses = _clauses(t, toks)
-    cues = [(x.start, x.end, x.text) for x in toks if x.kind == "REL" and x.rel == "LOCK" and x.text.startswith("заперт")]
-    cues += [(m.start(), m.end(), m.group(0)) for m in _LOCKED_EXTRA.finditer(low)]
-    for a, b, word in cues:
+    cues = [(x.start, x.end, x.text, "locked") for x in toks if x.kind == "REL" and x.rel == "LOCK" and x.text.startswith("заперт")]
+    cues += [(m.start(), m.end(), m.group(0), "locked") for m in _LOCKED_EXTRA.finditer(low)]
+    cues += [(m.start(), m.end(), m.group(0), "trapped") for m in _NOWHERE.finditer(low)]
+    seen = set()
+    for a, b, word, rel in cues:
         ca, cb = _clause_of(clauses, a, len(t))
-        if _LOCK_BLOCKER.search(low[b:cb]) or any(x.kind == "PIECE" and "I" in x.cases and b <= x.start < cb for x in toks):
-            continue  # a blocker named: the locked_by claim of bind says it
-        if any(x.kind == "NEG" and ca <= x.start < a and not re.search(r"(?:выйти|ходов)", word) for x in toks):
+        clause = low[ca:cb]
+        if _LOCK_BLOCKER.search(clause) or _LOCK_HEDGE.search(clause) or \
+                any(x.kind == "PIECE" and "I" in x.cases and ca <= x.start < cb and x.start >= b for x in toks):
+            continue  # a blocker, a cause or a hedge named: not the strict «no way out»
+        if any(x.kind == "NEG" and ca <= x.start < a and not re.search(r"(?:выйти|ходов|некуда)", word) for x in toks) or \
+                re.search(W + r"не\s+(?:\w+\s+)?$", low[ca:a]):
             continue
         subjects = []
+        if rel == "trapped":
+            dat = [x for x in toks if x.kind in ("PIECE", "PRON") and ca <= x.start < a and "D" in x.cases
+                   and not (x.kind == "PIECE" and x.attr)]
+            if dat:
+                subjects.append(dat[-1])
         noms = [x for x in toks if x.kind in ("PIECE", "PRON") and ca <= x.start < a and "N" in x.cases
                 and not (x.kind == "PIECE" and x.attr)]
-        if noms:
+        if subjects:
+            pass
+        elif noms:
             subjects.append(noms[-1])
             k = toks.index(noms[-1]) - 1
             nxt = noms[-1].start
@@ -2191,64 +2385,180 @@ def _locked_claims(t: str, low: str, toks: list, ante: dict) -> list:
                     k -= 1
                     continue
                 break
-        elif word.startswith("заперт") and re.match(r"(?:ый|ого|ому|ым|ая|ую|ой|ые|ых|ыми)$", word[6:]):
+        else:
+            # the subject after the cue: «запертый слон c8», «у белых пока заперт слон f1»
             nxt = next((x for x in toks if x.kind == "PIECE" and b <= x.start < cb), None)
-            if nxt is not None and nxt.start - b <= 3 and nxt.sq is not None:
-                subjects.append(nxt)  # «запертый слон c8»
+            if nxt is not None and nxt.start - b <= 3 and "N" in nxt.cases and \
+                    (nxt.sq is not None or re.match(r"(?:ый|ого|ому|ым|ая|ую|ой|ые|ых|ыми)$", word[6:]) is None):
+                subjects.append(nxt)
+        sq_after = re.match(r"\s*(?:на|в)\s+([a-h][1-8])(?![0-9])", low[b:b + 12])
         for s in subjects:
             ref = _piece_ref(s, ante)
             if ref is None or _LETTER.get(ref.ptype) not in _PIN_LETTERS:
                 continue  # a king is confined, a pawn blocked: other relations
-            tense = "future" if re.search(W + r"(?:останется|останутся|окажется|окажутся|станет|станут)" + E, low[ca:cb]) \
-                else _verb_tense(low[ca:a].split()[-1] if low[ca:a].split() else "", low[ca:cb])
+            if ref.sq is None and sq_after:
+                ref = _R("piece", ref.ptype, chess.parse_square(sq_after.group(1)), ref.owner, text=ref.text)
+            if ref.owner is None:
+                side = _sentence_side(toks, low, ca, a)
+                if side in (chess.WHITE, chess.BLACK):
+                    ref = _R("piece", ref.ptype, ref.sq, side, text=ref.text, pronoun=ref.pronoun)
+            if re.search(W + r"(?:останется|останутся|окажется|окажутся|станет|станут|будет|будут)" + E, clause):
+                # «На 2.d4 d5 3.e5 слон c8 окажется заперт», «Если чёрные сыграют 2...d5, ты ответишь 3.e5, и слон c8
+                # останется запертым»: the future of a numbered line the sentence tells is the board after that line
+                line = [x for x in toks if x.kind == "MOVE" and not x.threat and x.end <= a]
+                tense = "present" if line and all(x.num for x in line) and \
+                    re.search(W + r"(?:после|на|при|если|когда|after|if|on)" + E, low[:line[0].start]) else "future"
+            else:
+                prev = low[ca:a].split()
+                tense = "present" if prev and re.match(r"(?:оказал|осталс|остал)", prev[-1]) else \
+                    _verb_tense(prev[-1] if prev else "", clause)
             pos = _pres_pos(t, toks, a, b, (ca, cb), tense, ref)
             if pos.at == _SKIP:
                 continue
-            out.append(Claim("locked", _out_ref(ref), (), pos=pos, span=(a, b), kind="locked"))
+            key = (ref.ptype, ref.sq, ref.owner, rel)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(Claim(rel, _out_ref(ref), (), pos=pos, span=(a, b), kind="locked"))
     return out
 
 
+# cover_cause (fix1101 F1): the parts of «Z held by H — so X was lost there», read in either order and voice
+_HOLD_VERB = re.compile(W + r"(?:держ(?:ит|ат|ал\w*|ать)|удержива\w*|контролир\w*|бь[её]т|бьют|бил[аи]?|бил\w*|атаку\w*|"
+                        r"атаковал\w*|простреливал\w*|простреливает|простреливают|смотр(?:ит|ят|ел\w*)\s+на|"
+                        r"нацел\w*\s+на|бер(?:ет|ут)\s+под\s+(?:контроль|удар))" + E)
+# the cause told after the loss: «конь пропал, потому что …», «конь погиб: f6 держит пешка g7», «… ведь …»
+_CAUSE_AFTER = re.compile(W + r"(?:потому\s+что|потому,\s*что|ведь|так\s+как|поскольку|из-за\s+того,?\s+что|из-за|"
+                          r"since|because)" + E + r"|[:—–]")
+# a contrast between the hold and the loss: the hold is then no cause («g7 держала f6, но конь всё равно погиб»)
+_CONTRAST = re.compile(W + r"(?:но|однако|хотя|несмотря|все\s+равно|тем\s+не\s+менее|зато|а|though|but|although|"
+                       r"despite|still)" + E)
+_LOSS_TAKER = re.compile(r"^(?:съели|съел|забрал|взяли|срубил|побил|выиграл)")
+
+
 def _cover_cause_claims(t: str, low: str, toks: list, claims: list) -> list:
-    """«поле f6 держала пешка g7, и конь там просто потерялся»: a hold on a square named as the cause of the loss of a
-    piece on it (detector cover_cause)."""
+    """«поле f6 держала пешка g7, и конь там просто потерялся», «конь пропал на f6, потому что это поле держала пешка
+    g7», «из-за того, что пешка g7 бьёт f6, твой конь потерялся», «на f6 конь погиб из-за пешки g7»: a hold on a square
+    named as the cause of the loss of a piece on it (detector cover_cause). The parts are read separately: the loss (a
+    loss verb, with the lost piece as its subject or — for a taker's verb, «коня там съели» — its object), the hold
+    (the bind claim of the sentence, or a holder piece with its square, a hold verb and the square in a clause of its
+    own, in either word order; «из-за пешки g7» names the holder alone), the square (named with the loss, «там» / «это
+    поле», or the hold's), and the link (the hold before the loss with no contrast between, or after it with a causal
+    word). The lost piece named on the square, or by «там / на Z», is bound by the words; named by its kind alone, the
+    judge binds it to the game's capture on that square of a piece of that kind (``to.sq`` None)."""
     out: list = []
-    if not claims or not _detector_live("cover_cause"):
+    if not _detector_live("cover_cause"):
         return out
     losses = [m for m in _LOSS.finditer(low) if not re.search(W + r"не\s*$", low[max(0, m.start() - 4):m.start()])]
     if not losses:
         return out
-    for c in claims:
-        if c.rel not in ("hold", "attack", "aim", "defend") or c.neg or c.question or c.pos.at == _SKIP or \
-                c.subj is None or not c.subj.sq or not c.subj.piece:
-            continue
-        for o in c.objs:
-            if o is None or not o.sq or o.piece:
+    clauses = _clauses(t, toks)
+    pieces = [x for x in toks if x.kind == "PIECE" and x.ptype]
+
+    def lost_of(m):
+        """(lost piece token, its square bound by the words or None, the loss clause) for the loss word *m*."""
+        ca, cb = _clause_of(clauses, m.start(), len(t))
+        taker = bool(_LOSS_TAKER.match(m.group(0)))
+        cand = [x for x in pieces if ca <= x.start < cb and not x.attr and "I" not in x.cases
+                and not re.search(W + r"(?:из-за|у|для|от|под)\s+(?:\w+\s+)?$", low[max(ca, x.start - 14):x.start])]
+        if taker:
+            cand = [x for x in cand if "A" in x.cases and "N" not in x.cases] or \
+                   [x for x in cand if "A" in x.cases]
+        else:
+            cand = [x for x in cand if "N" in x.cases] or cand
+        if not cand:
+            return None
+        x = min(cand, key=lambda y: abs(y.start - m.start()))
+        if abs(x.start - m.start()) > 40:
+            return None
+        zone = low[max(ca, min(x.start, m.start()) - 4):min(cb, max(x.end, m.end()) + 14)]
+        z = chess.square_name(x.sq) if x.sq is not None else None
+        here = sorted(re.finditer(W + r"на\s+([a-h][1-8])(?![0-9])", low[ca:cb]),
+                      key=lambda h: abs(ca + h.start() - m.start()))
+        if z is None and here:
+            z = here[0].group(1)
+        there = bool(re.search(W + r"(?:там|туда|здесь|на\s+этом\s+поле)" + E, zone))
+        return x, z, there, (ca, cb)
+
+    def holds():
+        """(holder token, Z or None (an anaphor), pos, (start, end)) of every hold the sentence tells."""
+        got = []
+        for c in claims:
+            if c.rel not in ("hold", "attack", "aim", "defend") or c.neg or c.question or c.pos.at == _SKIP or \
+                    c.subj is None or not c.subj.sq or not c.subj.piece:
                 continue
-            z = o.sq
-            for m in losses:
-                if m.start() < c.span[0]:
-                    continue  # the loss told after the hold («держала …, и конь там потерялся»)
-                # the piece the loss is told of: the nearest piece word before the loss word (after the holder), or
-                # right after it, that stands on Z — named on Z, or «там», «туда», «на Z» between them
-                lost = None
-                holder_at = max((x.end for x in toks if x.kind == "PIECE" and x.sq is not None
-                                 and chess.square_name(x.sq) == c.subj.sq), default=c.span[1])
-                before = [x for x in toks if x.kind == "PIECE" and x.ptype and holder_at <= x.start and x.end <= m.start()
-                          and m.start() - x.end <= 30]
-                after = [x for x in toks if x.kind == "PIECE" and x.ptype and m.end() <= x.start <= m.end() + 12]
-                for x in before[::-1][:1] + after[:1]:
-                    gap = low[x.end:m.start()] if x.end <= m.start() else low[m.end():x.start]
-                    if (x.sq is not None and chess.square_name(x.sq) == z) or \
-                            re.search(W + r"(?:там|туда|на\s+" + z + r")" + E, gap + " " + low[m.end():m.end() + 12]):
-                        lost = x
-                        break
-                if lost is None:
+            for o in c.objs:
+                if o is not None and o.sq and not o.piece:
+                    h = next((x for x in pieces if x.sq is not None and chess.square_name(x.sq) == c.subj.sq), None)
+                    got.append((c.subj, o.sq, c.pos, c.span, h))
+        for v in _HOLD_VERB.finditer(low):
+            ca, cb = _clause_of(clauses, v.start(), len(t))
+            if re.search(W + r"(?:не|ни)\s+$", low[max(ca, v.start() - 4):v.start()]):
+                continue
+            hs = [x for x in pieces if ca <= x.start < cb and x.sq is not None and "N" in x.cases and not x.attr]
+            if len(hs) != 1:
+                continue
+            h = hs[0]
+            sqs = [x for x in toks if x.kind == "SQ" and ca <= x.start < cb and x.sq != h.sq and
+                   (not x.move_cue or re.fullmatch(r"\s*", low[x.end:v.start()]))]  # «f6 держит пешка g7»
+            if len(sqs) == 1:
+                z = chess.square_name(sqs[0].sq)
+            elif not sqs and _THERE.search(low[ca:cb]):
+                z = None  # «это поле держала пешка g7»: the square of the loss
+            else:
+                continue
+            tense = _verb_tense(v.group(0).split()[0], low[ca:cb])
+            # the board is read before the clause's own words: its square is no move («f6 держит пешка g7»)
+            at = min([h.start, v.start()] + [x.start for x in sqs])
+            pos = _pres_pos(t, toks, at, v.end(), (ca, cb), "present" if tense == "future" else tense)
+            if pos.at == _SKIP:
+                continue
+            got.append((_out_ref(_piece_ref(h, {})), z, pos, (min(h.start, v.start()), max(h.end, v.end())), h))
+        for m in re.finditer(W + r"из-за\s+(?:\w+\s+)?(" + _PIECE_ALT + r")" + E, low):
+            h = next((x for x in pieces if m.start(1) <= x.start < m.end(1) + 1 and x.sq is not None), None)
+            if h is None or not re.match(r"\s*(?:на\s+)?[a-h][1-8]", low[m.end(1):m.end(1) + 8]):
+                continue
+            ca, cb = _clause_of(clauses, m.start(), len(t))
+            pos = _pres_pos(t, toks, ca, m.end(), (ca, cb), "present")  # «на f6 конь погиб из-за …»: f6 is no move
+            if pos.at != _SKIP:
+                got.append((_out_ref(_piece_ref(h, {})), None, pos, (m.start(), h.end), h))
+        return got
+
+    hs = holds()
+    if not hs:
+        return out
+    done = set()
+    for m in losses:
+        lost = lost_of(m)
+        if lost is None:
+            continue
+        x, z_loss, there, _lc = lost
+        for subj, z_hold, pos, span, htok in hs:
+            if htok is not None and x is htok:
+                continue
+            if span[0] < m.start():
+                between = low[span[1]:m.start()]
+                if _CONTRAST.search(between) or re.search(r"[.!?]", between):
                     continue
-                side, owner = _side_owner(lost.owner)
-                out.append(Claim("cover_cause", c.subj, (Ref(sq=z),),
-                                 to=Ref(sq=z, piece=_LETTER[lost.ptype], side=side, owner=owner, text=lost.text),
-                                 pos=c.pos, span=(c.span[0], m.end()), kind="cover_cause"))
-                break
+            else:
+                between = low[m.end():span[0]]
+                if not _CAUSE_AFTER.search(between) or _CONTRAST.search(between) or len(between) > 60:
+                    if not (low[span[0]:].startswith("из-за") and len(between) <= 40):
+                        continue
+            z = z_hold or z_loss
+            if z is None or (z_hold and z_loss and z_hold != z_loss):
+                continue
+            bound = z_loss == z or there
+            if subj is None or subj.sq == z:
+                continue
+            side, owner = _side_owner(x.owner)
+            key = (subj.sq, z)
+            if key in done:
+                continue
+            done.add(key)
+            out.append(Claim("cover_cause", subj, (Ref(sq=z),),
+                             to=Ref(sq=z if bound else None, piece=_LETTER[x.ptype], side=side, owner=owner, text=x.text),
+                             pos=pos, span=(min(span[0], m.start()), max(span[1], m.end())), kind="cover_cause"))
     return out
 
 
@@ -2260,7 +2570,7 @@ def _presupposed(t: str, low: str, toks: list, focus: dict, claims: list, ante: 
         out = []
         if re.search(r"связ|развяз", low):
             out += _pin_claims(t, low, toks, ante)
-        if re.search(r"заперт|выйти|ходов", low):
+        if re.search(r"заперт|выйти|выбраться|двинуться|пошевел|ходов|взаперти|замурован|некуда", low):
             out += _locked_claims(t, low, toks, ante)
         out += _cover_cause_claims(t, low, toks, claims)
         return out
@@ -2297,14 +2607,17 @@ def written_moves(text: str) -> tuple:
     toks = _tokens(t)
     seq = [x if x.kind == "MOVE" else Tok("MOVE", x.start, x.end, x.text, san=x.text, told=x.told)
            for x in toks if (x.kind == "MOVE" or (x.kind == "SQ" and x.move_cue)) and not x.threat]
-    seq = [x for x in seq if not (len(x.san) == 2 and any(o is not x and len(o.san) == 4 and o.san[2:] == x.san for o in seq))]
+    seq = _drop_restated(seq)
+    low = t.lower()
     out: list = []
+    prev = None
     for x in seq:
         mr = _move_ref(x)
-        if out and _same_move(out[-1], mr) and not out[-1].castle:
+        if out and _same_move(out[-1], mr) and not out[-1].castle and not _two_moves(prev, x, low):
             out[-1] = _merge(out[-1], mr)
         else:
             out.append(mr)
+        prev = x
     return tuple(out)
 
 
@@ -2356,7 +2669,7 @@ def extract(text: str, state: dict, language: Optional[str] = None) -> list[Clai
                 elif cap is None and (_TAKE_SURE.match(c.verb) or
                                       re.match(r"[^.;:—]{0,20}?с\s+шахом" + E, low[c.end:c.clause[1]])):
                     blind_from = c.pos
-    if presup or (claims and _LOSS.search(low)):
+    if presup or _LOSS.search(low):
         claims += _presupposed(t, low, toks, focus, list(claims), ante)
     _remember(toks, t, state, focus, cur)
     claims.sort(key=lambda x: x.pos.at == _SKIP)
