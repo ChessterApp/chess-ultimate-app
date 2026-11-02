@@ -553,6 +553,10 @@ COACH_TRADE_SWING_NAMED = _env_flag("COACH_TRADE_SWING_NAMED", False)
 # Prevention (P8): the facts of the turn (fork facts vetted by the engine, piece safety, attack balance, the game's
 # material and captures, opening ideas, rules from the board) go to the model; off renders nothing new.
 COACH_TURN_FACTS = _env_flag("COACH_TURN_FACTS", True)
+# Prevention (voice 02.11): the coach's rule facts (voice note, text turn) say castling with the king's squares that
+# decide it and the side to move's pawn and queen moves (src/board_rules.rule_facts explicit); off = as before. The
+# lesson tutor and the hidden board never ask for them.
+COACH_EXPLICIT_RULES = _env_flag("COACH_EXPLICIT_RULES", True)
 # Speed (P7, next1031/speed): persistent Stockfish processes instead of one process per search, and the board's
 # positions analysed while the student thinks. Each has its own off switch (0 = today's behaviour).
 #   STOCKFISH_POOL             — the pool on/off (default on).

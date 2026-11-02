@@ -2244,7 +2244,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             # Behind the scan in the engine pool's queue (a tool call's level): the scan's two halves keep both
             # processes, and the note is read only when it is ready by the time the scan is (review-wiring 01.11:
             # at the scan's level it took a process from it, and the game-load turn waited 2.1 s against 1.4 s).
-            review_note_future = _engine_pool.submit(_engine_priority(2), engine_note, final_fen)
+            review_note_future = _engine_pool.submit(_engine_priority(2), engine_note, final_fen, explicit_rules=True)
     # An opening named in the message: its book line goes on the board and into
     # the turn before the model is called (src/opening_knowledge.py) — the engine
     # line below then describes the line's final position, not the old board.
@@ -2400,7 +2400,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     note_fen = hidden_fen or session.board_state  # the hidden board's position when the question is about it
     if (config.COACH_ENGINE_NOTE and (body.fen or opening_plan or endgame or hidden_fen) and note_fen
             and not live_game and review_future is None and not wants_puzzle):
-        engine_future = _engine_pool.submit(engine_note, note_fen, movetime_ms=note_movetime)
+        engine_future = _engine_pool.submit(engine_note, note_fen, movetime_ms=note_movetime, explicit_rules=True)
         engine_future.add_done_callback(
             lambda f, sid=session.id, bid=active_board.id, fen=note_fen: _after_engine_line(f, sid, bid, fen))
     # A live game: the evaluation and the opponent's threat (no best move) — the
@@ -2513,7 +2513,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 # board's own facts are not — what hangs is a fact, not a hint.
                 from src.prompt_builder import board_facts_block
 
-                facts_note = board_facts_block(session.board_state, given=given_facts)
+                facts_note = board_facts_block(session.board_state, given=given_facts, explicit_rules=True)
                 if facts_note:
                     turn_context = f"{turn_context}\n\n{facts_note}"
         except Exception:  # noqa: BLE001 — never block a turn on the game note
@@ -3021,7 +3021,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     try:
                         from src.prompt_builder import board_facts_block
 
-                        facts_only = board_facts_block(note_fen, given=given_facts)
+                        facts_only = board_facts_block(note_fen, given=given_facts, explicit_rules=True)
                         if facts_only:
                             old_board_blocks.append(facts_only)
                             message = f"{message}\n\n{facts_only}"
@@ -4684,6 +4684,23 @@ async def coach_voice_engine_note(body: VoiceEngineNoteRequest, request: Request
     return note
 
 
+def _voice_game_rules(fen: str) -> str:
+    """The rule facts of the game's position for the voice coach's [Game] note: castling with the squares that
+    decide it, en passant, the side to move's pawn and queen moves, the pawn structure (src/board_rules.rule_facts,
+    explicit; no tablebase — it names moves). The text coach's game turn has them in its board facts; the voice
+    game note had the evaluation and the threat only (voice 02.11: «пешкой с d2 на d3» with a black bishop on d3,
+    castling «impossible because of f2»). '' when there are none or the switch is off."""
+    if not getattr(config, "COACH_EXPLICIT_RULES", True):
+        return ""
+    try:
+        from src.board_rules import rule_facts
+
+        facts = rule_facts(chess.Board(fen), with_tablebase=False, explicit=True)
+    except Exception:  # noqa: BLE001 — a bonus on top of the game's line
+        return ""
+    return (" Rules of the position (verified on the board): " + "; ".join(facts) + ".") if facts else ""
+
+
 def _voice_board_note(fen: str, session_id: Optional[str], user_id: str) -> Optional[dict]:
     """What the text coach's turn gets about the board, for the voice coach (parity, 2026-10-15): in a live
     game the evaluation and the opponent's threat with no best move (src/hypothetical.live_game_note), on a
@@ -4715,9 +4732,10 @@ def _voice_board_note(fen: str, session_id: Optional[str], user_id: str) -> Opti
             return {"fen": fen, "note": None, "kind": "game"}
         return {"fen": fen, "kind": "game", "eval": live.get("eval"), "threat": live.get("threat"),
                 "note": ("[Game] Engine facts for the game (no best move for the student): " + live["note"].replace("\n", " ")
+                         + _voice_game_rules(fen)
                          + " Say who stands better in words only, warn about the threat when it matters, and never name "
                            "the best move unless the student insists twice — hint. Never claim a threat that is not here.")}
-    note = engine_note(fen)
+    note = engine_note(fen, explicit_rules=True)
     if note is None:
         return None
     head = _mate_headline(note.get("mate_in"), fen).replace("\n", " ").strip()
