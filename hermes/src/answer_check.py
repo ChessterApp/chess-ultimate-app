@@ -926,6 +926,8 @@ def _moved_in_sentence(text: str, ptype: int, a: int, ctx: Optional["CheckContex
     if ctx is None:
         return None
     for _san, after, move in getattr(ctx, "scene_trail", []) or []:
+        if move.to_square == a and after.piece_type_at(a) == ptype:
+            return None  # «ферзь идёт на g5 и атакует коня e5: … Qxg2»: named where it went, judged there (K3 02.11)
         if move.from_square == a and after.piece_type_at(move.to_square) == ptype:
             return move.to_square, after
     return None
@@ -1367,6 +1369,29 @@ def _san_issues(text: str, ctx: CheckContext) -> list[str]:
     return issues
 
 
+def _gap_from_words(board: chess.Board, words: str, nxt: str) -> Optional[tuple]:
+    """(san, move, board after) for the one move *words* tell for the side to move on *board* («ферзь идёт на g5»),
+    when exactly one move told there lets the written move *nxt* follow it; else None (K3 02.11)."""
+    if not words.strip():
+        return None
+    try:
+        from src.move_words import prose_moves
+
+        found = {}
+        for pm in prose_moves(words, board):
+            mv = pm.get("move")
+            if mv is None or mv not in board.legal_moves:
+                continue
+            after = board.copy(stack=False)
+            after.push(mv)
+            if _parses(after, nxt):
+                found[mv.uci()] = (board.san(mv), mv, after)
+        return next(iter(found.values())) if len(found) == 1 else None
+    except Exception:  # noqa: BLE001 — words are a bonus on top of notation
+        logger.debug("gap from words failed", exc_info=True)
+        return None
+
+
 def _parses(board: chess.Board, san: str) -> bool:
     try:
         board.parse_san(san)
@@ -1396,7 +1421,17 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
 
     start_scene = ctx.current is not None and ctx.current.board_fen() != chess.STARTING_BOARD_FEN \
         and detector_mode("start_scene", ctx) == "on"
+    prev_end = -1  # where the move that led to *prev* ends in *converted*
+    # K3 02.11: the line skipped a ply its words did not let us play («После 4.Nxe5 ферзь идёт куда-то… 5.Nxf7 Qxg2»):
+    # the boards its later moves are played on are guesses, so none of them is judged impossible or not to check.
+    line_unknown = False
+    # K3 02.11: a written move of this sentence fit no board («если чёрные сыграют Bxd1, то Bxf7+ Ke7 Nd5#» with the
+    # board after the student's Nxe5 not given): the moves after it belong to the line it began, not to a board of the
+    # turn — a «+»/«#» or a blocked capture is not judged on one.
+    unplaced = last_unplaced = False
+    lesson = _lesson(ctx)
     for m in _MOVE.finditer(converted):
+        unplaced, last_unplaced = unplaced or last_unplaced, False
         san, num, dots = m["san"], m["num"], m["dots"] or m["bdots"]
         numbered = bool(num or m["bdots"])
         is_piece = san[0] in "KQRBN"
@@ -1426,7 +1461,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
                 prev_trusted = prev_trusted if followed is prev else ctx.is_given(followed)
                 prev_flipped = followed is prev and prev_flipped
                 prev, prev_ghost = trial, False
-                in_line_until = m.end()
+                prev_end = in_line_until = m.end()
                 ctx.add(trial.fen(), derived=True)
             continue
         if san.startswith("O-O") or san in ctx.quoted:
@@ -1440,6 +1475,19 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         else:
             colors = [chess.WHITE, chess.BLACK]
         full = san + (m["check"] or "")
+        # K3 02.11 (trap-blackburne live): a numbered move one ply past the line's board («После 4.Nxe5 ферзь идёт на g5
+        # …: 5.Nxf7 Qxg2») — the ply between is told in words. Played when the words name exactly one move after which
+        # this one is legal; otherwise the line's board is unknown from here on.
+        if not lesson and prev is not None and num and not list_item and len(colors) == 1 and colors[0] != prev.turn \
+                and int(num) == prev.fullmove_number + (1 if prev.turn == chess.BLACK else 0):
+            filled = _gap_from_words(prev, converted[max(prev_end, 0):m.start()], full)
+            if filled is not None:
+                gap_san, gap_move, prev = filled
+                ctx.add(prev.fen(), derived=True)
+                ctx.scene_trail.append((gap_san, prev.copy(stack=False), gap_move))
+                ctx.written_trail.append((gap_san, prev.copy(stack=False), gap_move))
+            else:
+                line_unknown = True
         # «Правильно было 5. Nxd4» about the game on the board: the move numbered N starts a line at move N of
         # that game, not wherever such a move happens to be legal (4.Nxd4 was, 5.Nxd4 was not — stand,
         # 2026-10-13). Only for a line's first move, with the game's position at that move given to the turn.
@@ -1476,6 +1524,9 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         next_ply = prev is not None and bool(num) and not list_item and colors == [prev.turn] \
             and int(num) == prev.fullmove_number and not prev_flipped and not _lesson(ctx)
         line_prev, line_trusted = prev, prev_trusted
+        # K3 02.11 (op-show-italian live): the next move of a line being followed is played on that line's board; when it
+        # does not fit there, no other board of the turn is its board — its «+»/«#» is not judged there.
+        line_bound = not lesson and prev is not None and (continues_line or next_ply)
         candidates = ([(prev, [prev.turn])] if prev is not None and prev.turn in colors else []) \
             + [(b, [c for c in colors if c == b.turn]) for b in ordered] \
             + ([] if next_ply else [(b, [c for c in colors if c != b.turn]) for b in ordered])
@@ -1483,8 +1534,9 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
             if board is prev:
                 trusted = prev_trusted
             else:
-                trusted = (board is not fallback and ctx.is_given(board)) \
-                    or (board is fallback and num == "1" and dots == "." and not list_item)
+                trusted = ((board is not fallback and ctx.is_given(board))
+                           or (board is fallback and num == "1" and dots == "." and not list_item)) \
+                    and not line_bound and not unplaced
             for color in board_colors:
                 trial = board.copy(stack=False)
                 trial.turn = color
@@ -1517,6 +1569,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
                     trial.push(move)
                     ctx.written_trail.append((plan_san, trial.copy(stack=False), move))
                     prev, prev_trusted, ghost_now = trial, False, True
+                    prev_end = m.end()
                     ctx.add(trial.fen(), derived=True)
                     break
                 if not legal_somewhere:
@@ -1525,6 +1578,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
                     trial.push(move)
                     prev_flipped = color != board.turn or (board is prev and prev_flipped)
                     prev, prev_trusted, ghost_now = trial, trusted, False
+                    prev_end = m.end()
                     ctx.add(trial.fen(), derived=True)  # a line written in the answer goes on from here
                     ctx.scene, ctx.scene_san, ctx.scene_age = trial.copy(stack=False), scene_san, 0
                     ctx.scene_trail.append((scene_san, ctx.scene, move))
@@ -1537,6 +1591,9 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         prev_ghost = ghost_now
         if not legal_somewhere:
             prev, prev_trusted, prev_ghost = None, False, False
+            last_unplaced = not lesson  # the moves after this one (K3 02.11)
+        if line_unknown:
+            continue  # K3 02.11: after a ply the words skipped, the line's board is a guess — nothing judged on it
         if legal_somewhere:
             if suffix_judged and not suffix_ok and not bare_capture:
                 label = (f"{num}{dots}" if num else (dots or "")) + full
@@ -1557,7 +1614,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         # «Возьми ферзя ладьёй: Rxh4» with the h2 pawn between (stand, 2026-10-04):
         # a capture written for the board on the screen, by a piece that is there
         # but cannot get through, is impossible — not a plan from another position.
-        if is_piece and "x" in san and prev is None and ctx.current is not None and not list_item \
+        if is_piece and "x" in san and prev is None and ctx.current is not None and not list_item and not unplaced \
                 and not _is_hypothetical(text, text, m.start(), ctx=ctx) and not _CONTINUES.match(text):
             blocked = _blocked_capture(ctx, ptype, colors, dest)
             if blocked:
@@ -2094,6 +2151,22 @@ def _clause_judged_here(clause: str, ctx: CheckContext) -> bool:
     return True
 
 
+def _subject_in_force_here(before: str, ctx: CheckContext) -> bool:
+    """The subject a clause goes on with — the last piece named on its square as a subject before it in the sentence
+    («Конь на e8 бьёт с шахом короля, а заодно нападает на ферзя g7») — stands on the board now (or none is named).
+    A clause with a subject of its own is judged by _clause_judged_here; this one covers the clause that has none."""
+    last = None
+    for m in _CLAUSE_SUBJECT.finditer(before):
+        if m["en"] and _EN_OBJECT_BEFORE.search(before[: m.start()]):
+            continue
+        last = m
+    if last is None or ctx.current is None:
+        return True
+    ptype = _piece_type((last["ru"] or last["en"]).lower())
+    piece = ctx.current.piece_at(chess.parse_square((last["a"] or last["b"]).lower()))
+    return piece is not None and (ptype is None or piece.piece_type == ptype)
+
+
 def _object_ghost_issues(text: str, ctx: CheckContext) -> list[str]:
     if ctx.current is None or ctx.current.board_fen() == chess.STARTING_BOARD_FEN:
         return []
@@ -2179,8 +2252,11 @@ def _unattacked_object_issues(text: str, original: str, ctx: CheckContext) -> li
             upto = (at if at >= 0 else 0) + m.start()
             if _is_hypothetical(text, original, upto, ctx=ctx):
                 continue  # «после Nb5 конь нападёт на пешку c7»: a line, judged on the derived boards elsewhere
-            if _SAN_IN_TEXT.search(_to_san(original[:upto])[0]):
+            if _SAN_IN_TEXT.search(_to_san(original[:upto])[0]) or _PROMOTION_IN_TEXT.search(_to_san(original[:upto])[0]):
                 continue  # «cxd4: пешка c5 … нападает на ферзя c3»: after the move written before it
+            if not _subject_in_force_here(text[:upto], ctx):
+                continue  # «Конь на e8 бьёт с шахом…, а заодно нападает на ферзя g7»: the subject the clause goes on with
+                          # is not on this board (K3 02.11, underpromo live)
             ptype = _piece_type(m["w"])
             if ptype is None:
                 continue
@@ -2211,6 +2287,9 @@ _PIECE_SQUARE_MATES = re.compile(
     r"(?:и\s+)?(?:это\s+)?(?:ставит\s+мат|да[её]т\s+мат|объявляет\s+мат|мат(?![а-я])|mates|is\s+mate|gives\s+mate|checkmates?)",
     re.IGNORECASE)
 _SAN_IN_TEXT = re.compile(r"(?<![A-Za-z0-9])(?:[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|[a-h]x[a-h][1-8](?:=[QRBN])?|O-O(?:-O)?)[+#]?")
+# A written promotion («e8=N+») is a move too, whatever its file: what the sentence says after it is about the board
+# after it (K3 02.11, underpromo live: «e8=N+ даёт шах и нападает на ферзя g7» judged on the board before it).
+_PROMOTION_IN_TEXT = re.compile(r"(?<![A-Za-z0-9])[a-h](?:x[a-h])?[18]=[QRBN][+#]?")
 
 
 def _norm_san(san: str) -> str:
@@ -4290,9 +4369,14 @@ def written_line_after(sentence: str, san: str) -> list[str]:
 
 # «закрыть калитку пешкой: g6», «пешку на e4», "the pawn to e4", "push g6": a pawn told
 # to go to the square (production, 2026-10-06: «самое надёжное — пешкой: g6» hung the rook to Qxe5+)
-_PAWN_MOVE_WORDS = re.compile(
+_PAWN_MOVE_WORDS_V1031 = re.compile(
     r"(?:пешк\w*\s*(?:на|в|[:—–-])\s*|пешкой\s+(?:на\s+)?|pawn\s+(?:to|on|onto)\s+|push(?:ing)?\s+(?:the\s+pawn\s+(?:to\s+)?)?|"
     r"(?:толкн\w+|продвин\w+|двин\w+)\s+(?:пешку\s+)?(?:на\s+)?)$", re.IGNORECASE)  # not «пешка e5 висит»: that names a square
+# …nor «разобраться с пешкой f3», «с пешкой на e5»: «с» + the pawn names the pawn standing there (K3 02.11, st3#7 live).
+# The /learn lesson tutor keeps the reading above.
+_PAWN_MOVE_WORDS = re.compile(
+    r"(?:(?<!\bс\s)(?<!\bсо\s)пешк\w*\s*(?:на|в|[:—–-])\s*|(?<!\bс\s)(?<!\bсо\s)пешкой\s+(?:на\s+)?|pawn\s+(?:to|on|onto)\s+|push(?:ing)?\s+(?:the\s+pawn\s+(?:to\s+)?)?|"
+    r"(?:толкн\w+|продвин\w+|двин\w+)\s+(?:пешку\s+)?(?:на\s+)?)$", re.IGNORECASE)
 
 
 # Words that look at a move rather than recommend it, when the move is the one the student asked about
@@ -4374,6 +4458,66 @@ def _review_asked(ctx: CheckContext) -> bool:
     return bool(_REVIEW.search(ctx.question_raw or ctx.question or ""))
 
 
+# K3 02.11 (VERDICT §6.1): a move is judged on the board where it is played. python-chess reads «Qxf3» as Qf3 on a board
+# where f3 is empty (st3#7 live: «Вот что было лучше: Qxf3» — the capture of a past position, judged as Qf3 now): a move
+# written as a capture that captures nothing here is another board's move.
+def _parse_here(board: chess.Board, san: str, lesson: bool = False) -> chess.Move:
+    move = board.parse_san(san)
+    if not lesson and "x" in san.split("=")[0] and not board.is_capture(move):  # the /learn tutor keeps 31.10's reading
+        raise ValueError(f"{san} captures nothing on this board")
+    return move
+
+
+# Advice for a past position («было лучше Qxf3», «надо было забирать», "should have played"): the board it was meant for
+# is not the board now, and which earlier board it is the words do not say — not judged on the board now (K3 02.11).
+_PAST_ADVICE = re.compile(
+    r"(?<![а-яa-z])(?:(?:лучше|сильнее|точнее|правильнее|над[её]жнее|надо|нужно|можно|следовало|стоило)\s+(?:бы\s+)?был[оаи]?"
+    r"|был[оаи]?\s+(?:бы\s+)?(?:лучше|сильнее|точнее|правильнее|над[её]жнее|надо|нужно|можно)|стоило|следовало|"
+    r"should\s+have|could\s+have|would\s+have|(?:was|would\s+have\s+been)\s+(?:better|stronger|the\s+(?:best|right|correct)))"
+    r"(?![а-яa-z])", re.IGNORECASE)
+# The other side's answer told before the praise («После Qxd4 чёрные отвечают c5 и нападают на ферзя», «После 4.Nxe5
+# чёрные отвечают Qg5 — ферзь нападает на коня»): the praise is the reply's, on the board after it — a line, whose outcome
+# is line_verdict's to judge, not advice of the first move (K3 02.11: trap-noah, trap-blackburne live).
+_SIDE_REPLIES = re.compile(
+    r"(?<![а-яa-z])(?:белые|черные|соперник\w*|противник\w*|оппонент\w*|white|black|(?:the\s+|your\s+|my\s+)?opponent)\s+"
+    r"(?:[а-яa-z]+\s+){0,2}?(?:игра\w*|сыгра\w*|пойд\w*|ход(?:ит|ят)|бер[её]т|берут|возьм\w+|бь[её]т|бьют|забира\w+|забер\w+|"
+    r"отвеча\w+|ответ\w*|plays?|takes?|captures?|replies|answers?)(?![а-яa-z])", re.IGNORECASE)
+
+
+def _praise_of_reply(before_praise: str) -> bool:
+    """The words between a candidate move and its praise tell the other side's answer (a reply verb, the other side
+    playing, or another written move): the praise is about the line, not the candidate."""
+    return bool(_REPLY.search(before_praise) or _SIDE_REPLIES.search(before_praise)
+                or _SAN_IN_TEXT.search(_to_san(before_praise)[0]))
+
+
+def _reply_in_words(board: chess.Board, move: chess.Move, words: str) -> bool:
+    """*words* tell a move of the other side after *move* («ферзь идёт на g5»): the praise after them is the reply's."""
+    if not words.strip():
+        return False
+    try:
+        from src.move_words import prose_moves
+
+        after = board.copy(stack=False)
+        after.push(move)
+        return any(pm.get("move") is not None for pm in prose_moves(words, after))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _past_praise(tail: str, praise) -> bool:
+    """The praise word is in the past («ферзь забирал пешку», «бил по g2»): what the move would have done on a board
+    that is gone."""
+    end = praise.end()
+    while end < len(tail) and (tail[end].isalpha()):
+        end += 1
+    start = praise.start()
+    while start > 0 and tail[start - 1].isalpha():
+        start -= 1
+    word = tail[start:end].lower()
+    return bool(re.search(r"[а-я](?:л|ла|ло|ли|лся|лась|лось|лись)$", word))
+
+
 def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]:
     """The move the coach recommends to the side to move on the board on the
     screen: (board, move, san), or None. In notation («Rg1», «Лg1») or in words
@@ -4404,7 +4548,7 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
         if not _ANNOUNCED.search(converted_all[max(0, mv.start() - 45):mv.start()]):
             continue
         try:
-            move = ctx.current.parse_san(mv["san"] + (mv["check"] or ""))
+            move = _parse_here(ctx.current, mv["san"] + (mv["check"] or ""), lesson)
         except ValueError:
             break
         return ctx.current, move, ctx.current.san(move)
@@ -4448,13 +4592,13 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
                 continue  # «стоит, не давая чёрным сыграть e5»; «Kd2? Нет, лучше Bd2»
             san = mv["san"]
             if san[0] not in "KQRBNO" and not mv["num"] and not mv["bdots"] and "x" not in san \
-                    and not _PAWN_MOVE_WORDS.search(converted[max(0, mv.start() - 24): mv.start()]) \
+                    and not (_PAWN_MOVE_WORDS_V1031 if lesson else _PAWN_MOVE_WORDS).search(converted[max(0, mv.start() - 24): mv.start()]) \
                     and not re.fullmatch(r"[\s—–:\-]*(?:здесь\s+|сейчас\s+|here\s+|now\s+)?", converted[: mv.start()]):
                 continue  # «e4» is a square («пешка e5 висит») unless a pawn is told to go there («пешкой: g6», "pawn to e4») or it is the move itself («лучше d4»)
             if _EXPLORES.fullmatch(m.group(0).strip()) and san.replace("x", "") in {q.replace("x", "") for q in ctx.quoted}:
                 continue  # «Сыграем Be7+ и посмотрим», «можно Be7+»: the student's own idea looked at, not advice
             try:
-                move = ctx.current.parse_san(san + (mv["check"] or ""))
+                move = _parse_here(ctx.current, san + (mv["check"] or ""), lesson)
             except ValueError:
                 continue
             if m is you_play and (ctx._key(ctx.current), move.uci()) in ctx.line_next:
@@ -4487,8 +4631,10 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
         exclaimed = re.match(r"[*_]*!{1,2}(?![?])", converted[mv.end():])
         if not (_PRAISED.match(converted, mv.end()) or exclaimed) or _NEGATION.search(converted[max(0, mv.start() - 24): mv.start()]):
             continue
+        if not lesson and _PAST_ADVICE.search(converted[: mv.start()]):
+            continue  # «Было лучше Qxf3!»: a past board's move (K3 02.11)
         try:
-            move = ctx.current.parse_san(san + (mv["check"] or ""))
+            move = _parse_here(ctx.current, san + (mv["check"] or ""), lesson)
         except ValueError:
             continue
         return ctx.current, move, ctx.current.san(move)
@@ -4498,7 +4644,7 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
     for mv in _MOVE.finditer(converted):
         san = mv["san"]
         if san[0] in "KQRBNO" or mv["num"] or mv["bdots"] or "x" in san \
-                or _PAWN_MOVE_WORDS.search(converted[max(0, mv.start() - 24): mv.start()]):
+                or (_PAWN_MOVE_WORDS_V1031 if lesson else _PAWN_MOVE_WORDS).search(converted[max(0, mv.start() - 24): mv.start()]):
             candidates.append((mv.end(), san + (mv["check"] or ""), None, mv.start()))
     try:
         from src.move_words import prose_moves
@@ -4527,13 +4673,19 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
         tail = tail[: cut.start()] if cut else tail
         if not _PRAISE.search(tail) or _NEGATED_WORD.search(tail[: _PRAISE.search(tail).start()]):
             continue
+        praise = _PRAISE.search(tail)
+        if not lesson and (_praise_of_reply(tail[: praise.start()]) or _past_praise(tail, praise)
+                           or _PAST_ADVICE.search(text[:start])):
+            continue  # the reply's praise (a line), or what the move would have done on a past board (K3 02.11)
         if move is None:
             try:
-                move = ctx.current.parse_san(san)
+                move = _parse_here(ctx.current, san, lesson)
             except ValueError:
                 continue
         if san.replace("x", "") in {q.replace("x", "") for q in ctx.quoted} and not _PRAISE.search(tail):
             continue
+        if not lesson and _reply_in_words(ctx.current, move, tail[: praise.start()]):
+            continue  # «После 4.Nxe5 ферзь идёт на g5 и атакует коня»: the reply told in words is what attacks (K3 02.11)
         return ctx.current, move, ctx.current.san(move)
     try:
         return _plan_place_move(text, ctx)

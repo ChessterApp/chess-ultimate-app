@@ -152,6 +152,30 @@ def _switch_on(name: str) -> bool:
     return name not in off
 
 
+# K3 02.11 (VERDICT §6.1): a verdict on a move is the same on every run, whatever the host's load — the engine stage
+# searches each position it judges to a fixed depth from an empty hash (one thread: the same lines every time; the
+# exact store of src/tools/stockfish keeps them, and src/engine_precompute searches the likely ones in advance), never
+# for a time. A search that cannot reach the depth within VERIFY_MAX_MS says nothing: the sentence stands. A 300 ms
+# look reached depth 15–18 by the host's load, so a move near the threshold was cut in one run and shown in the next.
+# The /learn lesson tutor (main_rules()) keeps main's timed look.
+VERIFY_DEPTH = 16
+VERIFY_MAX_MS = 2500
+
+
+def _fixed_line(fen: str, deadline: float) -> Optional[dict]:
+    """The engine's first line on *fen* at VERIFY_DEPTH (from an empty hash), or None when it cannot be had in time."""
+    res = _engine_lines(fen, 1, None, VERIFY_DEPTH, deadline)
+    return ((res or {}).get("lines") or [None])[0]
+
+
+def _look(fen: str, movetime_ms: int, deadline: float) -> Optional[dict]:
+    """One judged position's first line: fixed depth, or main's timed look inside main_rules() (the lesson tutor)."""
+    if _MAIN_RULES.get():
+        res = analyze_timed(fen, movetime_ms, multipv=1, min_depth=MIN_DEPTH)
+        return (res.get("lines") or [None])[0] if "error" not in res else None
+    return _fixed_line(fen, deadline)
+
+
 def _given_away(before: float, loss: float) -> str:
     """'about 2.3 pawns given away', or the mate thrown away when the position before was a forced mate."""
     if abs(before) >= MATE_PAWNS - 0.5:
@@ -533,10 +557,9 @@ def verify_line(board: chess.Board, line: list[str], movetime_ms: int = 300, thr
             end.push(mv)
         if len(played) < 2 or end.is_game_over():
             return None
-        base = analyze_timed(board.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
-        res = analyze_timed(end.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
-        b_line = (base.get("lines") or [None])[0] if "error" not in base else None
-        e_line = (res.get("lines") or [None])[0] if "error" not in res else None
+        deadline = time.monotonic() + VERIFY_MAX_MS / 1000.0
+        b_line = _look(board.fen(), movetime_ms, deadline)
+        e_line = _look(end.fen(), movetime_ms, deadline) if b_line else None
         if not b_line or not e_line:
             return None
         before = _white_pawns(b_line, board.turn)
@@ -619,8 +642,8 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
     try:
         if move not in board.legal_moves:
             return None
-        base = analyze_timed(board.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
-        base_line = (base.get("lines") or [None])[0] if "error" not in base else None
+        deadline = time.monotonic() + VERIFY_MAX_MS / 1000.0
+        base_line = _look(board.fen(), movetime_ms, deadline)
         if not base_line:
             return None
         before = _white_pawns(base_line, board.turn)
@@ -631,8 +654,7 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
         after.push(move)
         if after.is_game_over():
             return None
-        res = analyze_timed(after.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
-        line = (res.get("lines") or [None])[0] if "error" not in res else None
+        line = _look(after.fen(), movetime_ms, deadline)
         if not line:
             return None
         after_pawns = _white_pawns(line, after.turn)
@@ -724,12 +746,12 @@ FORCED_CONFIRM_DEPTH = 17
 # …bounded in time all the same (review 30.10: 1.6 s alone, 2.5 s with a second turn running, on top of the timed
 # look): the confirming searches of one reading share this budget, and a search that runs out of it says nothing —
 # the sentence stands. An unloaded host reaches depth 17 for trap-legal in about 0.9 s.
-FORCED_CONFIRM_MAX_MS = 1000
+FORCED_CONFIRM_MAX_MS = 3000  # K3 02.11: was 1000 — under load the search fell short and the claim stood (trap-legal)
 # …and one sentence's whole check — the timed look and the confirming search of each of its readings — shares this
 # budget (review 30.10, interplay: 1.1–2.4 s per sentence, two readings looked at one after another). A reading
 # that finds no time left says nothing, and since a claim is wrong only when it is wrong in every reading, the
 # sentence stands: a miss rather than a long silent hold.
-FORCED_TOTAL_MAX_MS = 2000
+FORCED_TOTAL_MAX_MS = 4000
 FORCED_CONFIRM_BAND = (0.35, 1.1)
 FORCED_MISTAKE_BAND = 1.0
 
@@ -858,12 +880,8 @@ def _verify_one_reading(claim: dict, movetime_ms: int, reveal_best: bool, until:
     board, claimed = claim["board"], set(claim["moves"])
     if board.is_game_over() or not claimed or all(mv in claimed for mv in board.legal_moves):
         return None  # forced by the rules themselves
-    movetime = movetime_ms * FORCED_MOVETIME_FACTOR
-    issue, near = _forced_verdict(claim, _reply_rows(board, movetime_ms=movetime), reveal_best, movetime, None)
-    if issue is None and not near:
-        return None  # far from every line: the timed look is enough to let it stand
-    # Against the claim, or close to the line: only the fixed-depth search decides, within its time and what is
-    # left of the sentence's.
+    # K3 02.11: only the fixed-depth search decides, for and against the claim — a timed look let trap-legal's claim stand
+    # in 1 run of 3 (its gap read 0.69–0.72 at 600 ms, 0.50 at depth 17), whatever the confirming search would have said.
     deadline = min(time.monotonic() + FORCED_CONFIRM_MAX_MS / 1000.0, until)
     return _forced_verdict(claim, _reply_rows(board, depth=FORCED_CONFIRM_DEPTH, deadline=deadline), reveal_best,
                            None, FORCED_CONFIRM_DEPTH, deadline)[0]

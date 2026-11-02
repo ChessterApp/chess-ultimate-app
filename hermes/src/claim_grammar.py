@@ -198,7 +198,10 @@ _THEN = re.compile(r"^\W*(?:тогда|после\s+этого|в\s+ответ|�
 # «Но подумай, что дальше: …»: the position the line before reached
 _NEXT = re.compile(W + r"(?:что|а)\s+(?:будет\s+)?дальше" + E)
 _ROUTES = re.compile(W + r"(?:через|via|through)\s+[a-h][1-8]\s*(?:,|и|или|либо|and|or)\s*[a-h][1-8]" + E)
+# …and the other side's move told in the present («После Qxd4 чёрные играют c5, и ферзь под ударом», «отвечают c5»): the
+# line goes on through it, so the claim after it is about the board after it (K3 02.11, trap-noah live)
 _MOVE_CUE = re.compile(W + r"(?:(?:лучше|сильнее|точнее|над[её]жнее|правильнее)(?:\s+всего)?|ход\w*|сыграй\w*|сыграл\w*|играй\w*|играем|ответили|ответил[аи]?|ответ|ответь|после|через|"
+                       r"игра(?:ет|ют)|сыгра(?:ет|ют)|отвеча(?:ет|ют)|ответ(?:ит|ят)|plays|replies|answers|"
                        r"продолжени\w*|начни\s+с|начинай\s+с|начинаем\s+с|идея|отвечай|пошли|пош[её]л|пошла|сделали|сделал\w*|play|played|after|move|"
                        r"(?:move|reply|answer|idea|continuation|choice)\s+(?:is|was|would\s+be)|(?:best|strongest)\s+is)"
                        r"\s*[:—–-]?\s*$")
@@ -1763,7 +1766,11 @@ def _out_ref(r: Optional[_R], *, mover: bool = True) -> Optional[Ref]:
         mr = _move_ref(r.move)
         if mr.castle or (mr.piece is None and mr.to is None):
             return None
-        return Ref(sq=mr.to if mover else None, piece=mr.piece, text=r.text)
+        promo = re.search(r"=([QRBN])", mr.san or "")
+        # «e8=N+ даёт шах и нападает на ферзя g7»: after a promotion the piece on its square is the new one, not the
+        # pawn (K3 02.11, underpromo live: «on e8 stands White's knight, not a pawn»)
+        piece = promo.group(1) if promo and mover else mr.piece
+        return Ref(sq=mr.to if mover else None, piece=piece, text=r.text)
     if r.what == "piece":
         side, owner = _side_owner(r.owner)
         return Ref(sq=chess.square_name(r.sq) if r.sq is not None else None, piece=_LETTER.get(r.ptype) if r.ptype else None,
