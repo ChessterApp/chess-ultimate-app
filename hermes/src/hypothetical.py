@@ -159,7 +159,11 @@ def _switch_on(name: str) -> bool:
 # look reached depth 15–18 by the host's load, so a move near the threshold was cut in one run and shown in the next.
 # The /learn lesson tutor (main_rules()) keeps main's timed look.
 VERIFY_DEPTH = 16
-VERIFY_MAX_MS = 2500
+# A safety valve, not the verdict's clock: the searches are fixed in depth, so their numbers do not move with the load;
+# only a host so loaded that a depth-16 pair takes longer leaves the move unjudged (replay 02.11 at load 27–29: a
+# depth-16 search took 1.2 s, and a 2.5 s cap left name-caro-adv's Nf6 unjudged in 4 runs of 5). Most positions are
+# searched in advance (src/engine_precompute).
+VERIFY_MAX_MS = 6000
 
 
 def _fixed_line(fen: str, deadline: float) -> Optional[dict]:
@@ -746,12 +750,15 @@ FORCED_CONFIRM_DEPTH = 17
 # …bounded in time all the same (review 30.10: 1.6 s alone, 2.5 s with a second turn running, on top of the timed
 # look): the confirming searches of one reading share this budget, and a search that runs out of it says nothing —
 # the sentence stands. An unloaded host reaches depth 17 for trap-legal in about 0.9 s.
-FORCED_CONFIRM_MAX_MS = 3000  # K3 02.11: was 1000 — under load the search fell short and the claim stood (trap-legal)
+# K3 02.11: was 1000, then 3000 — a safety valve only: at load 27–29 trap-legal's depth-17 search alone took 2.9 s and the
+# claim stood in 4 runs of 5. The search after the student's idea move starts when the question arrives
+# (src/engine_precompute.after_ideas), so a held sentence usually joins it already under way.
+FORCED_CONFIRM_MAX_MS = 8000
 # …and one sentence's whole check — the timed look and the confirming search of each of its readings — shares this
 # budget (review 30.10, interplay: 1.1–2.4 s per sentence, two readings looked at one after another). A reading
 # that finds no time left says nothing, and since a claim is wrong only when it is wrong in every reading, the
 # sentence stands: a miss rather than a long silent hold.
-FORCED_TOTAL_MAX_MS = 4000
+FORCED_TOTAL_MAX_MS = 10000
 FORCED_CONFIRM_BAND = (0.35, 1.1)
 FORCED_MISTAKE_BAND = 1.0
 
