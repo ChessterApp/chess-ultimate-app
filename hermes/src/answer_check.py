@@ -6949,6 +6949,7 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
     # Written moves first: the positions they lead to join the boards of the
     # turn, and the claims after them («Rg1, ладья нападает на ферзя») are judged there.
     san_issues = _history_issues(text, ctx) + _san_issues(text, ctx) + _recapture_issues(text, ctx)
+    from src.castle_reason import castle_reason_issues as _castle_reason_issues
     from src.answer_check_openings import opening_book_issues
     from src.answer_check_rules import rules_issues
 
@@ -6963,6 +6964,8 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
               + _detector("gave_up", ctx, _fail_open(_gave_issues, lowered, text, ctx))
               # a move proposed in words that cannot be played now (voice 02.11)
               + _detector("word_move", ctx, _fail_open(_word_move_issues, text, ctx))
+              # the reason given for castling being impossible, judged against the rule (voice1102: «поле f2 под боем»)
+              + _detector("castle_reason", ctx, _fail_open(_castle_reason_issues, lowered, ctx))
               + _asked_motif_issues(lowered, text, ctx) + _composition_issues(lowered, text, ctx)
               # ECO codes, variations named after a person, «usually X» — by the ECO book (prod check 29.10)
               + opening_book_issues(law_text, ctx))

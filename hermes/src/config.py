@@ -479,6 +479,10 @@ DETECTOR_DEFAULTS = {
     # voice 02.11: a move proposed in words («пойти ферзём на d1», «пешкой на d3») that has no legal form on the board
     # now — the piece already there, the square taken, the way blocked (src/answer_check._word_move_issues)
     "word_move": "on",
+    # voice1102: the reason given for «castling is impossible» judged against the rule (src/castle_reason.py): a square
+    # off the king's path («поле f2 под боем»), a square nothing attacks, an attacker that does not attack it, a check
+    # that is not there, a piece in the way that is not; off = the possibility alone is judged, as before
+    "castle_reason": "on",
 }
 RELATION_DETECTORS = frozenset({
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",

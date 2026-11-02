@@ -272,6 +272,7 @@ PLAN_NAMES = {
     "structure_read",
     "rule_scope",
     "word_move",
+    "castle_reason",
 }
 
 
