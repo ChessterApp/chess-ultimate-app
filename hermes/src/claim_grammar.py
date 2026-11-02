@@ -851,6 +851,33 @@ def _strip_adj(gap: str) -> str:
 _LIST_GAP = re.compile(r"^[\s,:]*(?:(?:и|а\s+также|and|or|или|на|по|the|a|еще|также|both|пол[еяю]|пункт\w*)\s*,?\s*)*$")
 
 
+# fix1102 K5: number agreement of a Russian verb with its subject (see bind).
+_PLURAL_NOM = {"пешки", "ладьи", "кони", "слоны", "ферзи", "короли"}
+
+
+def _plural_verb(verb: str) -> bool:
+    """A Russian 3rd-person plural verb: present «держат, защищают, бьют», past «держали»."""
+    return bool(re.fullmatch(r"[а-яё]+(?:ют|ят|ут|ат|али|яли|или|ели|ыли)", verb.lower()))
+
+
+def _singular_subject(t, toks: list, low: str) -> bool:
+    """*t* (the subject found before a verb) names one thing: a square, a move, a singular pronoun or a singular piece
+    noun not joined by «и» to another one («конь и слон защищают» is plural)."""
+    if t.kind in ("SQ", "MOVE"):
+        return True
+    if t.kind == "PRON":
+        return t.text.strip().lower() in ("он", "она", "оно")
+    if t.kind != "PIECE" or t.text.strip().lower().replace("ё", "е") in _PLURAL_NOM:
+        return False
+    k = toks.index(t) - 1
+    while k >= 0 and toks[k].kind in ("BOUND", "OWNER"):
+        k -= 1
+    if k >= 0 and toks[k].kind in ("PIECE", "SQ") and re.fullmatch(r"\s*(?:(?:на\s+)?[a-h][1-8]\s*)?,?\s*(?:и|а\s+также)\s*",
+                                                                   low[toks[k].end:t.start]):
+        return False
+    return True
+
+
 def bind(text: str, toks: list, focus: dict) -> list:
     low = text.lower()
     ante, _ = _antecedents(toks, focus, low)
@@ -1149,10 +1176,34 @@ def bind(text: str, toks: list, focus: dict) -> list:
             t.kind == "PIECE" and "A" in t.cases and any(o.kind == "REL" and o.end <= t.start for o in before)
             and not _heads_clause(toks, t, low, cb))]
         agent_t = cand[-1] if cand else None
+        if agent_t is not None and agent_t.kind == "PIECE" and agent_t.text.isascii() and len(cand) >= 2 and \
+                cand[-2].kind == "PIECE" and re.fullmatch(r"\s+(?!and\b|or\b|but\b|while\b)[a-z]+s\s+(?:the|his|her|their|its|"
+                                                          r"black's|white's|your|my|an?)\s+", low[cand[-2].end:agent_t.start]) and \
+                re.fullmatch(r"\s*(?:on\s+[a-h][1-8]\s*)?,?\s*and\s+(?:also\s+|then\s+|at\s+the\s+same\s+time\s+)?",
+                             low[agent_t.end:r.start]):
+            # fix1102 K5: "the knight checks the king and attacks the rook on a8" — the noun right after a verb is that
+            # verb's object; «and attacks» goes on with the first verb's subject (fresh-fp d18#0: read as the king
+            # attacking a8)
+            agent_t = cand[-2]
         acc_before = [t for t in before if (t.kind in ("PIECE", "PRON", "WHICH") and "A" in t.cases and "N" not in t.cases)
                       and (agent_t is None or t.start > agent_t.start)]
         n_after = next((t for t in after if t.kind == "PIECE" and t.cases in ("N",) and t.start - r.end < 25
                         and _FIRST_GAP.match(re.sub(r"\b(?:и|both)\b", " ", low[r.end:t.start])) and "," not in low[r.end:t.start]), None)
+        # fix1102 K5 — the verb agrees with its subject in number: a plural verb («держат», «защищают», «прикрывают»)
+        # after one square, one move or one piece named alone is not that one's verb; the plural noun right after it
+        # («пешки d7 и f7», «ладьи») is its subject — «e6 держат пешки d7 и f7», «его защищают пешки f7 и h7» (VERDICT
+        # §6.3: read as e6 holding d7, as the bishop defending f7). A side named before («белые атакуют пешки d5 и c6»)
+        # agrees and keeps the plural as its object.
+        number_obj = None
+        if n_after is None and _plural_verb(verb) and (agent_t is None or acc_before or _singular_subject(agent_t, toks, low)):
+            pl = next((t for t in after if t.kind == "PIECE" and "N" in t.cases and t.start - r.end < 25
+                       and t.text.strip().lower().replace("ё", "е") in _PLURAL_NOM
+                       and _FIRST_GAP.match(re.sub(r"\b(?:и|both)\b", " ", low[r.end:t.start])) and "," not in low[r.end:t.start]),
+                      None)
+            if pl is not None:
+                if agent_t is not None and not acc_before:
+                    number_obj = agent_t  # the singular before the verb is its object: «e6 держат пешки …»
+                agent_t = n_after = pl
         if n_after is not None and (agent_t is None or agent_t.kind == "SIDE" or acc_before):
             agent_t = n_after
         elif acc_before and (agent_t is None or agent_t.kind == "SIDE"):
@@ -1278,6 +1329,16 @@ def bind(text: str, toks: list, focus: dict) -> list:
                 if t.kind == "PIECE" and "A" in t.cases and "N" not in t.cases:
                     pats.append(_ref(t))
                     break
+        if not pats and inverted and number_obj is not None:
+            if number_obj.kind == "PIECE" and number_obj.sq is not None:
+                pats.append(_ref(number_obj))
+            elif number_obj.kind == "PRON":
+                pats.append(pron(number_obj))
+            elif number_obj.kind in ("SQ", "MOVE"):
+                to_sq = number_obj.sq if number_obj.kind == "SQ" else (
+                    chess.parse_square(_move_ref(number_obj).to) if _move_ref(number_obj).to else None)
+                if to_sq is not None:
+                    pats.append(_R("piece", None, to_sq, None, text=number_obj.text))  # what stands on that square
         if not pats and inverted:
             sqs = [t for t in before if t.kind == "SQ" and not t.move_cue and not t.route]
             if len(sqs) == 1:
@@ -1347,7 +1408,8 @@ def bind(text: str, toks: list, focus: dict) -> list:
                 if t.kind in ("OWNER", "BOUND", "NOUN"):
                     last = t.end if t.kind == "BOUND" else last
                     continue
-                ok = (t.kind == "PIECE" and "N" in t.cases) or (t.kind == "SQ" and acc_before and not t.move_cue and not t.route)
+                ok = (t.kind == "PIECE" and "N" in t.cases) or (t.kind == "SQ" and (acc_before or number_obj is not None)
+                                                                 and not t.move_cue and not t.route)
                 if not ok or not re.fullmatch(r"[\s,]*(?:и|а\s+также|and)?[\s,]*(?:и\s+)?", low[last:t.start]):
                     break
                 add(r.rel, _ref(t), pats)
