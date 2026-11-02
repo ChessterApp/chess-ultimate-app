@@ -202,6 +202,11 @@ _MOVE_CUE = re.compile(W + r"(?:(?:лучше|сильнее|точнее|над
                        r"продолжени\w*|начни\s+с|начинай\s+с|начинаем\s+с|идея|отвечай|пошли|пош[её]л|пошла|сделали|сделал\w*|play|played|after|move|"
                        r"(?:move|reply|answer|idea|continuation|choice)\s+(?:is|was|would\s+be)|(?:best|strongest)\s+is)"
                        r"\s*[:—–-]?\s*$")
+# …and a bare square right after the other side's move told in the present, in a line written in notation («После Qxd4
+# чёрные играют c5, и ферзь под ударом», «отвечают c5»): the line goes on through it, so the claim after it is about the
+# board after it (K3 02.11, trap-noah live). Not after a move only named («после взятия чёрные отвечают …»): its board
+# is not known.
+_PLAYS_CUE = re.compile(W + r"(?:игра(?:ет|ют)|сыгра(?:ет|ют)|отвеча(?:ет|ют)|ответ(?:ит|ят)|plays|replies|answers)\s*[:—–-]?\s*$")
 _SEP = re.compile(r"[.;:!?()\n]|\s[—–]\s|,\s*(?:но|а|зато|поэтому|потому\s+что|так\s+что|чтобы|хотя|что|если|когда|"
                   r"but|so|because|while|if|when)" + E + r"|" + W + r"потому,?\s+что" + E + r"|" + W + r"так\s+как" + E)
 _UNPARSED_MOVE = re.compile(
@@ -423,7 +428,8 @@ def tokenize(t: str) -> list:
         elif re.fullmatch(SQ, san) and not num and not m.group("check"):
             tk.kind = "SQ"
             tk.sq = chess.parse_square(san)
-            tk.move_cue = bool(_MOVE_CUE.search(before)) or not low[:m.start()].strip(" «\"")
+            tk.move_cue = bool(_MOVE_CUE.search(before)) or not low[:m.start()].strip(" «\"") or (
+                bool(_PLAYS_CUE.search(before)) and any(o.kind == "MOVE" for o in toks))
             tk.route = bool(_ROUTE.search(before))
             if re.search(r"(?:^|[.;:!?(—–,]\s*)(?:(?:своим|последним|этим|первым|следующим|вторым)\s+)?ходом\s*$",
                          low[:m.start()]):
@@ -1763,7 +1769,11 @@ def _out_ref(r: Optional[_R], *, mover: bool = True) -> Optional[Ref]:
         mr = _move_ref(r.move)
         if mr.castle or (mr.piece is None and mr.to is None):
             return None
-        return Ref(sq=mr.to if mover else None, piece=mr.piece, text=r.text)
+        promo = re.search(r"=([QRBN])", mr.san or "")
+        # «e8=N+ даёт шах и нападает на ферзя g7»: after a promotion the piece on its square is the new one, not the
+        # pawn (K3 02.11, underpromo live: «on e8 stands White's knight, not a pawn»)
+        piece = promo.group(1) if promo and mover else mr.piece
+        return Ref(sq=mr.to if mover else None, piece=piece, text=r.text)
     if r.what == "piece":
         side, owner = _side_owner(r.owner)
         return Ref(sq=chess.square_name(r.sq) if r.sq is not None else None, piece=_LETTER.get(r.ptype) if r.ptype else None,

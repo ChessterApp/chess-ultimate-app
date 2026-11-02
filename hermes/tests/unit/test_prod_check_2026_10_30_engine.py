@@ -14,6 +14,7 @@ from src.answer_check import CheckContext, check_sentence, proposed_move
 from src.hypothetical import verify_line, verify_recommendation
 from src.line_verdict import line_claims, verify_claims
 from src.tools.stockfish import STOCKFISH_PATH
+from tests.support.engine_stub import stub_engine  # the timed and the fixed-depth look (K3 02.11)
 
 requires_sf = pytest.mark.skipif(not os.path.exists(STOCKFISH_PATH), reason="Stockfish is not installed")
 
@@ -233,14 +234,14 @@ class TestEngineVerdict:
 
 class TestNeverBlocks:
     def test_no_engine_no_verdict(self, monkeypatch):
-        monkeypatch.setattr("src.hypothetical.analyze_timed", lambda *a, **k: {"error": "no engine"})
+        stub_engine(monkeypatch, lambda *a, **k: {"error": "no engine"})
         [claims] = _sentences(CheckContext.from_fens([FRIED]), "После Qxd5+ белые выигрывают ферзя.")
         assert claims and verify_claims(claims) is None
 
     def test_an_engine_that_raises(self, monkeypatch):
         def _boom(*a, **k):
             raise RuntimeError("engine died")
-        monkeypatch.setattr("src.hypothetical.analyze_timed", _boom)
+        stub_engine(monkeypatch, _boom)
         [claims] = _sentences(CheckContext.from_fens([FRIED]), "После Qxd5+ белые выигрывают ферзя.")
         assert verify_claims(claims) is None
 
@@ -292,7 +293,7 @@ def _fried_scores():
 
 class TestWiring:
     def test_text_coach_leaves_the_line_out(self, monkeypatch):
-        monkeypatch.setattr("src.hypothetical.analyze_timed", _fake_analysis(_fried_scores()))
+        stub_engine(monkeypatch, _fake_analysis(_fried_scores()))
         # (not advice to the recommendation check: nothing praises the move — the outcome is told for Black)
         answer = "Мата в два хода тут нет. После Qxd5+ чёрные теряют ферзя. Сначала разовьём фигуры."
         frames = _turn(monkeypatch, answer, "Тут есть мат в два хода?", FRIED)
@@ -301,7 +302,7 @@ class TestWiring:
         assert "теряют ферзя" not in text
 
     def test_text_coach_kill_switch(self, monkeypatch):
-        monkeypatch.setattr("src.hypothetical.analyze_timed", _fake_analysis(_fried_scores()))
+        stub_engine(monkeypatch, _fake_analysis(_fried_scores()))
         answer = "Мата в два хода тут нет. После Qxd5+ чёрные теряют ферзя. "
         frames = _turn(monkeypatch, answer, "Тут есть мат в два хода?", FRIED, COACH_LINE_VERDICT=False)
         assert "теряют ферзя" in "".join(f.get("delta", "") for f in frames)
@@ -309,7 +310,7 @@ class TestWiring:
     def test_voice_check_reads_it_back(self, monkeypatch):
         from fastapi.testclient import TestClient
 
-        monkeypatch.setattr("src.hypothetical.analyze_timed", _fake_analysis(_fried_scores()))
+        stub_engine(monkeypatch, _fake_analysis(_fried_scores()))
         monkeypatch.setattr(config, "COACH_MOVE_VERIFY", True)
         monkeypatch.setattr(config, "COACH_LINE_VERDICT", True)
         monkeypatch.setattr("src.board_rules.tablebase", lambda board: None)  # no network: no ending here anyway
@@ -447,7 +448,7 @@ class TestReviewNoFalseCuts:
             board.push_san(san)
             keys.append(_key(board))
         scores = {keys[1]: (0.7, "d8g5 e5f7"), keys[2]: (0.9, "c4f7 e8d8")}
-        monkeypatch.setattr("src.hypothetical.analyze_timed", _fake_analysis(scores))
+        stub_engine(monkeypatch, _fake_analysis(scores))
         [claims] = _sentences(_italian_ctx(), "Если сыграть Nd4, то на Nxe5 у чёрных есть Qg5, и белые проигрывают.")
         assert claims and verify_claims(claims, 150) is None
 
@@ -459,7 +460,7 @@ class TestReviewNoFalseCuts:
             if fen.split()[0] == ROOKS.split()[0]:
                 return {"lines": [{"multipv": 1, "depth": 17, "pv": "h1h7 e8d8 a1a8", "score": 100.0, "mate_in": 11}]}
             return {"lines": [{"multipv": 1, "depth": 13, "pv": "e8e7 h8b8 e7d7", "score": after_score}]}
-        monkeypatch.setattr("src.hypothetical.analyze_timed", _analyze)
+        stub_engine(monkeypatch, _analyze)
 
     def test_a_move_that_keeps_a_decided_win_is_no_mistake(self, monkeypatch):
         # castle-long-b1 (replay 30.10): Rh8+ is the engine's best move at depth 30 (#11); the 300 ms search found
@@ -520,7 +521,7 @@ class TestReviewVoiceParity:
     def test_voice_keeps_a_refutation_in_the_second_person(self, monkeypatch):
         from fastapi.testclient import TestClient
 
-        monkeypatch.setattr("src.hypothetical.analyze_timed", _fake_analysis(_fried_scores()))
+        stub_engine(monkeypatch, _fake_analysis(_fried_scores()))
         monkeypatch.setattr(config, "COACH_MOVE_VERIFY", True)
         monkeypatch.setattr(config, "COACH_LINE_VERDICT", True)
         monkeypatch.setattr("src.board_rules.tablebase", lambda board: None)

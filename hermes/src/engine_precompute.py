@@ -540,19 +540,13 @@ def _after_move_steps(board: chess.Board, note: dict, rest: Optional[list] = Non
     """(the positions after the candidate moves, as the recommended-move check asks them; the forced-reply confirm
     of the positions after the best one and after the captures and checks among them). *rest*, when given, gets the
     same step for every other legal move (src/engine_precompute: further back)."""
-    from src import config
-    from src.hypothetical import MIN_DEPTH
-    from src.tools.stockfish import analyze_timed
-
-    movetime = config.COACH_MOVE_VERIFY_MOVETIME_MS
-
     def step(move):
         after = board.copy(stack=False)
         after.push(move)
         if after.is_game_over():
             return None, None
         f = after.fen()
-        return ("after_move", lambda f=f: analyze_timed(f, movetime, multipv=1, min_depth=MIN_DEPTH)), f
+        return ("after_move", lambda f=f: _verify_search(f)), f
 
     steps, confirm_fens = [], []
     candidates = _candidate_moves(board, note)
@@ -572,6 +566,18 @@ def _after_move_steps(board: chess.Board, note: dict, rest: Optional[list] = Non
     return steps, _confirm_steps(confirm_fens)
 
 
+def _verify_search(fen: str) -> dict:
+    """The recommended-move check's search of *fen* as the check asks it (src/hypothetical: VERIFY_DEPTH, 1 line, from an
+    empty hash — the exact store; K3 02.11), also kept in the analysis cache for the timed readers of the position."""
+    from src.hypothetical import VERIFY_DEPTH
+    from src.tools.stockfish import _cache_put, analyze_exact
+
+    res = analyze_exact(fen, VERIFY_DEPTH, 1)
+    if not res.get("error") and not res.get("time_capped"):
+        _cache_put(fen, res)
+    return res
+
+
 def after_engine_line(session_id: str, board_id: str, fen: str, note: Optional[dict]) -> None:
     """A turn's engine line is ready: the positions after the moves a coach recommends here, as the recommended-move
     check asks them, and the forced-reply confirm after the best move (further back: a forced reply is rarer)."""
@@ -586,6 +592,7 @@ def after_engine_line(session_id: str, board_id: str, fen: str, note: Optional[d
     def _plan():
         rest: list = []
         steps, confirm = _after_move_steps(board, note, rest)
+        steps.insert(0, ("after_move", lambda: _verify_search(fen)))  # the position before the move, judged against
         _submit(key + "#confirm", confirm, f"confirm {fen}", level=LEVEL_CONFIRM)
         _submit(key + "#rest", rest, f"rest {fen}", level=LEVEL_BOARD, delay_s=REST_DELAY_S)
         return steps

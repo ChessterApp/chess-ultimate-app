@@ -2775,6 +2775,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if active_board.kind == "game" and active_board.game_state:
             check_ctx.game_engine_moves = _engine_moves(active_board.game_state)
             check_ctx.game_moves = list(active_board.game_state.get("moves") or [])
+            # The pre-step played the student's move this turn (K3 02.11): «Можно, но сильнее d5» may be the move
+            # the student could have played instead — src/answer_check.board_before_students_move.
+            check_ctx.student_moved_now = bool(game_step and ((game_step.get("view") or {}).get("student") or {}).get("san"))
         # «Покажу на доске.» waits for a board action of the turn and is left out without one (prod 29.10).
         gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK), hold_promises=True)
         fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK), hold_promises=True)
@@ -3261,6 +3264,21 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         except Exception:  # noqa: BLE001 — the check is best-effort
                             logger.debug("move verification failed", exc_info=True)
                             issue = None
+                        if issue:
+                            # K3 02.11: «Можно, но сильнее d5» right after the student's move was played — the
+                            # other board the advice may be about; a move that holds there is not cut (fresh-fp f10)
+                            from src.answer_check import board_before_students_move
+
+                            alt = board_before_students_move(check_ctx, sentence, found[2])
+                            if alt is not None:
+                                try:
+                                    if await loop.run_in_executor(
+                                            _engine_pool, _held_check(check_ctx, sentence), verify_recommendation,
+                                            alt[0], alt[1], alt[2], config.COACH_MOVE_VERIFY_MOVETIME_MS,
+                                            config.COACH_MOVE_VERIFY_CP, not live_game) is None:
+                                        issue = None
+                                except Exception:  # noqa: BLE001
+                                    logger.debug("move verification (the board before) failed", exc_info=True)
                         verify_state["ms"] += int((time.monotonic() - started_v) * 1000)
                         if issue:
                             verify_state["caught"] += 1

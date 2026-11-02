@@ -101,6 +101,21 @@ def _fake_analysis(scores: dict):
     return _analyze
 
 
+def _patch_engine(monkeypatch, scores: dict):
+    """Both of the engine stage's seams on *scores*: the timed look (the prompt's notes, the lesson tutor's main_rules())
+    and the fixed-depth look its verdicts read (src/hypothetical._engine_lines; K3 02.11)."""
+    fake = _fake_analysis(scores)
+    monkeypatch.setattr("src.hypothetical.analyze_timed", fake)
+
+    def _lines(fen, multipv, movetime_ms, depth, deadline=None):
+        res = fake(fen, movetime_ms or 0, multipv)
+        for line in res.get("lines") or []:
+            line["depth"] = depth or line["depth"]
+        return res
+
+    monkeypatch.setattr("src.hypothetical._engine_lines", _lines)
+
+
 class TestHypotheticalNotes:
     def test_the_rook_on_g1_attacks_nothing_and_the_engine_says_so(self, monkeypatch):
         board = chess.Board(H4)
@@ -235,8 +250,7 @@ class TestVerifyRecommendation:
         move = board.parse_san("Rg1")
         after = board.copy(stack=False)
         after.push(move)
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake_analysis({H4: (8.6, "f3h4"), after.fen(): ("mate 1", "h4f2")}))
+        _patch_engine(monkeypatch, ({H4: (8.6, "f3h4"), after.fen(): ("mate 1", "h4f2")}))
         why = verify_recommendation(board, move, "Rg1", threshold_cp=150)
         assert why.startswith("Rg1 is a blunder on this board (engine): it walks into a forced mate — Rg1 Qxf2#")
         assert "the rook on g1 attacks nothing" in why
@@ -248,8 +262,7 @@ class TestVerifyRecommendation:
         move = board.parse_san("Nxh4")
         after = board.copy(stack=False)
         after.push(move)
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake_analysis({H4: (8.6, "f3h4"), after.fen(): (-8.8, "g8f6")}))
+        _patch_engine(monkeypatch, ({H4: (8.6, "f3h4"), after.fen(): (-8.8, "g8f6")}))
         assert verify_recommendation(board, move, "Nxh4") is None
 
     def test_a_small_loss_is_under_the_threshold(self, monkeypatch):
@@ -257,14 +270,14 @@ class TestVerifyRecommendation:
         move = board.parse_san("Nd5")
         after = board.copy(stack=False)
         after.push(move)
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake_analysis({H4: (0.5, "f3h4"), after.fen(): (0.9, "g8f6")}))  # −0.9 for White after: 1.4 pawns
+        _patch_engine(monkeypatch, ({H4: (0.5, "f3h4"), after.fen(): (0.9, "g8f6")}))  # −0.9 for White after: 1.4 pawns
         assert verify_recommendation(board, move, "Nd5", threshold_cp=150) is None
         assert verify_recommendation(board, move, "Nd5", threshold_cp=100) is not None
 
     def test_the_engine_being_away_is_not_an_issue(self, monkeypatch):
         board = chess.Board(H4)
         monkeypatch.setattr("src.hypothetical.analyze_timed", lambda *a, **k: {"error": "no engine"})
+        monkeypatch.setattr("src.hypothetical._engine_lines", lambda *a, **k: None)  # the fixed-depth look too
         assert verify_recommendation(board, board.parse_san("Rg1"), "Rg1") is None
 
 
@@ -502,8 +515,7 @@ class TestLineAndLiveLook:
         end = board.copy(stack=False)
         for san in ("Nxf7", "Kxf7", "Qxc5"):
             end.push_san(san)
-        monkeypatch.setattr("src.hypothetical.analyze_timed",
-                            _fake_analysis({self.CLIENT: (-0.9, "f1b5"), end.fen(): (5.9, "b8c6")}))  # Black to move: +5.9 for Black
+        _patch_engine(monkeypatch, ({self.CLIENT: (-0.9, "f1b5"), end.fen(): (5.9, "b8c6")}))  # Black to move: +5.9 for Black
         why = verify_line(board, ["Nf7", "Kxf7", "Qxc5"], threshold_cp=150)
         assert why.startswith("the line Nxf7 Kxf7 Qxc5 ends at -5.9 for White against -0.9 for White before it — about 5.0 pawns worse for White")
         assert verify_line(board, ["Nf7"], threshold_cp=150) is None  # one move is not a line
@@ -518,7 +530,7 @@ class TestLineAndLiveLook:
         end = board.copy(stack=False)
         for san in ("Bb5+", "Nc6", "Nxh7"):
             end.push_san(san)
-        monkeypatch.setattr("src.hypothetical.analyze_timed", _fake_analysis({
+        _patch_engine(monkeypatch, ({
             self.CLIENT: (-0.9, "f1b5"), after.fen(): (0.9, "b8c6"), end.fen(): (6.0, "g6h5")}))
         move = board.parse_san("Bb5+")
         assert verify_recommendation(board, move, "Bb5+") is None

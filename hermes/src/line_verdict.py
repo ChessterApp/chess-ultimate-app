@@ -920,8 +920,12 @@ def _eval(board: chess.Board, movetime_ms: int) -> Optional[tuple]:
         return (-MATE_PAWNS if board.turn == chess.WHITE else MATE_PAWNS), []
     if board.is_game_over():
         return 0.0, []
-    res = hypothetical.analyze_timed(board.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)  # the cache of the engine line
-    line = (res.get("lines") or [None])[0] if "error" not in res else None
+    # K3 02.11: at the engine stage's fixed depth (src/hypothetical.VERIFY_DEPTH, the exact store), not a timed look or
+    # whatever the analysis cache held — op-show-italian's «опасная для чёрных» was cut or shown by what earlier turns
+    # had searched (verify1102: caught in a full replay, missed alone, on the same tree)
+    import time
+
+    line = hypothetical._look(board.fen(), movetime_ms, time.monotonic() + hypothetical.VERIFY_MAX_MS / 1000.0)
     if not line:
         return None
     return _white_pawns(line, board.turn), _san_line(board, line.get("pv", ""), MAX_PLIES)

@@ -6,6 +6,7 @@ import pytest
 
 from src import board_rules, hypothetical
 from src.answer_check import CheckContext, check_sentence, record_shadow
+from tests.support.engine_stub import stub_engine  # the timed and the fixed-depth look (K3 02.11)
 
 LUCENA = "1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1"
 
@@ -18,7 +19,7 @@ def _fake_engine(monkeypatch, before: float, after: float):
             return {"lines": [{"score": before, "pv": "c1c4"}]}
         return {"lines": [{"score": -after, "pv": "d8e7"}]}
 
-    monkeypatch.setattr(hypothetical, "analyze_timed", fake)
+    stub_engine(monkeypatch, fake)
 
 
 # (None: no tablebase answer — undecided while the engine still has White winning, stage 3: _ending_unproven)
