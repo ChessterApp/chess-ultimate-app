@@ -269,6 +269,7 @@ PLAN_NAMES = {
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",
     "retreat_cover", "prevents", "checks_geometry", "only_move_orders", "piece_decides", "trade_swing_named",
     "race_distance", "mate_squares", "king_direction", "trades", "placement", "ending_unproven", "tablebase_keeps", "comment_record",
+    "rule_scope",
 }
 
 

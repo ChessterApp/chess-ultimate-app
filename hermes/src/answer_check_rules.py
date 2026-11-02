@@ -33,6 +33,7 @@ _E = r"(?![а-яa-zәғқңөұүһі])"
 # claim. One source for the whole checker: src/claim_scope.py (2026-10-15).
 from src.claim_scope import CONDITIONAL as _GENERAL, NOW as _NOW, YES_NO as _YES_NO  # noqa: E402
 from src.claim_scope import about_now as _about_now, denied_before as _denied_before  # noqa: E402
+from src.claim_scope import denied_after as _denied_after  # noqa: E402
 
 # «тогда», «получится»: the consequence of the move just named, not the board as it is.
 _THEN = re.compile(_W + r"(?:тогда|получится|получается|будет|выйдет|окажется|then|would\s+be|that\s+gives|"
@@ -588,8 +589,8 @@ def _king_issues(text: str, ctx) -> list[str]:
                           + (" (the position after the student's move is stalemate)" if any(b.is_stalemate() for b in boards) else ""))
     for m in _IN_CHECK.finditer(text):
         before = text[:m.start()]
-        if _GENERAL.search(before) or _negated_before(text, m.start()):
-            continue  # «рок[иеі]ровка невозможна, если король под шахом» — a rule
+        if _GENERAL.search(before) or _negated_before(text, m.start()) or _denied_after(text, m.end()):
+            continue  # «рок[иеі]ровка невозможна, если король под шахом» — a rule; «король под шахом не стоит» — denied
         side = (m.group("side") or m.group("side2") or "").lower()
         if side.startswith(("бел", "white")):
             color = chess.WHITE
@@ -1185,6 +1186,11 @@ def _castling_b1_issues(text: str) -> list[str]:
         return []
     if re.search(r"пуст|свобод|не\s+важн|может\s+быть\s+под|empty|free|may\s+be\s+attacked|doesn'?t\s+matter", text):
         return []
+    # The attacked b1 said not to stop the castling: «Атакованная ладья (или поле b1/b8 при длинной рокировке)
+    # рокировку не отменяет» (rule-rook-attacked, live 02.11) is the rule itself, not its opposite.
+    if re.search(r"(?<![а-яё])не\s+(?:отменя\w*|меша\w*|запреща\w*|препятству\w*|лиша\w*|влия\w*)"
+                 r"|(?:does\s+not|doesn'?t)\s+(?:prevent|stop|forbid|cancel|affect|rule\s+out)", text):
+        return []
     listed = re.search(r"(?<![a-z0-9])[d][18][^.;]{0,12}(?<![a-z0-9])c[18][^.;]{0,12}(?<![a-z0-9])b[18](?![0-9])", text)
     attacked = re.search(r"(?<![a-z0-9])b[18](?![0-9])[^.;]{0,40}(?:под\s+бо|под\s+удар|атаков|бит\w*|attacked|under\s+attack)"
                          r"|(?:под\s+бо|под\s+удар|атаков|бит\w*|attacked)[^.;]{0,40}(?<![a-z0-9])b[18](?![0-9])", text)
@@ -1604,20 +1610,30 @@ def _outcome_issues(lowered: str, ctx) -> list[str]:
 _EMPHASIS = re.compile(r"\*{1,3}|(?<![a-zа-яё0-9])_{1,2}|_{1,2}(?![a-zа-яё0-9])")
 
 
-def rules_issues(lowered: str, ctx) -> list[str]:
-    """All the claims above in one sentence (*lowered*: lower case, ё → е)."""
+def law_issues(lowered: str, ctx) -> list[str]:
+    """The claims about a law of chess, not about the position: a square's colour, castling with the rook attacked or b1
+    attacked, an automatic draw, where a bare king can be mated (src/endgame_claims, with its own scope). They read the
+    whole sentence — rule talk included (src/claim_scope.rule_spans, fix1102 K4)."""
+    return (_colour_issues(lowered) + _castling_rule_issues(lowered, getattr(ctx, "question", ""))
+            + _castling_b1_issues(lowered) + _automatic_draw_issues(lowered) + _outcome_issues(lowered, ctx))
+
+
+def rules_issues(lowered: str, ctx, law_lowered: Optional[str] = None) -> list[str]:
+    """All the claims above in one sentence (*lowered*: lower case, ё → е). *law_lowered*: the whole sentence when
+    *lowered* is it without its rule talk (src/answer_check._rule_scope) — the law claims are judged on it."""
     # Markdown emphasis is gone already (answer_check.check_sentence): «нельзя рокироваться, если **ладья** под боем»
     # (09.10 — the bold hid the claim); a caller with the raw sentence gets the same reading.
     lowered = _EMPHASIS.sub("", lowered or "")
+    law = _EMPHASIS.sub("", law_lowered) if law_lowered is not None else lowered
     try:
         return (_castling_issues(lowered, ctx) + _result_issues(lowered, ctx) + _mate_state_issues(lowered, ctx)
                 + _attacked_by_issues(lowered, ctx)
                 + _mate_in_issues(lowered, ctx) + _file_issues(lowered, ctx) + _passed_issues(lowered, ctx)
-                + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx) + _colour_issues(lowered)
-                + _castling_rule_issues(lowered, getattr(ctx, "question", "")) + _cannot_go_issues(lowered, ctx)
-                + _forced_reply_issues(lowered, ctx) + _castling_b1_issues(lowered) + _automatic_draw_issues(lowered)
-                + _castle_after_issues(lowered, ctx) + _turn_claim_issues(lowered, ctx) + _outcome_issues(lowered, ctx)
+                + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx)
+                + _cannot_go_issues(lowered, ctx)
+                + _forced_reply_issues(lowered, ctx)
+                + _castle_after_issues(lowered, ctx) + _turn_claim_issues(lowered, ctx)
                 + _castle_after_move_issues(lowered, ctx) + _retreat_square_issues(lowered, ctx)
-                + _castle_right_issues(lowered, ctx))
+                + _castle_right_issues(lowered, ctx) + law_issues(law, ctx))
     except Exception:  # noqa: BLE001 — a broken pattern must never block an answer
         return []

@@ -6008,6 +6008,28 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None, *, spoken:
     return issues
 
 
+def _rule_scope(text: str, ctx: CheckContext) -> Optional[str]:
+    """*text* without its rule talk (src/claim_scope.rule_spans) when the switch ``rule_scope`` is on, else None (the
+    sentence is judged whole). In shadow the parts are only recorded. A yes/no opening pins the head of a law frame
+    when the question is about this board (no conditional in it): «Нет — рокироваться нельзя, пока король под шахом»
+    still answers «Можно мне рокироваться?»; the condition after «пока» stays a rule. Fail-open."""
+    try:
+        from src.claim_scope import CONDITIONAL, rule_spans, without_spans
+
+        question = getattr(ctx, "question", "") or ""
+        spans = rule_spans(text, anchored_answer=bool(question.strip()) and not CONDITIONAL.search(question))
+        if not spans:
+            return None
+        mode = _switch_mode("rule_scope", ctx)
+        if mode == "on":
+            return without_spans(text, spans)
+        if mode == "shadow":
+            record_shadow(ctx, "rule_scope", ["rule talk, not this board: " + " | ".join(text[s:e].strip()[:120] for s, e in spans)])
+    except Exception:  # noqa: BLE001 — the scope must never break a turn
+        logger.debug("rule scope failed", exc_info=True)
+    return None
+
+
 def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
     if sentence.strip():
         ctx.scene_age += 1  # the scene a move of this sentence sets is age 0; the explanation after it still sees it
@@ -6039,6 +6061,15 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
     text = re.sub(r"(?<![а-яА-Яa-zA-Z])([асебдфгхАСЕБДФГХ])(?=[1-8](?![0-9]))",
                   lambda m: {"а": "a", "с": "c", "е": "e", "б": "b", "д": "d", "ф": "f", "г": "g", "х": "h"}[m.group(1).lower()], text)
     lowered = text.lower()
+    # Rule talk is not a claim about this board (fix1102 K4, src/claim_scope.rule_spans): «Рокировка разрешена, только
+    # если …», "you can't castle while your king is in check", «Двойной знак означает …», «Запись хода состоит из …:
+    # К:d5 — конь берёт на d5». Every detector that judges the position reads the sentence without those parts; the
+    # detectors that judge a law (src/answer_check_rules.law_issues) and the opening book read all of it.
+    law_text, law_lowered = text, lowered
+    hidden = _rule_scope(text, ctx)
+    if hidden is not None:
+        text = hidden
+        lowered = text.lower()
     # Written moves first: the positions they lead to join the boards of the
     # turn, and the claims after them («Rg1, ладья нападает на ферзя») are judged there.
     san_issues = _history_issues(text, ctx) + _san_issues(text, ctx) + _recapture_issues(text, ctx)
@@ -6046,17 +6077,17 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
     from src.answer_check_rules import rules_issues
 
     issues = (_move_issues(lowered) + _attack_issues(lowered, text, ctx) + san_issues
-              + _opening_issues(text) + _opening_identity_issues(text, ctx) + _told_move_issues(lowered, text, ctx)
+              + _opening_issues(law_text) + _opening_identity_issues(text, ctx) + _told_move_issues(lowered, text, ctx)
               + _fact_issues(lowered, text, ctx)
               + _plan_move_issues(lowered, text, ctx)
-              + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx) + _scene_issues(text, ctx)
+              + rules_issues(lowered, ctx, law_lowered=law_lowered) + _coach_move_issues(text, ctx) + _scene_issues(text, ctx)
               # the game's own record (plan 31.10 P1): the kind of reply to a check, a capture told as free, a loss
               + _detector("block_kind", ctx, _fail_open(_block_kind_issues, text, ctx))
               + _detector("free_capture", ctx, _fail_open(_free_capture_issues, lowered, text, ctx))
               + _detector("gave_up", ctx, _fail_open(_gave_issues, lowered, text, ctx))
               + _asked_motif_issues(lowered, text, ctx) + _composition_issues(lowered, text, ctx)
               # ECO codes, variations named after a person, «usually X» — by the ECO book (prod check 29.10)
-              + opening_book_issues(text, ctx))
+              + opening_book_issues(law_text, ctx))
     from src.answer_check_facts import record_fact_issues
 
     issues += record_fact_issues(lowered, text, ctx)

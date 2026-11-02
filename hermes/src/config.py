@@ -469,6 +469,9 @@ DETECTOR_DEFAULTS = {
     "tablebase_keeps": "on",
     # a game move comment's context carries the game's record (fix 01.11 F7); off = main's comment context
     "comment_record": "on",
+    # fix1102 K4: rule talk («Рокировка разрешена, только если …», «Двойной знак означает …») is not judged on the board
+    # (src/claim_scope.rule_spans); off = every detector reads the whole sentence, as before
+    "rule_scope": "on",
 }
 RELATION_DETECTORS = frozenset({
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",
