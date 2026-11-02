@@ -476,6 +476,10 @@ DETECTOR_DEFAULTS = {
     # fix1102 K4: rule talk («Рокировка разрешена, только если …», «Двойной знак означает …») is not judged on the board
     # (src/claim_scope.rule_spans); off = every detector reads the whole sentence, as before
     "rule_scope": "on",
+    # voice1102: the reason given for «castling is impossible» judged against the rule (src/castle_reason.py): a square
+    # off the king's path («поле f2 под боем»), a square nothing attacks, an attacker that does not attack it, a check
+    # that is not there, a piece in the way that is not; off = the possibility alone is judged, as before
+    "castle_reason": "on",
 }
 RELATION_DETECTORS = frozenset({
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",

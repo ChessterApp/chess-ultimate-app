@@ -271,6 +271,7 @@ PLAN_NAMES = {
     "race_distance", "mate_squares", "king_direction", "trades", "placement", "ending_unproven", "tablebase_keeps", "comment_record",
     "structure_read",
     "rule_scope",
+    "castle_reason",
 }
 
 
