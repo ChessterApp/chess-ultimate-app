@@ -4505,6 +4505,19 @@ def _reply_in_words(board: chess.Board, move: chess.Move, words: str) -> bool:
         return False
 
 
+_NOMINATIVE_PIECE = re.compile(r"(?<![а-яa-z])(конь|слон|ладья|ферзь|король|пешка|knight|bishop|rook|queen|king|pawn)(?![а-яa-z])",
+                               re.IGNORECASE)
+
+
+def _other_subject(before_praise: str, moved: Optional[int]) -> bool:
+    """The praise word's subject, named right before it, is a piece of another kind than the one the candidate moves
+    («После 5.Nxe5 слон забирает ферзя…»): what it wins is that piece's, on the board after the reply."""
+    names = list(_NOMINATIVE_PIECE.finditer(before_praise))
+    if not names or moved is None:
+        return False
+    return _piece_type(names[-1].group(1).lower()) != moved
+
+
 def _past_praise(tail: str, praise) -> bool:
     """The praise word is in the past («ферзь забирал пешку», «бил по g2»): what the move would have done on a board
     that is gone."""
@@ -4684,8 +4697,9 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
                 continue
         if san.replace("x", "") in {q.replace("x", "") for q in ctx.quoted} and not _PRAISE.search(tail):
             continue
-        if not lesson and _reply_in_words(ctx.current, move, tail[: praise.start()]):
-            continue  # «После 4.Nxe5 ферзь идёт на g5 и атакует коня»: the reply told in words is what attacks (K3 02.11)
+        if not lesson and (_reply_in_words(ctx.current, move, tail[: praise.start()])
+                           or _other_subject(tail[: praise.start()], ctx.current.piece_type_at(move.from_square))):
+            continue  # «После 4.Nxe5 ферзь идёт на g5 и атакует коня», «…слон забирает ферзя»: another piece's praise (K3 02.11)
         return ctx.current, move, ctx.current.san(move)
     try:
         return _plan_place_move(text, ctx)
