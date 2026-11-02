@@ -181,6 +181,23 @@ PGN_FILE_PATH = os.environ.get(
 )
 
 
+def _read_movetext(offset: int, length: int) -> str:
+    """The game's text from the master PGN: ``length`` bytes at ``offset``.
+
+    The file is read as bytes and decoded with replacement, as the site's
+    /games/<id>/pgn does (errors='replace'): TWIC holds Latin-1 names, and a
+    strict text read raised on any such byte near the game, so the coach got
+    no moves for games the database page shows (live site, 02.11).
+    """
+    try:
+        with open(PGN_FILE_PATH, "rb") as f:
+            f.seek(offset)
+            return f.read(length).decode("utf-8", errors="replace")
+    except (OSError, ValueError) as e:
+        logger.warning("Could not read PGN file: %s", e)
+        return ""
+
+
 def get_game_pgn(
     game_id: int,
     db_path: str = None,
@@ -214,13 +231,7 @@ def get_game_pgn(
     pgn_length = row_dict.get("pgn_length") or 0
     pgn_text = row_dict.get("pgn") or ""
     if not pgn_text and pgn_length > 0:
-        try:
-            with open(PGN_FILE_PATH, "r") as f:
-                f.seek(pgn_offset)
-                pgn_text = f.read(pgn_length)
-        except (FileNotFoundError, IOError) as e:
-            logger.warning("Could not read PGN file: %s", e)
-            pgn_text = ""
+        pgn_text = _read_movetext(pgn_offset, pgn_length)
 
     headers = {
         "White": row_dict.get("white_name", ""),
@@ -238,6 +249,9 @@ def get_game_pgn(
         tag_block = "".join(f'[{k} "{v}"]\n' for k, v in headers.items() if v)
         pgn_text = f"{tag_block}\n{pgn_text}"
 
+    if not pgn_text:
+        # No moves to show: say so, so the coach never invents the score.
+        return {"error": f"The moves of game {game_id} could not be read.", "headers": headers}
     return {"pgn": pgn_text, "headers": headers}
 
 
