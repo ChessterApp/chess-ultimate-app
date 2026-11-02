@@ -174,12 +174,36 @@ for _ptype, _pat in _EN_PIECES:
         re.IGNORECASE)))
 # Where the targets of a claim end: another clause starts, or another piece
 # becomes the subject («конь на f6 смотрит на e4, конь на c6 — на d4»).
-_TARGETS_END = re.compile(
+_TARGETS_END_V1031 = re.compile(
     r",?\s+(?:но|а|поэтому|чтобы|потому|если|когда|пока|затем|потом|после|хотя|but|so|because|if|when|while|"
     r"after|then|which|that|who|whose)\s|\s+котор\w*\s|,\s+and\s"
     r"|,\s*(?:(?:а|и|and)\s+)?(?:конь|слон|ладья|ферзь|король|пешка|the\s+(?:knight|bishop|rook|queen|king|pawn))"
     r"(?![а-яa-z])"
-    r"|,\s*[KQRBN]?[a-h]?x?[a-h][1-8]\s+(?!(?:и|and|или|or)\s)[а-яa-z]", re.IGNORECASE)
+    r"|,\s*[KQRBN]?[a-h]?x?[a-h][1-8]\s+(?!(?:и|and|или|or)\s)[а-яa-z]", re.IGNORECASE)  # the /learn tutor's, kept as is
+_TARGETS_END = re.compile(
+    r",?\s+(?:но|а|поэтому|чтобы|потому|если|когда|пока|затем|потом|после|хотя|ведь|поскольку|так\s+как|but|so|"
+    r"because|since|if|when|while|after|then|which|that|who|whose)\s|\s+котор\w*\s|,\s+and\s"
+    r"|,\s*(?:(?:а|и|and)\s+)?(?:конь|слон|ладья|ферзь|король|пешка|the\s+(?:knight|bishop|rook|queen|king|pawn))"
+    r"(?![а-яa-z])"
+    r"|,\s*[KQRBN]?[a-h]?x?[a-h][1-8]\s+(?!(?:и|and|или|or)\s)[а-яa-z]"
+    # fix1102 K5 — a clause of its own with another subject or another square (VERDICT §6.3, «X нападает на Y, её
+    # защищают Z и W» — the defenders were read as X's targets, ~20 true sentences cut on both trees):
+    #  * an object pronoun with a verb of its own: «, её защищают конь c3 и пешка d2», «, и его держит слон e7»;
+    r"|,?\s*(?:(?:и|а|но)\s+)?(?:е[её]|его|их)\s+(?:(?:тоже|также|уже|пока|же|только|сейчас|надёжно|надежно)\s+)*"
+    r"(?:защища|прикрыва|держ|охраня|подстраховыва|поддержива|бь|атаку|напада|контролиру|стереж)\w*(?![а-яa-z])"
+    #  * the verb first, the object pronoun after it: «, защищает её только ферзь d4»;
+    #    (or a square: the object pronoun after a verb is replaced by its antecedent's square before this reads it)
+    r"|,\s*(?:(?:и|а|но)\s+)?(?:защища|прикрыва|держ|охраня)\w*\s+(?:е[её]|его|их|[a-h][1-8])(?![а-яa-z0-9])"
+    #  * a participle or a gerund opens a clause about something else: «, защищённую слоном c1», «, оставляя слону c8
+    #    дорогу на f5», "…, leaving d4 weak" (an attack gerund — "hitting", "attacking" — goes on with the same piece);
+    r"|,\s*(?:защищ[её]нн|прикрыт|охраняем)\w*"
+    r"|,\s*[а-я]+(?:ая|яя|уя|юя|ав|яв|ив|ув|вши|ясь|аясь)\s"
+    r"|,\s*(?!(?:attack|hitt|threaten|fork|target|pinn|eye|x-?ray|aim)ing)[a-z]+ing\s"
+    #  * the piece moves on — what follows is judged from a square the claim does not name: «бьёт d5, встаёт на d6 и
+    #    нападает на c7» (en passant: the pawn attacks from d6, not from e5).
+    r"|(?:,\s*|\s+)(?:(?:и|а|then|and)\s+)?(?:вста[её]т|встанет|ид[её]т|пойд[её]т|уходит|уйд[её]т|отходит|отойд[её]т|"
+    r"отступает|переходит|перейд[её]т|прыгает|прыгнет|возвращается|вернётся|вернется|lands|goes|moves|retreats|jumps)"
+    r"(?![а-яa-z])", re.IGNORECASE)
 # A denial right before a claim («не бьёт», "doesn't attack"): one rule for the checker (src/claim_scope.py).
 _NEGATION = re.compile(r"(?:^|[\s*_«\"(])(?:не|ни|нет|никак|нельзя|never|not|n't|cannot|can't)[*_]*\s*(?:\w+\s+)?$"
                        r"|[a-z]+n'?t\s*$", re.IGNORECASE)  # "doesn't attack", "won't hit", «не просто бьёт»
@@ -288,8 +312,8 @@ def _geometry_attack(ptype: int, a: int, b: int) -> bool:
     return _geometry_move(ptype, a, b)
 
 
-def _clause_targets(text: str) -> list[str]:
-    cut = _TARGETS_END.search(text)
+def _clause_targets(text: str, ctx=None) -> list[str]:
+    cut = (_TARGETS_END_V1031 if _lesson(ctx) else _TARGETS_END).search(text)
     if cut:
         text = text[: cut.start()]
     return _SQ_RE.findall(text)
@@ -819,6 +843,29 @@ def _own_targets(ptype: int, a: int, targets: list, m, boards: list) -> Optional
     return None
 
 
+# fix1102 K5: a pin names two pieces — the one pinned and the one behind it («pins the knight on f6 to the queen on d8»,
+# «держит коня f6 в связке с ферзём d8», "pins the f2 pawn to the king on g1"). The piece behind is reached THROUGH
+# the pinned one by definition: it is no blocked line, and its own geometry (on the line) is still judged.
+_PIN_WORD = re.compile(r"(?<![a-z])pin\w*|связ\w*|связк\w*", re.IGNORECASE)
+_PIN_BEHIND = re.compile(
+    r"(?<![а-яa-z])(?:to|against|with|к|ко|с|со)\s+(?:(?:the|its|his|her|their|own|your|my|сво\w+|тво\w+|ваш\w+|"
+    r"ч[её]рн\w+|бел\w+|black|white|enemy)\s+){0,2}(?:(?:king|queen|rook|bishop|knight|корол\w*|ферз\w*|ладь\w*|"
+    rf"слон\w*|кон\w*)\s+)?(?:on\s+|на\s+)?(?P<sq>{SQ})(?![0-9])", re.IGNORECASE)
+
+
+def _pin_behind(m) -> set:
+    """The squares a pin claim names as the piece behind the pinned one (none when the claim is no pin)."""
+    if not (_PIN_WORD.search(m["verb"]) or _PIN_WORD.search(m["targets"])):
+        return set()
+    return {x["sq"].lower() for x in _PIN_BEHIND.finditer(m["targets"])}
+
+
+def _through_one(board: chess.Board, a: int, t: int) -> bool:
+    """*t* is on a line from *a* with exactly one piece between them (an x-ray through the pinned piece)."""
+    between = chess.SquareSet(chess.between(a, t))
+    return bool(between) and len(between & board.occupied) == 1
+
+
 def _attack_issue(ptype: int, m, text: str, ctx: Optional["CheckContext"] = None,
                   original: Optional[str] = None, about_now: bool = False) -> Optional[str]:
     """*about_now*: the subject's square is the position the claim is about
@@ -840,7 +887,7 @@ def _attack_issue(ptype: int, m, text: str, ctx: Optional["CheckContext"] = None
     if re.search(r"(?:under|под)\s*$", mid):
         return None  # "the f2 pawn is under attack from the queen on h4": the pawn is the one attacked
     a = chess.parse_square(m["a"])
-    targets = [t for t in _clause_targets(m["targets"]) if t != m["a"] and not _negated_target(m["targets"], t)]
+    targets = [t for t in _clause_targets(m["targets"], ctx) if t != m["a"] and not _negated_target(m["targets"], t)]
     now = about_now or not _is_hypothetical(text, original if original is not None else text, m.start(),
                                             played=_just_played(ctx), ctx=ctx)
     # (Only for a piece named in words by its square: a written move as the subject already stands where it went.)
@@ -857,7 +904,9 @@ def _attack_issue(ptype: int, m, text: str, ctx: Optional["CheckContext"] = None
         own = _own_targets(ptype, dest, targets, m, [after]) if now else None
         if own:
             return own
-        blocked = [t for t in targets if chess.parse_square(t) not in after.attacks(dest)]
+        behind = set() if _lesson(ctx) else _pin_behind(m)
+        blocked = [t for t in targets if chess.parse_square(t) not in after.attacks(dest)
+                   and not (t in behind and _through_one(after, dest, chess.parse_square(t)))]
         return f"a {_NAMES[ptype]} on {chess.square_name(dest)} does not reach {', '.join(blocked)}: a piece is in the way" \
             if blocked and now and _HARD_VERB.search(m["verb"]) else None
     if not targets and ctx is not None and re.match(r"\s*(?:it|её|ее|его)(?![а-яa-z])", m["targets"]):
@@ -892,7 +941,10 @@ def _attack_issue(ptype: int, m, text: str, ctx: Optional["CheckContext"] = None
     if ctx is not None and targets and _HARD_VERB.search(m["verb"]) and not _FUTURE_VERB.search(m["verb"]) and now:
         standing = [b for b in ctx.boards if (pc := b.piece_at(a)) is not None and pc.piece_type == ptype]
         if standing:
-            blocked = [t for t in targets if not any(chess.parse_square(t) in b.attacks(a) for b in standing)]
+            behind = set() if _lesson(ctx) else _pin_behind(m)
+            blocked = [t for t in targets if not any(chess.parse_square(t) in b.attacks(a)
+                                                     or (t in behind and _through_one(b, a, chess.parse_square(t)))
+                                                     for b in standing)]
             if blocked:
                 return f"a {_NAMES[ptype]} on {m['a']} does not reach {', '.join(blocked)}: a piece is in the way"
     return None
@@ -993,7 +1045,7 @@ def _attack_issues(text: str, original: Optional[str] = None, ctx: Optional["Che
             if moved:
                 a_name = moved[-1]  # «увести ладью с d5 на f5: она бьёт по f6» — the rook is on f5 now
             a = chess.parse_square(a_name)
-            targets = [t for t in _clause_targets(m["targets"]) if t != a_name]
+            targets = [t for t in _clause_targets(m["targets"], ctx) if t != a_name]
             wrong = [t for t in targets if not _geometry_attack(ptype, a, chess.parse_square(t))]
             if wrong:
                 issues.append(f"a {_NAMES[ptype]} on {a_name} does not attack {', '.join(wrong)}")
@@ -1249,6 +1301,10 @@ def _recapture_issues(text: str, ctx: CheckContext) -> list[str]:
         first, second = moves[k - 1], moves[k]
         san1, san2 = first["san"], second["san"]
         if "x" not in san1 or not re.fullmatch(r"[a-h]x[a-h][1-8]", san2) or san2[-2:] != san1[-2:]:
+            continue
+        if san1 == san2 and re.search(r"[A-Za-zА-Яа-яЁё]", converted[first.end(): second.start()]):
+            # fix1102 K5: «лучший ответ — exf4, то есть принять гамбит: exf4», «(2.d4 exd4), но ты сыграл не exd4»: the
+            # same move named again after words is that move restated, not a pawn taking back on its square
             continue
         # the moves written right before the pair, in one run with it («Nxd4 Nxd4 exd4»)
         j = k - 1
@@ -2016,6 +2072,7 @@ _OTHER_FINITE = (r"забира\w+|забер[её]\w*|бер[её]\w+|взят�
                  r"защища\w+|прикрыва\w+|связыва\w+|связал\w*|связать|выигрыва\w+|выиграть|теря\w+|потеря\w+|"
                  r"отда[её]\w+|отдать|разменя\w+|меня\w+|takes?|taking|captur\w+|wins?|defends?|protects?|guards?")
 _CAPTURE_VERB = re.compile(_B2 + r"(?:забира\w+|забер[её]\w*|бер[её]\w+|взять|взял\w*|съесть|съеда\w+|съел\w*|выигрыва\w+|выиграть|takes?|taking|captur\w+|wins?)" + _E, re.IGNORECASE)
+_FUTURE_ATTACK = re.compile(r"напад[её]т|нападут", re.IGNORECASE)
 _ATTACK_IN_CLAUSE = re.compile(_B2 + "(?:" + _ATTACK_FINITE + ")" + _E, re.IGNORECASE)
 _OBJECT_VERB_IN_CLAUSE = re.compile(_B2 + "(?:" + _ATTACK_FINITE + "|" + _OTHER_FINITE + ")" + _E, re.IGNORECASE)
 _CLAUSE_SPLIT = re.compile(r"[;—–]|,\s*(?:а|но|однако|зато|хотя|поэтому|так\s+что|while|but|so|yet)\s", re.IGNORECASE)
@@ -2023,6 +2080,12 @@ _CLAUSE_SPLIT = re.compile(r"[;—–]|,\s*(?:а|но|однако|зато|хо
 
 def _clauses(text: str) -> list[str]:
     return [c for c in _CLAUSE_SPLIT.split(text) if c and c.strip()]
+
+
+# fix1102 K5: an object after a gerund in its clause is the gerund's — «Пешка d4 нападает на e5, открывая слону c1
+# дорогу на g5»: «слону c1» is no object of «нападает» (the bishop was judged as attacked). Only such objects are left
+# unjudged; the clause itself is not split (its negations and relative clauses still count).
+_GERUND_BEFORE = re.compile(r",\s*[а-яё]+(?:ая|яя|уя|юя|ав|яв|ив|ув|вши|ясь|аясь)\s[^,]*$", re.IGNORECASE)
 
 
 # «Конь забирает пешку h7 с шахом, и это вилка: он бьёт короля f8 и коня f6»: from the clause that tells a move or a
@@ -2169,11 +2232,18 @@ def _unattacked_object_issues(text: str, original: str, ctx: CheckContext) -> li
         return []
     if _DENIES.search(text):
         return []
+    lesson = _lesson(ctx)
     for clause in _clauses_about_now(text):
         if not _ATTACK_IN_CLAUSE.search(clause) or not _clause_judged_here(clause, ctx):
             continue
+        if not lesson and all(_FUTURE_ATTACK.fullmatch(v.group(0)) for v in _ATTACK_IN_CLAUSE.finditer(clause)):
+            # fix1102 K5: «Оттуда она нападёт на пешку e4», «Ферзь нападёт на пешку e5»: a perfective future tells the
+            # attack after a move the clause does not write — not the board as it is (fresh-fp e03#1, f04#1)
+            continue
         for m in _objects(clause):
             if _NEGATION.search(clause[max(0, m.start() - 12):m.start()]):
+                continue
+            if not lesson and _GERUND_BEFORE.search(clause[:m.start()]):
                 continue
             at = text.find(clause)
             upto = (at if at >= 0 else 0) + m.start()
@@ -2249,15 +2319,21 @@ def _solution_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
 # «e5xd5», «e5:d5»: a capture written from square to square — the piece standing on the first square must
 # be able to take that way (a pawn takes one square diagonally forward: «обычным взятием — e5xd5» with
 # the pawns on e5 and d5 side by side, production 19.10).
-_CAPTURE_CHAIN = re.compile(rf"(?<![A-Za-z0-9])(?P<a>{SQ})\s?[x×:]\s?(?P<b>{SQ})(?![0-9])")
+# (fix1102 K5: «начать с 2...e6: e6 — пешка d5 получает поддержку» was read as «e6xe6». A colon is a capture only
+# written tight, «e5:d4» — with a space after it, it is punctuation; and no piece captures onto its own square.)
+_CAPTURE_CHAIN_V1031 = re.compile(rf"(?<![A-Za-z0-9])(?P<a>{SQ})\s?[x×:]\s?(?P<b>{SQ})(?![0-9])")  # the /learn tutor's
+_CAPTURE_CHAIN = re.compile(rf"(?<![A-Za-z0-9])(?P<a>{SQ})(?:\s?[x×]\s?|:)(?P<b>{SQ})(?![0-9])")
 
 
 def _capture_chain_issues(text: str, ctx: CheckContext) -> list[str]:
     if ctx.current is None:
         return []
     issues = []
-    for m in _CAPTURE_CHAIN.finditer(text):
+    lesson = _lesson(ctx)
+    for m in (_CAPTURE_CHAIN_V1031 if lesson else _CAPTURE_CHAIN).finditer(text):
         a, b = chess.parse_square(m["a"].lower()), chess.parse_square(m["b"].lower())
+        if a == b and not lesson:
+            continue  # the same square named twice («e6: e6»), not a capture
         standing = [bd for bd in ctx.boards if bd.piece_at(a) is not None]
         if not standing:
             continue  # a plan on a position the turn does not have: not judged
@@ -3313,6 +3389,21 @@ _INSTRUMENT_TYPE = {"лад": chess.ROOK, "кон": chess.KNIGHT, "сло": ches
                     "paw": chess.PAWN, "kin": chess.KING}
 
 
+def _could_go_there(ctx: CheckContext, ptype: int, sq: int) -> bool:
+    """A piece of *ptype* of either side can move to *sq* on a given board of the turn (pseudo-legal, either side to
+    move)."""
+    for b in ctx.boards:
+        if not ctx.is_given(b):
+            continue
+        for color in (chess.WHITE, chess.BLACK):
+            trial = b.copy(stack=False)
+            trial.turn = color
+            trial.ep_square = None
+            if any(mv.to_square == sq and trial.piece_type_at(mv.from_square) == ptype for mv in trial.pseudo_legal_moves):
+                return True
+    return False
+
+
 def _instrument_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     if ctx.current is None:
         return []
@@ -3326,6 +3417,12 @@ def _instrument_issues(text: str, original: str, ctx: CheckContext) -> list[str]
             continue
         sq = chess.parse_square(m["a"])
         if any((pc := b.piece_at(sq)) is not None and pc.piece_type == ptype for b in ctx.boards):
+            continue
+        acting = bool(re.search(r"(?:ом|ем|ой|ей)$", word)) or m["piece"].lower().startswith("with")  # not «убрать коня с d3»
+        if acting and not _lesson(ctx) and _could_go_there(ctx, ptype, sq):
+            # fix1102 K5: «Чёрные могут дать шах ферзём с a5» — «ферзём с a5» also means the queen acting from a5, the
+            # square it goes to (Qa5+): when a piece of that kind can move there, the words have two readings, and
+            # neither is judged (fresh-miss true control chkT2, cut on both trees)
             continue
         issues.append(f"there is no {_NAMES[ptype]} on {m['a']}")
     return issues
@@ -3352,7 +3449,12 @@ _OPENS_WITH_PRONOUN = re.compile(r"^\W*(?:(?:но|а|и|вот|and|but|so|yet)\s
                                  re.IGNORECASE)
 
 
-_PASSIVE = re.compile(r"атакован\w*|защищ[её]н\w*|прикрыт\w*|бь[её]тся|под\s+боем|attacked|defended|protected|covered|guarded|"
+# (fix1102 K5: «Конь d4 под ударом коня c6, но его защищают ферзь d2 и слон e3» — «под ударом/атакой/прицелом» is
+# the passive too: the clause is about its first square, the piece attacked, not the attacker named last.)
+_PASSIVE_V1031 = re.compile(r"атакован\w*|защищ[её]н\w*|прикрыт\w*|бь[её]тся|под\s+боем|attacked|defended|protected|"
+                            r"covered|guarded|\bhit\b|by\s+the|висит|hanging", re.IGNORECASE)  # the /learn tutor's
+_PASSIVE = re.compile(r"атакован\w*|защищ[её]н\w*|прикрыт\w*|бь[её]тся|под\s+(?:боем|ударом|атакой|угрозой|прицелом|"
+                      r"обстрелом|давлением)|attacked|defended|protected|covered|guarded|under\s+(?:attack|fire)|"
                       r"\bhit\b|by\s+the|висит|hanging", re.IGNORECASE)
 
 
@@ -3365,6 +3467,7 @@ def _pronoun_square(text: str, upto: int, ctx: CheckContext) -> Optional[str]:
     square, an active one («конь f6 напал на пешку e4») about its last; a clause
     that opens with a pronoun, or no clause with a square at all, means the
     previous sentence's square."""
+    passive = _PASSIVE_V1031 if _lesson(ctx) else _PASSIVE
     clauses = re.split(r"[,;:—–()]|\s[-]\s|(?<![а-яa-z])(?:because|since|потому\s+что|так\s+как|ведь|поскольку)(?![а-яa-z])",
                        text[:upto])
     for clause in reversed(clauses[:-1]):
@@ -3375,11 +3478,11 @@ def _pronoun_square(text: str, upto: int, ctx: CheckContext) -> Optional[str]:
             return ctx.topic
         if re.search(r"(?<![а-яa-z])(?:it|её|ее|его)(?![а-яa-z])", clause, re.IGNORECASE):
             continue  # "the knight on c5 is eyeing it": about the same thing as the clause before
-        return squares[0] if _PASSIVE.search(clause) else squares[-1]
+        return squares[0] if passive.search(clause) else squares[-1]
     if _OPENS_WITH_PRONOUN.match(text) and ctx.topic:
         return ctx.topic
     squares = _SQ_RE.findall(clauses[-1]) if clauses else []
-    if squares and not _PASSIVE.search(clauses[-1]):
+    if squares and not passive.search(clauses[-1]):
         return squares[0]  # "the pawn on a4 is hanging and nothing defends it"
     if squares:
         return squares[0]
@@ -5659,7 +5762,7 @@ def _coach_move_issues(text: str, ctx: CheckContext) -> list[str]:
     text = _MOVE_NUMBER.sub("", text)
     norm = {m.rstrip("+#") for m in played}
     for m in _COACH_MOVE.finditer(text):
-        sans, _ = _to_san(m.group("rest"))
+        sans, _ = _to_san(_told_move_as_san(m.group("rest")))
         named = [x.group("san").rstrip("+#") for x in _MOVE.finditer(sans)]
         mover = _spoken_mover(m.group("rest"))  # «беру ферзём на c6» is not Bxc6
         if named and not any(_same_move(n, p) and (mover is None or _piece_of(p) == mover) for n in named for p in norm):
@@ -5763,6 +5866,20 @@ def _castling_issues(text: str, last: str) -> list[str]:
     return out
 
 
+def _told_move_as_san(rest: str) -> str:
+    """fix1102 K5: «Мой первый ход — пешка с c2 пошла на c4» — a move told in words from-to names its destination;
+    the square it left («c2») is no move of its own. The phrase at the start of *rest* becomes the move it tells
+    («c4», «Nf6»), the rest kept."""
+    low = rest.lower().replace("ё", "е")
+    lead = len(low) - len(low.lstrip())
+    for ptype, rx in _MOVE_CLAIMS:
+        m = rx.match(low, lead)
+        if m and m.groupdict().get("b"):
+            letter = "" if ptype == chess.PAWN else chess.piece_symbol(ptype).upper()
+            return rest[:lead] + letter + m["b"] + rest[m.end():]
+    return rest
+
+
 def _last_move_issues(text: str, last: str) -> list[str]:
     text = _MOVE_NUMBER.sub("", text)
     out = _castling_issues(text, last)
@@ -5771,6 +5888,7 @@ def _last_move_issues(text: str, last: str) -> list[str]:
             continue
         # «e7–e5», «e5:d4» — no spaces: «d6: e5 теперь под защитой», «Nf6 — e4 под ударом» explain the move
         rest = re.sub(r"([KQRBNКФЛС]?)[a-h][1-8][–—:]([a-h][1-8])", r"\1\2", m.group("rest"))
+        rest = _told_move_as_san(rest)
         if re.search(r"последн|last", m.group(0), re.IGNORECASE) and (not _MOVE_FIRST.match(rest) or _NOT_TOLD.search(text)
                                                                       or "?" in text or "«" in text):
             continue  # «Мой последний ход — конь с g8 на f6», «… — защита пешки e5»: a recap, not a move named (review 29.10)
