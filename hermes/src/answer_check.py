@@ -5043,6 +5043,16 @@ _BLOCK_WORD = re.compile(
 _BLOCK_OBJ = re.compile(r"(?<![а-яa-z])(?:шах\w*|корол[яю]|линию\s+шаха|от\s+шаха|check|the\s+king)(?![а-яa-z])", re.IGNORECASE)
 _BLOCK_BETWEEN = re.compile(r"(?<![а-яa-z])(?:(?:между|between)(?![а-яa-z])[^.;!?]*?(?:корол\w*|king)|на\s+(?:е[её]\s+|его\s+)?пути|"
                             r"на\s+лини(?:ю|и)\s+шаха|in\s+the\s+way)", re.IGNORECASE)
+# The object of a block verb that is the king's way out (fix1102 K2, verify1102 B2): «Qf3+ … перекрывает королю выход»,
+# «закрыть королю поля отхода», «перекрытие путей отступления», "blocks the king's escape" — the side that gives the
+# check takes the king's squares away; that is not the side in check putting a piece between. Up to three words of
+# whose way it is before the noun («королю», «чёрному королю», «последний», "the king's") — not «слоном на поле d7».
+_BLOCK_ESCAPE = re.compile(
+    r"^\s*(?:(?:королю|ему|ей|ч[её]рному|белому|вражескому|неприятельскому|чужому|последн\w*|единственн\w*|вс[её]|"
+    r"оба|обе|свободн\w*|запасн\w*|the|of|king'?s|its|his|her|enemy|black'?s|white'?s|all|last|only|remaining)\s+){0,3}"
+    r"(?:выход\w*|отход\w*|отступлени\w*|бегств\w*|пут(?:ь|и|ей|ям|ях)|дорог[уиа]|"
+    r"пол(?:е|я|ю|ей|ям|ях)|клет(?:ку|ки|ок|кам)|квадрат\w*|лазейк\w*|форточк\w*|escape\w*|flight|exit\w*|retreat\w*|"
+    r"way\s+out|squares?)(?![а-яёa-z])", re.IGNORECASE)
 _BLOCK_NOT = re.compile(r"(?<![а-яa-z])(?:не|ни|нельзя|нечем|некуда|невозможно|никак|cannot|can'?t|no\s+way|nothing)(?![а-яa-z])"
                         r"(?:\s+[а-яa-z]+){0,2}\s*$", re.IGNORECASE)
 _BLOCK_NOT_AFTER = re.compile(r"^[^.;!?:—–]*?(?<![а-яa-z])(?:нельзя|нечем|некуда|невозможно|не\s+(?:получится|выйдет|удастся|"
@@ -5111,6 +5121,8 @@ def _block_claims(conv: str) -> list:
             continue  # «блокировка пешки», «зажат своим заслоном»: not a block of the check (but «заслон: Nxd8»)
         if m["between"] and not _BLOCK_BETWEEN.search(after):
             continue
+        if (m["trans"] or m["noun"]) and _BLOCK_ESCAPE.match(after):
+            continue  # «Qf3+ … перекрывает королю выход»: the checker cuts the king off — not a block of the check
         clause = conv[cs: ce]
         if re.search(r"(?<![а-яa-z])(?:чтобы|дабы|so\s+that|in\s+order\s+to|подума\w*|посмотр\w*|найди\w*|поищи\w*|"
                      r"think|look\s+for|find)(?![а-яa-z])", before):
@@ -5233,6 +5245,14 @@ def _block_kind_issues(text: str, ctx: CheckContext) -> list[str]:
     claims = _block_claims(converted)
     for claim in claims:
         here = boards
+        # The scene this sentence's own line set, when that line is written after the block word: it is the claim's
+        # board only when the line follows on from the board the claim is made on. A line that skips a move of the side
+        # to move (walked with the turn changed), jumps between boards, or lands on the very square the sentence
+        # blocks on («Закройся конём на c6, хотя после Qxc6+ конь теряется»: Qxc6+ presupposes the knight on c6) was
+        # read on a board without the block the sentence proposed first. Such a scene may still clear the claim, but
+        # it never condemns it (fix1102 K2, verify1102 B2).
+        guessed = ctx.scene if (ctx.scene is not None and ctx.scene_trail
+                                and _later_line_ignores_claim(converted, claim, ctx)) else None
         # A line written before the block word («Rc8+ загоняет короля на h7, потом Qb1+ — спокойно закройся g6»): the
         # claim is about the position after its last move, which the walk must have reached in this sentence.
         told = [mv for mv in _MOVE.finditer(converted[: claim["at"]])
@@ -5249,16 +5269,61 @@ def _block_kind_issues(text: str, ctx: CheckContext) -> list[str]:
             if not whole or walked[-len(told):] != [x["san"].replace("x", "") for x in told]:
                 continue
             here = [b for _, b, _ in ctx.scene_trail[-1:] if b.is_check()]
+            guessed = None  # the walk ends on the told line itself: the board right after the line the claim sits in
         here = [b for b in here if not b.is_checkmate()]  # mate: nothing answers it, no block to judge
         if not here:
             continue
         verdicts = [_block_verdict(b, claim) for b in here]
         if any(v == "" for v in verdicts) or all(v is None for v in verdicts):
             continue  # holds on some board in check of the sentence, or names nothing here
-        out.append(next(v for v in verdicts if v))
+        condemn = [v for b, v in zip(here, verdicts) if v and b is not guessed]
+        if condemn:
+            out.append(condemn[0])
     if not claims and not _BLOCK_WORD.search(converted):
         out = _reply_in_check_issues(converted, ctx, boards)
     return out
+
+
+def _block_target(claim: dict) -> Optional[int]:
+    """The square the claim blocks on: its move's destination, else the square named after «на»."""
+    if claim["san"]:
+        sq = re.findall(r"[a-h][1-8]", claim["san"])
+        if sq:
+            return chess.parse_square(sq[-1])
+    return chess.parse_square(claim["to"].lower()) if claim["to"] else None
+
+
+def _later_line_ignores_claim(conv: str, claim: dict, ctx: CheckContext) -> bool:
+    """Whether the scene of this sentence comes from a line written after the block word that was read without the
+    position the claim is made in: the line does not follow on from the board before this sentence (the turn's board,
+    or the scene the sentence before left) move by move with each side in turn, or one of its moves lands on the
+    square the claim blocks on. A line written before the block word is the told walk's business, not this one."""
+    later = [mv for mv in _MOVE.finditer(conv, claim["at"])
+             if (mv["san"][0] in "KQRBNO" or mv["num"] or mv["bdots"] or "x" in mv["san"] or mv["check"])
+             and mv["san"] != claim["san"]]
+    if not later:
+        return False
+    target = _block_target(claim)
+    if target is not None and any(re.findall(r"[a-h][1-8]", mv["san"])[-1:] == [chess.square_name(target)]
+                                  for mv in later):
+        return True  # «…на c6, хотя после Qxc6+»: the later line takes on the block's own square
+    starts = [b for b in (ctx.current, (ctx.scene_before or (None,))[0]) if b is not None]
+    prev = None
+    for i, (_san, after, move) in enumerate(ctx.scene_trail):
+        froms = [prev] if i else starts
+        follows = False
+        for b in froms:
+            if b is None or not b.is_legal(move):
+                continue  # the move is not one of the side to move there: the walk changed the turn or the board
+            nxt = b.copy(stack=False)
+            nxt.push(move)
+            if nxt.board_fen() == after.board_fen() and nxt.turn == after.turn:
+                follows = True
+                break
+        if not follows:
+            return True
+        prev = after
+    return False
 
 
 # The reply to a check proposed for the side in check («Лучший ответ — Qd7», «Сыграй Bd7» with Black in check from an
