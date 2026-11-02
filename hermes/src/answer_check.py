@@ -1305,7 +1305,7 @@ def _recapture_issues(text: str, ctx: CheckContext) -> list[str]:
         san1, san2 = first["san"], second["san"]
         if "x" not in san1 or not re.fullmatch(r"[a-h]x[a-h][1-8]", san2) or san2[-2:] != san1[-2:]:
             continue
-        if san1 == san2 and re.search(r"[A-Za-zА-Яа-яЁё]", converted[first.end(): second.start()]):
+        if san2 == san1.rstrip("+#") and re.search(r"[A-Za-zА-Яа-яЁё]", converted[first.end(): second.start()]):
             # fix1102 K5: «лучший ответ — exf4, то есть принять гамбит: exf4», «(2.d4 exd4), но ты сыграл не exd4»: the
             # same move named again after words is that move restated, not a pawn taking back on its square
             continue
@@ -1692,9 +1692,10 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         san_at = m.start("san")
         if san_at in cyr_k and _reachable(ctx.boards, chess.KING, colors, dest, 2, capture):
             continue  # «Кh1» written for the king
-        side = {1: "white", 0: "black"}.get(colors[0]) if len(colors) == 1 else "any"
+        side = {1: "white ", 0: "black "}.get(colors[0], "") if len(colors) == 1 else ""
+        either = "" if side else " of either side"
         label = (f"{num}{dots}" if num else (dots or "")) + full
-        issues.append(f"{label} is impossible: no {side} {_NAMES[ptype]} can "
+        issues.append(f"{label} is impossible: no {side}{_NAMES[ptype]}{either} can "
                       f"{'capture on' if capture else 'reach'} {chess.square_name(dest)} in the positions of this turn")
     return issues
 
@@ -2485,9 +2486,12 @@ def _hanging_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             if kind == "defended" and defenders:
                 break
         else:
-            if seen and ctx.current is not None and (piece := ctx.current.piece_at(sq)) is not None:
+            if seen and ctx.current is not None and (piece := ctx.current.piece_at(sq)) is not None \
+                    and (named is None or piece.piece_type == named):
                 defenders = [chess.square_name(d) for d in ctx.current.attackers(piece.color, sq)]
                 name = _NAMES[piece.piece_type]
+                if kind == "undefended" and not defenders:
+                    continue  # undefended on the board now too: the claim holds here (live 02.11: «defended (by )»)
                 if kind == "defended":
                     issues.append(f"the {name} on {sq_name} is not defended by anything")
                 elif kind == "undefended":

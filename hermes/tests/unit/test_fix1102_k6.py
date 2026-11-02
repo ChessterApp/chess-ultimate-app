@@ -74,10 +74,12 @@ class TestIssueTexts:
         assert well_formed([issue]) == [clean_issue(issue)]
 
     def test_a_restated_move_is_the_trace_the_check_leaves_on_a_new_board(self):
-        # «dxe5, то есть забрать пешку: dxe5» names one move twice; the recapture check reads a pair
+        # «dxe5, то есть забрать пешку: dxe5» names one move twice. Before the K5 merge the recapture check read it
+        # as a pair and left «dxe5 is impossible after dxe5»; K5 fixed that at its source, so no issue is left at all
+        # (and if one ever comes back, it is malformed and never reaches the rewrite)
         issues = check_sentence("Лучший ответ — dxe5, то есть просто забрать пешку: dxe5.", _ctx(PHILIDOR))
-        assert issues and all(malformed(i) for i in issues)
         assert well_formed(issues) == []
+        assert malformed("dxe5 is impossible after dxe5")
 
 
 # ── the proof ───────────────────────────────────────────────────────────────────────────────────────────────────
