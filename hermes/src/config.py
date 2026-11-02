@@ -473,6 +473,9 @@ DETECTOR_DEFAULTS = {
     # «играем», «выбери», the stop at «3...Nf6» dots, «не давая …», «Kd2?», «…, но только после f4»), a recapture pair
     # judged where its line stands, a written line's quoted move and next ply; off = main's readings
     "structure_read": "on",
+    # fix1102 K4: rule talk («Рокировка разрешена, только если …», «Двойной знак означает …») is not judged on the board
+    # (src/claim_scope.rule_spans); off = every detector reads the whole sentence, as before
+    "rule_scope": "on",
 }
 RELATION_DETECTORS = frozenset({
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",

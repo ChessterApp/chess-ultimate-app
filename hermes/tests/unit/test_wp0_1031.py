@@ -270,6 +270,7 @@ PLAN_NAMES = {
     "retreat_cover", "prevents", "checks_geometry", "only_move_orders", "piece_decides", "trade_swing_named",
     "race_distance", "mate_squares", "king_direction", "trades", "placement", "ending_unproven", "tablebase_keeps", "comment_record",
     "structure_read",
+    "rule_scope",
 }
 
 
