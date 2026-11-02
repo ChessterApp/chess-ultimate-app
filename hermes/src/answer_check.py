@@ -4846,14 +4846,16 @@ def _reply_in_words(board: chess.Board, move: chess.Move, words: str) -> bool:
         return False
 
 
-_NOMINATIVE_PIECE = re.compile(r"(?<![а-яa-z])(конь|слон|ладья|ферзь|король|пешка|knight|bishop|rook|queen|king|pawn)(?![а-яa-z])",
-                               re.IGNORECASE)
+# (named apart from _NOMINATIVE_PIECE above, the Russian subject after the verb in «e5 атакует конь f3»: one name for
+# both made «d4 attacks the knight on e5» read the English object as the subject — integration 02.11)
+_PRAISE_SUBJECT_PIECE = re.compile(
+    r"(?<![а-яa-z])(конь|слон|ладья|ферзь|король|пешка|knight|bishop|rook|queen|king|pawn)(?![а-яa-z])", re.IGNORECASE)
 
 
 def _other_subject(before_praise: str, moved: Optional[int]) -> bool:
     """The praise word's subject, named right before it, is a piece of another kind than the one the candidate moves
     («После 5.Nxe5 слон забирает ферзя…»): what it wins is that piece's, on the board after the reply."""
-    names = list(_NOMINATIVE_PIECE.finditer(before_praise))
+    names = list(_PRAISE_SUBJECT_PIECE.finditer(before_praise))
     if not names or moved is None:
         return False
     return _piece_type(names[-1].group(1).lower()) != moved

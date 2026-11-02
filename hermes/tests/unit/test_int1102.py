@@ -85,3 +85,62 @@ class TestIssueTexts:
         b = _board("e4 e5 Nf3 Nc6")
         for i in _check("Можно сразу Qxh7.", b) + _check("Хорош ход Qxf7#.", b):
             assert "no any" not in i
+
+
+# ── one module-level name, one meaning ──────────────────────────────────────────────────────────────────────────
+# Packages merged side by side can each define the same helper name; the later definition then silently replaces the
+# earlier one for every caller (K3's _NOMINATIVE_PIECE, an English-aware pattern, replaced the Russian one that
+# _square_subject_issues used, and «d4 attacks the knight on e5» was cut). A name may be rebound only by a wrapper
+# that takes the old value («f = wrap(f)»).
+def _rebound_names(path):
+    import ast
+    tree = ast.parse(path.read_text())
+    first, out = {}, []
+    for node in tree.body:
+        names, value = [], None
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names = [node.name]
+        elif isinstance(node, ast.Assign):
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            value = node.value
+        for name in names:
+            if name in first:
+                wraps = value is not None and any(isinstance(n, ast.Name) and n.id == name for n in ast.walk(value))
+                if not wraps:
+                    out.append((name, first[name], node.lineno))
+            else:
+                first[name] = node.lineno
+    return out
+
+
+@pytest.mark.unit
+def test_no_module_level_name_is_defined_twice():
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[2] / "src"
+    found = {p.name: r for p in sorted(src.glob("*.py")) if (r := _rebound_names(p))}
+    assert found == {}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence", [
+    "d4 attacks the knight on e5.",
+    "e4 attacks the knight on d5.",
+])
+def test_an_english_object_after_the_verb_is_not_the_subject(sentence):
+    # a white pawn attacking a black knight, told square-first in English: true, not judged false
+    boards = {"d4": "r1bqkb1r/pppp1ppp/5n2/4n3/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 5",
+              "e4": "rnbqkb1r/pppppppp/8/3n4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3"}
+    fen = boards[sentence[:2]]
+    ctx = ac.CheckContext.from_fens([fen], student_color=chess.WHITE)
+    assert ac.check_sentence(sentence, ctx) == []
+
+
+@pytest.mark.unit
+def test_the_russian_subject_after_the_verb_is_still_read():
+    # «Поле c3 атакует конь e4»: the knight stands after the verb and is the subject; it does attack c3 — true;
+    # «Поле h6 атакует конь e4» is false (the knight does not reach h6)
+    fen = "rnbqkb1r/pppp1ppp/8/4p3/4n3/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 4"
+    ctx = ac.CheckContext.from_fens([fen], student_color=chess.WHITE)
+    assert ac.check_sentence("Поле c3 атакует конь e4.", ctx) == []
+    ctx = ac.CheckContext.from_fens([fen], student_color=chess.WHITE)
+    assert ac.check_sentence("Поле h6 атакует конь e4.", ctx) != []
