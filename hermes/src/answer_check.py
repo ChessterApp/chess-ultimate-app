@@ -1371,16 +1371,22 @@ def _san_issues(text: str, ctx: CheckContext) -> list[str]:
 
 
 def _gap_from_words(board: chess.Board, words: str, nxt: str) -> Optional[tuple]:
-    """(san, move, board after) for the one move *words* tell for the side to move on *board* («ферзь идёт на g5»),
-    when exactly one move told there lets the written move *nxt* follow it; else None (K3 02.11)."""
+    """(san, move, board after) for the one move *words* tell for the side to move on *board* («ферзь идёт на g5», or a
+    written move the walk skips, such as castling), when exactly one move told there lets the written move *nxt* follow
+    it; else None (K3 02.11)."""
     if not words.strip():
         return None
     try:
         from src.move_words import prose_moves
 
         found = {}
-        for pm in prose_moves(words, board):
-            mv = pm.get("move")
+        told = [pm.get("move") for pm in prose_moves(words, board)]
+        for w in _MOVE.finditer(words):  # a written move the walk does not play («12.Ba2 O-O-O 13.Bd2»: castling)
+            try:
+                told.append(board.parse_san(w["san"] + (w["check"] or "")))
+            except ValueError:
+                pass
+        for mv in told:
             if mv is None or mv not in board.legal_moves:
                 continue
             after = board.copy(stack=False)

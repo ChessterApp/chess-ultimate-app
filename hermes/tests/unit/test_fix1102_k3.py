@@ -87,6 +87,10 @@ class TestTheOtherSidesMoveToldInThePresent:
     def test_the_claim_after_it_is_judged_after_it(self):
         assert check_sentence("После Nxd4 чёрные играют c5, и конь на d4 под ударом.", _ctx(PHILIDOR)) == []
 
+    def test_after_a_move_only_named_the_board_is_not_known(self):
+        # «после размена» names no move: «отвечают ферзём на g5» / «играют a6» after it are not played on a guess
+        assert check_sentence("После размена чёрные играют a6, и конь на d4 под ударом.", _ctx(PHILIDOR)) == []
+
     @pytest.mark.parametrize("reply", ["играют a6", "отвечают Nf6"])
     def test_a_reply_that_does_not_attack_is_still_caught(self, reply):
         issues = check_sentence(f"После Nxd4 чёрные {reply}, и конь на d4 под ударом.", _ctx(PHILIDOR))
