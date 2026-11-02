@@ -16,12 +16,20 @@ the truth that contradicts the graded errors of 29.10?
       board turns median ≤ +600, p95 ≤ +1,500; turns without a board +0; provider time p99 ≤ 5 ms (the replay's
       "facts_ms", when the run measured it).
   (e) issue-text antidotes — every row this run cuts and the base did not: its issue names the truth ("issue").
+      "The base did not" is a majority over the base runs, not one run: main's engine stage misses trap-legal about one
+      run in three (verify1102 §4), and one such miss made that row look new. The base runs are the base columns of
+      every --analysis given (each one this run's analysis against another run of the base), plus a recorded baseline
+      (--base-caught, default tests/fixtures/prevent/main_caught.json: the rows main 02bb40d0 cut in each of its
+      recorded replay1031 runs). A row is the base's when it cut it in at least half of all those runs.
 
 Usage (from hermes/):
-  python scripts/eval_prevent.py --run R.json --analysis R_analysis.json [--base-run B.json] [--audit]
-         [--depth 18] [--gate] [--json out.json]
+  python scripts/eval_prevent.py --run R.json --analysis R_analysis.json [B2_analysis.json ...] [--base-run B.json]
+         [--base-caught main_caught.json | --base-caught none] [--audit] [--depth 18] [--gate] [--json out.json]
+  python scripts/eval_prevent.py --record-base-caught OUT.json --analysis A1.json A2.json A3.json [--base-tree SHA]
   R.json is a replay1031 run (scratchpad …/prod1029/replay1031/replay.py), R_analysis.json its analyze.py output
-  against the base (verify1031/replay_on.json or a replay1031 run of main). --audit runs (a) (minutes: Stockfish).
+  against the base (verify1031/replay_on.json or a replay1031 run of main); further analyses add their base runs to
+  the majority of (e). --record-base-caught writes the recorded baseline from the base columns of the analyses.
+  --audit runs (a) (minutes: Stockfish).
 """
 from __future__ import annotations
 
@@ -218,13 +226,57 @@ def _hits(patterns, text) -> bool:
     return any(re.search(p, text or "", re.IGNORECASE | re.DOTALL) for p in patterns or [])
 
 
+def _row_key(t: dict) -> str:
+    """A graded row of analyze.py's table: an answer can hold two errors of one class, told apart by the quote."""
+    return f"{t['src']}/{t['id']}/{t['kind']}/{re.sub(r'\s+', ' ', t['quote'])[:80]}"
+
+
+def base_votes(analyses: list, recorded: dict | None) -> dict:
+    """Per table row (src/id/kind): (runs of the base that cut it, runs of the base) over the base column of every
+    analysis and the recorded baseline's runs."""
+    votes: dict = {}
+    for an in analyses:
+        for t in an["table"]:
+            k = _row_key(t)
+            c, n = votes.get(k, (0, 0))
+            votes[k] = (c + bool(t["base"]), n + 1)
+    if recorded:
+        for k, c in recorded["rows"].items():
+            c0, n0 = votes.get(k, (0, 0))
+            votes[k] = (c0 + c, n0 + recorded["runs"])
+        for k in list(votes):
+            if k not in recorded["rows"]:  # a row the recorded runs never cut: they count as misses
+                c0, n0 = votes[k]
+                votes[k] = (c0, n0 + recorded["runs"])
+    return votes
+
+
+def base_cut(votes: dict, key: str) -> bool:
+    """The base cuts the row: in at least half of its runs (no runs: no)."""
+    cut, runs = votes.get(key, (0, 0))
+    return runs > 0 and 2 * cut >= runs
+
+
+def record_base_caught(analyses: list, tree: str | None) -> dict:
+    rows: dict = {}
+    for an in analyses:
+        for t in an["table"]:
+            rows.setdefault(_row_key(t), 0)
+            rows[_row_key(t)] += bool(t["base"])
+    return {"doc": "Rows of the 89 graded errors the base cut, per row the number of its recorded replay1031 runs that "
+                   "cut it (eval_prevent.py (e): a row is the base's when it cut it in at least half of all runs).",
+            "tree": tree, "runs": len(analyses), "rows": {k: c for k, c in sorted(rows.items()) if c}}
+
+
 def _class(lab) -> str:
     return f"games {lab['src']}" if lab["src"] != "sets" else f"sets {lab['kind']}"
 
 
-def prompts(run: dict, analysis: dict, base: dict | None) -> dict:
+def prompts(run: dict, analysis: dict, base: dict | None, more_analyses: list | None = None,
+            recorded: dict | None = None) -> dict:
     turns, bturns = _turns(run), (_turns(base) if base else {})
     table = analysis["table"]
+    votes = base_votes([analysis] + list(more_analyses or []), recorded)
     rows, by_class = [], {}
     for lab in _labels():
         t = _row_of(table, lab)
@@ -240,7 +292,10 @@ def prompts(run: dict, analysis: dict, base: dict | None) -> dict:
                # goes with the line the search picks (review-wiring2 01.11: Bf5 in «line d4 d5 e5 Bf5»), not lost
                "covered_base_fact": (_hits(lab["antidote"], _without_engine(bmsg)) if lab["antidote"] and bmsg is not None
                                      else None),
-               "caught": bool(t and t["branch"]), "caught_base": bool(t and t["base"]),
+               "caught": bool(t and t["branch"]), "caught_base_run": bool(t and t["base"]),
+               # the base's cut by majority over its runs (one flaky miss of the paired base run is not a new cut)
+               "caught_base": bool(t) and base_cut(votes, _row_key(t)),
+               "base_votes": list(votes.get(_row_key(t), (0, 0))) if t else None,
                "issue": (t or {}).get("branch_issue"),
                "issue_ok": (_hits(lab["issue"], str((t or {}).get("branch_issue") or "")) if lab["issue"] else None)}
         rows.append(row)
@@ -279,6 +334,9 @@ def prompts(run: dict, analysis: dict, base: dict | None) -> dict:
             "prevent_only_rows": {f"{r['id']}/{r['kind']}": r["covered"] for r in prevent_only},
             "coverage_lost": [f"{r['src']}/{r['id']}/{r['kind']}" for r in lost],
             "new_cuts": len(new_cuts), "new_cut_issue_without_antidote": [f"{r['src']}/{r['id']}/{r['kind']}: {str(r['issue'])[:160]}" for r in issue_bad],
+            "new_against_paired_run_only": [f"{r['src']}/{r['id']}/{r['kind']} (base cut it in {r['base_votes'][0]} of {r['base_votes'][1]} runs)"
+                                            for r in rows if r["caught"] and not r["caught_base_run"] and r["caught_base"]],
+            "base_runs": max((n for _, n in votes.values()), default=0),
             "cost": cost}
 
 
@@ -314,7 +372,12 @@ def gates(res: dict) -> list:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run")
-    ap.add_argument("--analysis")
+    ap.add_argument("--analysis", nargs="+", help="this run's analysis against its base run, then analyses against "
+                    "further runs of the base (their base columns join the majority of (e))")
+    ap.add_argument("--base-caught", default=str(FIX / "prevent" / "main_caught.json"),
+                    help="the recorded baseline of (e) (default: main 02bb40d0's recorded runs; 'none' leaves it out)")
+    ap.add_argument("--record-base-caught", metavar="OUT", help="write the recorded baseline from the --analysis files")
+    ap.add_argument("--base-tree", help="the base tree's commit, written into --record-base-caught")
     ap.add_argument("--base-run")
     ap.add_argument("--audit", action="store_true")
     ap.add_argument("--depth", type=int, default=18)
@@ -335,10 +398,19 @@ def main():
               f"unproven {x['typed_unproven']}, false {x['typed_false']}")
         for f in x["bad_forks"][:12]:
             print(f"     bad fork {f['fork']} (loss {f['loss']}) via {f['paths']} on {f['fen']}")
+    if a.record_base_caught:
+        rec = record_base_caught([json.load(open(f)) for f in a.analysis or []], a.base_tree)
+        json.dump(rec, open(a.record_base_caught, "w"), ensure_ascii=False, indent=1)
+        print(f"recorded baseline: {len(rec['rows'])} rows cut, {rec['runs']} runs -> {a.record_base_caught}")
+        return
     if a.run and a.analysis:
         run = json.load(open(a.run))
         base = json.load(open(a.base_run)) if a.base_run else None
-        res["prompts"] = p = prompts(run, json.load(open(a.analysis)), base)
+        recorded = None
+        if a.base_caught and a.base_caught != "none" and Path(a.base_caught).exists():
+            recorded = json.load(open(a.base_caught))
+        analyses = [json.load(open(f)) for f in a.analysis]
+        res["prompts"] = p = prompts(run, analyses[0], base, analyses[1:], recorded)
         print(f"(b) poisoned prompts: {p['poisoned']} of 89 {p['poisoned_rows']}")
         print(f"(c) antidote coverage (present/absent/wrong fact/n.a.):")
         for k in sorted(p["by_class"]):
@@ -353,7 +425,11 @@ def main():
                   f"{c['provider_ms_p99'] if c['provider_ms_p99'] is not None else 'n/a (no provider measured)'} ms")
         else:
             print("(d) prompt cost: no --base-run")
-        print(f"(e) new cuts {p['new_cuts']}; without the truth in the issue: {p['new_cut_issue_without_antidote'] or 'none'}")
+        print(f"(e) new cuts {p['new_cuts']} (the base by majority of {p['base_runs']} runs"
+              f"{', recorded ' + str(recorded['tree']) + ' x' + str(recorded['runs']) if recorded else ''}); "
+              f"without the truth in the issue: {p['new_cut_issue_without_antidote'] or 'none'}")
+        if p["new_against_paired_run_only"]:
+            print(f"    not new (the paired base run missed them, the base's majority cuts them): {p['new_against_paired_run_only']}")
     fails = gates(res)
     res["gate_failures"] = fails
     if a.json:
