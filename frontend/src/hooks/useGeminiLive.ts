@@ -20,6 +20,7 @@ import {
   mayAskForAGame,
   mayCommandTheGame,
   mentionsAGame, factsNote, unclearMoveNote, browsingNote, ownGamePosition, askedMeanwhileLine } from '@/lib/coach/voice-game';
+import { getMicrophone } from '@/lib/audio-session';
 
 /**
  * useGeminiLive — browser-side Gemini Live voice client for the AI Chess Coach (Phase 2).
@@ -2118,7 +2119,7 @@ export default function useGeminiLive(
 
     // Mic first, before any await that isn't the getUserMedia prompt itself.
     if (!streamRef.current) {
-      streamRef.current = await navigator.mediaDevices.getUserMedia({
+      streamRef.current = await getMicrophone({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
       });
     }

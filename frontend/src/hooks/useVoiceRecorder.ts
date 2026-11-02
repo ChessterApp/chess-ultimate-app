@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { apiFetch, ApiError } from '@/lib/api';
+import { getMicrophone } from '@/lib/audio-session';
 
 export type VoiceRecorderErrorCode = 'denied' | 'insecure' | 'failed';
 
@@ -135,7 +136,7 @@ export default function useVoiceRecorder(
         return;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await getMicrophone({ audio: true });
       streamRef.current = stream;
       chunksRef.current = [];
 

@@ -19,6 +19,7 @@ import {
   type PipelineLocale,
 } from '@/lib/coach/voice-pipeline';
 import { gameFromActions } from '@/lib/coach/voice-game';
+import { getMicrophone } from '@/lib/audio-session';
 
 export type VoiceMode = 'live' | 'pipeline';
 
@@ -440,7 +441,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     const Ctor = (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext) as typeof AudioContext | undefined;
     if (!Ctor) throw new Error('AudioContext is not available');
     if (!streamRef.current) {
-      streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+      streamRef.current = await getMicrophone({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     }
     if (!captureCtxRef.current) captureCtxRef.current = new Ctor();
     if (!playbackCtxRef.current) playbackCtxRef.current = new Ctor({ sampleRate: OUTPUT_SAMPLE_RATE });
