@@ -168,7 +168,23 @@ export default function ChessgroundBoard({
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(() => scheduleRedraw(false));
     observer.observe(document.body);
+    // The board's own box too: a mode switch on the coach page resizes the
+    // board without resizing the body, and mobile Safari can miss chessground's
+    // own notification, leaving the pieces placed for the old size (02.11).
+    if (wrapperRef.current) observer.observe(wrapperRef.current);
     return () => observer.disconnect();
+  }, [scheduleRedraw]);
+
+  // A layout that animates into place (a sheet sliding, a panel collapsing)
+  // settles only when its transition ends; check the board once it has.
+  useEffect(() => {
+    const settle = () => scheduleRedraw(false);
+    document.addEventListener('transitionend', settle, true);
+    document.addEventListener('animationend', settle, true);
+    return () => {
+      document.removeEventListener('transitionend', settle, true);
+      document.removeEventListener('animationend', settle, true);
+    };
   }, [scheduleRedraw]);
 
   useEffect(() => {
@@ -239,7 +255,12 @@ export default function ChessgroundBoard({
     if (drawnSizeRef.current === effectiveBoardSize) return;
     drawnSizeRef.current = effectiveBoardSize;
     redraw();
-  }, [effectiveBoardSize, redraw]);
+    // Safari can report the old box for a moment after the size changes; look
+    // again once it has laid out (redraws only if the board actually moved).
+    scheduleRedraw(false);
+    const late = window.setTimeout(() => scheduleRedraw(false), 400);
+    return () => window.clearTimeout(late);
+  }, [effectiveBoardSize, redraw, scheduleRedraw]);
 
   // Surface the real rendered pixel size upward whenever it changes so callers
   // can size siblings from a measured number (guard against redundant calls).
