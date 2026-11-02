@@ -1305,7 +1305,7 @@ def _recapture_issues(text: str, ctx: CheckContext) -> list[str]:
         san1, san2 = first["san"], second["san"]
         if "x" not in san1 or not re.fullmatch(r"[a-h]x[a-h][1-8]", san2) or san2[-2:] != san1[-2:]:
             continue
-        if san2 == san1.rstrip("+#") and re.search(r"[A-Za-zА-Яа-яЁё]", converted[first.end(): second.start()]):
+        if san1 == san2 and re.search(r"[A-Za-zА-Яа-яЁё]", converted[first.end(): second.start()]):
             # fix1102 K5: «лучший ответ — exf4, то есть принять гамбит: exf4», «(2.d4 exd4), но ты сыграл не exd4»: the
             # same move named again after words is that move restated, not a pawn taking back on its square
             continue
