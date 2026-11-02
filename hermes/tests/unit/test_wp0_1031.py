@@ -264,11 +264,12 @@ def test_fact_type_and_ctx_facts():
 
 # ── detector switches ────────────────────────────────────────────────────────────────────────────────────────────
 PLAN_NAMES = {
-    "book_wait", "recap_scope", "material_order", "student_capture", "gave_up", "block_kind", "free_capture",
+    "recap_scope", "material_order", "student_capture", "gave_up", "block_kind", "free_capture",
     "propose_vocab", "plan_place", "start_scene", "open_plain", "open_recap", "open_character", "open_defining",
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",
     "retreat_cover", "prevents", "checks_geometry", "only_move_orders", "piece_decides", "trade_swing_named",
     "race_distance", "mate_squares", "king_direction", "trades", "placement", "ending_unproven", "tablebase_keeps", "comment_record",
+    "structure_read",
 }
 
 

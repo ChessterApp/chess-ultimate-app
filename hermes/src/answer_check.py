@@ -1226,7 +1226,7 @@ def _recapture_issues(text: str, ctx: CheckContext) -> list[str]:
     («Nxd4 Nxd4 exd4» — the run, not its last two moves: 3...Nxd4 4.Nxd4 exd4 is legal) are played first, from a
     position of the turn or the one after the move the question is about («А почему не Nxd4?» — «после Nxd4 exd4»);
     a run that plays from none of them is not judged here (the line check reads lines)."""
-    if _lesson(ctx):
+    if _main_reading(ctx):
         return _recapture_issues_v1031(text, ctx)
     converted, _ = _to_san(text)
     moves = list(_MOVE.finditer(converted))
@@ -1410,7 +1410,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
                 and re.match(r"\d{1,3}\.\s", converted[m.start():]) \
                 and not re.search(r"\d{1,3}\.\s?[KQRBNa-hO]", converted[m.end():m.end() + 40]):
             continue  # «1. f7 пешкасы…»: a numbered list item, not 1.f7 («* **1. d4 Nf6 2. c4» is a line)
-        if san in ctx.quoted and not san.startswith("O-O") and not _lesson(ctx):
+        if san in ctx.quoted and not san.startswith("O-O") and not _main_reading(ctx):
             # The student's own move repeated: never judged, but followed when it is a move of the line here, so the
             # moves after it are read after it (not on the board as it stands, the side to move changed to fit).
             qcolors = [chess.BLACK] if dots in ("...", "…") else [chess.WHITE] if num and dots == "." else [chess.WHITE, chess.BLACK]
@@ -1474,7 +1474,7 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         # checks below may still accept; it sets no scene. (F2's patch; F5 adds: not after a line that reached its board
         # with the side changed, and not on the lesson surface, which keeps 31.10's walk.)
         next_ply = prev is not None and bool(num) and not list_item and colors == [prev.turn] \
-            and int(num) == prev.fullmove_number and not prev_flipped and not _lesson(ctx)
+            and int(num) == prev.fullmove_number and not prev_flipped and not _main_reading(ctx)
         line_prev, line_trusted = prev, prev_trusted
         candidates = ([(prev, [prev.turn])] if prev is not None and prev.turn in colors else []) \
             + [(b, [c for c in colors if c == b.turn]) for b in ordered] \
@@ -2426,7 +2426,13 @@ _MQ_UNIT_OBL = (r"(?:пешк(?:у|и|ой|ами)|пешек|фигур(?:у|ы
                 r"ладь(?:ю|и|ей|ям|ями)|ладей|ферз(?:я|ем|ей|ями)|качеств(?:о|ом|а))")
 _MQ_MOD = r"(?:всего|только|лишь|ровно|цел\w+)"
 _MQ_ONE = rf"(?:(?:{_MQ_NUM}|{_MQ_MOD})\s+){{0,3}}"
-_MQ = rf"(?P<q>{_MQ_ONE}{_MQ_UNIT}(?:\s+(?:и|плюс|\+)\s+{_MQ_ONE}{_MQ_UNIT_OBL})*)(?![а-я])"
+# between two items of a list: «ферзя, слона и двух коней», «слона плюс пешку» (verify1102 B1: the reader stopped at
+# the first item of «впереди на ферзя, слона и двух коней»)
+_MQ_SEP = r"(?:\s*,\s*(?:(?:и|плюс)\s+)?|\s+(?:и|плюс|\+)\s+)"
+_MQ = rf"(?P<q>{_MQ_ONE}{_MQ_UNIT}(?:{_MQ_SEP}{_MQ_ONE}{_MQ_UNIT_OBL})*)(?![а-я])"
+# one more item after what a frame read (past the clause too): the list was not read whole — the claim is unjudged
+_MQ_MORE = re.compile(rf"\s*(?:,\s*)?(?:(?:и|плюс|\+)\s+)?{_MQ_ONE}(?P<u>{_MQ_UNIT})(?![а-я])")
+_MQ_NOM_SG = re.compile(r"(?:пешка|конь|слон|ладья|ферзь|фигура)$")
 _MQ_FILL = r"(?:(?:уже|сейчас|теперь|пока|вс[её]\s+ещ[её]|по\s+материалу|материально|по\s+очкам|тебе|ему|им)\s+){0,3}"
 _MAT_FRAMES = [(name, re.compile(_B2 + rx, re.IGNORECASE)) for name, rx in (
     # «впереди на ладью», «отстаёшь на ферзя», «ведут по материалу на одну ладью», «лучше на две пешки»
@@ -2441,7 +2447,8 @@ _MAT_FRAMES = [(name, re.compile(_B2 + rx, re.IGNORECASE)) for name, rx in (
              r"(?:(?P<gside>белых|ч[её]рных|тебя|вас|соперника|противника|них)\s+)?(?:по\s+материалу\s+)?"
              rf"(?:в\s+|[—–:=]\s*|-\s+|составляет\s+|равен\s+){_MQ}"),
     # «одна лишняя пешка», «лишняя ладья», «две лишние пешки»
-    ("extra", rf"(?P<q>(?:(?:{_MQ_NUM}|всего|только|лишь)\s+){{0,2}})(?P<pred>лишн\w+)\s+(?P<u>{_MQ_UNIT})(?![а-я])"),
+    ("extra", rf"(?P<q>(?:(?:{_MQ_NUM}|всего|только|лишь)\s+){{0,2}})(?P<pred>лишн\w+)\s+"
+              rf"(?P<u>{_MQ_UNIT}(?:{_MQ_SEP}(?:{_MQ_NUM}\s+)?{_MQ_UNIT})*)(?![а-я])"),
     # «пешка лишняя», «одна пешка лишняя»
     ("extra_after", rf"(?P<q>(?:(?:{_MQ_NUM}|всего|только|лишь)\s+){{0,2}})(?P<u>{_MQ_UNIT})\s+(?P<pred>лишн\w+)"),
     # «у белых больше пешек»: a count of one kind
@@ -2496,7 +2503,7 @@ def _lead_holds(board: chess.Board, color: bool, units: list, more: bool, mode: 
     """*mode* 'balance': the whole balance is that much («впереди на ладью», «на две пешки больше» — in pawns of points
     too); 'count': that many of the kind more («две лишние пешки»); 'atleast': at least that («лишняя пешка»);
     'kind': more of that kind («больше пешек»)."""
-    if mode == "balance" and len(units) > 1:
+    if len(units) > 1:
         try:
             from src.game_record import material as _material_of
 
@@ -2504,6 +2511,8 @@ def _lead_holds(board: chess.Board, color: bool, units: list, more: bool, mode: 
         except Exception:  # noqa: BLE001 — a broken material count leaves the claim unjudged (fail-open, F8)
             logger.debug("material count failed", exc_info=True)
             return True
+        if mode != "balance":  # «лишние слон, конь и пешка»: those extras at least, in points (more may go unnamed)
+            return diff >= sum(n * p for n, _, p in units) - 1
         return abs(diff - sum(n * p for n, _, p in units)) <= 1
     n, kind, points = units[0]
     if mode == "balance":
@@ -2581,11 +2590,25 @@ def _material_claims(text: str, ctx: CheckContext) -> list[tuple]:
                                         "материальн", "выигрыва"))
             if not units:
                 continue
+            more_item = _MQ_MORE.match(text, m.end("u") if frame in ("extra", "extra_after", "count") else
+                                       (m.end("q") if frame != "before" else m.end()))
+            if more_item and frame != "before" and not (frame not in ("extra", "extra_after") and
+                                                        _MQ_NOM_SG.search(more_item["u"])):
+                continue  # «впереди на ферзя, слона, и двух коней»: a list read only in part is left unjudged
             if frame == "noun" and any(k == "bishop" and n == 2 for n, k, _ in units):
                 continue  # «преимущество двух слонов»: the bishop pair, not the balance
             seen.add(m.start("pred"))
-            out.append((side_at, color, units, more, mode, text[min(side_at, m.start()): m.end()].strip(), frame))
+            out.append((side_at, color, units, more, mode, text[min(side_at, m.start()): m.end()].strip(), frame, m.end()))
     return out
+
+
+def _mat_cond_after(text: str, end: int) -> bool:
+    """The rest of the claim's clause after *end* names a condition («у чёрных на пешку больше после других ходов»,
+    «… если он возьмёт»): the claim is about another board (verify1102 B1)."""
+    from src.material_frames import conditional
+
+    tail = _MAT_CLAUSE_END.search(text, end)
+    return conditional(text[end: tail.start() if tail else len(text)])
 
 
 def _negated_before_pred(text: str, at: int) -> bool:
@@ -2892,6 +2915,17 @@ def _now_boards(ctx: CheckContext) -> list:
     return now if any(b is ctx.current for b in now) else [ctx.current] + now
 
 
+def _now_boards_v1029(ctx: CheckContext) -> list:
+    """main's _now_boards (29.10, prod game st3#9), kept as it is for main's material reading (_material_issues_v1029):
+    the board now, the positions given as such and those the answer's own moves lead to."""
+    boards = ctx.boards[1:] or ctx.boards
+    if not ctx.game_moves or ctx.current is None:
+        return boards
+    ply = ctx.current.ply()
+    now = [b for b in boards if not _is_past(ctx, b) and (ctx.is_given(b) or b.ply() >= ply)]
+    return now if any(b is ctx.current for b in now) else [ctx.current] + now
+
+
 # «ты отдал пешку e5, но забрал f4», «белые взяли на d4»: a capture told as done.
 _TOOK_ON = re.compile(
     _B2 + rf"(?:забрал\w*|взял\w*|съел\w*|выиграл\w*|took|captured|grabbed)\s+(?:(?:обратно|назад|back)\s+)?"
@@ -2953,8 +2987,75 @@ _MAT_ANY = re.compile(r"больше|меньше|впереди|позади|л
 
 
 def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
+    """The material claims of the sentence against the board. material_order's switch wraps the new reading only
+    (verify1102 B3): 'off' is main's reading of 29.10 exactly (_material_issues_v1029, its game-board fix of 29.10
+    included), 'shadow' shows main's issues and records what the new reading says otherwise, 'on' is the new reading
+    (_material_issues_new). A new reading that raises falls back to main's (fail-open to main, not to nothing)."""
+    mode = _switch_mode("material_order", ctx)
+    if mode == "off":
+        return _material_issues_v1029(text, original, ctx)
+    try:
+        new = _material_issues_new(text, original, ctx)
+    except Exception:  # noqa: BLE001
+        logger.debug("material reading failed", exc_info=True)
+        return _material_issues_v1029(text, original, ctx)
+    if mode == "on":
+        return new
+    base = _material_issues_v1029(text, original, ctx)
+    if new != base:
+        record_shadow(ctx, "material_order", [i for i in new if i not in base]
+                      or [f"main's issue not raised by the new reading: {i}" for i in base if i not in new])
+    return base
+
+
+def _material_issues_v1029(text: str, original: str, ctx: CheckContext) -> list[str]:
+    """main's material reading (02bb40d0), kept verbatim: what material_order 'off' (and the lesson tutor) gets."""
+    if ctx.current is None:
+        return []
+    issues = []
+    told = _told_capture(text, ctx)
+    if told:
+        boards, where, shown = told[1], told[1][0], f"after {told[0]} (the capture this sentence tells as made): "
+    else:
+        boards, where, shown = ctx.boards[1:] or ctx.boards, ctx.current, ""
+        if ctx.game_moves and not _PAST_BE.search(text):
+            boards = _now_boards_v1029(ctx)  # a game: the material now, not a move ago (prod 29.10)
+    for rx in _MATERIAL:
+        for m in rx.finditer(text):
+            if _is_hypothetical(text, original, m.start()):
+                continue
+            if _FUTURE_FILL.search(text[m.start("side"): m.start("dir")]):
+                continue  # «ты останешься без фигуры»: what will be, not what is (replay, 2026-10-05)
+            color = _side_color(m["side"], ctx, text[: m.start()])
+            if color is None:
+                continue
+            kind, points = _unit(m["unit"])  # _UNIT here never reads «пешек»: main's _unit and this one agree
+            n = _num(m.groupdict().get("n"))
+            direction = m["dir"].lower().replace("ё", "е")
+            more = any(direction.startswith(w) for w in _MORE)
+            balance = not direction.startswith(("лишн", "без", "extra", "spare"))
+            if not any(_material_holds(b, color, kind, points, n, more, balance) for b in boards):
+                issues.append(f"material {shown}{_imbalance(where)} (not: {m.group(0).strip()})" if shown
+                              else f"material: {_imbalance(where)} (not: {m.group(0).strip()})")
+    for m in _MATERIAL_EQUAL.finditer(text):
+        if _is_hypothetical(text, original, m.start()):
+            continue
+        if _NEGATION.search(text[: m.start()]):
+            continue  # «материал не равен»
+        if not any(_counts(b, chess.WHITE)["nonpawn"] + _counts(b, chess.WHITE)[chess.PAWN]
+                   == _counts(b, chess.BLACK)["nonpawn"] + _counts(b, chess.BLACK)[chess.PAWN]
+                   for b in boards):
+            issues.append(f"material {shown}{_imbalance(where)} (not equal)" if shown
+                          else f"material: {_imbalance(where)} (not equal)")
+    return issues
+
+
+def _material_issues_new(text: str, original: str, ctx: CheckContext) -> list[str]:
     if ctx.current is None or not _MAT_ANY.search(text):
         return []
+    from src.material_frames import mask_idioms
+
+    text = mask_idioms(text)  # «всё равно», «плюс ко всему», «лишний раз»: no material words (verify1102 B1)
     issues = []
     record = None
     told = _told_capture(text, ctx)
@@ -2962,12 +3063,11 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         boards, where, shown = told[1], told[1][0], f"after {told[0]} (the capture this sentence tells as made): "
     else:
         boards, where, shown = ctx.boards[1:] or ctx.boards, ctx.current, ""
-        if ctx.game_moves and not _PAST_BE.search(text) and not _OTHER_GAME.search(original) and \
-                _switch_mode("material_order", ctx) != "off":
+        if ctx.game_moves and not _PAST_BE.search(text) and not _OTHER_GAME.search(original):
             # a game: the material now, not a move ago (prod 29.10), nor another game's — fail-open to every board
-            # (review-wiring2 01.11), and behind material_order's switch (off = main's boards)
+            # (review-wiring2 01.11)
             boards = _fail_open(_now_boards, ctx) or boards
-        elif ctx.game_moves and _PAST_BE.search(text) and _switch_mode("material_order", ctx) != "off":
+        elif ctx.game_moves and _PAST_BE.search(text):
             # «После 3...Nf6 у белых уже был лишний конь» (review-miss2 01.11): the past at a move of the game's record —
             # the board right after it, rebuilt from the record; another past is left as before
             past = _fail_open(_past_ply_board, original, ctx)
@@ -3002,6 +3102,8 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
                 continue  # «ты останешься без фигуры»: what will be, not what is (replay, 2026-10-05)
             if _MAT_NOT_TOTAL.search(_mat_clause(text, m.start(), m.end())):
                 continue  # «на ферзевом фланге у белых на пешку больше»: a majority, not the balance
+            if _mat_cond_after(text, m.end()):
+                continue
             color = _side_color(m["side"], ctx, text[: m.start()])
             if color is None:
                 continue
@@ -3019,10 +3121,10 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     except Exception:  # noqa: BLE001 — fail-open: a broken reading never blocks an answer
         logger.debug("material grammar failed", exc_info=True)
         claims = []
-    for at, color, units, more, mode, span, frame in claims:
+    for at, color, units, more, mode, span, frame, end in claims:
         if at in judged and not (frame in ("extra", "extra_after") and mode in ("count", "balance")):
             continue  # the patterns above read this very claim (only a stricter count of an extra unit is added)
-        if _is_hypothetical(text, original, at, played=record, ctx=ctx):
+        if _is_hypothetical(text, original, at, played=record, ctx=ctx) or _mat_cond_after(text, end):
             continue
         try:
             holds = any(_lead_holds(b, color, units, more, mode, counts_points) for b in boards)
@@ -3037,8 +3139,8 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         if _is_hypothetical(text, original, m.start(), played=record, ctx=ctx):
             continue
         if "?" in text[m.end():] or _NEGATION.search(text[: m.start()]) \
-                or re.match(r"\s*(?:нет|не\s|отсутству)", text[m.end():]):
-            continue  # «материал не равен», «материального равенства нет»
+                or re.match(r"\s*(?:нет|не\s|отсутству)", text[m.end():]) or _mat_cond_after(text, m.end()):
+            continue  # «материал не равен», «материального равенства нет», «материал равный после размена»
         hedged = bool(m["h1"] or m["h2"] or m["h3"])
         if not any(abs(_counts(b, chess.WHITE)["nonpawn"] + _counts(b, chess.WHITE)[chess.PAWN]
                        - _counts(b, chess.BLACK)["nonpawn"] - _counts(b, chess.BLACK)[chess.PAWN]) <= (2 if hedged else 0)
@@ -3048,7 +3150,8 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     for m in _MATERIAL_EQUAL.finditer(text):  # the fixed forms the wider one does not read («лишней пешки ни у кого нет»)
         if any(x.start() <= m.start() < x.end() for x in _MATERIAL_EQUAL_ANY.finditer(text)):
             continue
-        if _is_hypothetical(text, original, m.start(), played=record, ctx=ctx) or _NEGATION.search(text[: m.start()]):
+        if _is_hypothetical(text, original, m.start(), played=record, ctx=ctx) or _NEGATION.search(text[: m.start()]) \
+                or _mat_cond_after(text, m.end()):
             continue
         if not any(_counts(b, chess.WHITE)["nonpawn"] + _counts(b, chess.WHITE)[chess.PAWN]
                    == _counts(b, chess.BLACK)["nonpawn"] + _counts(b, chess.BLACK)[chess.PAWN] for b in boards):
@@ -3057,10 +3160,9 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     read_spans = [(m.start(), m.end()) for rx in _MATERIAL for m in rx.finditer(text)] + \
         [(m.start(), m.end()) for m in _MATERIAL_EQUAL_ANY.finditer(text)] + \
         [(m.start(), m.end()) for m in _MATERIAL_EQUAL.finditer(text)] + \
-        [(at, at + len(span)) for at, _c, _u, _mo, _md, span, _f in claims]
+        [(at, at + len(span)) for at, _c, _u, _mo, _md, span, _f, _e in claims]
     eq_new += _fail_open(_material_frame_issues, text, original, ctx, boards, read_spans, said, record)
-    issues += _detector("material_order", ctx, ordered + eq_new)
-    return issues
+    return issues + ordered + eq_new
 
 
 _PAST_ANCHOR = re.compile(r"(?<![а-яa-z])(?:после|after)\s+(?P<num>\d{1,3})\s?(?P<dots>\.\.\.|…|\.)\s?"
@@ -3116,7 +3218,8 @@ def _material_frame_issues(text: str, original: str, ctx: CheckContext, boards: 
         if any(a < c.end and c.at < b for a, b in read_spans):
             continue  # a pattern above read this clause
         anchored = len(boards) == 1 and boards[0] is not ctx.current and bool(_PAST_ANCHOR.search(_to_san(original)[0]))
-        if _is_hypothetical(text, original, min(c.at, max(0, len(text) - 1)), played=record, ctx=ctx) or \
+        # a condition or a line before the claim itself, not only before its clause («после других ходов у чёрных …»)
+        if _is_hypothetical(text, original, min(max(c.at, c.pos), max(0, len(text) - 1)), played=record, ctx=ctx) or \
                 (_PAST_BE.search(text[c.at:c.end]) and not anchored):
             continue
         sans = [m["san"].rstrip("+#") for m in _MOVE.finditer(_to_san(text[c.at:c.end])[0])]
@@ -3156,7 +3259,10 @@ def _material_frame_issues(text: str, original: str, ctx: CheckContext, boards: 
             holds = any(d * sign > 0 for d in diffs)
         else:
             tol = 0 if c.points <= 2 else 1  # pawns are counted exactly; a piece's worth within a pawn
-            holds = any(abs(d * sign - c.points) <= tol for d in diffs)
+            if c.atleast:  # «лишние слон, конь и пешка»: those extras at least — more may be left unnamed
+                holds = any(d * sign >= c.points - tol for d in diffs)
+            else:
+                holds = any(abs(d * sign - c.points) <= tol for d in diffs)
         if not holds:
             out.append(f"{said(c.span)} (not: {c.span})")
     return out
@@ -3864,6 +3970,24 @@ _PROPOSES = re.compile(
     r"i\s+would\s+(?:play|go|put|take)|you\s+(?:should|could|can|want\s+to|need\s+to|have\s+to)|consider|"
     r"recommend|suggest|strong(?:est)?\s+(?:is|move)|the\s+(?:right|correct|key|good|natural|only)\s+move|"
     r"the\s+move\s+(?:is|here\s+is))(?![а-яa-z])", re.IGNORECASE)
+# main's proposal words (02bb40d0), for structure_read 'off' and the lesson tutor (verify1102 B3)
+_PROPOSES_V1029 = re.compile(
+    # «Спокойнее всего уйти слоном — например, сыграть Bb5» (prod 09.10: Bb5 hangs the bishop) — not «если сыграть …»
+    r"(?<![а-яa-z])(?:(?<!если\s)(?<!если\sбы\s)(?:например,?\s+)?сыграть|спокойнее(?:\s+всего)?|сыграй(?:те)?|играй(?:те)?|поставь(?:те)?|ставь(?:те)?|пойди(?:те)?|ходи(?:те)?|бей(?:те)?|"
+    r"бери(?:те)?|возьми(?:те)?|забирай(?:те)?|сыграем|берём|берем|ставим|идём|идем|"
+    r"лучше(?:\s+всего)?|сильнее(?:\s+всего)?|правильно|точнее|надо|нужно|стоит|можно|рекомендую|советую|предлагаю|"
+    r"попробуй(?:те)?|я\s+бы\s+(?:сыграл\w*|поставил\w*|пошл\w+|взял\w*|отв[её]л\w*|ув[её]л\w*)|хороший\s+ход|лучший\s+ход|сильный\s+ход|"
+    r"отвести|отведи(?:те)?|увести|уведи(?:те)?|перевести|переведи(?:те)?|разменять|разменяй(?:те)?|"
+    r"самое\s+(?:упорное|точное|сильное|над[её]жное|простое|естественное)|единственн\w+\s+(?:ход|шанс|защита|спасение)|"
+    r"самый\s+\w+\s+ход|ход\s+(?:здесь|тут|сейчас)\s*[—–:-]|"
+    r"(?:мой|наш)\s+совет\s*[—–:-]?|совет\w*\s*[—–:]|рекомендаци\w+\s*[—–:]|напрашивается|просится|"
+    r"my\s+(?:advice|suggestion|pick|choice)\s*[—–:-]?|i\s+suggest|i'?d\s+suggest|i'?d\s+recommend|the\s+move\s+to\s+play|go\s+with|"
+    r"верный\s+ход|правильный\s+ход|идея\s*[—–:-]|план\s*[—–:-]|решение\s*[—–:-]|"
+    r"play|try|go\s+for|put|place|take|grab|capture|push|advance|best\s+is|the\s+best\s+(?:move|is)|i'?d\s+(?:play|go|put|take)|"
+    r"i\s+would\s+(?:play|go|put|take)|you\s+(?:should|could|can|want\s+to|need\s+to|have\s+to)|consider|"
+    r"recommend|suggest|strong(?:est)?\s+(?:is|move)|the\s+(?:right|correct|key|good|natural|only)\s+move|"
+    r"the\s+move\s+(?:is|here\s+is))(?![а-яa-z])", re.IGNORECASE)
+
 # Plan 31.10 C1a (propose_vocab): a closed list of imperatives that hand the student moves — «Пока же просто
 # развивайся: Qe2, Be3» (prod castle-00 29.10: Qe2 hangs the queen to the c4 bishop) — only when «:» or «—» and a
 # move follow at once. No general imperative: that was measured at 3 wrong engine flags in 17.
@@ -4243,6 +4367,13 @@ def _lesson(ctx) -> bool:
     return getattr(ctx, "relation_surface", "text") == "lesson"
 
 
+def _main_reading(ctx) -> bool:
+    """main's reading (31.10) of proposals, recapture pairs and written lines: F5 (01.11) reads them by structure, and
+    its switch structure_read (verify1102 B3) brings main's back — 'off' everywhere, and always in the lesson tutor
+    (src/config.detector_mode gives the lesson 'off'); 'shadow' reads as main and records what F5 proposes otherwise."""
+    return _lesson(ctx) or _switch_mode("structure_read", ctx) != "on"
+
+
 _PROPOSAL_END = re.compile(
     r"(?<![\d.])\.(?!\.)(?!\s?(?:[KQRBNO]|[a-h][1-8x]))|[;!?\n]|"  # not the dots of «...Nf6», «3...Nf6» (F5 01.11)
     r",\s*(?:но|а|если|когда|после|пока|потому|вместо|but|if|when|after|instead|rather|because)(?![а-яa-z])|"
@@ -4391,9 +4522,24 @@ def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]
 
 
 def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]:
+    """The proposal reading as structure_read's switch says (verify1102 B3): 'on' the reading widened since main, 'off'
+    main's (the lesson tutor always), 'shadow' main's, with the widened one's other answer recorded."""
     if ctx is None or ctx.current is None or not sentence:
         return None
-    lesson = _lesson(ctx)
+    mode = "off" if _lesson(ctx) else _switch_mode("structure_read", ctx)
+    if mode == "on":
+        return _proposed_move_read(sentence, ctx, False)
+    got = _proposed_move_read(sentence, ctx, True)
+    if mode == "shadow":
+        new = _fail_open(_proposed_move_read, sentence, ctx, False) or None
+        if (new or (None, None, None))[2] != (got or (None, None, None))[2]:
+            record_shadow(ctx, "structure_read", [f"the widened reading proposes {new[2] if new else 'nothing'}, "
+                                                f"main's {got[2] if got else 'nothing'}"])
+    return got
+
+
+def _proposed_move_read(sentence: str, ctx: CheckContext, lesson: bool) -> Optional[tuple]:
+    """*lesson*: main's proposal reading of 31.10 (the lesson tutor's, and structure_read 'off')."""
     text = sentence.replace("ё", "е")
     if _DENIES.search(text):
         return None
@@ -4408,7 +4554,7 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
         except ValueError:
             break
         return ctx.current, move, ctx.current.san(move)
-    starts = list(_PROPOSES.finditer(text))
+    starts = list((_PROPOSES_V1029 if lesson else _PROPOSES).finditer(text))
     vocab = list(_PROPOSE_VOCAB.finditer(text))
     if vocab:
         from src.config import detector_mode

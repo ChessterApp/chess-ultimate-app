@@ -440,8 +440,8 @@ COACH_MCP_ENABLED = _env_flag("COACH_MCP_ENABLED", False)
 # /learn lesson tutor gets none of them (the team's feature, Асан 19.10); on a game move comment the relation detectors
 # are at most shadow, the others run as in a chat answer.
 DETECTOR_DEFAULTS = {
-    # WP-0 (the replay warms the book index; production builds it in the warm-up)
-    "book_wait": "on",
+    # WP-0's "book_wait" is no detector (verify1102 B3): nothing in Hermes waits for the book index — the replay warms it
+    # as production's warm-up does (src/server._warm_up, as on main), so a switch for it would switch nothing.
     # P1 game record
     "recap_scope": "on", "material_order": "on", "student_capture": "on", "gave_up": "on", "block_kind": "on",
     "free_capture": "on", "propose_vocab": "on", "plan_place": "on", "start_scene": "on",
@@ -469,6 +469,10 @@ DETECTOR_DEFAULTS = {
     "tablebase_keeps": "on",
     # a game move comment's context carries the game's record (fix 01.11 F7); off = main's comment context
     "comment_record": "on",
+    # F5's structure readings (verify1102 B3), which the lesson tutor never had: proposals (_PROPOSES' new words
+    # «играем», «выбери», the stop at «3...Nf6» dots, «не давая …», «Kd2?», «…, но только после f4»), a recapture pair
+    # judged where its line stands, a written line's quoted move and next ply; off = main's readings
+    "structure_read": "on",
 }
 RELATION_DETECTORS = frozenset({
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",
