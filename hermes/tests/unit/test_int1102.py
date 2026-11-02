@@ -144,3 +144,38 @@ def test_the_russian_subject_after_the_verb_is_still_read():
     assert ac.check_sentence("Поле c3 атакует конь e4.", ctx) == []
     ctx = ac.CheckContext.from_fens([fen], student_color=chess.WHITE)
     assert ac.check_sentence("Поле h6 атакует конь e4.", ctx) != []
+
+
+# ── a square glued to a line noun names the line ────────────────────────────────────────────────────────────────
+# With K4's patch a piece «с X» that could not have made the told move is read as a piece standing on X; «слон с
+# f4-диагонали бьёт по королю» (the corpus's Immortal Game, 23.Be7#) then became "no bishop on f4". «f4-диагонали»,
+# «h5-e8-диагонали», «h-вертикали» name a line, not the piece's square.
+# 1.e4 e5 2.Nf3 Nc6 3.Bc4 Nf6 4.Ng5 h6: 5.Bxf7+ is the told move; the bishop comes from c4
+FRIED = _board("e4 e5 Nf3 Nc6 Bc4 Nf6 Ng5 h6")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence", [
+    "Сильнее всего 5.Bxf7+: слон с d3-диагонали бьёт по королю на e8.",
+    "Сильнее всего 5.Bxf7+: слон с h5-e8-диагонали бьёт по королю на e8.",
+    "Сильнее всего 5.Bxf7+: слон с d3 – диагонали бьёт по королю на e8.",
+])
+def test_a_square_naming_a_line_is_not_where_the_piece_stands(sentence):
+    assert _check(sentence, FRIED) == []
+
+
+@pytest.mark.unit
+def test_a_piece_from_a_square_is_still_read_without_a_line_noun():
+    # the bishop did not come from d3 and no bishop stands there after the move: still judged
+    assert any("d3" in i for i in _check("Сильнее всего 5.Bxf7+: слон с d3 бьёт по королю на e8.", FRIED))
+    # the knight from g5 stands on g5 and does not attack h8: still judged
+    assert any("h8" in i for i in _check("Сильнее всего 5.Bxf7+: конь с g5 бьёт по ладье h8.", FRIED))
+
+
+@pytest.mark.unit
+def test_tokens_of_a_line_square():
+    from src.claim_grammar import tokenize
+    toks = tokenize("слон с f4-диагонали бьёт по королю на d8")
+    piece = next(t for t in toks if t.kind == "PIECE" and t.text.startswith("слон"))
+    assert piece.sq is None
+    assert any(t.kind == "SQ" and t.route and chess.square_name(t.sq) == "f4" for t in toks)

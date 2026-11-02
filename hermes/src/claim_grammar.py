@@ -253,6 +253,10 @@ _THERE = re.compile(W + r"(?:туда|туда\s+же|(?:эт[оуи]|этот|�
                     r"точк[уаи]|слабост[ьи]))" + E)
 # a square that is a route, not a target: «через f2», «ходом d3», «по диагонали a1–h8»
 _ROUTE = re.compile(W + r"(?:через|ходом|ход|диагонал\w*|линии|линию|вертикал\w*|горизонтал\w*|via|through)\s*$")
+# …and a square that names a line it lies on: «слон с f4-диагонали», «по h1-a8-диагонали» (integration 02.11: «слон с
+# f4-диагонали бьёт по королю» is not a bishop standing on f4)
+_LINE_NOUN_AFTER = r"\s*[-–—]\s*(?:[a-h][1-8]\s*[-–—]\s*)?(?:диагонал|вертикал|горизонтал|лини)"
+_LINE_AFTER = re.compile(_LINE_NOUN_AFTER, re.IGNORECASE)
 _MOVE = re.compile(r"(?<![A-Za-z0-9])(?:(?P<num>\d{1,3})\s?(?P<dots>\.\.\.|…|\.)\s?|(?P<bdots>\.\.\.|…))?"
                    r"(?P<san>[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|[a-h]x[a-h][1-8](?:=[QRBN])?|O-O-O|O-O|0-0-0|0-0|"
                    r"(?P<pfrom>[a-h][1-8])\s?[-–]\s?(?P<pto>[a-h][1-8])|[a-h][1-8](?:=[QRBN])?)(?P<check>[+#]?)"
@@ -430,7 +434,7 @@ def tokenize(t: str) -> list:
             tk.sq = chess.parse_square(san)
             tk.move_cue = bool(_MOVE_CUE.search(before)) or not low[:m.start()].strip(" «\"") or (
                 bool(_PLAYS_CUE.search(before)) and any(o.kind == "MOVE" for o in toks))
-            tk.route = bool(_ROUTE.search(before))
+            tk.route = bool(_ROUTE.search(before)) or bool(_LINE_AFTER.match(t, m.end()))
             if re.search(r"(?:^|[.;:!?(—–,]\s*)(?:(?:своим|последним|этим|первым|следующим|вторым)\s+)?ходом\s*$",
                          low[:m.start()]):
                 tk.move_cue, tk.route = True, False  # «Ходом d4 ты отгоняешь коня»: a move, not a route
@@ -519,9 +523,10 @@ def tokenize(t: str) -> list:
             continue
         # «конь на f6», «конь f3», «пешку d4», «ладья с d8»;  «на c1 (всё ещё) сидит слон»
         m = re.match(r"\s*(?:(?:белых|черных|соперника|противника)\s+(?=на\s))?(?:(?P<prep>на|с|со|из|on|at|from)\s+)?"
-                     r"(?:пол[еяю]\s+)?([a-h][1-8])(?![0-9])", low[tk.end:tk.end + 28]) or \
+                     r"(?:пол[еяю]\s+)?([a-h][1-8])(?![0-9])(?!" + _LINE_NOUN_AFTER + ")", low[tk.end:tk.end + 40]) or \
             re.match(r"\s+(?:уже\s+|все\s+еще\s+|теперь\s+)?(?:забрал\w*|залез\w*|стоит|стоят|находится|оказал\w*|сидит|"
-                     r"расположен\w*|stands|sits|is)\s+(?:on\s+|на\s+)([a-h][1-8])(?![0-9])", low[tk.end:tk.end + 40])
+                     r"расположен\w*|stands|sits|is)\s+(?:on\s+|на\s+)([a-h][1-8])(?![0-9])(?!" + _LINE_NOUN_AFTER + ")",
+                     low[tk.end:tk.end + 52])
         if m and m.groupdict().get("prep") in ("на", "on") and "A" in tk.cases and \
                 re.search(W + r"(?:нацел|направ|навел|наводит)\w*\s+(?:\w+\s+)?$", low[max(0, tk.start - 30):tk.start]):
             m = None  # «нацелил слона на f7»: the piece aimed and its target, not the piece on f7
