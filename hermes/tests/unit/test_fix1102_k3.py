@@ -206,3 +206,34 @@ class TestTheForcedReplyIsJudgedAtAFixedDepthOnly:
         issue = verify_forced_reply(claim, 300, True)
         assert timed == [] and rows_seen == [(None, hypothetical.FORCED_CONFIRM_DEPTH)]
         assert issue and "Bc5 is about as good" in issue
+
+
+class TestTheMoveTheStudentCouldHavePlayed:
+    """«Можно, но сильнее Bb5+» right after the student's move was played: also read on the board the student moved on."""
+
+    MOVES = ["e4", "c5", "Nf3", "d6", "c3", "Nf6"]  # the student (White) has just played c3; the engine answered Nf6
+
+    def _ctx(self, moved_now=True):
+        board = chess.Board()
+        for san in self.MOVES:
+            board.push_san(san)
+        ctx = CheckContext.from_fens([board.fen()], student_color=chess.WHITE)
+        ctx.game_moves = list(self.MOVES)
+        ctx.student_moved_now = moved_now
+        return ctx
+
+    def test_a_comparison_reads_the_board_before_the_students_move(self):
+        from src.answer_check import board_before_students_move
+
+        got = board_before_students_move(self._ctx(), "Можно, но сильнее Bb5+.", "Bb5+")
+        assert got and got[0].fen() == _fen("e4", "c5", "Nf3", "d6") and got[2] == "Bb5+"
+
+    @pytest.mark.parametrize("moved_now, sentence, san", [
+        (False, "Можно, но сильнее Bb5+.", "Bb5+"),   # no move of the student this turn
+        (True, "Сыграй Bb5+.", "Bb5+"),               # no comparison: the move now
+        (True, "Можно, но сильнее Qb3.", "Qb3"),       # not a move of that board (c2 was still in the way)
+    ])
+    def test_otherwise_there_is_no_other_board(self, moved_now, sentence, san):
+        from src.answer_check import board_before_students_move
+
+        assert board_before_students_move(self._ctx(moved_now), sentence, san) is None

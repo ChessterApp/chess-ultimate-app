@@ -383,6 +383,7 @@ class CheckContext:
     # The moves of the lines and games given to the turn, as (the position's key, the move's UCI): «Здесь ты играешь
     # Qxd5+» in a review tells the game's own next move, not advice (review 30.10).
     line_next: set = field(default_factory=set)
+    student_moved_now: bool = False  # the turn's pre-step played the student's move in the game (K3 02.11)
     # Outcome claims at the end of a line written in a sentence («после Kd5 a6 Kc6 — ничья») whose position the
     # tablebase has not been asked about yet: the engine stage asks it (src/endgame_claims.pop_pending, 30.10).
     outcome_pending: dict = field(default_factory=dict)
@@ -4529,6 +4530,38 @@ def _past_praise(tail: str, praise) -> bool:
         start -= 1
     word = tail[start:end].lower()
     return bool(re.search(r"[а-я](?:л|ла|ло|ли|лся|лась|лось|лись)$", word))
+
+
+_COMPARES = re.compile(r"(?<![а-яa-z])(?:сильнее|лучше|точнее|над[её]жнее|правильнее|предпочтительн\w*|better|stronger)(?![а-яa-z])",
+                       re.IGNORECASE)
+
+
+def board_before_students_move(ctx: Optional[CheckContext], sentence: str, san: str) -> Optional[tuple]:
+    """(board, move, san) of *san* on the board before the student's move this turn played, when *sentence* compares
+    («Можно, но сильнее d5», "d5 was stronger") and the move is legal there: the advice may be the move the student
+    could have played instead (K3 02.11, fresh-fp f10: judged only after the engine's reply, «сильнее d5» was cut)."""
+    if ctx is None or not getattr(ctx, "student_moved_now", False) or not _COMPARES.search(sentence or ""):
+        return None
+    moves = list(getattr(ctx, "game_moves", None) or [])
+    if ctx.student_color is None or not moves:
+        return None
+    try:
+        board = chess.Board()
+        for m in moves:
+            board.push_san(m)
+        # back to the board the student moved on: one ply when it is the engine's turn, two after its reply
+        back = 1 if board.turn != ctx.student_color else 2
+        if len(moves) < back:
+            return None
+        for _ in range(back):
+            board.pop()
+        if board.turn != ctx.student_color:
+            return None
+        before = chess.Board(board.fen())
+        move = _parse_here(before, san)
+        return before, move, before.san(move)
+    except ValueError:
+        return None
 
 
 def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]:
