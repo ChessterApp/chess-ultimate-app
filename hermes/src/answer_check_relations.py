@@ -179,16 +179,17 @@ MAX_RECORDED = 64  # sentences of a turn whose verdicts are kept for the rewrite
 
 
 def _record_verdicts(text: str, judged: list, ctx: Any) -> None:
-    """Keep the verdict on every claim of the sentence the check is reading (``ctx.sentence_now``), with the text the
-    claims' spans are in: a rewritten sentence is shown only when its board words lie in claims found true
-    (src/rewrite_proof.prove, fix1102 K6). Never raises."""
+    """Keep the verdict on every claim of *text*, by that text (the claims' spans are in it): a rewritten sentence is
+    shown only when its board words lie in claims found true (src/rewrite_proof.prove, fix1102 K6). Never raises."""
+    if not (text or "").strip():
+        return
     try:
-        sentence = getattr(ctx, "sentence_now", None) or text
         rec = getattr(ctx, "relation_verdicts", None)
         if rec is None:
             rec = {}
             ctx.relation_verdicts = rec
-        rec[sentence] = (text, tuple(judged))
+        rec.pop(text, None)  # the latest reading of a text is kept, and kept last
+        rec[text] = (text, tuple(judged))
         while len(rec) > MAX_RECORDED:
             rec.pop(next(iter(rec)))
     except Exception:  # noqa: BLE001

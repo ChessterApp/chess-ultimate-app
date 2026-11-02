@@ -11,6 +11,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+import chess
 from fastapi.testclient import TestClient
 
 from src.answer_check import CheckContext, check_sentence
@@ -128,6 +129,28 @@ class TestProof:
         ctx = _ctx(RUY, RUY_LINE)
         assert prove("После 6.Re1 ладья смотрит на линию e.", ctx).status == "unproven"
 
+    def test_a_pawn_move_written_as_its_square(self):
+        assert _proof("Играй d3, укрепляя центр.", lines=["d3", "b5", "Bb3"]).status == "proven"
+        assert _proof("Играй c3, укрепляя центр.", lines=["d3", "b5", "Bb3"]).status == "unproven"
+
+    @pytest.mark.parametrize("sentence, status", [
+        ("Ты сыграл 2.Nf3, а я ответил 2...d6.", "proven"),
+        ("Ты сыграл Кf3 — конь с g1 вышел на f3.", "proven"),
+        ("Ты сыграл 3.Nf3.", "unproven"),  # the record has it as the second move
+        ("Я ответил 2...Nc6.", "unproven"),  # not in the record
+        ("Сыграй Nf3.", "unproven"),  # advice, not a move told as made
+        ("Ты сыграл Nf3 с шахом.", "unproven"),  # it gave no check
+    ])
+    def test_a_move_told_as_made_is_proven_by_the_game_record(self, sentence, status):
+        moves = ["e4", "c5", "Nf3", "d6"]
+        board = chess.Board()
+        for san in moves:
+            board.push_san(san)
+        ctx = CheckContext.from_fens([board.fen()])
+        ctx.game_moves = list(moves)
+        check_sentence(sentence, ctx)
+        assert prove(sentence, ctx).status == status
+
     def test_no_engine_line_proves_no_move(self):
         assert _proof("Лучше всего 5.O-O: король уходит в безопасность.", lines=None).status == "unproven"
 
@@ -216,6 +239,18 @@ class TestTurn:
         draft = ["Хороший вопрос. ", WRONG, "Конь f3 нападает на пешку e5. ", "Слон a4 бьёт пешку h7."]
         text, _ = self._turn(draft, "Конь вынужден уйти на g5 с шахом.")
         assert text == "Хороший вопрос. Конь f3 нападает на пешку e5."
+
+    def test_the_draft_checked_with_the_cut_sentence_goes_on_too(self):
+        # one delta: the gate checks the sentence after the cut one in the same batch, before the rewrite starts
+        text, _ = self._turn(["Хороший вопрос. " + WRONG + "Конь f3 нападает на пешку e5. Спокойно рокируйся."],
+                             "Конь вынужден уйти на g5 с шахом.")
+        assert text == "Хороший вопрос. Конь f3 нападает на пешку e5. Спокойно рокируйся."
+
+    def test_a_draft_in_the_wrong_language_does_not_go_on(self):
+        draft = ["Хороший вопрос. ", "The bishop on a4 pins the knight on c6 to the king. ", "Then you castle. Play d3."]
+        text, seen = self._turn(draft, "Конь вынужден уйти на g5 с шахом.")
+        assert seen["calls"] == 1
+        assert text == "Хороший вопрос."  # no English fragment, no unproven rewrite
 
     def test_never_an_empty_answer(self):
         text, _ = self._turn([WRONG], "Конь вынужден уйти на g5 с шахом.")

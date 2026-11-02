@@ -81,16 +81,23 @@ def well_formed(issues: Iterable[str]) -> list:
 
 fix_issues = well_formed  # what the rewrite is given
 
+
+def ends_the_draft(issues: Iterable[str]) -> bool:
+    """The cut sentence's issues condemn the rest of the draft, not the sentence alone: an answer in the wrong language
+    («…; the whole answer must be in Russian») goes on in it — its short fragments («Play e4.») are too short for the
+    language check to judge one by one. An abandoned rewrite then ends the answer instead of resuming the draft."""
+    return any(isinstance(i, str) and "the whole answer must be in" in i for i in issues or ())
+
 # ── board words of a sentence ───────────────────────────────────────────────────────────────────────────────────
 _CYR_FILES = {"а": "a", "с": "c", "е": "e", "б": "b", "д": "d", "ф": "f", "г": "g", "х": "h"}
-_EMPHASIS = re.compile(r"\*{1,3}|(?<![A-Za-zА-Яа-яЁё0-9])__|__(?![A-Za-zА-Яа-яЁё0-9])")
-_WS_RUN = re.compile(r"\s{2,}")
 
 
 def normalized(sentence: str) -> str:
-    """The sentence as the check reads it (src/answer_check._check_sentence): no emphasis, «ё» as «е», one gap
-    between words, Cyrillic files as Latin."""
-    text = _EMPHASIS.sub("", sentence or "").replace("ё", "е").replace("Ё", "Е")
+    """The sentence as the check reads it (src/answer_check._check_sentence, the same steps): no emphasis, «ё» as «е»,
+    one gap between words, Cyrillic files as Latin — the text the relation checker's claim spans are in."""
+    from src.answer_check import _EMPHASIS, _WS_RUN
+
+    text = _EMPHASIS.sub("", sentence or "").replace("ё", "е")
     text = _WS_RUN.sub(lambda m: "\n" if "\n" in m.group(0) else " ", text)
     return re.sub(r"(?<![а-яА-Яa-zA-Z])([асебдфгхАСЕБДФГХ])(?=[1-8](?![0-9]))",
                   lambda m: _CYR_FILES[m.group(1).lower()], text)
@@ -231,6 +238,50 @@ def engine_moves(sentence_moves: list, ctx: Any) -> Optional[list]:
     return None
 
 
+# A move told as already made: «ты сыграл Кc6», «я ответил 3.Кc3», «мой последний ход — 1...Кf6».
+_TOLD = re.compile(r"(?<![\w-])(?:сыграл\w*|ответил\w*|пош[её]л|пошла|пошли|сходил\w*|вышел|вышла|встал\w*|взял\w*|забрал\w*"
+                   r"|побил\w*|сделал\w*|последни\w+\s+ход\w*|played|answered|replied|moved|took|captured|last\s+move)"
+                   r"(?![\w-])", re.IGNORECASE)
+
+
+def record_moves(sentence_moves: list, ctx: Any) -> Optional[list]:
+    """The moves of *sentence_moves* (move anchors, in order) as plies of the game on the board (``ctx.game_moves``, from
+    the start position): [(board before, move, san as played)], or None when one is not in the record — with its
+    number, at that very ply; with «+»/«#», giving it."""
+    record = list(getattr(ctx, "game_moves", None) or [])
+    if not record or not sentence_moves:
+        return None
+    board = chess.Board()
+    plies = []
+    for raw in record:
+        try:
+            move = board.parse_san(str(raw))
+        except ValueError:
+            try:
+                move = chess.Move.from_uci(str(raw))
+            except ValueError:
+                break
+            if move not in board.legal_moves:
+                break
+        plies.append((len(plies), board.copy(stack=False), move, board.san(move)))
+        board.push(move)
+    out = []
+    for a in sentence_moves:
+        found = [p for p in plies if _bare(p[3]) == _bare(a.san)]
+        num = re.match(r"\s*(\d{1,3})\s?(\.\.\.|…|\.)", a.text)
+        if num:
+            ply = 2 * (int(num.group(1)) - 1) + (1 if num.group(2) in ("...", "…") else 0)
+            found = [p for p in found if p[0] == ply]
+        if a.san.endswith("#"):
+            found = [p for p in found if p[3].endswith("#")]
+        elif a.san.endswith("+"):
+            found = [p for p in found if p[3].endswith(("+", "#"))]
+        if not found:
+            return None
+        out.append(found[-1][1:])
+    return out
+
+
 # ── the proof ───────────────────────────────────────────────────────────────────────────────────────────────────
 @dataclass
 class Proof:
@@ -240,11 +291,13 @@ class Proof:
 
 
 def _record(sentence: str, ctx: Any) -> tuple:
-    """(the text the relation checker read, [(claim, status)]) for *sentence*, as it recorded them while checking it."""
-    rec = (getattr(ctx, "relation_verdicts", None) or {}).get(sentence)
-    if rec:
+    """(the text the relation checker read, [(claim, status)]) for *sentence*, as it recorded them while checking it —
+    by that very text: a record of another text (or none) leaves the sentence's words with no claim to lie in."""
+    text = normalized(sentence)
+    rec = (getattr(ctx, "relation_verdicts", None) or {}).get(text)
+    if rec and rec[0] == text:
         return rec
-    return normalized(sentence), ()
+    return text, ()
 
 
 def prove(sentence: str, ctx: Any) -> Proof:
@@ -286,6 +339,13 @@ def _prove(sentence: str, ctx: Any) -> Proof:
                 claim_pieces.add(chess.Piece.from_symbol(ref.piece).piece_type)
     moves = [a for a in words if a.kind == "move"]
     played = engine_moves([a.san for a in moves], ctx) if moves else None
+    if not moves:
+        # «Играй e4»: a pawn move written as its square — the engine's first move when its line starts with it
+        first = next((a for a in words if a.kind == "square"), None)
+        played = engine_moves([first.text], ctx) if first is not None else None
+    elif played is None and _TOLD.search(text):
+        # moves told as made: the game's own record proves them (and what they moved, took, gave)
+        played = record_moves(moves, ctx)
     line_squares: set = set()
     line_pieces: set = set()
     gives = {"check": False, "mate": False}

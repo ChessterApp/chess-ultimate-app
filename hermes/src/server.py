@@ -2723,7 +2723,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # rewrite of the rest of the answer after a wrong sentence.
         from src.answer_check import (PROMISE_ISSUE, CheckContext, SentenceGate, chess_terms, fix_messages, proposed_move,
                                       strip_leaks)
-        from src.rewrite_proof import fix_issues, prove, restore, snapshot, well_formed
+        from src.rewrite_proof import ends_the_draft, fix_issues, prove, restore, snapshot, well_formed
 
         # Every board of the session counts (a capture named for the second
         # board was cut as impossible on the first, 2026-10-02), and in a game
@@ -2801,8 +2801,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # The rewrite after a wrong sentence (fix1102 K6): ``mode`` None while it is undecided, 'rewrite' once its first
         # sentence with a board word is proven (it then stands in for the rest of the draft), 'draft' once it is
         # abandoned — a wrong or unproven first such sentence, none at all, a failed call: the draft then goes on after
-        # the cut sentence. Until it is decided the draft's text is held (``draft_pairs`` checked, ``draft_raw`` not
-        # yet), and the rewrite's neutral sentences too (``held_fix``). ``pending``: the call has not returned.
+        # the cut sentence — and 'end' when it is abandoned and the draft is in the wrong language (the answer ends).
+        # Until it is decided the draft's text is held (``draft_pairs`` checked, ``draft_raw`` not yet), and the
+        # rewrite's neutral sentences too (``held_fix``). ``pending``: the call has not returned.
         fix = {"running": False, "done": False, "sentence": None, "issues": [], "dropped": [],
                "reply": None, "started": None, "first_ms": None, "emitted": False,
                "shown_prefix": "", "head": "", "mode": None, "pending": False, "held_fix": [], "draft_pairs": [],
@@ -3292,6 +3293,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             """The rewrite is abandoned: the draft goes on after the cut sentence — the sentences already checked, then
             the text held while the rewrite ran, then (the draft over) its last sentence. Every sentence is checked as
             usual; the cut one is simply left out."""
+            if ends_the_draft(fix["issues"]):
+                # The draft is in the wrong language: it does not go on, the answer ends here (or with the plain line).
+                fix.update(running=False, done=True, mode="end", abandon=False, held_fix=[], draft_pairs=[],
+                           draft_raw=[], main_flush=False)
+                return []
             fix.update(running=False, done=True, mode="draft", abandon=False, held_fix=[])
             fix["after_drop"] = True
             restore(check_ctx, fix.pop("ctx", None))  # the rewrite's sentences were never shown
@@ -3588,7 +3594,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     result_text = payload
                 elif kind == "error":
                     error_exc = payload
-            if fix["mode"] == "draft" and error_exc is None and not "".join(answer_parts).strip():
+            if fix["mode"] in ("draft", "end") and error_exc is None and not "".join(answer_parts).strip():
                 # The rewrite was abandoned and nothing of the draft is left to show: a plain line that the coach will
                 # not guess — never an empty answer (a lone «давай разберёмся» of the rewrite would promise what never comes).
                 for frame in _answer_frames(_CHECK_EMPTY_TEXT.get(turn_language, _CHECK_EMPTY_TEXT["ru"])):
