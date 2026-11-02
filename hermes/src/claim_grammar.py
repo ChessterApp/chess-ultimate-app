@@ -1564,6 +1564,27 @@ def _there_square(toks, low, at, agent, focus):
 
 
 # ───────────────────────────── position (textual) ─────────────────────────────
+def _could_go(ptype: int, frm: int, to: int) -> bool:
+    """A piece of *ptype* could go from *frm* to *to* in one move on some board (its own geometry, nothing in the way):
+    «чёрный конь с f6» did not make Nc3 (castle-rights, live 02.11: "after 5.Nc3: the piece on c3 is White's")."""
+    if frm == to:
+        return False
+    df, dr = abs(chess.square_file(frm) - chess.square_file(to)), abs(chess.square_rank(frm) - chess.square_rank(to))
+    if ptype == chess.KNIGHT:
+        return {df, dr} == {1, 2}
+    if ptype == chess.BISHOP:
+        return df == dr
+    if ptype == chess.ROOK:
+        return df == 0 or dr == 0
+    if ptype == chess.QUEEN:
+        return df == dr or df == 0 or dr == 0
+    if ptype == chess.KING:
+        return max(df, dr) == 1 or (dr == 0 and df == 2)
+    if ptype == chess.PAWN:
+        return df <= 1 and 1 <= dr <= 2
+    return True
+
+
 def _move_ref(tok: Tok) -> MoveRef:
     """A MOVE token as a MoveRef: SAN, a move told in words (from–to, or a piece to a square), castling."""
     san = tok.san
@@ -1911,7 +1932,8 @@ def _convert(c: _Raw, pos: Pos, told_capture) -> Optional[Claim]:
     if subj is not None and subj.what == "piece" and (subj.from_sq or subj.sq is None) and subj.ptype and pos.at in ("after", "then"):
         # «Первый ход — Сb7: белый слон с g2 бьёт по ладье a8»: the piece «с g2» made the move the sentence told
         mine = [m for m in pos.moves if m.piece == _LETTER[subj.ptype] and m.to and not m.castle
-                and (m.frm is None or subj.sq is None or m.frm == chess.square_name(subj.sq))]
+                and (m.frm is None or subj.sq is None or m.frm == chess.square_name(subj.sq))
+                and (m.frm is not None or subj.sq is None or _could_go(subj.ptype, subj.sq, chess.parse_square(m.to)))]
         other = {m.to for p in pos.alts for m in p.moves if m.piece == _LETTER[subj.ptype]} - {m.to for m in mine}
         targets = {chess.square_name(o.sq) for o in objs if o is not None and o.sq is not None}
         # (not when a reading without that move stands beside it — «Ферзь бьёт пешку d6 и давит на f7»: «бьёт» is
