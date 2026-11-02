@@ -1721,6 +1721,22 @@ _PLAYED_HERE = re.compile(r"(?<![а-яё])(?:сыграл\w*|ответил\w*|�
                           r"у\s+нас|у\s+тебя|у\s+меня|в\s+нашей|в\s+(?:этой\s+)?партии|на\s+доске)(?![а-яё])")
 
 
+# «вариант четырёх коней», «система с g3», "the Four Knights Variation": the words right before an opening name that make
+# it the title of a variation inside another opening, not the opening itself.
+_VARIATION_WORD = re.compile(r"(?<![а-яa-z])(?:вариант\w*|систем\w*|ветк\w*|variation|line|system)\s+(?:[а-яa-z]+\s+)?$")
+_NAME_SUFFIX = re.compile(r"\s+(?:game|opening|defen[cs]e|gambit|attack|system|variation|counterattack)$", re.IGNORECASE)
+
+
+def _names_variation_of(name: str, real: str) -> bool:
+    """The core of the book name *name* («Four Knights» of the Four Knights Game) is the title of a variation of the
+    board's own line *real* («English Opening: King's English Variation, Four Knights Variation»)."""
+    core = _NAME_SUFFIX.sub("", name.split(":", 1)[0].strip()).strip().lower()
+    if not core or ":" not in real:
+        return False
+    parts = [p.strip().lower() for p in re.split(r"[:,]", real.split(":", 1)[1])]
+    return any(p == core or p.startswith(core + " ") for p in parts)
+
+
 def _opening_identity_issues(text: str, ctx: Optional[CheckContext]) -> list[str]:
     """«Это защита Каро-Канн, вариант Атака Панова» on the Advance Variation (stand theory run 28.10), «Это дебют
     четырёх коней» after 1.e3 e5 2.Nc3 (stand text game): the opening the answer says is on the board must be the
@@ -1787,6 +1803,9 @@ def _opening_identity_issues(text: str, ctx: Optional[CheckContext]) -> list[str
         variation = name.split(":", 1)[-1].strip().lower()
         if variation in real.lower() or real.split(":", 1)[-1].strip().lower() in lowered:
             continue  # «Accelerated London System» names the real line, «London System» is part of it
+        if _VARIATION_WORD.search(lowered[max(0, at - 30):at]) and _names_variation_of(name, real):
+            continue  # «английское начало, вариант четырёх коней»: the English's Four Knights Variation (A28), not the
+            # Four Knights Game (K7 02.11, fresh-fp a20#0) — a line called a variation is matched to the real line's variations
         entry = book.exact(name) or next(iter(book.by_name(name)), None)
         if entry is None:
             continue
@@ -2559,6 +2578,14 @@ _SIDE_NAMED = re.compile(r"(?<![а-яa-z])(белые|белых|белым|ч[�
                          r"соперник|соперника|сопернику|противник|противника|opponent|engine|движок|я|меня|мне|me|i)(?![а-яa-z])",
                          re.IGNORECASE)
 _PRONOUN_SIDES = {"них", "него", "нее", "они", "им", "ему", "ей", "them", "they", "he", "she"}
+_PLURAL_PRONOUNS = {"них", "они", "им", "them", "they"}
+_EN_PRONOUNS = {"them", "they", "he", "she"}
+# What a 3rd-person pronoun can stand for: never «ты», «я», «вы» (another person), and a Russian one agrees in number.
+_THIRD_PERSON = {
+    "plural": {"белые", "белых", "белым", "черные", "черных", "черным"},
+    "singular": {"соперник", "соперника", "сопернику", "противник", "противника", "движок"},
+    "en": {"white", "black", "opponent", "engine"},
+}
 _UNIT = (r"(?P<unit>пешк\w*|pawns?|фигур\w*|pieces?|кон[ьяе]м?|knights?|слон\w*|bishops?|ладь\w+|rooks?|"
          r"ферз\w*|queens?|качеств\w*|exchange)")
 _NUM = r"(?P<n>одн[ауи]|одной|одним|одна|две|двух|двумя|пар[ау]|три|тр[её]х|четыре|an?\s+couple\s+of|couple\s+of|a|an|one|two|three|four|\d)"
@@ -2836,7 +2863,10 @@ def _side_color(word: str, ctx: CheckContext, before: str = "") -> Optional[bool
     student as the side to move (prompt v11)."""
     w = word.lower().replace("ё", "е")
     if w in _PRONOUN_SIDES:
-        named = _SIDE_NAMED.findall(before)
+        # «им», «они», «у них» stand for a plural side (белые, чёрные); «ему», «у него» for a singular one (соперник,
+        # движок): «Белые на пешку впереди, и движок даёт им …» — «им» are the White pieces, not the engine (K7 02.11)
+        want = _THIRD_PERSON["en" if w in _EN_PRONOUNS else ("plural" if w in _PLURAL_PRONOUNS else "singular")]
+        named = [n for n in _SIDE_NAMED.findall(before) if n.lower().replace("ё", "е") in want]
         if not named:
             return None
         w = named[-1].lower().replace("ё", "е")
@@ -2940,6 +2970,55 @@ def _fmt_eval(ev: float) -> str:
     return f"{ev:+.1f} for White"
 
 
+# Who a verdict belongs to when the subject only hands it out: «движок даёт белым решающий перевес», «ты даёшь
+# сопернику перевес», "the engine gives White a big edge" — the evaluator or the giver is the subject, the holder is the
+# side in the dative (K7 02.11: fresh-fp d13#3, e09#1 were read as the engine's own side). A side in the dative between
+# the subject and the verdict word is the holder; any other side there leaves the claim unjudged.
+_HOLDER_DATIVE = {"белым", "черным", "тебе", "вам", "мне", "сопернику", "противнику", "им", "ему", "ей",
+                  "white", "black", "you", "them", "him", "her", "me"}
+_GAP_SIDE = re.compile(r"(?<![а-яa-z])(белые|белых|белым|черные|черных|черным|white|black|ты|тебя|тебе|вы|вас|вам|you|"
+                       r"соперник\w*|противник\w*|opponent|engine|движок|движка|я|меня|мне|me|них|него|нее|они|им|ему|ей|"
+                       r"them|they|him|her)(?![а-яa-z])", re.IGNORECASE)
+# The engine (or "the evaluation") as the subject: it rates a position, it holds no side's verdict.
+_EVALUATOR = re.compile(r"^(?:движок|engine)$|(?<![а-яa-z])(?:оценива\w*|оценил\w*|оценк\w*|счита\w*|показыва\w*|показал\w*|"
+                        r"да[её]т|дают|видит|rates?|evaluates?|gives|shows|sees|says)(?![а-яa-z])", re.IGNORECASE)
+_HOLDER_AFTER = re.compile(r"\s+(?:\w+\s+)?(?:для|в\s+пользу|for)\s+(?P<side>белых|ч[её]рных|тебя|вас|соперника|противника|"
+                           r"white|black|you)(?![а-яa-z])", re.IGNORECASE)
+# A move named before an engine's verdict: «a3 или ход королём проигрывают: движок даёт чёрным решающий перевес» — the
+# verdict is that move's, on the board after it.
+_MOVE_WORD = re.compile(r"(?<![а-яa-z])(?:ход\w*|move[sd]?)(?![а-яa-z])", re.IGNORECASE)
+
+
+def _names_a_move(text: str, board: chess.Board) -> bool:
+    if _MOVE_WORD.search(text):
+        return True
+    converted, _ = _to_san(text)
+    for mm in _MOVE.finditer(converted):
+        try:
+            board.parse_san(mm["san"].rstrip("+#"))
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _verdict_holder(text: str, m, ctx: CheckContext) -> tuple:
+    """(the colour the verdict of the _EVAL_CLAIMS[0] match *m* belongs to, whether an evaluator gave it) —
+    (None, …) when the words do not say whose it is."""
+    gap = text[m.end("side"): m.start("w")].replace("ё", "е")
+    inner = list(_GAP_SIDE.finditer(gap))
+    evaluator = bool(_EVALUATOR.search(m["side"].replace("ё", "е"))) or bool(_EVALUATOR.search(gap))
+    if inner:
+        last = inner[-1].group(1).lower()
+        if last not in _HOLDER_DATIVE:
+            return None, evaluator  # two sides before the verdict and none of them its holder in the dative
+        return _side_color(last, ctx, text[: m.end("side") + inner[-1].start()]), True
+    if evaluator:
+        after = _HOLDER_AFTER.match(text, m.end("w"))
+        return (_side_color(after["side"], ctx) if after else None), True
+    return _side_color(m["side"], ctx, text[: m.start()]), False
+
+
 def _eval_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     if ctx.engine_eval is None or ctx.current is None:
         return []
@@ -2957,7 +3036,12 @@ def _eval_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
                 if abs(ev) >= 1.5:
                     issues.append(f"the engine evaluates the position at {_fmt_eval(ev)} — not equal")
                 continue
-            color = _side_color(m["side"], ctx, text[: m.start()])
+            if "side" in gd and rx is _EVAL_CLAIMS[0]:
+                color, evaluated = _verdict_holder(text, m, ctx)
+                if evaluated and color is not None and _names_a_move(text[: m.start()], ctx.current):
+                    continue  # the engine's verdict on the move the sentence names, not on the board now
+            else:
+                color = _side_color(m["side"], ctx, text[: m.start()])
             if color is None:
                 continue
             e = ev if color == chess.WHITE else -ev
@@ -3963,6 +4047,14 @@ _NOT_LANGUAGE = re.compile(
     r"https?://\S+|www\.\S+|[rnbqkpRNBQKP1-8]{1,8}(?:/[rnbqkpRNBQKP1-8]{1,8}){7}(?:\s+[wb]\s+\S+\s+\S+(?:\s+\d+\s+\d+)?)?"
     r"|(?<![A-Za-z])(?:[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8]|O-O(?:-O)?)[+#!?]*(?![A-Za-z])"
     r"|`[^`]*`")
+# A name is not language either (K7 02.11, live theory move-french-adv: «А 3...Bd7 — это линия «French Defense: Advance
+# Variation, Extended Bishop Swap»» was cut as English and left a headless rest): a quoted title with no Cyrillic in it,
+# and a run of two or more capitalised Latin words («French Defense: Advance Variation», «Morphy's Opera Game») — a
+# book name, a player, a place. English prose keeps its lower-case words and function words, so it is still told.
+_NAME_RUN = re.compile(
+    r"«[^«»а-яёА-ЯЁ]*»|“[^“”а-яёА-ЯЁ]*”|\"[^\"а-яёА-ЯЁ]*\""
+    r"|(?<![A-Za-z'’])[A-Z][A-Za-zÀ-ÿ'’-]*(?:(?:\s*[:,]\s*|\s+(?:(?:of|the|de|da|di|del|von|van|and|in|for|vs\.?)\s+)?)"
+    r"[A-Z][A-Za-zÀ-ÿ'’-]*)+(?![A-Za-z])")
 MIN_LANGUAGE_LETTERS = 30
 # Letters of neither alphabet (Chinese, Arabic, Hindi…): a whole lesson answer came in Chinese on
 # the local stand (DeepSeek, 2026-10-08) and the check, counting only Latin and Cyrillic, saw nothing.
@@ -3985,6 +4077,8 @@ def looks_wrong_script(text: str, language: Optional[str]) -> bool:
     if not language:
         return False
     stripped = _NOT_LANGUAGE.sub(" ", text or "")
+    if language != "en":
+        stripped = _NAME_RUN.sub(" ", stripped)
     cyrillic = sum(1 for ch in stripped if "а" <= ch.lower() <= "я" or ch.lower() in "ёәғқңөұүһі")
     latin = sum(1 for ch in stripped if "a" <= ch.lower() <= "z")
     if _other_script(stripped) >= MIN_OTHER_SCRIPT:
@@ -4003,6 +4097,8 @@ def language_issue(sentence: str, language: Optional[str]) -> Optional[str]:
     if not language:
         return None
     text = _NOT_LANGUAGE.sub(" ", sentence or "")
+    if language != "en":
+        text = _NAME_RUN.sub(" ", text)
     cyrillic = sum(1 for ch in text if "а" <= ch.lower() <= "я" or ch.lower() in "ёәғқңөұүһі")
     latin = sum(1 for ch in text if "a" <= ch.lower() <= "z")
     if _other_script(text) >= MIN_OTHER_SCRIPT:
@@ -6132,7 +6228,40 @@ def _frame_take_issues(text: str, original: str, ctx: CheckContext, taken: list)
         if (ev.exact and len(all_mine) != ev.count) or len(all_mine) < ev.count:
             out.append(f"in this game {who_words} captured {len(all_mine)} {unit}{'s' if len(all_mine) != 1 else ''}, "
                        f"not {ev.count}: " + ", ".join(c.label for c in all_mine))
+            continue
+        if ev.gain:
+            out += _no_gain_issue(mine, color, who_words, unit, ctx)
     return out
+
+
+def _no_gain_issue(mine: list, color: bool, who_words: str, unit: str, ctx: CheckContext) -> list[str]:
+    """«Ты выиграл пешку на d4» over 3...cxd4 4.Nxd4 (fresh-miss mat07): to WIN a unit is to come out of the exchange
+    ahead, not to capture it. Every capture the words can mean ended an exchange that is over, with no gain for that
+    side, and the material now shows none either — else unjudged (an exchange still going on, a gain later)."""
+    from src.board_math import VALUE
+    from src.game_record import exchanges
+
+    moves = [str(x) for x in ctx.game_moves]
+    runs = exchanges(moves)
+    told = None
+    for c in mine:
+        run = next((r for r in runs if r.start_ply <= c.ply <= r.end_ply), None)
+        if run is None or run.end_ply >= len(moves):
+            return []
+        net = sum(VALUE[pt] * k for pt, k in run.lost[not color].items()) - sum(VALUE[pt] * k for pt, k in run.lost[color].items())
+        if net > 0:
+            return []
+        told = (c, run, net)
+    board = ctx.current
+    if told is None or board is None:
+        return []
+    lead = sum(VALUE[pt] * (len(board.pieces(pt, color)) - len(board.pieces(pt, not color))) for pt in VALUE if pt != chess.KING)
+    if lead > 0:
+        return []
+    c, run, net = told
+    return [f"{c.label} won {who_words} no {unit}: the exchange {run.text} left the material "
+            + ("even" if net == 0 else f"{-net} point{'s' if net != -1 else ''} down for that side")
+            + f", and now {_imbalance(board)}"]
 
 
 def _frame_lose_issues(text: str, original: str, ctx: CheckContext, taken: list) -> list[str]:
@@ -6846,7 +6975,10 @@ def promises_board(sentence: str) -> bool:
 
 RELEASE_STARTS = os.environ.get("COACH_STREAM_SENTENCE_STARTS", "0").strip().lower() not in ("0", "false", "no", "off", "")
 # «Be3, блокируя... нет, точнее защищая f1»: a self-correction after an ellipsis is the model thinking aloud.
-_SELF_CORRECTION = re.compile(r"^\W*(?:нет|стоп|хм|то\s+есть|точнее|вернее|wait|no)(?:[,—:\s]|$)", re.IGNORECASE)
+# «то есть», «точнее», «вернее» alone refine what was said — «пешка d5 поддерживается пешкой e7... точнее, стоит как есть)»,
+# «Смотри на свою пешку e5... точнее, на то, что …» (live 02.11 ep-expired, st2#3): the rest of the same sentence, not
+# thinking aloud. A retraction («нет», «стоп», «хм», "wait") is.
+_SELF_CORRECTION = re.compile(r"^\W*(?:нет|стоп|хм|подожди|wait|no)(?:[,—:\s]|$)", re.IGNORECASE)
 
 
 # A word that leans on the sentence before it: when that sentence was left out, «Затем выводи короля…»

@@ -126,6 +126,7 @@ class Event:
     given: list = field(default_factory=list)  # trade: the units given (unit words)
     got: list = field(default_factory=list)  # trade: the units received
     subject_words: str = ""  # trade: the subject's own words (a player's name)
+    gain: bool = False  # take: told as WON («выиграл пешку», «пешка выиграна»): a net gain, not just a capture (K7 02.11)
     at: int = 0
     end: int = 0
     text: str = ""
@@ -353,6 +354,7 @@ def events(text: str) -> list:
                 continue  # «не взял», «никто не отдавал»: a denial
             ev = _read(cl, verb, whole)
             if ev is not None:
+                ev.gain = ev.kind == "take" and verb.text.startswith("выигр")
                 ev.at, ev.end = cl[0].start, cl[-1].end
                 ev.text = text[ev.at:ev.end]
                 out.append(ev)
