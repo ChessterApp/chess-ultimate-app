@@ -149,6 +149,7 @@ def _issues(text: str, ctx: Any, stats: dict) -> list[str]:
                                and not r.pronoun)
     except Exception:  # noqa: BLE001
         pass
+    judged: list = []
     for claim in claims:
         try:
             verdict = judge_claim(claim, ctx, state)
@@ -160,16 +161,38 @@ def _issues(text: str, ctx: Any, stats: dict) -> list[str]:
             out.append(issue_text(claim, verdict))
             if _record_kind(claim):
                 ctx._rel_record_issues = tuple(getattr(ctx, "_rel_record_issues", ()) or ()) + (out[-1],)
+        judged.append((claim, verdict.status if verdict is not None else "unjudged"))
     try:
         ctx._rel_named = ()
     except Exception:  # noqa: BLE001
         pass
+    _record_verdicts(text, judged, ctx)
     try:
         remember(text, claims, ctx, state)
     except Exception:  # noqa: BLE001
         stats["errors"] += 1
         logger.debug("relation check: remembering the sentence failed", exc_info=True)
     return list(dict.fromkeys(out))
+
+
+MAX_RECORDED = 64  # sentences of a turn whose verdicts are kept for the rewrite's proof
+
+
+def _record_verdicts(text: str, judged: list, ctx: Any) -> None:
+    """Keep the verdict on every claim of the sentence the check is reading (``ctx.sentence_now``), with the text the
+    claims' spans are in: a rewritten sentence is shown only when its board words lie in claims found true
+    (src/rewrite_proof.prove, fix1102 K6). Never raises."""
+    try:
+        sentence = getattr(ctx, "sentence_now", None) or text
+        rec = getattr(ctx, "relation_verdicts", None)
+        if rec is None:
+            rec = {}
+            ctx.relation_verdicts = rec
+        rec[sentence] = (text, tuple(judged))
+        while len(rec) > MAX_RECORDED:
+            rec.pop(next(iter(rec)))
+    except Exception:  # noqa: BLE001
+        logger.debug("relation check: recording the verdicts failed", exc_info=True)
 
 
 def relation_issues(text: str, ctx: Any, prior: list[str]) -> list[str]:
