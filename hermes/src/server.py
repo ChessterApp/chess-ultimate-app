@@ -1365,6 +1365,17 @@ def lesson_link_line(tool_results: list, answer: str, language: str) -> Optional
     return None
 
 
+# A turn whose every sentence was left out by the answer check and whose rewrite proved nothing (fix1102 K6): an honest
+# line, never an empty bubble and never a guess.
+_CHECK_EMPTY_TEXT = {
+    "ru": "Не хочу сказать тебе неточность, а проверить свой ответ по доске сейчас не получилось. Спроси, пожалуйста, "
+          "ещё раз — можно чуть конкретнее.",
+    "kz": "Саған қате айтқым келмейді, ал жауабымды тақтада қазір тексере алмадым. Сұрағыңды қайта қойшы — сәл нақтырақ.",
+    "kk": "Саған қате айтқым келмейді, ал жауабымды тақтада қазір тексере алмадым. Сұрағыңды қайта қойшы — сәл нақтырақ.",
+    "en": "I don't want to tell you something inaccurate, and I couldn't verify my answer on the board just now. "
+          "Please ask again — a bit more specifically if you can.",
+}
+
 _STREAM_CUT_TEXT = {
     "ru": "(Связь с моделью оборвалась, ответ неполный — задайте вопрос ещё раз.)",
     "kz": "(Модельмен байланыс үзілді, жауап толық емес — сұрағыңызды қайта қойыңыз.)",
@@ -2712,6 +2723,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # rewrite of the rest of the answer after a wrong sentence.
         from src.answer_check import (PROMISE_ISSUE, CheckContext, SentenceGate, chess_terms, fix_messages, proposed_move,
                                       strip_leaks)
+        from src.rewrite_proof import ends_the_draft, fix_issues, prove, restore, snapshot, well_formed
 
         # Every board of the session counts (a capture named for the second
         # board was cut as impossible on the first, 2026-10-02), and in a game
@@ -2780,16 +2792,25 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             check_ctx.student_moved_now = bool(game_step and ((game_step.get("view") or {}).get("student") or {}).get("san"))
         # «Покажу на доске.» waits for a board action of the turn and is left out without one (prod 29.10).
         gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK), hold_promises=True)
-        fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK), hold_promises=True)
+        # The rewrite's sentences go out whole, each once it is checked and proven (src/rewrite_proof.py): no start of
+        # one is released before it is judged, whatever COACH_STREAM_SENTENCE_STARTS says (fix1102 K6).
+        fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK), hold_promises=True, release_starts=False)
         fix_markup = MarkupFilter(session.board_state)
         # The coach's recommendation («сыграй Rg1») is checked by the engine
         # before the sentence is shown (src/hypothetical.verify_recommendation).
         verify_state = {"left": config.COACH_MOVE_VERIFY_PER_TURN if config.COACH_MOVE_VERIFY else 0,
                         "checked": 0, "caught": 0, "ms": 0}
         tb_line_state = {"left": config.COACH_TABLEBASE_LINE_CHECKS if config.COACH_ANSWER_CHECK else 0}
+        # The rewrite after a wrong sentence (fix1102 K6): ``mode`` None while it is undecided, 'rewrite' once its first
+        # sentence with a board word is proven (it then stands in for the rest of the draft), 'draft' once it is
+        # abandoned — a wrong or unproven first such sentence, none at all, a failed call: the draft then goes on after
+        # the cut sentence — and 'end' when it is abandoned and the draft is in the wrong language (the answer ends).
+        # Until it is decided the draft's text is held (``draft_pairs`` checked, ``draft_raw`` not yet), and the
+        # rewrite's neutral sentences too (``held_fix``). ``pending``: the call has not returned.
         fix = {"running": False, "done": False, "sentence": None, "issues": [], "dropped": [],
                "reply": None, "started": None, "first_ms": None, "emitted": False,
-               "shown_prefix": "", "head": ""}
+               "shown_prefix": "", "head": "", "mode": None, "pending": False, "held_fix": [], "draft_pairs": [],
+               "draft_raw": [], "main_flush": False, "unproven": [], "unjudged": [], "abandon": False}
         turn_msg = {"message": None}
 
         # ── Two-stage answer ──────────────────────────────────────────────
@@ -3013,6 +3034,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
                     add_solution_line(check_ctx, engine_solution_line(
                         note, check_ctx, body.message, task_on_board=bool(puzzle_note or site_puzzle_hit)))
+                    # The engine's lines from the board on the screen: what a rewrite may name as moves (src/rewrite_proof).
+                    try:
+                        from src.answer_check_relations import line_from
+
+                        check_ctx.engine_lines = [ln for ln in (
+                            line_from(note.get("fen"), (x or {}).get("moves") if isinstance((x or {}).get("moves"), list)
+                                      else str((x or {}).get("moves") or "").split(), check_ctx.current, plies=8)
+                            for x in (note.get("lines") or [])) if ln]
+                    except Exception:  # noqa: BLE001 — without them a rewrite names no move
+                        logger.debug("engine lines for the rewrite failed", exc_info=True)
                     check_ctx.engine_eval = _parse_white_eval((note.get("lines") or [{}])[0].get("eval"))
                     # The tablebase is exact where the engine is not (a +1.13 dead draw).
                     tb = note.get("tablebase")
@@ -3091,8 +3122,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 from src.answer_check_relations import issues_for_fix
                 from src.quick_reply import stream_completion
 
-                # The board truth of the relation checker first, at most three reasons (the full list is logged).
-                issues = issues_for_fix(issues, check_ctx)
+                # Only issue texts a reader can check (src/rewrite_proof.fix_issues: no «defended (by )», no «exf4 is
+                # impossible after exf4»), the relation checker's board truth first, at most three (the full list is logged).
+                issues = issues_for_fix(fix_issues(issues), check_ctx)
+                if not issues:
+                    return  # nothing proven to write from: the draft goes on (fix_done with no reply)
 
                 reply = stream_completion(
                     model=model,
@@ -3185,11 +3219,30 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         def _sentence_frames(pairs, source: str) -> list:
             """Checked sentences → frames. A wrong sentence of the model's answer is
             not shown and starts the rewrite (which replaces the rest of the draft);
-            a wrong sentence of the rewrite is left out."""
+            a wrong sentence of the rewrite is left out.
+
+            The rewrite says only what the check proved (src/rewrite_proof.py, fix1102 K6): its first sentence with a
+            board word decides it — proven, the rewrite stands in for the rest of the draft (its neutral sentences held
+            until then go out first); wrong or unproven, the rewrite is abandoned (``fix['abandon']``: the caller resumes
+            the draft, ``_resume_draft``). Later on an unproven sentence of a kept rewrite is left out like a wrong one.
+            *source* 'draft' is the draft resumed after an abandoned rewrite: its wrong sentences are left out. An issue
+            text that states nothing checkable («defended (by )», «exf4 is impossible after exf4») is no verdict: a
+            sentence with no other issue is shown (src/rewrite_proof.well_formed)."""
             frames = []
             for text, issues, sentence in pairs:
                 if source == "agent" and (fix["running"] or fix["done"]):
+                    if fix["running"] and fix["mode"] is None:
+                        fix["draft_pairs"].append((text, issues, sentence))  # the draft, if the rewrite is abandoned
                     continue  # the rewrite stands in for the rest of the draft
+                if source == "fix" and (fix["mode"] == "draft" or fix["abandon"]):
+                    continue  # an abandoned rewrite
+                if issues and issues != [PROMISE_ISSUE]:
+                    judged = well_formed(issues)
+                    if not judged:
+                        logger.info("answer check unjudged (malformed issue): %s | %s", "; ".join(issues),
+                                    sentence.strip()[:200])
+                        fix["unjudged"].append({"sentence": sentence.strip()[:300], "issues": list(issues)})
+                    issues = judged
                 if issues == [PROMISE_ISSUE]:
                     # «Покажу на доске.» and the turn ended with the board untouched: the promise alone is left
                     # out — nothing in it to rewrite (prod 29.10, rule-promote).
@@ -3202,17 +3255,70 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if source == "agent" and config.COACH_ANSWER_FIX:
                         # The start of the sentence that already went out (before its
                         # first move or piece): the rewrite must not say it again.
-                        fix.update(running=True, sentence=sentence, issues=issues, started=time.monotonic(),
-                                   shown_prefix=sentence[: len(sentence) - len(text)] if sentence.endswith(text) else "")
+                        fix.update(running=True, pending=True, sentence=sentence, issues=issues, started=time.monotonic(),
+                                   shown_prefix=sentence[: len(sentence) - len(text)] if sentence.endswith(text) else "",
+                                   ctx=snapshot(check_ctx))
                         loop.run_in_executor(None, _run_fix, "".join(answer_parts), sentence, issues)
+                    elif source == "fix" and fix["mode"] is None:
+                        fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
+                        fix["abandon"] = True  # a rewrite that opens with a wrong claim is not kept
+                        break
                     else:
                         fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
                         fix["after_drop"] = True
                     continue
+                if source == "fix":
+                    proof = prove(sentence, check_ctx)
+                    if proof.status == "unproven":
+                        logger.info("answer fix unproven: %s | %s", proof.why[:200], sentence.strip()[:200])
+                        fix["unproven"].append({"sentence": sentence.strip()[:300], "why": proof.why[:300]})
+                        if fix["mode"] is None:
+                            fix["abandon"] = True
+                            break
+                        fix["after_drop"] = True
+                        continue
+                    if fix["mode"] is None:
+                        if proof.status == "neutral":
+                            fix["held_fix"].append(text)  # goes out with the first proven sentence, or never
+                            continue
+                        fix["mode"] = "rewrite"
+                        for held in fix.pop("held_fix", []):
+                            frames.extend(_answer_frames(held))
+                        fix["held_fix"] = []
+                        fix["draft_pairs"], fix["draft_raw"] = [], []
                 if fix.pop("after_drop", False) or not "".join(answer_parts).strip():
                     # «Затем…» after the sentence left out — or the answer's very first words
                     text = strip_leaning_start(text)
                 frames.extend(_answer_frames(text))
+            return frames
+
+        async def _resume_draft() -> list:
+            """The rewrite is abandoned: the draft goes on after the cut sentence — the sentences already checked, then
+            the text held while the rewrite ran, then (the draft over) its last sentence. Every sentence is checked as
+            usual; the cut one is simply left out."""
+            if ends_the_draft(fix["issues"]):
+                # The draft is in the wrong language: it does not go on, the answer ends here (or with the plain line).
+                fix.update(running=False, done=True, mode="end", abandon=False, held_fix=[], draft_pairs=[],
+                           draft_raw=[], main_flush=False)
+                return []
+            fix.update(running=False, done=True, mode="draft", abandon=False, held_fix=[])
+            fix["after_drop"] = True
+            restore(check_ctx, fix.pop("ctx", None))  # the rewrite's sentences were never shown
+            frames = []
+            pairs, fix["draft_pairs"] = fix["draft_pairs"], []
+            frames.extend(_sentence_frames(pairs, "draft"))  # checked and verified when they came
+            raw, fix["draft_raw"] = fix["draft_raw"], []
+            for payload in raw:
+                payload, mark_actions = markup.feed(payload)
+                for action in mark_actions:
+                    frame = _board_frame([action])
+                    if frame:
+                        frames.append(frame)
+                if payload:
+                    frames.extend(_sentence_frames(await _verified(gate.feed(payload)), "draft"))
+            if fix.pop("main_flush", False):
+                tail = markup.flush()
+                frames.extend(_sentence_frames(await _verified((gate.feed(tail) if tail else []) + gate.flush()), "draft"))
             return frames
 
         async def _line_outcomes(pairs):
@@ -3369,14 +3475,18 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             fix_gate.board_changed()
 
         try:
-            while not (main_done and quick["finished"] and not fix["running"]):
+            while not (main_done and quick["finished"] and not fix["running"] and not fix["pending"]):
                 item = await queue.get()
                 if item is sentinel:
                     main_done = True
+                    if fix["running"] and fix["mode"] is None:
+                        fix["main_flush"] = True  # the draft's end waits: it goes on if the rewrite is abandoned
+                        continue
                     # The end of the draft: an unfinished "[[" was not a mark, and
                     # the last sentence gets its check too.
                     tail = markup.flush()
-                    for frame in _sentence_frames(await _verified((gate.feed(tail) if tail else []) + gate.flush()), "agent"):
+                    for frame in _sentence_frames(await _verified((gate.feed(tail) if tail else []) + gate.flush()),
+                                                  "draft" if fix["mode"] == "draft" else "agent"):
                         yield frame
                     if not quick["finished"] and not quick["shown"]:
                         # Answer complete, reaction never started: drop it.
@@ -3407,7 +3517,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if not streamed_any:
                         _mark("answer_first")
                     streamed_any = True
-                    if fix["running"] or fix["done"]:
+                    if (fix["running"] or fix["done"]) and fix["mode"] != "draft":
+                        if fix["running"] and fix["mode"] is None:
+                            fix["draft_raw"].append(payload)  # held: it goes on if the rewrite is abandoned
                         continue  # the draft after a wrong sentence is replaced
                     # Inline [[arrows: …]] / [[squares: …]] marks become board
                     # actions now and never reach the text (src/board_markup.py).
@@ -3417,7 +3529,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if not payload:
                         continue
                     # Each sentence goes out once it is complete and checked.
-                    for frame in _sentence_frames(await _verified(gate.feed(payload)), "agent"):
+                    for frame in _sentence_frames(await _verified(gate.feed(payload)),
+                                                  "draft" if fix["mode"] == "draft" else "agent"):
                         yield frame
                 elif kind == "fix":
                     if not fix["running"] or not payload:
@@ -3463,8 +3576,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         yield _board_frame([action])
                     for frame in _sentence_frames(await _verified(fix_gate.feed(payload)), "fix"):
                         yield frame
+                    if fix["abandon"]:
+                        for frame in await _resume_draft():
+                            yield frame
                 elif kind == "fix_done":
                     fix["reply"] = payload
+                    fix["pending"] = False
+                    if not fix["running"]:
+                        continue  # abandoned before it ended: the draft went on
                     if fix["head"] and not fix["emitted"]:
                         # A rewrite shorter than the held prefix: send it as it is.
                         head, fix["head"] = fix["head"], ""
@@ -3477,6 +3596,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     tail = fix_markup.flush()
                     for frame in _sentence_frames(await _verified((fix_gate.feed(tail) if tail else []) + fix_gate.flush()), "fix"):
                         yield frame
+                    if fix["mode"] is None or fix["abandon"]:
+                        # No sentence of the rewrite was proven (or the call failed): the draft goes on.
+                        for frame in await _resume_draft():
+                            yield frame
                     fix["running"] = False
                     fix["done"] = True
                 elif kind == "tool_call":
@@ -3489,6 +3612,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     result_text = payload
                 elif kind == "error":
                     error_exc = payload
+            if fix["mode"] in ("draft", "end") and error_exc is None and not "".join(answer_parts).strip():
+                # The rewrite was abandoned and nothing of the draft is left to show: a plain line that the coach will
+                # not guess — never an empty answer (a lone «давай разберёмся» of the rewrite would promise what never comes).
+                for frame in _answer_frames(_CHECK_EMPTY_TEXT.get(turn_language, _CHECK_EMPTY_TEXT["ru"])):
+                    yield frame
             if streamed_any and error_exc is None and not turn_board_locked and config.COACH_LESSON_LINK:
                 # The lesson the topic tool found, when the model left its link out.
                 link = lesson_link_line(tool_results, "".join(answer_parts), turn_language)
@@ -3617,8 +3745,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             "fix_model": _reply_model(fix_reply) if fix_reply is not None else None,
             "fix_error": getattr(fix_reply, "error", None) if fix_reply is not None else None,
             "dropped": fix["dropped"],
+            # fix1102 K6: 'rewrite' (its first board sentence proven, it replaced the rest of the draft) or 'draft' (it
+            # was abandoned, the draft went on after the cut sentence); its sentences left out as unproven; sentences
+            # shown because their only issues were malformed texts.
+            "fix_outcome": fix["mode"] if fix["sentence"] else None,
+            "unproven": fix["unproven"][:6],
+            "unjudged": fix["unjudged"][:6],
         }
-        if answer_check["fixed"] or answer_check["dropped"]:
+        if answer_check["fixed"] or answer_check["dropped"] or answer_check["unjudged"]:
             log_event(
                 "answer_check",
                 severity="warn",

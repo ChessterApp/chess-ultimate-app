@@ -427,8 +427,10 @@ def test_an_answer_in_the_wrong_language_is_rewritten(monkeypatch):
         frames = _stream_chat(monkeypatch, "The knight on f3 is well placed and the centre is yours for now. Play e4.",
                               session, "Что мне играть?", locale="ru")
     text = "".join(f.get("delta", "") for f in frames)
-    assert "well placed" not in text
-    assert "Играй e4" in text
+    assert "well placed" not in text and "Play e4" not in text and "yours" not in text
+    # fix1102 K6: «Играй e4» is proven by nothing here (no engine line this turn), so the rewrite is not kept; the draft
+    # is in the wrong language, so it does not go on either: the student gets the plain Russian line, never English
+    assert "Играй e4" not in text and "провер" in text
 
 
 @pytest.mark.unit
@@ -456,7 +458,9 @@ def test_a_wrong_language_answer_without_board_words_is_still_stopped(monkeypatc
                               session, "ok and a skewer?", locale="ru")
     text = "".join(f.get("delta", "") for f in frames)
     assert "classic skewer" not in text and "pin turned around" not in text
-    assert "Сквозной удар" in text and rewrites
+    # fix1102 K6: the rewrite ran, but «связка», «фигуру» — nothing on the board proves a definition; the student gets the
+    # plain Russian line instead of an English answer or an unproven one
+    assert rewrites and "Сквозной удар" not in text and "провер" in text
 
     # An English rewrite is left out too, not shown.
     session2 = session_store.create(user_id="lang-gate-user-3")
@@ -516,7 +520,11 @@ def test_the_turn_carries_the_legality_of_the_moves_asked_about(monkeypatch):
 def test_a_rewrite_that_restates_the_shown_start_with_one_word_changed_is_trimmed(monkeypatch):
     """Stand, 2026-10-04: «Самое упорное здесь — отвести» had gone out, the sentence
     was withheld, and the rewrite began «Самое упорное здесь — увести ладью…» —
-    the student saw the start twice."""
+    the student saw the start twice. (The rewrite is taken as proven here: the trim is what is tested;
+    src/rewrite_proof decides whether a rewrite is kept, fix1102 K6.)"""
+    from src.rewrite_proof import Proof
+
+    monkeypatch.setattr("src.rewrite_proof._prove", lambda sentence, ctx: Proof("proven"))
     import src.answer_check as _ac
 
     monkeypatch.setattr(_ac, "RELEASE_STARTS", True)  # the shown start exists only when starts stream
