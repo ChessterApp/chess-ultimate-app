@@ -476,6 +476,9 @@ DETECTOR_DEFAULTS = {
     # fix1102 K4: rule talk («Рокировка разрешена, только если …», «Двойной знак означает …») is not judged on the board
     # (src/claim_scope.rule_spans); off = every detector reads the whole sentence, as before
     "rule_scope": "on",
+    # voice 02.11: a move proposed in words («пойти ферзём на d1», «пешкой на d3») that has no legal form on the board
+    # now — the piece already there, the square taken, the way blocked (src/answer_check._word_move_issues)
+    "word_move": "on",
 }
 RELATION_DETECTORS = frozenset({
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",

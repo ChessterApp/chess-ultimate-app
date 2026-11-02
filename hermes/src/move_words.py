@@ -39,11 +39,20 @@ _E = r"(?![а-яa-z])"
 _SPOKEN = re.compile(
     _B + r"(?:сыграть|сыграю|сыграем|сыграй|играть|играю|пойти|пойду|пойд[её]м|хочу|если|давай|ходом|ход)"
     r"\s+(?:[а-яё]+\s+)?(?P<piece>ладья|конь|слон|ферзь|король|пешка)\s+(?:на\s+)?(?P<to>" + SQ + r")(?![0-9])")
+# «пойти ферзём d1», «сходи конём f3»: the instrument said with the square, «на» dropped by the transcription
+# (voice 02.11) — after a verb of moving only; the instrument names the piece that moves, never one standing there.
+_SPOKEN_WITH = re.compile(
+    _B + r"(?:сыграть|сыграй|сыграем|сыграешь|пойти|пойди|пойд[её]м|пойд[её]шь|сходить|сходи|сходим|сходишь|ходи|иди|"
+    r"двинуть|двинь|двинем|двинешь|ход|ходом)"
+    r"\s+(?P<piece>ладь[её]й|кон[её]м|слоном|ферз[её]м|корол[её]м|пешкой)\s+(?P<to>" + SQ + r")(?![0-9])")
 
 _PATTERNS = [
     _SPOKEN,
-    # «ладью на g1», «коня с f3 на d5», «ладьёй на h4», «пешку на e5»
-    re.compile(_B + _RU_PIECE + rf"\s+(?:(?:с\s+)?(?:пол[яе]\s+)?(?P<frm>{SQ})\s+)?(?:на|в|по)\s+(?:пол[ея]\s+)?(?P<to>{SQ})(?![0-9])"),
+    _SPOKEN_WITH,
+    # «ладью на g1», «коня с f3 на d5», «ладьёй на h4», «пешку на e5»; «пешкой на d2 на d3» — the from-square said with
+    # a second «на» (voice 02.11: read as the pawn going to d2)
+    re.compile(_B + _RU_PIECE + rf"\s+(?:(?:(?:с\s+)?(?:пол[яе]\s+)?|на\s+(?=[a-h][1-8]\s+на\s+[a-h][1-8](?![0-9])))"
+               rf"(?P<frm>{SQ})\s+)?(?:на|в|по)\s+(?:пол[ея]\s+)?(?P<to>{SQ})(?![0-9])"),
     # «взять на h4 ладьёй», «бью на e5 конём», «побить h4 ладьёй»
     re.compile(_B + _RU_TAKE + rf"\s+(?:на\s+)?(?P<to>{SQ})(?![0-9])\s+" + _RU_PIECE + _E),
     # «ладьёй взять на h4», «конём бью e5»
@@ -137,19 +146,25 @@ def prose_moves(text: str, board: chess.Board) -> list[dict]:
             capture = bool(target) or rx.pattern.find("TAKE") >= 0 or any(
                 w in rx.pattern for w in ("взять", "take"))
             san, move, note = resolve(board, ptype, to, from_sq=from_sq, capture=capture)
-            _add(out, seen, san, move, note, m.group(0), m.start())
+            _add(out, seen, san, move, note, m.group(0), m.start(),
+                 {"ptype": ptype, "to": to, "from": from_sq, "capture": capture,
+                  "nominative": m["piece"] in ("ладья", "конь", "слон", "ферзь", "король", "пешка")
+                  or bool(re.search(r"\bon\s+[a-h][1-8]$", m.group(0)) and not re.match(_EN_PUT, m.group(0)))})
             taken.append((m.start(), m.end()))
     out.sort(key=lambda item: item["at"])  # in order of appearance, whichever pattern read them
     return out
 
 
 def _add(out: list, seen: set, san: str, move: Optional[chess.Move], note: Optional[str], words: str,
-         at: int = 0) -> None:
+         at: int = 0, told: Optional[dict] = None) -> None:
     key = move.uci() if move is not None else san
     if key in seen:
         return
     seen.add(key)
-    out.append({"san": san, "move": move, "note": note, "words": words.strip(), "at": at})
+    # *told*: what the words named — the piece kind, the target and from-square, a capture, the piece in the nominative
+    # («ферзь на d1» may name a piece standing there; «ферзём на d1» names a move) — for a move that cannot be played
+    # (src/answer_check._word_move_issues, voice 02.11).
+    out.append({"san": san, "move": move, "note": note, "words": words.strip(), "at": at, **(told or {})})
 
 
 def resolve(board: chess.Board, ptype: int, to: int, from_sq: Optional[int] = None,
@@ -185,3 +200,172 @@ def resolve(board: chess.Board, ptype: int, to: int, from_sq: Optional[int] = No
         sans = ", ".join(board.san(mv) for mv in candidates)
         return label, None, f"ambiguous — more than one {_NAMES[ptype]} can go to {chess.square_name(to)} ({sans})"
     return label, None, None
+
+
+_COLOR = {chess.WHITE: "white", chess.BLACK: "black"}
+
+
+def _named(board: chess.Board, sq: int) -> str:
+    pc = board.piece_at(sq)
+    return f"the {_COLOR[pc.color]} {chess.piece_name(pc.piece_type)} on {chess.square_name(sq)}"
+
+
+def why_not(board: chess.Board, ptype: int, to: int, from_sq: Optional[int] = None,
+            capture: bool = False) -> Optional[str]:
+    """Why no *ptype* piece of the side to move on *board* (from *from_sq* when given) can go to *to*, told from the
+    board: the piece already stands there, the square holds an own piece (or, for a pawn going straight, any piece),
+    the way is blocked, there is no such piece, nothing to take, or the move would leave the king in check. None when
+    such a move is legal (one or several) — voice 02.11: «пойти ферзём на d1» with the queen on d1, «пешкой на d3»
+    with Black's bishop on d3."""
+    color = board.turn
+    side = _COLOR[color]
+    name = _NAMES[ptype]
+    target = chess.square_name(to)
+    legal = [mv for mv in board.legal_moves if mv.to_square == to and board.piece_type_at(mv.from_square) == ptype
+             and (from_sq is None or mv.from_square == from_sq)]
+    if legal:
+        return None
+    if ptype == chess.PAWN and board.ep_square is not None and to == board.ep_square + (-8 if color else 8) \
+            and any(board.is_en_passant(mv) and (from_sq is None or mv.from_square == from_sq) for mv in board.legal_moves):
+        return None  # «побить пешку d5 пешкой e5»: en passant, onto d6 (resolve reads it so)
+    there = board.piece_at(to)
+    if from_sq is not None:
+        pc = board.piece_at(from_sq)
+        if pc is None or pc.color != color or pc.piece_type != ptype:
+            what = "nothing" if pc is None else f"the {_COLOR[pc.color]} {chess.piece_name(pc.piece_type)}"
+            return f"there is no {side} {name} on {chess.square_name(from_sq)} ({what} stands there)"
+        if from_sq == to:
+            return f"the {side} {name} already stands on {target}"
+        movers = [from_sq]
+    else:
+        movers = list(board.pieces(ptype, color))
+        if not movers:
+            return f"{side.capitalize()} has no {name}"
+    if there is not None and there.color == color:
+        if there.piece_type == ptype and (from_sq is None or from_sq == to):
+            return f"the {side} {name} already stands on {target}"
+        return f"{target} is occupied by {side.capitalize()}'s own {chess.piece_name(there.piece_type)}"
+    if capture and there is None and ptype != chess.PAWN:
+        return f"there is nothing to take on {target}"
+    if ptype == chess.KING and from_sq in (None, movers[0]) and abs(chess.square_file(movers[0]) - chess.square_file(to)) == 2 \
+            and chess.square_rank(movers[0]) == chess.square_rank(to):
+        return None  # «королём на g1» from e1 is castling told in words: the castling check's to judge
+    pseudo = [mv for mv in board.pseudo_legal_moves if mv.to_square == to and mv.from_square in movers
+              and board.piece_type_at(mv.from_square) == ptype]
+    if pseudo:
+        return _leaves_check(board, pseudo[0], name, side, target)
+    if ptype == chess.PAWN:
+        return _pawn_why(board, movers, to, capture, side, target)
+    for sq in movers:
+        if _reaches(ptype, sq, to):
+            blockers = [b for b in chess.SquareSet.between(sq, to) if board.piece_at(b) is not None]
+            if blockers:
+                b = min(blockers, key=lambda x: chess.square_distance(x, sq))
+                return f"the way of the {name} on {chess.square_name(sq)} to {target} is blocked by {_named(board, b)}"
+    where = ", ".join(chess.square_name(sq) for sq in movers)
+    stand = "s stand" if len(movers) > 1 else " stands"
+    return f"no {side} {name} can reach {target} in one move (the {side} {name}{stand} on {where})"
+
+
+def _leaves_check(board: chess.Board, mv: chess.Move, name: str, side: str, target: str) -> str:
+    """Why the pseudo-legal *mv* is illegal: the king steps onto an attacked square, the king stays in check, or the
+    piece is pinned."""
+    color = board.turn
+    if board.piece_type_at(mv.from_square) == chess.KING:
+        after = board.copy(stack=False)
+        after.remove_piece_at(mv.from_square)
+        attackers = after.attackers(not color, mv.to_square)
+        if attackers:
+            return f"{target} is attacked by {_named(board, min(attackers))}: the king cannot go there"
+        return f"the king cannot go to {target}: it would stay in check"
+    checkers = board.checkers()
+    if checkers:
+        return f"the {side} king is in check from {_named(board, min(checkers))} and the {name} going to {target} does not answer it"
+    if board.is_pinned(color, mv.from_square):
+        mask = board.pin(color, mv.from_square)
+        pinners = [sq for sq in chess.SquareSet(mask) if (pc := board.piece_at(sq)) is not None and pc.color != color]
+        by = f" by {_named(board, pinners[0])}" if pinners else ""
+        return f"the {name} on {chess.square_name(mv.from_square)} is pinned to the {side} king{by}"
+    return f"the {name} going to {target} would leave the {side} king in check"
+
+
+def _pawn_why(board: chess.Board, movers: list, to: int, capture: bool, side: str, target: str) -> str:
+    color = board.turn
+    step = 1 if color == chess.WHITE else -1
+    start_rank = 1 if color == chess.WHITE else 6
+    there = board.piece_at(to)
+    same_file = [sq for sq in movers if chess.square_file(sq) == chess.square_file(to)
+                 and (chess.square_rank(to) - chess.square_rank(sq) == step
+                      or (chess.square_rank(sq) == start_rank and chess.square_rank(to) - chess.square_rank(sq) == 2 * step))]
+    beside = [sq for sq in movers if abs(chess.square_file(sq) - chess.square_file(to)) == 1
+              and chess.square_rank(to) - chess.square_rank(sq) == step]
+    if same_file and not (capture and beside):
+        sq = same_file[0]
+        if there is not None:
+            pc = board.piece_at(to)
+            return (f"{target} is occupied by the {_COLOR[pc.color]} {chess.piece_name(pc.piece_type)}: a pawn cannot move "
+                    f"straight onto an occupied square (it captures only diagonally)")
+        mid = chess.square(chess.square_file(sq), chess.square_rank(sq) + step)
+        if mid != to and board.piece_at(mid) is not None:
+            return f"the pawn on {chess.square_name(sq)} is blocked by {_named(board, mid)}"
+    if beside and there is None:
+        return f"there is nothing to take on {target}: a pawn moves diagonally only to capture"
+    pawns = ", ".join(chess.square_name(sq) for sq in movers)
+    return f"no {side} pawn can reach {target} in one move (the {side} pawn{'s stand' if len(movers) > 1 else ' stands'} on {pawns})"
+
+
+def _reaches(ptype: int, a: int, b: int) -> bool:
+    """A *ptype* piece on *a* would move to *b* on an empty board."""
+    if a == b:
+        return False
+    if ptype == chess.KNIGHT:
+        return b in chess.SquareSet(chess.BB_KNIGHT_ATTACKS[a])
+    if ptype == chess.KING:
+        return b in chess.SquareSet(chess.BB_KING_ATTACKS[a])
+    df = abs(chess.square_file(a) - chess.square_file(b))
+    dr = abs(chess.square_rank(a) - chess.square_rank(b))
+    straight, diagonal = df == 0 or dr == 0, df == dr
+    return {chess.ROOK: straight, chess.BISHOP: diagonal, chess.QUEEN: straight or diagonal}.get(ptype, False)
+
+
+# «push the d-pawn», «двинь d-пешку», «пешкой d вперёд»: a pawn named by its file, no square — it steps forward.
+_FILE_PAWN = re.compile(
+    _B + r"(?:(?:the\s+|your\s+|my\s+)?(?P<f1>[a-h])-?pawn(?:\s+(?:forward|up|ahead|one\s+square|two\s+squares))?"
+    r"|(?P<f2>[a-h])-?пешк(?:у|ой)(?:\s+вперед)?|пешк(?:у|ой)\s+[«\"']?(?P<f3>[a-h])[»\"']?(?![a-z0-9])(?:\s+вперед)?)" + _E)
+
+
+def file_pushes(text: str, board: chess.Board) -> list[dict]:
+    """Pawns told to step forward by their file («push the d-pawn», «двинь d-пешку»), for the side to move: each item
+    as prose_moves gives it, with ``file`` (0–7) and ``move`` the one legal push or None."""
+    low = (text or "").replace("ё", "е").replace("Ё", "Е").lower()
+    out = []
+    for m in _FILE_PAWN.finditer(low):
+        f = chess.FILE_NAMES.index(m["f1"] or m["f2"] or m["f3"])
+        pushes = [mv for mv in board.legal_moves if board.piece_type_at(mv.from_square) == chess.PAWN
+                  and chess.square_file(mv.from_square) == f and chess.square_file(mv.to_square) == f]
+        out.append({"san": chess.FILE_NAMES[f] + "-pawn", "move": pushes[0] if len(pushes) == 1 else None,
+                    "note": None if len(pushes) < 2 else "more than one push", "words": m.group(0).strip(),
+                    "at": m.start(), "ptype": chess.PAWN, "file": f, "pushes": len(pushes)})
+    return out
+
+
+def why_no_push(board: chess.Board, f: int) -> Optional[str]:
+    """Why no pawn of the side to move on file *f* can step forward; None when one can."""
+    color = board.turn
+    side = _COLOR[color]
+    letter = chess.FILE_NAMES[f]
+    pawns = [sq for sq in board.pieces(chess.PAWN, color) if chess.square_file(sq) == f]
+    if not pawns:
+        return f"{side.capitalize()} has no pawn on the {letter}-file"
+    if any(board.piece_type_at(mv.from_square) == chess.PAWN and mv.from_square in pawns
+           and chess.square_file(mv.to_square) == f for mv in board.legal_moves):
+        return None
+    sq = max(pawns) if color == chess.WHITE else min(pawns)
+    ahead = sq + (8 if color == chess.WHITE else -8)
+    if 0 <= ahead < 64 and board.piece_at(ahead) is not None:
+        pc = board.piece_at(ahead)
+        return f"the {letter}-pawn on {chess.square_name(sq)} cannot move: {chess.square_name(ahead)} in front of it is " \
+               f"occupied by the {_COLOR[pc.color]} {chess.piece_name(pc.piece_type)}"
+    if board.is_pinned(color, sq):
+        return f"the {letter}-pawn on {chess.square_name(sq)} is pinned to the {side} king"
+    return f"the {letter}-pawn on {chess.square_name(sq)} cannot move: it would leave the {side} king in check"
