@@ -98,9 +98,9 @@ class TestProof:
     @pytest.mark.parametrize("sentence, word", [
         # a forced move with check that nothing judged (trap-blackburne's kind)
         ("Конь вынужден уйти на g5 с шахом.", "вынужден"),
-        # a true relation with «только» the claim does not carry (st1#9's kind: e5 is held by c6 and by nothing else
-        # here — still, «только» is a word no claim proved)
-        ("Пешку e5 защищает только конь c6.", "только"),
+        # «только» before a defender that is not the only one (st1#9's kind): c6 is held by b7 and d7 (R3 03.11: «только»
+        # is proven only when the defender it names is every defender — «Пешку e5 защищает только конь c6» is proven)
+        ("Коня c6 защищает только пешка d7.", "только"),
         # the king confined by its own pieces (d2-solution's kind)
         ("Свои же пешки и слон запирают короля на e8.", "запирают"),
         # a move that is not the engine's

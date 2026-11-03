@@ -2723,7 +2723,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # rewrite of the rest of the answer after a wrong sentence.
         from src.answer_check import (PROMISE_ISSUE, CheckContext, SentenceGate, chess_terms, fix_messages, proposed_move,
                                       strip_leaks)
-        from src.rewrite_proof import ends_the_draft, fix_issues, prove, restore, snapshot, well_formed
+        from src.rewrite_proof import (ends_the_draft, fix_issues, mend_after_cut, prove, renumber_item, restore, snapshot,
+                                       well_formed)
 
         # Every board of the session counts (a capture named for the second
         # board was cut as impossible on the first, 2026-10-02), and in a game
@@ -3286,9 +3287,21 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                             frames.extend(_answer_frames(held))
                         fix["held_fix"] = []
                         fix["draft_pairs"], fix["draft_raw"] = [], []
-                if fix.pop("after_drop", False) or not "".join(answer_parts).strip():
-                    # «Затем…» after the sentence left out — or the answer's very first words
-                    text = strip_leaning_start(text)
+                shown_text = "".join(answer_parts)
+                cut_any = bool(fix["sentence"] or fix["dropped"] or fix["unproven"])
+                if cut_any and fix.get("after_drop") and not text.strip():
+                    # The gap after a sentence left out waits for the next words (R3 03.11: «\n» used to take the
+                    # «Затем…» repair meant for them); a line break already shown is not doubled.
+                    if shown_text.strip() and not shown_text.endswith("\n"):
+                        frames.extend(_answer_frames(text))
+                    continue
+                if fix.pop("after_drop", False) or not shown_text.strip():
+                    # «Затем…», «Поэтому…», «точнее, …» after the sentence left out — or the answer's very first words
+                    text = mend_after_cut(text, shown_text) if cut_any else strip_leaning_start(text)
+                if cut_any:
+                    # «1. …» shown, «2. …» cut: «3. …» goes on as «2. …»
+                    text = renumber_item(text, shown_text, [fix["sentence"] or ""] + [d["sentence"] for d in fix["dropped"]]
+                                         + [u["sentence"] for u in fix["unproven"]])
                 frames.extend(_answer_frames(text))
             return frames
 
