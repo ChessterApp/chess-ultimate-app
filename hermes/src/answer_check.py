@@ -4825,11 +4825,62 @@ _SIDE_REPLIES = re.compile(
     r"отвеча\w+|ответ\w*|plays?|takes?|captures?|replies|answers?)(?![а-яa-z])", re.IGNORECASE)
 
 
-def _praise_of_reply(before_praise: str) -> bool:
+def _praise_of_reply(before_praise: str, named_line: bool = False) -> bool:
     """The words between a candidate move and its praise tell the other side's answer (a reply verb, the other side
-    playing, or another written move): the praise is about the line, not the candidate."""
+    playing, or another written move): the praise is about the line, not the candidate. In a line named as a line
+    (*named_line*, see _named_line_outcome) the written moves are the line's own, and its outcome is the line's."""
     return bool(_REPLY.search(before_praise) or _SIDE_REPLIES.search(before_praise)
-                or _SAN_IN_TEXT.search(_to_san(before_praise)[0]))
+                or (not named_line and _SAN_IN_TEXT.search(_to_san(before_praise)[0])))
+
+
+# R2 03.11 (verify1102b VERDICT §6 R2): «Линия dxe5 dxe5 Nxe5 выигрывает пешку», «Вариант Bxf7+ Qxf7 Qxf7+ Kxf7 Ng5+
+# выигрывает белым ферзя», "The line Nxe5 Nxe5 d4 wins a piece": a line named as a line, its moves written one after
+# another from this board, its outcome told right after them. The outcome is the named line's, for the side that starts
+# it — main's reading, which hands the first move to the engine stage, and the engine judges the whole line. K3's
+# written-reply rule (above) is for a move told with the other side's answer after it («После Qxd4 c5 …»), where the
+# praise is the reply's; it took this class with it (fresh-miss-2 L06, L12 lost).
+_LINE_NOUN = re.compile(
+    r"(?<![а-яa-z])(?:лини(?:я|и|ю|ей)|вариант(?:а|у|ом|е)?|продолжени(?:е|я|ю|ем)|последовательност(?:ь|и|ью)"
+    r"(?:\s+ход(?:ов|ами))?|комбинаци(?:я|и|ю|ей)|line|variation|continuation|sequence|combination)"
+    r"\s*[:—–-]?\s*(?:\d+\s*\.(?:\s*\.\.)?\s*)?$", re.IGNORECASE)
+
+
+_LINE_STOP = re.compile(r"[.;!?\n]|\s(?:но|а\s+не|однако|but|however)(?![а-яa-z])", re.IGNORECASE)
+_NUMBERED_LINE_STOP = re.compile(
+    r"(?<!\d)\.(?!\.)|(?<=\d)\.(?![.\s]*(?:[KQRBNКФЛС]|[a-h][1-8x]|O-O))|[;!?\n]|\s(?:но|а\s+не|однако|but|however)(?![а-яa-z])",
+    re.IGNORECASE)
+
+
+def _named_sides(words: str, ctx: CheckContext) -> list:
+    """The sides a stretch of words names (white/black, the student, the opponent); None for one it cannot place."""
+    named = {m.start(): m.group(1).lower() for m in _SIDE_NAMED.finditer(words)}
+    named.update({m.start(): m.group(0).lower() for m in _OPPONENT_WORD.finditer(words)})
+    sides = []
+    for _, w in sorted(named.items()):
+        if w in ("я", "меня", "мне", "me", "i"):
+            continue  # the coach speaking, not a side of the line
+        if _OPPONENT_WORD.fullmatch(w) or w in ("engine", "движок"):
+            own = student_side(ctx, words)  # the student's opponent (the engine in a game)
+            sides.append(None if own is None else not own)
+        else:
+            sides.append(_side_of_word(w, ctx, words))
+    return sides
+
+
+def _named_line_outcome(converted: str, start: int, before_praise: str, after_praise: str,
+                        board: chess.Board, ctx: CheckContext) -> bool:
+    """The candidate at *start* opens a line named as a line («Линия/Вариант/Продолжение <ход> …»), only the line's
+    written moves stand between it and the praise, and no side other than the one to move is named as the one the
+    outcome is for («…выигрывает чёрным ферзя», «…и соперник забирает» leave it a line of the other side's)."""
+    if not _LINE_NOUN.search(converted[max(0, start - 48): start]):
+        return False
+    rest = _SAN_IN_TEXT.sub(" ", _to_san(before_praise)[0])
+    rest = re.sub(r"\d+\s*\.(?:\s*\.\.)?|\.\.\.|(?<![A-Za-z0-9])[a-h][1-8][+#]?(?![A-Za-z0-9])|[!?]+", " ", rest)
+    words = re.fullmatch(r"[\s,;—–:\-]*(?:(?:и|and)\s+)?(?:(?P<side>[а-яёa-z]+)\s+)?", rest, re.IGNORECASE)
+    if not words or (words["side"] and not (_SIDE_NAMED.fullmatch(words["side"]) or _OPPONENT_WORD.fullmatch(words["side"]))):
+        return False  # other words between the moves and the outcome («…, конь забирает»): the outcome is theirs
+    sides = _named_sides(rest + " " + after_praise, ctx)
+    return all(s == board.turn for s in sides)
 
 
 def _reply_in_words(board: chess.Board, move: chess.Move, words: str) -> bool:
@@ -5047,7 +5098,8 @@ def _proposed_move_read(sentence: str, ctx: CheckContext, lesson: bool) -> Optio
     for mv in _MOVE.finditer(converted):
         san = mv["san"]
         if san[0] in "KQRBNO" or mv["num"] or mv["bdots"] or "x" in san \
-                or (_PAWN_MOVE_WORDS_V1031 if lesson else _PAWN_MOVE_WORDS).search(converted[max(0, mv.start() - 24): mv.start()]):
+                or (_PAWN_MOVE_WORDS_V1031 if lesson else _PAWN_MOVE_WORDS).search(converted[max(0, mv.start() - 24): mv.start()]) \
+                or (not lesson and _LINE_NOUN.search(converted[max(0, mv.start() - 48): mv.start()])):  # «Вариант d5 exd5 …»
             candidates.append((mv.end(), san + (mv["check"] or ""), None, mv.start()))
     try:
         from src.move_words import prose_moves
@@ -5072,12 +5124,16 @@ def _proposed_move_read(sentence: str, ctx: CheckContext, lesson: bool) -> Optio
                 and _COACH_OWN_PIECE.search(text[max(0, start - 30): start] + " " + converted[max(0, start - 30): start]):
             continue  # «моя пешка на f6 забирает твоего слона» in a game: the engine's pawn told, not advice (prod Live 29.10)
         tail = text[end: end + 90]
-        cut = re.search(r"[.;!?\n]|\s(?:но|а\s+не|однако|but|however)(?![а-яa-z])", tail)
+        # in a named line a move number's dot («Продолжение 6...Nxe4 7.Nxe4 d5 выигрывает») ends nothing (R2 03.11)
+        stop = _NUMBERED_LINE_STOP if not lesson and _LINE_NOUN.search(converted[max(0, start - 48): start]) else _LINE_STOP
+        cut = stop.search(tail)
         tail = tail[: cut.start()] if cut else tail
         if not _PRAISE.search(tail) or _NEGATED_WORD.search(tail[: _PRAISE.search(tail).start()]):
             continue
         praise = _PRAISE.search(tail)
-        if not lesson and (_praise_of_reply(tail[: praise.start()]) or _past_praise(tail, praise)
+        named_line = not lesson and move is None and _named_line_outcome(
+            converted, start, tail[: praise.start()], tail[praise.start():], ctx.current, ctx)
+        if not lesson and (_praise_of_reply(tail[: praise.start()], named_line) or _past_praise(tail, praise)
                            or _PAST_ADVICE.search(text[:start])):
             continue  # the reply's praise (a line), or what the move would have done on a past board (K3 02.11)
         if move is None:
@@ -5087,7 +5143,7 @@ def _proposed_move_read(sentence: str, ctx: CheckContext, lesson: bool) -> Optio
                 continue
         if san.replace("x", "") in {q.replace("x", "") for q in ctx.quoted} and not _PRAISE.search(tail):
             continue
-        if not lesson and (_reply_in_words(ctx.current, move, tail[: praise.start()])
+        if not lesson and not named_line and (_reply_in_words(ctx.current, move, tail[: praise.start()])
                            or _other_subject(tail[: praise.start()], ctx.current.piece_type_at(move.from_square))):
             continue  # «После 4.Nxe5 ферзь идёт на g5 и атакует коня», «…слон забирает ферзя»: another piece's praise (K3 02.11)
         return ctx.current, move, ctx.current.san(move)
