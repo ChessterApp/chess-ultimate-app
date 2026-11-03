@@ -27,7 +27,8 @@ _RU_TAKE = (r"(?:взять|бить|побить|съесть|забрать|с
             # the coach's imperatives: «бей ферзём по h3», «возьми конём на f7» (production, 2026-10-06)
             r"бей|бейте|возьми|возьмите|забери|заберите|съешь|съешьте|руби|рубите|бери|берите)")
 _EN_TAKE = r"(?:take|takes|took|taking|capture|captures|grab|grabs|win|wins)"
-_EN_PUT = r"(?:put|place|move|bring|play|swing|drop|develop|retreat|shift|put\s+back)"
+_EN_PUT = (r"(?:put|place|move|bring|play|swing|drop|develop|retreat|shift|put\s+back|putting|placing|moving|bringing|"
+           r"playing|pushing|sending|send)")
 
 _B = r"(?<![а-яa-z])"
 _E = r"(?![а-яa-z])"
@@ -38,13 +39,15 @@ _E = r"(?![а-яa-z])"
 # that piece already stands there: «ферзь b6 атакует…» is a piece on b6.
 _SPOKEN = re.compile(
     _B + r"(?:сыграть|сыграю|сыграем|сыграй|играть|играю|пойти|пойду|пойд[её]м|хочу|если|давай|ходом|ход)"
-    r"\s+(?:[а-яё]+\s+)?(?P<piece>ладья|конь|слон|ферзь|король|пешка)\s+(?:на\s+)?(?P<to>" + SQ + r")(?![0-9])")
+    r"\s+(?:[а-яё]+\s+)?(?P<piece>ладья|конь|слон|ферзь|король|пешка)\s+(?:на\s+)?(?P<to>" + SQ + r")(?![0-9])"
+    r"(?!\s*[-–—]?\s*[a-h][1-8](?![0-9]))")
 # «пойти ферзём d1», «сходи конём f3»: the instrument said with the square, «на» dropped by the transcription
 # (voice 02.11) — after a verb of moving only; the instrument names the piece that moves, never one standing there.
 _SPOKEN_WITH = re.compile(
     _B + r"(?:сыграть|сыграй|сыграем|сыграешь|пойти|пойди|пойд[её]м|пойд[её]шь|сходить|сходи|сходим|сходишь|ходи|иди|"
     r"двинуть|двинь|двинем|двинешь|ход|ходом)"
-    r"\s+(?P<piece>ладь[её]й|кон[её]м|слоном|ферз[её]м|корол[её]м|пешкой)\s+(?P<to>" + SQ + r")(?![0-9])")
+    r"\s+(?P<piece>ладь[её]й|кон[её]м|слоном|ферз[её]м|корол[её]м|пешкой)\s+(?P<to>" + SQ + r")(?![0-9])"
+    r"(?!\s*[-–—]?\s*[a-h][1-8](?![0-9]))")  # «ладьёй a8-a5»: a8 is where it stands
 
 _PATTERNS = [
     _SPOKEN,
@@ -53,6 +56,9 @@ _PATTERNS = [
     # a second «на» (voice 02.11: read as the pawn going to d2)
     re.compile(_B + _RU_PIECE + rf"\s+(?:(?:(?:с\s+)?(?:пол[яе]\s+)?|на\s+(?=[a-h][1-8]\s+на\s+[a-h][1-8](?![0-9])))"
                rf"(?P<frm>{SQ})\s+)?(?:на|в|по)\s+(?:пол[ея]\s+)?(?P<to>{SQ})(?![0-9])"),
+    # «ладьёй a8-a5», «коня g1-f3», «ладьёй a8a5» (squares said one after the other, voice): from-square and square
+    # (review-miss 02.11 #12)
+    re.compile(_B + _RU_PIECE + rf"\s+(?P<frm>{SQ})\s*[-–—]?\s*(?P<to>{SQ})(?![0-9])"),
     # «взять на h4 ладьёй», «бью на e5 конём», «побить h4 ладьёй»
     re.compile(_B + _RU_TAKE + rf"\s+(?:на\s+)?(?P<to>{SQ})(?![0-9])\s+" + _RU_PIECE + _E),
     # «ладьёй взять на h4», «конём бью e5»

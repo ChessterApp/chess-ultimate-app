@@ -84,8 +84,9 @@ _CANNOT_CASTLE = [
                r"|\bcastling\s+(?:kingside\s+|queenside\s+|short\s+|long\s+)?is\s+(?:not\s+(?:legal|possible|allowed|available)|"
                r"illegal|impossible)\b", re.IGNORECASE),
     re.compile(r"рок[иеі]ровка\s+жасай\s+алмай\w*|рок[иеі]ровка\s+жасауға\s+болмайды", re.IGNORECASE),
-    re.compile(_W + r"рок[иеі]р\w*\s+(?:[а-яё]+\s+){0,2}?(?:нельзя|не\s+можешь|не\s+можете|не\s+получится|не\s+разрешено|"
-               r"невозможно|запрещено)" + _E, re.IGNORECASE),
+    # (review-miss 02.11 #13: «Рокироваться коротко тебе сейчас нельзя» — three words between)
+    re.compile(_W + r"рок[иеі]р\w*\s+(?:[а-яё]+\s+){0,3}?(?:нельзя|не\s+можешь|не\s+можете|не\s+получится|не\s+разрешено|"
+               r"невозможно|запрещено|не\s+выйдет)" + _E, re.IGNORECASE),
 ]
 
 
@@ -598,6 +599,17 @@ def _king_issues(text: str, ctx) -> list[str]:
             color = chess.BLACK
         else:
             color = ctx.student_color if ctx.student_color is not None else board.turn
+            if not side.startswith(("тво", "ваш", "your")):
+                # «Соперник не может рокироваться: его король под шахом» (review-fp 02.11): the opponent's king in a game;
+                # outside one, or with both sides named, either king may be meant
+                from src.castle_reason import _subject
+
+                colours, how = _subject(text, ctx)
+                if how in ("named", "opponent", "coach"):
+                    color = colours[0]
+                elif how == "unclear":
+                    if any(board.king(c) is not None and board.is_attacked_by(not c, board.king(c)) for c in colours):
+                        continue
         b = board.copy(stack=False)
         b.turn = color
         if not b.is_check():

@@ -483,6 +483,11 @@ DETECTOR_DEFAULTS = {
     # off the king's path («поле f2 под боем»), a square nothing attacks, an attacker that does not attack it, a check
     # that is not there, a piece in the way that is not; off = the possibility alone is judged, as before
     "castle_reason": "on",
+    # review 02.11: a written move after a proposal word that has no legal form now («Сыграй Qg4», «Лучше Nd5»)
+    "word_move_san": "on",
+    # review 02.11: castling proposed or called available when it cannot be played now («Рокируйся коротко», «Давай
+    # рокируемся», «Сыграй O-O», «королём на g1»), judged by src/board_rules.castling_status
+    "castle_advice": "on",
 }
 RELATION_DETECTORS = frozenset({
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",

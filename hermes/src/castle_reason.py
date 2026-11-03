@@ -21,6 +21,12 @@ of these and judged:
   * a moved king or rook («король уже ходил»): false only in a game whose record the check has (the rights of a set-up
     FEN are not evidence), when the king and that rook stand at home with the right kept.
 
+Review 02.11 (review-fp, review-miss): the side is read from the sentence's subject («соперник», «его король», «чёрные
+под шахом»; both kings when it cannot be told), a reason after another predicate of its own («…, и уйти королём на d2
+тоже нельзя: …») is that predicate's, «а» going on to the rule links, a claim opening with «поэтому / значит» takes the
+attacked square of the sentence before, a piece of the other side named as the reason off the back rank («из-за слона
+c5») is judged by what it attacks, and castling advised for the student's move now is judged (castle_advice_issues).
+
 A reason is bound to the claim only inside one sentence and with no contrast between them («, а …», «; …», «кроме
 того», "but", "also"); the nearest one on each side is taken. A reason denied («не из-за поля f2», «это не мешает»), a
 question, a quoted opinion («ты думаешь…»), or castling advice («рокируйся, ведь…») is not judged. Rule talk with no
@@ -56,11 +62,13 @@ _NEG = re.compile(
     r"ruled\s+out|possible|legal|allowed|available)(?![a-z])"
     r"|(?<![a-z])(?:o-o(?:-o)?|0-0(?:-0)?)\s+(?:сейчас\s+|здесь\s+|тут\s+)?(?:невозможн\w*|нельзя|запрещен\w*|"
     r"is\s+(?:not\s+possible|illegal|impossible))", re.IGNORECASE)
+# «рокировке в длинную сторону мешает …» (review-miss 02.11: three words between castling and its verb)
+_SIDEWAYS = r"(?:в\s+(?:длинную|короткую|королевскую|ферзевую)\s+сторону\s+|на\s+(?:королевский|ферзевый)\s+фланг\s+)?"
 # «X мешает рокировке», «не даёт рокироваться», "prevents castling" — the subject is the reason.
 _BARRIER = re.compile(
     _W + r"(?:меша\w*|не\s+да[её]т|не\s+позволя\w*|запреща\w*|лиша\w*|препятству\w*|блокиру\w*)\s+(?:[а-яё]+\s+){0,2}?"
     r"(?:коротк\w+\s+|длинн\w+\s+)?рок[иеі]р\w*"
-    r"|" + _W + r"(?:коротк\w+\s+|длинн\w+\s+)?рок[иеі]р\w*\s+(?:[а-яё]+\s+){0,2}?(?<!не\s)(?:меша\w*|препятству\w*)" + _E
+    r"|" + _W + r"(?:коротк\w+\s+|длинн\w+\s+)?рок[иеі]р\w*\s+" + _SIDEWAYS + r"(?:[а-яё]+\s+){0,2}?(?<!не\s)(?:меша\w*|препятству\w*)" + _E
     + r"|(?<![a-z])(?:prevents?|stops?|forbids?|rules?\s+out|blocks?)\s+(?:\w+\s+){0,2}?castl\w*", re.IGNORECASE)
 # «проходить через битое поле при рокировке нельзя», "you can't castle through an attacked square": the rule named,
 # its square elsewhere in the sentence («слон c5 бьёт поле f2, и по правилам …»).
@@ -116,7 +124,7 @@ _REASONS = [
     ("attacked", re.compile(_W + r"(?:" + _SQ.format("s2b") + r"\s+)?(?P<pt>" + _PT_NOM + r")"
                             r"(?:\s+(?:на|с|on|from)\s+" + _SQ.format("s2") + r"|\s+" + _SQ.format("s2c") + r")?"
                             r"\s+(?:(?:тоже|уже|сейчас|ещ[её]|также|и|also|still|now)\s+)?" + _VERB
-                            + r"\s+(?:по\s+)?(?P<noun>" + _NOUN + r"\s+|the\s+)?" + _SQ.format("s") + r"(?:\s+square)?",
+                            + r"\s+(?:под\s+(?:прицелом|ударом|боем|контролем|обстрелом)\s+)?(?:по\s+)?(?P<noun>" + _NOUN + r"\s+|the\s+)?" + _SQ.format("s") + r"(?:\s+square)?",
                             re.IGNORECASE)),
     # «поле f1 бьёт слон d3»
     ("attacked", re.compile(r"(?P<noun>" + _NOUN + r"\s+)" + _SQ.format("s") + r"\s+(?:[а-яё]+\s+)?"
@@ -126,6 +134,11 @@ _REASONS = [
     # «из-за поля f2», «из-за битого поля f2»
     ("attacked", re.compile(_W + r"из-за\s+(?:битого\s+|атакованного\s+)?(?P<noun>пол[яе]\s+)" + _SQ.format("s"),
                             re.IGNORECASE)),
+    # «король встанет на g1, а это поле под ударом», «пройдёт через f1, а оно под боем слона» (review-miss 02.11 #10):
+    # the square named as the king's, then said attacked by «это поле» / «оно» / «там»
+    ("attacked", re.compile(_W + r"(?:корол\w*|рок[иеі]р\w*)\s+(?:[а-яё]+\s+){0,3}?(?:на|через|сквозь)\s+(?P<noun>"
+                            + _NOUN + r"\s+)?" + _SQ.format("s") + r"\s*,?\s*(?:а|и|но|однако)\s+(?:это\s+пол\w+|эта\s+клетк\w+|"
+                            r"оно|она|там|это)\s+" + _ATTACKED + _BY_RU, re.IGNORECASE)),
     # «король пройдёт через f2», «через битое поле f2», "the king passes through f2"
     ("path", re.compile(_W + r"(?:через|сквозь)\s+(?:битое\s+|атакованн\w+\s+|простреливаем\w+\s+)?(?P<noun>" + _NOUN
                         + r"\s+)?" + _SQ.format("s") + r"|(?:through|over|across)\s+(?:the\s+)?(?:attacked\s+)?(?P<noun2>square\s+)?"
@@ -149,17 +162,20 @@ _BLOCK = [
                r"(?:\s+(?:на\s+)?" + _SQ.format("s") + r")?", re.IGNORECASE),
     # «короткой рокировке мешает ферзь d1», "castling is blocked by the knight on g1"
     re.compile(_W + r"(?:меша\w*|загоражива\w*|перекрыва\w*)\s+(?:тебе\s+|белым\s+|ч[её]рным\s+)?(?:коротк\w+\s+|длинн\w+\s+)?"
-               r"рок[иеі]р\w*\s+(?:ещ[её]\s+|сейчас\s+)?(?:тво\w+\s+|сво\w+\s+)?(?P<pt>" + _PT_NOM + r")(?:\s+(?:на\s+)?"
+               r"рок[иеі]р\w*\s+" + _SIDEWAYS + r"(?:ещ[её]\s+|сейчас\s+)?(?:тво\w+\s+|сво\w+\s+)?(?P<pt>" + _PT_NOM + r")(?:\s+(?:на\s+)?"
                + _SQ.format("s") + r")?"
                r"|castl\w*\s+(?:\w+\s+)?is\s+blocked\s+by\s+(?:the\s+|your\s+)?(?P<pte>bishop|knight|queen)(?:\s+on\s+"
                + _SQ.format("s3") + r")?", re.IGNORECASE),
     # «короткой рокировке мешает ферзь d1»
-    re.compile(_W + r"рок[иеі]р\w*\s+(?:ещ[её]\s+|сейчас\s+|тебе\s+)?(?:меша\w*|препятству\w*|загоражива\w*)\s+"
+    re.compile(_W + r"рок[иеі]р\w*\s+" + _SIDEWAYS + r"(?:ещ[её]\s+|сейчас\s+|тебе\s+)?(?:меша\w*|препятству\w*|загоражива\w*)\s+"
                r"(?:тво\w+\s+|сво\w+\s+)?(?P<pt>" + _PT_NOM + r")(?:\s+(?:на\s+)?" + _SQ.format("s") + r")?", re.IGNORECASE),
     # «поле f1 занято», "g1 is occupied"
     re.compile(r"(?:" + _NOUN + r"\s+|the\s+)?" + _SQ.format("s") + r"(?:\s+square)?\s+(?:ещ[её]\s+)?(?:занят\w*|не\s+свободн\w*|"
                r"не\s+пуст\w*|is\s+(?:still\s+)?(?:occupied|not\s+empty|blocked))", re.IGNORECASE),
 ]
+# «рокироваться нельзя из-за слона c5», «из-за чёрного коня на b4»
+_BECAUSE_PIECE = re.compile(_W + r"из-за\s+" + _SIDE_ADJ + r"(?P<pt>слона|коня|ладьи|ферзя|пешки)\s+(?:на\s+|с\s+)?"
+                            + _SQ.format("s"), re.IGNORECASE)
 _MOVED = re.compile(
     _W + r"(?P<who>корол\w*|ладь\w*)\s+(?:(?:на\s+)?[ah][18]\s+)?(?:уже\s+)?(?:ходил\w*|двигал\w*|сходил\w*|сделал\w*\s+ход|"
     r"сдвинул\w*|уходил\w*|ушел|ушла|ушёл)" + _E
@@ -228,6 +244,53 @@ def _named_colour(text: str) -> Optional[bool]:
                          re.IGNORECASE):
         found.add(chess.WHITE if m["w"] else chess.BLACK)
     return found.pop() if len(found) == 1 else None
+
+
+# The side whose castling a sentence is about, read from its subject (review-fp 02.11: «Соперник не может
+# рокироваться: его король под шахом», «Чёрные под шахом — рокировка у них невозможна» were judged on the student's king).
+# A side named in the nominative or dative, «у белых», «король чёрных», "White can't"; the opponent named («соперник»,
+# «противник», «у него», «его король», «он не может»); the student addressed («ты», «твой король»). Not the genitive of a
+# piece's owner: «слон чёрных бьёт f1» is about White's castling.
+_SUBJ_W = re.compile(_W + r"(?:белые|белым|у\s+белых|корол\w*\s+белых|бел(?:ый|ого|ому)\s+корол\w*|white(?:'s)?\s+(?:king|can|cannot|"
+                     r"can'?t|may|is|has)|white\s+(?:to\s+move))" + _E, re.IGNORECASE)
+_SUBJ_B = re.compile(_W + r"(?:ч[её]рные|ч[её]рным|у\s+ч[её]рных|корол\w*\s+ч[её]рных|ч[её]рн(?:ый|ого|ому)\s+корол\w*|"
+                     r"black(?:'s)?\s+(?:king|can|cannot|can'?t|may|is|has))" + _E, re.IGNORECASE)
+_SUBJ_OPP = re.compile(_W + r"(?:соперник\w*|противник\w*|оппонент\w*|у\s+(?:него|не[её]|них)|(?:его|е[её]|их)\s+корол\w*|"
+                       r"(?:он|она|они)(?=\s+(?:[а-яё]+\s+){0,2}?(?:не\s|нельзя|рок|уже|под\s+шахом))|(?:ему|им)\s+(?:сейчас\s+|уже\s+)?"
+                       r"(?:нельзя|не\s)|opponent\w*|(?:his|their)\s+king|(?:he|they)\s+(?:can'?t|cannot|is|are|has|have))" + _E,
+                       re.IGNORECASE)
+_SUBJ_YOU = re.compile(_W + r"(?:ты|тебе|тебя|тво[йяеёи]\w*|вы|вам|вас|ваш\w*|you|your)" + _E, re.IGNORECASE)
+_SUBJ_ME = re.compile(_W + r"(?:я(?!\s+бы\s)|мне|меня|мо[йяеёи]|моего|моему|my|i(?!'?d\s))" + _E, re.IGNORECASE)
+
+
+def _subject(text: str, ctx) -> tuple:
+    """(colours, how) — the sides the castling claim of *text* may be about: one colour when the sentence says whose,
+    both when it cannot be told (then a reason is false only when it fits neither king)."""
+    current = ctx.current
+    in_game = getattr(ctx, "student_color", None) is not None
+    student = ctx.student_color if in_game else current.turn
+    found = set()
+    if _SUBJ_W.search(text):
+        found.add(chess.WHITE)
+    if _SUBJ_B.search(text):
+        found.add(chess.BLACK)
+    if len(found) == 1:
+        return [found.pop()], "named"
+    if found:
+        return [chess.WHITE, chess.BLACK], "unclear"
+    opp = bool(_SUBJ_OPP.search(text))
+    you = bool(_SUBJ_YOU.search(text))
+    if opp and not you:
+        # outside a game the student is only guessed (the side to move): «соперник» there is not known to be the other
+        return ([not student], "opponent") if in_game else ([chess.WHITE, chess.BLACK], "unclear")
+    if you and not opp:
+        return [student], "you"
+    playing = bool(getattr(ctx, "game_engine_moves", None) or getattr(ctx, "game_moves", None))
+    if playing and not opp and not you and _SUBJ_ME.search(text):
+        return [not student], "coach"  # «я не могу рокироваться» in a game: the coach's side
+    if not opp and not you:
+        return [student], "default"
+    return [chess.WHITE, chess.BLACK], "unclear"
 
 
 def _side_name(colour: bool) -> str:
@@ -303,12 +366,20 @@ def _possible_issues(text: str, ctx, neg_claims: list) -> list[str]:
         # the squares of the king's path named after the claim, in its clause
         cut = _CONTRAST.search(text, m.end())
         clause = text[m.end():cut.start() if cut else len(text)]
-        squares = [chess.parse_square(x) for x in re.findall(r"(?<![a-z0-9])([cdfg][18])(?![0-9a-z])", clause)]
+        # not a square where a piece is said to stand: «ладья d1 стоит на линии d», «конь на f1 стоит» (review-fp 02.11)
+        squares = [chess.parse_square(x.group(1)) for x in re.finditer(r"(?<![a-z0-9])([cdfg][18])(?![0-9a-z])", clause)
+                   if not re.search(_W + r"(?:" + _PT_NOM + r"|" + _PT_OBL + r"|ладью|коня|слона|ферзя|пешку|короля)"
+                                    r"\s+(?:на\s+|с\s+)?$", clause[max(0, x.start() - 14):x.start()], re.IGNORECASE)
+                   and not re.match(r"\s+(?:стоит|стоят|находится|занят\w*)", clause[x.end():])]
         if not squares:
             return []
         owners = {chess.WHITE if chess.square_rank(x) == 0 else chess.BLACK for x in squares}
         named = _named_colour(text)
         if len(owners) != 1 or (named is not None and named not in owners):
+            return []
+        # the side the claim is about must be the side of the squares (named, else the student / the side to move)
+        subject, how = _subject(text[:m.end()] + " " + clause, ctx)
+        if len(subject) == 1 and subject[0] not in owners:
             return []
         colour = owners.pop()
         wings = {"O-O" if chess.square_file(x) >= 5 else "O-O-O" for x in squares}
@@ -325,17 +396,60 @@ def _possible_issues(text: str, ctx, neg_claims: list) -> list[str]:
     return []
 
 
+_A_LINK = re.compile(r"\s+(?:по\s+правилам|значит|поэтому|следовательно|через\s+(?:битое|атакованн\w+)|проходить|"
+                     r"король\s+(?:не\s+)?(?:может|должен)|рок[иеі]р\w*)", re.IGNORECASE)
+_OTHER_NEG = re.compile(_W + r"(?:нельзя|не\s+(?:мож\w+|мог\w*|смож\w+|получится|выйдет|удастся)|невозможн\w*|запрещен\w*|"
+                        r"can'?t|cannot)" + _E, re.IGNORECASE)
+
+
 def _bound(text: str, claim: tuple, at: int, end: int) -> bool:
     """The reason at *at*…*end* belongs to *claim*: no contrast or addition between them."""
     lo, hi = (claim[1], at) if at >= claim[1] else (end, claim[0])
     if lo > hi:
         return True  # overlapping («…мешает рокировке» with the reason as its subject)
-    return not _CONTRAST.search(text[lo:hi])
+    between = text[lo:hi]
+    for c in _CONTRAST.finditer(between):
+        # «…бьёт поле f2, а по правилам через битое поле рокироваться нельзя»: «а» going on to the rule or the
+        # conclusion links the two (review-miss 02.11 #5) — any other contrast parts them
+        if c.group(0).strip().lower() == "а" and _A_LINK.match(between, c.end()):
+            continue
+        return False
+    # «Рокироваться нельзя — ты под шахом, и уйти королём на d2 тоже нельзя: поле d2 бьёт слон b4» (review-fp 02.11): a
+    # reason after another predicate of its own («… тоже нельзя:») is that predicate's reason
+    if _OTHER_NEG.search(between):
+        return False
+    return True
 
 
 def _denied(text: str, at: int) -> bool:
     before = text[max(0, at - 16):at]
     return bool(re.search(r"(?:^|[\s,(«\"])(?:не|ни|not)\s+(?:из-за\s+|в\s+|because\s+of\s+)?(?:\w+\s+)?$", before))
+
+
+def _piece_reason(board: chess.Board, sq: int, pt: Optional[int], wings: list, colours: list) -> Optional[str]:
+    """Why the piece on *sq* (off the back rank) is no reason castling is impossible, or None when it may be one: it
+    is the other side's (of a castling side among *colours*), that side keeps the right, and the piece attacks neither
+    the king nor a square the king passes or lands on (on either wing, when the claim names none)."""
+    p = board.piece_at(sq)
+    if p is None or (pt is not None and p.piece_type != pt) or p.piece_type == chess.KING:
+        return None
+    side = not p.color
+    if side not in colours:
+        return None
+    rank = 0 if side == chess.WHITE else 7
+    if board.piece_at(chess.square(4, rank)) != chess.Piece(chess.KING, side):
+        return None
+    rights = {"O-O": board.has_kingside_castling_rights(side), "O-O-O": board.has_queenside_castling_rights(side)}
+    if not all(rights[w] for w in wings):
+        return None  # a right lost: the piece may have forced the king or the rook to move earlier
+    hits = board.attacks(sq)
+    squares = {chess.square(4, rank)} | {chess.square(f, rank) for w in wings for f in _PATH[w]}
+    if any(x in hits for x in squares):
+        return None
+    names = ", ".join(chess.square_name(x) for x in sorted(squares))
+    return (f"the castling reason is wrong: the {_side_name(p.color).lower()} {chess.piece_name(p.piece_type)} on "
+            f"{chess.square_name(sq)} attacks none of {names} (the king's square and its path) — it does not forbid "
+            f"castling. The truth on this board — {_truth(board, side, wings)}")
 
 
 def _board_for(text: str, upto: int, ctx):
@@ -375,32 +489,8 @@ def _board_for(text: str, upto: int, ctx):
     return board or None
 
 
-def castle_reason_issues(text: str, ctx) -> list[str]:
-    """The false reasons *text* (lower case, ё → е; rule talk hidden) gives for castling being impossible."""
-    current = getattr(ctx, "current", None)
-    if current is None or not _CASTLE.search(text):
-        return []
-    stripped = text.strip()
-    if stripped.endswith("?") or _OPINION.search(text) or _IRRELEVANT.search(text):
-        return []
-    claims = _claims(text)
-    if not claims:
-        return _possible_issues(text, ctx, [])
-    student = ctx.student_color if getattr(ctx, "student_color", None) is not None else current.turn
-    wing = _claim_wing(text, claims)
-    wings = [wing] if wing else ["O-O", "O-O-O"]
-    named = _named_colour(text)
-    issues: list[str] = []
-
-    def default_colour() -> bool:
-        if named is not None:
-            return named
-        in_game = bool(getattr(ctx, "game_engine_moves", None) or getattr(ctx, "game_moves", None))
-        if in_game and re.search(_W + r"(?:я|мне|меня|my|i)" + _E, text) and not re.search(_W + r"(?:ты|тебе|тебя|вы|вам|you)" + _E, text):
-            return not student  # «я не могу рокироваться» in a game: the coach's side
-        return student
-
-    # ── an attacked square, or a square on the king's way ──
+def _reasons(text: str, current: chess.Board) -> list:
+    """The squares *text* gives as attacked or as the king's way: (start, end, kind, square, match), in order."""
     found = []
     for kind, rx in _REASONS:
         for m in rx.finditer(text):
@@ -431,7 +521,52 @@ def castle_reason_issues(text: str, ctx) -> list[str]:
             continue  # «f2 под боем» with a pawn there: the piece, not the square
         if _denied(text, at):
             continue
+        if re.search(_W + r"корол[её]м\s+(?:[а-яё]+\s+)?на\s+(?:поле\s+)?" + chess.square_name(sq) + r"(?![0-9])", text):
+            continue  # «уйти королём на d2 нельзя: поле d2 бьёт слон» — the king's own step there, not castling (review-fp)
         reasons.append((at, end, kind, sq, m))
+    return reasons
+
+
+# A claim sentence that goes on from the one before («Поле f2 под боем слона c5. Поэтому рокироваться нельзя.»): the
+# reason told there is this claim's reason (review-miss 02.11 #5).
+_LINK_OPEN = re.compile(r"^\W*(?:(?:и|а)\s+)?(?:поэтому|значит|так\s+что|вот\s+почему|из-за\s+этого|следовательно|"
+                        r"therefore|so|hence|that'?s\s+why)" + _E + r"|^\W*(?:а|и)(?=" + _A_LINK.pattern + r")",
+                        re.IGNORECASE)
+
+
+def castle_reason_issues(text: str, ctx) -> list[str]:
+    """The false reasons *text* (lower case, ё → е; rule talk hidden) gives for castling being impossible."""
+    current = getattr(ctx, "current", None)
+    if current is None or not _CASTLE.search(text):
+        return []
+    stripped = text.strip()
+    if stripped.endswith("?") or _OPINION.search(text):
+        return []
+    claims = _claims(text)
+    # «это не мешает», «f2 не на пути» turn the claim around — not «рокировка не пройдёт», which is the claim itself
+    # (review-miss 02.11 #8: «не пройдёт» switched the whole check off)
+    if any(not any(c0 <= m.start() < c1 for c0, c1, _k in claims) for m in _IRRELEVANT.finditer(text)):
+        return []
+    if not claims:
+        return _possible_issues(text, ctx, [])
+    student = ctx.student_color if getattr(ctx, "student_color", None) is not None else current.turn
+    wing = _claim_wing(text, claims)
+    wings = [wing] if wing else ["O-O", "O-O-O"]
+    named = _named_colour(text)
+    subject, how = _subject(text, ctx)
+    issues: list[str] = []
+
+    def default_colour() -> bool:
+        if named is not None:
+            return named
+        return subject[0] if len(subject) == 1 else student
+
+    def judged_colours() -> list:
+        """The kings a check or a moved king may be about: the subject's, both when the sentence does not say."""
+        return subject if how in ("named", "opponent", "you", "coach") else [chess.WHITE, chess.BLACK]
+
+    # ── an attacked square, or a square on the king's way ──
+    reasons = _reasons(text, current)
     # the nearest bound reason on each side of each claim
     picked = {}
     for claim in claims:
@@ -443,6 +578,13 @@ def castle_reason_issues(text: str, ctx) -> list[str]:
             after = [r for r in after if r[2] == "attacked"]
         for r in ([after[0]] if after else []) + ([before[-1]] if before else []):
             picked[r[0]] = (r, claim)
+    prev = (getattr(ctx, "sentence_before", "") or "").lower().replace("ё", "е")
+    own = any(not _denied(text, x.start()) for rx in [_CHECK, _MOVED, _BECAUSE_PIECE] + _BLOCK for x in rx.finditer(text))
+    if not picked and not reasons and not own and prev and _LINK_OPEN.match(text) and not _CASTLE.search(prev) \
+            and not _HYPO.search(prev) and not prev.rstrip().endswith("?"):
+        told = [r for r in _reasons(prev, current) if r[2] == "attacked"]
+        if told:
+            picked[-1] = ((0, 0) + told[-1][2:], claims[0])
     for at in sorted(picked):
         (at, end, kind, sq, m), claim = picked[at]
         rank = chess.square_rank(sq)
@@ -505,12 +647,27 @@ def castle_reason_issues(text: str, ctx) -> list[str]:
     m = bound_reason([_CHECK])
     if m is not None:
         board = _board_for(text, claim[1] if m.start() > claim[0] else m.start(), ctx)
-        colour = default_colour()
+        colours = judged_colours()
         if board is not None:
-            king = board.king(colour)
-            if king is not None and not board.is_attacked_by(not colour, king):
-                issues.append(f"the castling reason is wrong: the {_side_name(colour).lower()} king is not in check. "
+            free = [c for c in colours if board.king(c) is not None and not board.is_attacked_by(not c, board.king(c))]
+            if free and len(free) == len(colours):
+                colour = default_colour() if default_colour() in free else free[0]
+                who = (f"the {_side_name(colour).lower()} king is" if len(colours) == 1 else "neither king is")
+                issues.append(f"the castling reason is wrong: {who} not in check. "
                               f"The truth on this board — {_truth(board, colour, wings)}")
+    # ── a piece of the other side named as the reason, off the back rank («из-за слона c5», «короткой рокировке мешает
+    # слон на c5»): it forbids castling only by attacking the king or a square of its path (review-miss 02.11 #7) ──
+    m = bound_reason(_BLOCK + [_BECAUSE_PIECE])
+    if m is not None:
+        g = m.groupdict()
+        sq_name = g.get("s") or g.get("s3")
+        if sq_name and chess.square_rank(chess.parse_square(sq_name)) not in (0, 7):
+            board = _board_for(text, claim[1] if m.start() > claim[0] else m.start(), ctx)
+            if board is not None:
+                why = _piece_reason(board, chess.parse_square(sq_name), _ptype(g.get("pt") or g.get("pte")), wings,
+                                    subject)
+                if why:
+                    issues.append(why)
     # ── a piece in the way ──
     m = bound_reason(_BLOCK)
     if m is not None:
@@ -546,17 +703,135 @@ def castle_reason_issues(text: str, ctx) -> list[str]:
     in_game = bool(getattr(ctx, "game_moves", None) or getattr(ctx, "game_engine_moves", None))
     if m is not None and in_game:
         board = _board_for(text, claim[1] if m.start() > claim[0] else m.start(), ctx)
-        colour = default_colour()
-        if board is not None:
+        who = (m.groupdict().get("who") or m.groupdict().get("who2") or m.groupdict().get("who3") or "").lower()
+        rook_said = who.startswith(("лад", "rook"))
+        check = wings if (rook_said or wing) else ["O-O", "O-O-O"]
+
+        def untouched(colour) -> list:
             rank = 0 if colour == chess.WHITE else 7
-            home = board.piece_at(chess.square(4, rank)) == chess.Piece(chess.KING, colour)
-            who = (m.groupdict().get("who") or m.groupdict().get("who2") or m.groupdict().get("who3") or "").lower()
-            rook_said = who.startswith(("лад", "rook"))
-            check = wings if (rook_said or wing) else ["O-O", "O-O-O"]
+            if board.piece_at(chess.square(4, rank)) != chess.Piece(chess.KING, colour):
+                return []
             kept = [w for w in check if (board.has_kingside_castling_rights(colour) if w == "O-O"
                                          else board.has_queenside_castling_rights(colour))]
-            if home and kept and len(kept) == len(check):
+            return kept if len(kept) == len(check) else []
+
+        colours = judged_colours()
+        if board is not None and all(untouched(c) for c in colours):
+            colour = default_colour() if default_colour() in colours else colours[0]
+            kept = untouched(colour)
+            if kept:
                 issues.append(f"the castling reason is wrong: the {_side_name(colour).lower()} king and the rook have "
                               f"not moved in this game — the right to castle ({' and '.join(kept)}) is kept. "
                               f"The truth on this board — {_truth(board, colour, wings)}")
     return issues
+
+
+# ── castling proposed when it cannot be played (review-miss 02.11 #1) ───────────────────────────────────────────────
+# Live 02.11: short castling was illegal (the bishop d3 hits f1), and «Рокируйся коротко», «Давай рокируемся», «Пора
+# рокироваться», «Сделай короткую рокировку» passed on every illegal castling tried (0/349): the castling check
+# (src/answer_check_rules._castling_issues) judges «можно рокироваться» only with a now-word, and reads no advice. Here
+# castling told as advice for the student's move now — an imperative, «давай», «пора», «я бы», «советую»; in a game on
+# the student's turn also «можешь / можно рокироваться», «рокировка доступна» — is judged by castling_status. Left
+# unjudged: the other side's castling, a question that is not a suggestion, a denial («не рокируйся», «рано
+# рокироваться»), a move told before it in the sentence, a condition or a time to come («когда уведёшь слона»,
+# «скоро», «при первой возможности», «чтобы …», «готовь рокировку»), a line the sentence before told, the rights of a
+# set-up position outside a game (a FEN's «-» is no evidence).
+_ADVICE = re.compile(
+    _W + r"(?:"
+    r"(?P<imp>рокируйся|рокируйтесь|рокируемся|рокирнись|рокирнемся)"
+    r"|(?:давай(?:те)?|пора|самое\s+время|(?:я|мы)\s+бы|сделай(?:те)?|проведи(?:те)?|выполни(?:те)?|сыграй(?:те)?|"
+    r"давай(?:те)?\s+(?:сделаем|проведем|проведём|сыграем)|"
+    r"советую|предлагаю|рекомендую|попробуй(?:те)?|лучше(?:\s+всего)?|стоит|нужно|надо|следует|хорошо\s+бы)\s+"
+    r"(?:(?:сейчас|уже|сразу|прямо|тебе|вам|все-таки|просто|наконец|же|именно)\s+){0,2}"
+    r"(?:сделать\s+|провести\s+|сыграть\s+)?(?:коротк\w+\s+|длинн\w+\s+)?рок[иі]р(?:оваться|уемся|уйся|овался|овалась|"
+    r"овку|овка|овкой)(?:\s+в\s+(?:длинную|короткую|королевскую|ферзевую)\s+сторону|\s+на\s+(?:королевский|ферзевый)\s+фланг)?"
+    r"|(?P<can>можно|можешь|можете)\s+(?:(?:сейчас|уже|сразу|спокойно|смело|тебе|вам|прямо)\s+){0,2}(?:сделать\s+)?"
+    r"(?:коротк\w+\s+|длинн\w+\s+)?рок[иі]р\w*"
+    r"|(?P<avail>(?:коротк\w+\s+|длинн\w+\s+)?рокировка\s+(?:(?:тебе|уже|сейчас|здесь|тут|вполне)\s+){0,2}"
+    r"(?:доступна|возможна|разрешена))"
+    r")" + _E
+    + r"|(?<![a-z])(?:let'?s\s+castle|you\s+(?:should|can|could)\s+(?:now\s+)?castle|^\W*castle)"
+      r"(?:\s+(?:kingside|queenside|short|long))?(?![a-z])", re.IGNORECASE)
+# A condition or a time to come anywhere around the advice: not the move now.
+_ADVICE_LATER = re.compile(
+    _W + r"(?:если|когда|как\s+только|пока|после|позже|позднее|скоро|вскоре|ближайш\w+|при\s+первой\s+возможности|"
+    r"как\s+можно\s+(?:раньше|скорее|быстрее)|сначала|сперва|прежде|перед\s+этим|до\s+этого|готов\w*|подготов\w*|чтобы|"
+    r"сможешь|сможете|обычно|всегда|как\s+правило|таких|дебют\w*|планир\w*|собира\w*|хоч\w*|хотел\w*|"
+    r"не\s+сейчас|if|when|once|after|later|soon|first|before|until|prepare\w*|ready|eventually|usually|always|plan\w*|"
+    r"want\w*)" + _E, re.IGNORECASE)
+_ADVICE_LATER_HEAD = re.compile(_ADVICE_LATER.pattern + r"|" + _W + r"(?:потом|затем|будет|будешь|станет|then|next|"
+                                r"after\s+that)" + _E,
+                                re.IGNORECASE)
+_ADVICE_AGAINST = re.compile(_W + r"(?:не\s+рок[иі]р\w*|рано|не\s+спеши\w*|не\s+торопи\w*|не\s+стоит|не\s+надо|не\s+нужно|"
+                             r"не\s+советую|не\s+рекомендую|избега\w*|опасно|рискованно|don'?t|do\s+not|avoid|too\s+early)" + _E,
+                             re.IGNORECASE)
+# The words that may open the sentence before the advice: it is the sentence's own move, not a step of a plan.
+_ADVICE_HEAD_OK = re.compile(r"(?:теперь|сейчас|здесь|тут|так|что|поэтому|значит|лучше|всего|просто|сразу|обязательно|смело|"
+                             r"спокойно|а|и|ну|да|вот|ты|тебе|вам|мой|наш|совет|следующим|ходом|самое|время|пора|может|"
+                             r"быть|давай|давайте|now|so|just|then|my|advice|here)", re.IGNORECASE)
+_ADVICE_SUGGEST_Q = re.compile(r"^\W*(?:а\s+)?(?:может(?:\s+быть)?|давай(?:те)?|почему\s+бы)" + _E, re.IGNORECASE)
+
+
+def castle_advice_issues(text: str, ctx) -> list[str]:
+    """Castling advised for the student's move now in *text* (lower case, ё → е, rule talk hidden) when it cannot be
+    played on the board."""
+    current = getattr(ctx, "current", None)
+    if current is None or not _CASTLE.search(text):
+        return []
+    from src.claim_scene import _asks_move
+    from src.claim_scope import CONDITIONAL, NOW, denied_before
+
+    in_game = getattr(ctx, "student_color", None) is not None
+    if in_game and ctx.student_color != current.turn:
+        return []  # the opponent to move: the advice is for the move after its reply
+    if not in_game:
+        from src.answer_check import student_side
+
+        if student_side(ctx, text) != current.turn:
+            return []
+    question = getattr(ctx, "question", "") or ""
+    if CONDITIONAL.search(question) and not NOW.search(text):
+        return []  # «а если я уведу слона, можно рокироваться?»
+    if _OPINION.search(text) or _ADVICE_AGAINST.search(text):
+        return []
+    prev = getattr(ctx, "scene_before", None)
+    if prev and prev[2] <= 1 and not NOW.search(text):
+        return []  # the sentence before told a line: this one may go on with it
+    for m in _ADVICE.finditer(text):
+        sent_start = max(text.rfind(c, 0, m.start()) for c in ".;!?\n") + 1
+        sent_end = min([i for i in (text.find(c, m.end()) for c in ".;!?\n") if i >= 0] or [len(text)])
+        sentence = text[sent_start:sent_end + 1]
+        if text[sent_end:sent_end + 1] == "?" and not _ADVICE_SUGGEST_Q.match(text[sent_start:]):
+            continue
+        if (m["can"] or m["avail"]) and not in_game and not _asks_move(ctx):
+            # «можно рокироваться» outside a game: the castling check judges it with a now-word — unless the student
+            # asked what to play here («что мне делать?»): then «Можешь рокироваться коротко» answers for this board
+            continue
+        if denied_before(text, m.start(), window=18) or _after_castling(text, m):
+            continue
+        head = text[sent_start:m.start()]
+        tail = text[m.end():sent_end]
+        if _ADVICE_LATER_HEAD.search(head) or _ADVICE_LATER.search(tail):
+            continue
+        from src.answer_check import _MOVE, _to_san
+        from src.move_words import prose_moves
+
+        if prose_moves(head, current) or any(x["san"][0] in "KQRBN" or "x" in x["san"] for x in _MOVE.finditer(_to_san(head)[0])):
+            continue  # «уведи слона и рокируйся»: castling after another move
+        words = re.findall(r"[а-яёa-z'-]+", head)
+        if len(words) > 5 or not all(_ADVICE_HEAD_OK.fullmatch(w) for w in words):
+            continue  # «Заверши развитие и рокируйся», «Выведи коня, потом рокируйся»: a plan, castling one step of it
+        subject, how = _subject(sentence, ctx)
+        student = ctx.student_color if in_game else current.turn
+        if how in ("named", "opponent", "coach") and subject != [student]:
+            continue  # the other side's castling
+        wing = _wing(text[max(0, m.start() - 30):min(sent_end, m.end() + 30)])
+        wings = [wing] if wing else ["O-O", "O-O-O"]
+        st = castling_status(current, student)
+        if any(st[w][0] for w in wings):
+            continue
+        if not in_game and not getattr(ctx, "game_moves", None) and all("right to castle is lost" in st[w][1] for w in wings):
+            continue  # a set-up position's rights are no evidence
+        why = "; ".join(f"{w}: {st[w][1]}" for w in wings)
+        return [f"castling is proposed for {_side_name(student)}'s move now, but it cannot be played on this board — {why}"]
+    return []
