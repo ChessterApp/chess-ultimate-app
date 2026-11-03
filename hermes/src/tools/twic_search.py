@@ -7,6 +7,7 @@ import sqlite3
 
 from tools.registry import registry
 
+from src.player_names import event_terms, name_patterns, normalized_pattern, split_players
 from src.tools._sqlite_budget import TIMEOUT_ERROR, install_timeout, is_timeout
 
 logger = logging.getLogger(__name__)
@@ -23,12 +24,18 @@ DEFAULT_LIMIT = 20
 
 SEARCH_GAMES_SCHEMA = {
     "name": "search_master_games",
-    "description": "Search the TWIC master games database. Filter by player, ECO code, opening, result, and year range.",
+    "description": (
+        "Search the TWIC master games database (millions of real games with their full moves, up to this "
+        "week). Filter by player and opponent (any spelling: «Карлсен», «Синдаров — Накамура», Carlsen), "
+        "event, ECO, opening, result and years. Newest first: the first row is the latest game of the player. "
+        "Then use get_game_pgn with a returned id for the moves (show=true puts the game on the board)."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
-            "player": {"type": "string", "description": "Player name (searches both white and black). Use surname only for best results."},
-            "event": {"type": "string", "description": "Tournament/event name substring (e.g. 'Candidates', 'Tata Steel')."},
+            "player": {"type": "string", "description": "Player name (searches both white and black). Surname is enough; Russian or Latin."},
+            "opponent": {"type": "string", "description": "The other player of the game, for a game between two players (e.g. player='Sindarov', opponent='Nakamura')."},
+            "event": {"type": "string", "description": "Tournament/event name substring (e.g. 'Candidates', 'Tata Steel', 'Miami')."},
             "eco": {"type": "string", "description": "ECO code (e.g. 'B90')."},
             "opening": {"type": "string", "description": "Opening name substring."},
             "result": {"type": "string", "description": "Game result: '1-0', '0-1', or '1/2-1/2'."},
@@ -38,6 +45,51 @@ SEARCH_GAMES_SCHEMA = {
         },
     },
 }
+
+
+def _side(column: str, patterns: list) -> tuple[str, list]:
+    """``(column LIKE ? OR column LIKE ? …)`` for one player's name patterns."""
+    return "(" + " OR ".join([f"{column} LIKE ?"] * len(patterns)) + ")", list(patterns)
+
+
+def _name_columns(conn: sqlite3.Connection) -> tuple[str, str, bool]:
+    """The name columns to match: the site's normalized ones when the database has them (accents
+    dropped: «Hubner» finds «Hübner», as the database page does), else the raw names."""
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(games)")}
+    except sqlite3.Error:
+        cols = set()
+    if {"white_name_normalized", "black_name_normalized"} <= cols:
+        return "white_name_normalized", "black_name_normalized", True
+    return "white_name", "black_name", False
+
+
+def _player_condition(player: str, opponent: str = None,
+                      columns: tuple = ("white_name", "black_name", False)) -> tuple[str, list]:
+    """The WHERE part for one player (either colour) or two players against each other.
+
+    Names are matched in any spelling (src/player_names.py): «Карлсена» → Carlsen, «Javohir» →
+    Javokhir; a ``player`` like «Синдаров — Накамура» is read as both players."""
+    white_col, black_col, normalized = columns
+    people = split_players(player) if player else []
+    if opponent and len(people) < 2:
+        people = (people or [])[:1] + [opponent]
+    pats = [name_patterns(p) for p in people[:2]]
+    if normalized:
+        pats = [list(dict.fromkeys(normalized_pattern(x) for x in p)) for p in pats]
+    pats = [p for p in pats if p]
+    if not pats:
+        return "", []
+    if len(pats) == 1:
+        white, wp = _side(white_col, pats[0])
+        black, bp = _side(black_col, pats[0])
+        return f"({white} OR {black})", wp + bp
+    a, b = pats
+    wa, pwa = _side(white_col, a)
+    bb, pbb = _side(black_col, b)
+    wb, pwb = _side(white_col, b)
+    ba, pba = _side(black_col, a)
+    return f"(({wa} AND {bb}) OR ({wb} AND {ba}))", pwa + pbb + pwb + pba
 
 
 def search_master_games(
@@ -51,36 +103,54 @@ def search_master_games(
     limit: int = DEFAULT_LIMIT,
     db_path: str = None,
     conn: sqlite3.Connection = None,
+    opponent: str = None,
 ) -> list[dict]:
     """Search TWIC database with parameterized queries."""
     limit = min(max(1, limit), MAX_LIMIT)
 
+    own_conn = False
+    if conn is None:
+        path = db_path or TWIC_DB_PATH
+        conn = sqlite3.connect(path)
+        own_conn = True
+    try:
+        return _search(conn, player, opponent, event, eco, opening, result, year_min, year_max, limit)
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def _year(value) -> "int | None":
+    """A year argument as an int (the model sends 2026 or "2026"); anything else is no bound."""
+    try:
+        return int(str(value).strip()[:4]) if value is not None and str(value).strip() else None
+    except ValueError:
+        return None
+
+
+def _search(conn, player, opponent, event, eco, opening, result, year_min, year_max, limit) -> list[dict]:
     conditions = []
     params = []
 
-    if player:
-        # Use the longest token as the primary search term.
-        # This handles "Javohir Sindarov" → searches "Sindarov" which matches
-        # "Sindarov,Javokhir" despite transliteration differences (kh vs h).
-        parts = player.strip().split()
-        search_term = max(parts, key=len) if parts else player
-        conditions.append("(white_name LIKE ? OR black_name LIKE ?)")
-        pattern = f"%{search_term}%"
-        params.extend([pattern, pattern])
+    if player or opponent:
+        # One name: its longest word («Javohir Sindarov» → Sindarov), in its database spellings — a
+        # Russian name transliterated, kh/h and umlauts varied (src/player_names.py). Two names: a game
+        # between them, either colour.
+        clause, clause_params = _player_condition(player or "", opponent, _name_columns(conn))
+        if clause:
+            conditions.append(clause)
+            params.extend(clause_params)
 
     if event:
         # Split event into words and match each independently (OR).
         # "Candidates Match" → searches "Candidates" OR "Match",
-        # which matches "FIDE Candidates 2026" in the DB.
-        event_parts = event.strip().split()
-        if len(event_parts) > 1:
-            event_clauses = " OR ".join(["event LIKE ?"] * len(event_parts))
-            conditions.append(f"({event_clauses})")
-            for part in event_parts:
-                params.append(f"%{part}%")
-        else:
-            conditions.append("event LIKE ?")
-            params.append(f"%{event}%")
+        # which matches "FIDE Candidates 2026" in the DB. Russian words
+        # go in their database spelling («Майами» → Miami); a year is left to year_min/year_max.
+        event_parts = event_terms(event) or [event.strip()]
+        event_clauses = " OR ".join(["event LIKE ?"] * len(event_parts))
+        conditions.append(f"({event_clauses})")
+        for part in event_parts:
+            params.append(f"%{part}%")
 
     if eco:
         conditions.append("eco = ?")
@@ -94,35 +164,29 @@ def search_master_games(
         conditions.append("result = ?")
         params.append(result)
 
+    # TWIC dates are the PGN's «2026.03.10» (backend/scripts/incremental_index.py): ``date <=
+    # '2026-12-31'`` left out every game of 2026 itself ('.' sorts after '-'). The bounds are by
+    # the year's prefix, which holds for either separator.
+    year_min, year_max = _year(year_min), _year(year_max)
     if year_min is not None:
         conditions.append("date >= ?")
-        params.append(f"{year_min}-01-01")
+        params.append(f"{year_min:04d}")
 
     if year_max is not None:
-        conditions.append("date <= ?")
-        params.append(f"{year_max}-12-31")
+        conditions.append("date < ?")
+        params.append(f"{year_max + 1:04d}")
 
     where = " AND ".join(conditions) if conditions else "1=1"
     query = f"SELECT id, white_name, black_name, result, date, eco, opening, event, white_elo, black_elo FROM games WHERE {where} ORDER BY date DESC LIMIT ?"
     params.append(limit)
 
-    own_conn = False
-    if conn is None:
-        path = db_path or TWIC_DB_PATH
-        conn = sqlite3.connect(path)
-        own_conn = True
-
-    try:
-        conn.row_factory = sqlite3.Row
-        # Player/opening/event filters are LIKE '%…%' — a full scan of the games
-        # table; the budget turns a stuck search into an error the model skips.
-        install_timeout(conn)
-        cur = conn.execute(query, params)
-        rows = cur.fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        if own_conn:
-            conn.close()
+    conn.row_factory = sqlite3.Row
+    # Player/opening/event filters are LIKE '%…%' — a full scan of the games
+    # table; the budget turns a stuck search into an error the model skips.
+    install_timeout(conn)
+    cur = conn.execute(query, params)
+    rows = cur.fetchall()
+    return [dict(row) for row in rows]
 
 
 def _handle_search_master_games(args: dict, **kwargs) -> str:
@@ -130,6 +194,7 @@ def _handle_search_master_games(args: dict, **kwargs) -> str:
     try:
         results = search_master_games(
             player=args.get("player"),
+            opponent=args.get("opponent"),
             event=args.get("event"),
             eco=args.get("eco"),
             opening=args.get("opening"),
@@ -161,14 +226,22 @@ registry.register(
 
 GET_PGN_SCHEMA = {
     "name": "get_game_pgn",
-    "description": "Retrieve the full PGN and headers for a specific game by its database ID.",
+    "description": (
+        "The full game — every move and the headers — for a database game id from search_master_games or "
+        "find_games_by_position. With show=true it also puts the game on the board in front of the student, "
+        "who steps through the moves: set it when the student asks to load, show or open the game."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
             "game_id": {
                 "type": "integer",
                 "description": "The game ID from the database.",
-            }
+            },
+            "show": {
+                "type": "boolean",
+                "description": "Put the game on the board in front of the student (load it with all its moves).",
+            },
         },
         "required": ["game_id"],
     },
@@ -255,8 +328,29 @@ def get_game_pgn(
     return {"pgn": pgn_text, "headers": headers}
 
 
+def _with_board(result: dict) -> dict:
+    """*result* with the game put on the board (``load_pgn``, the board protocol every tool uses).
+
+    The model no longer copies a whole game's PGN into board_control: the coach found the game and
+    then answered without loading it, or loaded a mistyped score (live site, 03.11). The board lock
+    of the turn still applies (src/board_truth.py drops a position action under a strict lock)."""
+    from src.board_protocol import parse_pgn_moves
+
+    pgn = result.get("pgn") or ""
+    try:
+        moves = parse_pgn_moves(pgn)
+    except ValueError as exc:
+        logger.warning("get_game_pgn: the game's PGN does not load: %s", exc)
+        return {**result, "shown": False, "board_hint": "This game's score could not be put on the board."}
+    if not moves:
+        return {**result, "shown": False, "board_hint": "This game has no moves to put on the board."}
+    return {**result, "board_actions": [{"type": "load_pgn", "pgn": pgn}]}
+
+
 def _handle_get_game_pgn(args: dict, **kwargs) -> str:
     result = get_game_pgn(game_id=args.get("game_id", 0))
+    if args.get("show") is True and isinstance(result, dict) and result.get("pgn"):
+        result = _with_board(result)
     return json.dumps(result, indent=2)
 
 
