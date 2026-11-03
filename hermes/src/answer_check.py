@@ -3236,6 +3236,118 @@ _MAT_ANY = re.compile(r"больше|меньше|впереди|позади|л
                       r"balanced", re.IGNORECASE)
 
 
+# fix1103 R1b: the move a material claim is the outcome of. The unit taken (accusative), the taker (instrumental) and
+# squares, read from the words between the verb of taking and the claim («забирай коня ферзём», «бери пешку e5»,
+# «возьми слона пешкой g7», "take the knight on d4 with the queen", "recapture on d4"); a written move there is the move.
+_TOLD_TAKEN = re.compile(_B2 + r"(?:(?P<pawn>пешк[уи]|pawn)|(?P<knight>кон[яей]|knight)|(?P<bishop>слон(?:а|ов)?|bishop)|"
+                         r"(?P<rook>ладь[юи]|ладей|rook)|(?P<queen>ферз[яей]|queen)|(?P<piece>фигур[уы]|piece))"
+                         r"(?:\s+(?:на\s+|on\s+)?(?P<sq>[a-h][1-8]))?(?![0-9])", re.IGNORECASE)
+_TOLD_TAKER = re.compile(_B2 + r"(?:(?P<pawn>пешк(?:ой|ою))|(?P<knight>кон[её]м)|(?P<bishop>слоном)|(?P<rook>ладь[её]й)|"
+                         r"(?P<queen>ферз[её]м)|(?P<king>корол[её]м)|with\s+(?:the\s+|your\s+|a\s+)?(?:(?P<epawn>pawn)|"
+                         r"(?P<eknight>knight)|(?P<ebishop>bishop)|(?P<erook>rook)|(?P<equeen>queen)|(?P<eking>king)))"
+                         r"(?:\s+(?:с\s+|from\s+|on\s+)?(?P<sq>[a-h][1-8]))?(?![0-9])", re.IGNORECASE)
+_TOLD_ON = re.compile(r"(?<![а-яa-z])(?:на|on)\s+(?P<sq>[a-h][1-8])(?![0-9])", re.IGNORECASE)
+_PT_NAME = {"pawn": chess.PAWN, "knight": chess.KNIGHT, "bishop": chess.BISHOP, "rook": chess.ROOK, "queen": chess.QUEEN,
+            "king": chess.KING}
+
+
+def _told_after(original: str, ctx: CheckContext, told) -> Optional[tuple]:
+    """(the boards after the move *told* (src/material_frames.Told), its label) when the material after it is
+    determined: a written move legal now, or every legal capture that fits the words taking the same material. None:
+    the move is not told (only a result verb), is not the side to move's, or the words fit captures of different
+    material — the claim is left unjudged then."""
+    board = ctx.current
+    if board is None or not told.verbs:
+        return None
+    if ctx.student_color is not None and board.turn != ctx.student_color:
+        return None  # the student is not to move: the move told comes after a reply
+    seg = original[told.seg[0]: told.seg[1]]
+    conv, _ = _to_san(seg)
+    sans = [m["san"] for m in _MOVE.finditer(conv)
+            if m["san"][0] in "KQRBNO" or "x" in m["san"] or m["num"] or m["bdots"] or "=" in m["san"]]
+    if sans:
+        b = board.copy(stack=False)
+        try:
+            for san in sans:
+                b.push_san(san)
+        except ValueError:
+            return None
+        return [b], sans[0] if len(sans) == 1 else " ".join(sans)
+    low = seg.lower().replace("ё", "е")
+    v0 = told.verbs[0][1] - told.seg[0]
+    taken = _TOLD_TAKEN.search(low, v0)
+    taker = _TOLD_TAKER.search(low, v0)
+    if taken is not None and taker is not None and taker.start() < taken.start() and taker.end() > taken.start():
+        taken = None
+    want = None
+    sq = None
+    if taken is not None:
+        kind = next(k for k in ("pawn", "knight", "bishop", "rook", "queen", "piece") if taken[k])
+        want = None if kind == "piece" else _PT_NAME[kind]
+        sq = taken["sq"]
+    if sq is None:
+        on = [m for m in _TOLD_ON.finditer(low, v0) if taker is None or m.start() < taker.start() or m.start() > taker.end()]
+        sq = on[0]["sq"] if on else None
+    by, by_sq = None, None
+    if taker is not None:
+        kind = next(k for k in ("pawn", "knight", "bishop", "rook", "queen", "king") if taker[k] or taker["e" + k])
+        by, by_sq = _PT_NAME[kind], taker["sq"]
+    moves = []
+    for mv in board.legal_moves:
+        if not board.is_capture(mv):
+            continue
+        cap = chess.PAWN if board.is_en_passant(mv) else board.piece_type_at(mv.to_square)
+        if taken is not None and (cap == chess.PAWN if want is None else cap != want):
+            continue
+        if sq is not None and mv.to_square != chess.parse_square(sq):
+            continue
+        if by is not None and board.piece_type_at(mv.from_square) != by:
+            continue
+        if by_sq is not None and mv.from_square != chess.parse_square(by_sq):
+            continue
+        moves.append(mv)
+    if not moves:
+        return None
+    from src.game_record import material as _material_of
+
+    after = []
+    for mv in moves:
+        b = board.copy(stack=False)
+        b.push(mv)
+        after.append(b)
+    if len({_material_of(b)["diff"] for b in after}) != 1:
+        return None  # «бери» with a knight and a pawn to take: the material after is not told
+    return after, board.san(moves[0])
+
+
+def _told_scope(text: str, original: str, ctx: CheckContext, pos: int, now: tuple):
+    """The boards a material claim at *pos* is judged on, as (boards, where, shown), or None to leave it unjudged:
+    the board after a move the student is told to make when the claim is its outcome («забирай коня и возвращай
+    материал в равновесие»), now or after when the sentence leaves it open («бери коня — у чёрных лишняя фигура»),
+    *now* when no move is told before it (fix1103 R1b)."""
+    from src.material_frames import told_move
+
+    told = told_move(text, pos)
+    if told is None:
+        return now
+    after = _told_after(original, ctx, told)
+    if told.kind == "outcome":
+        if after is None:
+            return None
+        return after[0], after[0][0], f"after {after[1]} (the move this sentence tells to make): "
+    if after is None:
+        return now
+    return list(now[0]) + after[0], now[1], now[2]
+
+
+def _hedged_lead_holds(board: chess.Board, color: bool, more: bool) -> bool:
+    """An approximate lead («примерно на пешку больше», "roughly a piece up"): its direction only (fix1103 R1a)."""
+    from src.game_record import material as _material_of
+
+    d = _material_of(board)["diff"] * (1 if color == chess.WHITE else -1)
+    return d > 0 if more else d < 0
+
+
 def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     """The material claims of the sentence against the board. material_order's switch wraps the new reading only
     (verify1102 B3): 'off' is main's reading of 29.10 exactly (_material_issues_v1029, its game-board fix of 29.10
@@ -3327,14 +3439,29 @@ def _material_issues_new(text: str, original: str, ctx: CheckContext) -> list[st
                 blank = lambda m_: " " * len(m_.group(0))  # noqa: E731 — the anchor is no condition («после» it names)
                 text, original = _PAST_ANCHOR.sub(blank, text), _PAST_ANCHOR.sub(blank, original)
 
-    def said(span: str) -> str:
-        return f"material {shown}{_imbalance(where)}" if shown else f"material: {_imbalance(where)}"
+    from src.material_frames import hedged as _hedged
 
-    def in_points(issue: str) -> str:
+    now = (boards, where, shown)
+
+    def scope(pos: int):
+        """(boards, where, shown) for a claim at *pos*, None: unjudged (fix1103 R1b — a move told before it)."""
+        if told or record is not None:
+            return now
+        try:
+            return _told_scope(text, original, ctx, pos, now)
+        except Exception:  # noqa: BLE001 — a broken reading leaves the claim unjudged (fail-open)
+            logger.debug("told move failed", exc_info=True)
+            return None
+
+    def said(span: str, at=None) -> str:
+        sh, wh = (at[2], at[1]) if at else (shown, where)
+        return f"material {sh}{_imbalance(wh)}" if sh else f"material: {_imbalance(wh)}"
+
+    def in_points(issue: str, at=None) -> str:
         try:
             from src.game_record import material as _material_of
 
-            diff = _material_of(where)["diff"]
+            diff = _material_of(at[1] if at else where)["diff"]
         except Exception:  # noqa: BLE001 — the points are a bonus on the issue (fail-open, F8)
             diff = 0
         return issue.replace(" (not: ", f" — {'White' if diff > 0 else 'Black'} +{abs(diff)} in points (not: ", 1) \
@@ -3357,13 +3484,20 @@ def _material_issues_new(text: str, original: str, ctx: CheckContext) -> list[st
             color = _side_color(m["side"], ctx, text[: m.start()])
             if color is None:
                 continue
+            sc = scope(m.start())
+            if sc is None:
+                continue
             kind, points = _unit(m["unit"])
             n = _num(m.groupdict().get("n"))
             direction = m["dir"].lower().replace("ё", "е")
             more = any(direction.startswith(w) for w in _MORE)
             balance = not direction.startswith(("лишн", "без", "extra", "spare"))
-            if not any(_material_holds(b, color, kind, points, n, more, balance, counts_points) for b in boards):
-                issues.append(f"{said(m.group(0))} (not: {m.group(0).strip()})")
+            if _hedged(text, m.start(), m.end()):
+                holds = any(_hedged_lead_holds(b, color, more) for b in sc[0])
+            else:
+                holds = any(_material_holds(b, color, kind, points, n, more, balance, counts_points) for b in sc[0])
+            if not holds:
+                issues.append(f"{said(m.group(0), sc)} (not: {m.group(0).strip()})")
     # the grammar (M2 material_order, rebuilt 01.11): every lead it reads that the patterns above did not judge, or
     # judged looser (an explicit count, «всего», «больше ничего»)
     try:
@@ -3376,13 +3510,19 @@ def _material_issues_new(text: str, original: str, ctx: CheckContext) -> list[st
             continue  # the patterns above read this very claim (only a stricter count of an extra unit is added)
         if _is_hypothetical(text, original, at, played=record, ctx=ctx) or _mat_cond_after(text, end):
             continue
+        sc = scope(at)
+        if sc is None:
+            continue
         try:
-            holds = any(_lead_holds(b, color, units, more, mode, counts_points) for b in boards)
+            if _hedged(text, min(at, end - len(span)), end):
+                holds = any(_hedged_lead_holds(b, color, more) for b in sc[0])
+            else:
+                holds = any(_lead_holds(b, color, units, more, mode, counts_points) for b in sc[0])
         except Exception:  # noqa: BLE001 — fail-open (review-wiring2 01.11)
             logger.debug("material lead failed", exc_info=True)
             holds = True
         if not holds:
-            ordered.append(in_points(f"{said(span)} (not: {span})"))
+            ordered.append(in_points(f"{said(span, sc)} (not: {span})", sc))
     eq_old = {m.start() for m in _MATERIAL_EQUAL.finditer(text)}
     eq_new = []
     for m in _MATERIAL_EQUAL_ANY.finditer(text):
@@ -3391,11 +3531,14 @@ def _material_issues_new(text: str, original: str, ctx: CheckContext) -> list[st
         if "?" in text[m.end():] or _NEGATION.search(text[: m.start()]) \
                 or re.match(r"\s*(?:нет|не\s|отсутству)", text[m.end():]) or _mat_cond_after(text, m.end()):
             continue  # «материал не равен», «материального равенства нет», «материал равный после размена»
-        hedged = bool(m["h1"] or m["h2"] or m["h3"])
+        hedged = bool(m["h1"] or m["h2"] or m["h3"]) or _hedged(text, m.start(), m.end(), soft=True)
+        sc = scope(m.start())
+        if sc is None:
+            continue
         if not any(abs(_counts(b, chess.WHITE)["nonpawn"] + _counts(b, chess.WHITE)[chess.PAWN]
                        - _counts(b, chess.BLACK)["nonpawn"] - _counts(b, chess.BLACK)[chess.PAWN]) <= (2 if hedged else 0)
-                   for b in boards):
-            issue = f"{said(m.group(0))} (not {'about ' if hedged else ''}equal)"
+                   for b in sc[0]):
+            issue = f"{said(m.group(0), sc)} (not {'about ' if hedged else ''}equal)"
             (issues if m.start() in eq_old and not hedged else eq_new).append(issue)
     for m in _MATERIAL_EQUAL.finditer(text):  # the fixed forms the wider one does not read («лишней пешки ни у кого нет»)
         if any(x.start() <= m.start() < x.end() for x in _MATERIAL_EQUAL_ANY.finditer(text)):
@@ -3403,15 +3546,20 @@ def _material_issues_new(text: str, original: str, ctx: CheckContext) -> list[st
         if _is_hypothetical(text, original, m.start(), played=record, ctx=ctx) or _NEGATION.search(text[: m.start()]) \
                 or _mat_cond_after(text, m.end()):
             continue
-        if not any(_counts(b, chess.WHITE)["nonpawn"] + _counts(b, chess.WHITE)[chess.PAWN]
-                   == _counts(b, chess.BLACK)["nonpawn"] + _counts(b, chess.BLACK)[chess.PAWN] for b in boards):
-            issues.append(f"{said(m.group(0))} (not equal)")
+        sc = scope(m.start())
+        if sc is None:
+            continue
+        hedged = _hedged(text, m.start(), m.end(), soft=True)  # «практически равный материал», "almost equal material"
+        if not any(abs(_counts(b, chess.WHITE)["nonpawn"] + _counts(b, chess.WHITE)[chess.PAWN]
+                       - _counts(b, chess.BLACK)["nonpawn"] - _counts(b, chess.BLACK)[chess.PAWN]) <= (2 if hedged else 0)
+                   for b in sc[0]):
+            issues.append(f"{said(m.group(0), sc)} (not {'about ' if hedged else ''}equal)")
     # every other material claim of the sentence, read by its parts (src/material_frames, review-miss2 01.11)
     read_spans = [(m.start(), m.end()) for rx in _MATERIAL for m in rx.finditer(text)] + \
         [(m.start(), m.end()) for m in _MATERIAL_EQUAL_ANY.finditer(text)] + \
         [(m.start(), m.end()) for m in _MATERIAL_EQUAL.finditer(text)] + \
         [(at, at + len(span)) for at, _c, _u, _mo, _md, span, _f, _e in claims]
-    eq_new += _fail_open(_material_frame_issues, text, original, ctx, boards, read_spans, said, record)
+    eq_new += _fail_open(_material_frame_issues, text, original, ctx, boards, read_spans, said, record, scope)
     return issues + ordered + eq_new
 
 
@@ -3456,7 +3604,7 @@ def _past_ply_board(original: str, ctx: CheckContext):
 
 
 def _material_frame_issues(text: str, original: str, ctx: CheckContext, boards: list, read_spans: list, said,
-                           record=None) -> list:
+                           record=None, scope=None) -> list:
     from src.capture_frames import resolve
     from src.game_record import material as _material_of
     from src.material_frames import read
@@ -3475,46 +3623,59 @@ def _material_frame_issues(text: str, original: str, ctx: CheckContext, boards: 
         sans = [m["san"].rstrip("+#") for m in _MOVE.finditer(_to_san(text[c.at:c.end])[0])]
         if sans and (last is None or sans[-1] != last) and not anchored:
             continue  # «после 3.Nf3 материал …»: an earlier moment of the game or a line — another board
-        if diffs is None:
-            diffs = []
-            for b in boards:
-                try:
-                    diffs.append(_material_of(b)["diff"])
-                except Exception:  # noqa: BLE001
-                    return []
-        if not diffs:
+        sc = scope(min(max(c.at, c.pos), max(0, len(text) - 1))) if scope is not None else None
+        if scope is not None and sc is None:
+            continue  # the outcome of a move told whose material is not determined (fix1103 R1b)
+        if sc is not None and sc[0] is not boards:
+            here = sc[0]
+            try:
+                here_diffs = [_material_of(b)["diff"] for b in here]
+            except Exception:  # noqa: BLE001
+                continue
+        else:
+            if diffs is None:
+                diffs = []
+                for b in boards:
+                    try:
+                        diffs.append(_material_of(b)["diff"])
+                    except Exception:  # noqa: BLE001
+                        return []
+            here, here_diffs = boards, diffs
+        if not here_diffs:
             continue
         if c.kind == "equal":
             if c.unit:
                 key = {"пешек": chess.PAWN, "коней": chess.KNIGHT, "слонов": chess.BISHOP, "ладей": chess.ROOK,
                        "ферзей": chess.QUEEN}.get(c.unit)
+                tol = (3 if key is None else 1) if c.hedged else 0  # «фигур примерно поровну»: within one (R1a)
                 if key is None:
-                    holds = any(_counts(b, chess.WHITE)["nonpawn"] == _counts(b, chess.BLACK)["nonpawn"] for b in boards)
+                    holds = any(abs(_counts(b, chess.WHITE)["nonpawn"] - _counts(b, chess.BLACK)["nonpawn"]) <= tol
+                                for b in here)
                 else:
-                    holds = any(_counts(b, chess.WHITE)[key] == _counts(b, chess.BLACK)[key] for b in boards)
+                    holds = any(abs(_counts(b, chess.WHITE)[key] - _counts(b, chess.BLACK)[key]) <= tol for b in here)
             else:
-                holds = any(abs(d) <= (2 if c.hedged else 0) for d in diffs)
+                holds = any(abs(d) <= (2 if c.hedged else 0) for d in here_diffs)
             if not holds:
-                out.append(f"{said(c.span)} (not {'about ' if c.hedged else ''}equal: {c.span})")
+                out.append(f"{said(c.span, sc)} (not {'about ' if c.hedged else ''}equal: {c.span})")
             continue
         if c.kind == "diff":
-            if not any(abs(abs(d) - c.points) <= 1 for d in diffs):
-                out.append(f"{said(c.span)} (not a difference of {c.points} points: {c.span})")
+            if not any(abs(abs(d) - c.points) <= (2 if c.hedged else 1) for d in here_diffs):
+                out.append(f"{said(c.span, sc)} (not a difference of {c.points} points: {c.span})")
             continue
         color = resolve(c.who, ctx)
         if color is None:
             continue
         sign = (1 if color == chess.WHITE else -1) * (1 if c.more else -1)
-        if c.points is None:
-            holds = any(d * sign > 0 for d in diffs)
+        if c.points is None or c.hedged:  # an approximate lead: its direction only (fix1103 R1a)
+            holds = any(d * sign > 0 for d in here_diffs)
         else:
             tol = 0 if c.points <= 2 else 1  # pawns are counted exactly; a piece's worth within a pawn
             if c.atleast:  # «лишние слон, конь и пешка»: those extras at least — more may be left unnamed
-                holds = any(d * sign >= c.points - tol for d in diffs)
+                holds = any(d * sign >= c.points - tol for d in here_diffs)
             else:
-                holds = any(abs(d * sign - c.points) <= tol for d in diffs)
+                holds = any(abs(d * sign - c.points) <= tol for d in here_diffs)
         if not holds:
-            out.append(f"{said(c.span)} (not: {c.span})")
+            out.append(f"{said(c.span, sc)} (not: {c.span})")
     return out
 
 

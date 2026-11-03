@@ -25,6 +25,11 @@ is "more than four", not a lead. Idioms carry no material word (mask_idioms: «�
 («где», «который», «что», «чтобы») is a clause of its own, «N пешек перевеса» is an evaluation, and «после …», «если …»,
 «при …» in the claim's clause make it a condition (a move written after «после» is left to the caller, which knows
 the game's record).
+
+fix1103 R1 (verify1102b §6): an approximation word (_APPROX, Russian and English) makes any claim approximate — an
+equality within 2 points, a lead by its direction, a difference within 2 points; and a claim that is the outcome of a
+move the student is told to make (told_move) is judged by src/answer_check on the board after that move, or left
+unjudged when the words do not determine its material — never on the board before it.
 """
 from __future__ import annotations
 
@@ -57,8 +62,30 @@ _ANCHOR = re.compile(_W + r"(?:материал\w*|по\s+очкам|в\s+очк
 _UNIT_PLURAL = re.compile(_W + r"(?P<u>пешек|фигур|коней|слонов|ладей|ферзей)" + _E)
 _EQUAL = re.compile(_W + r"(?:равн\w*|равен|равна|равно|поровну|одинаков\w*|паритет\w*|сравнял\w*|сравня\w*|баланс\w*|"
                     r"равенств\w*|равновеси\w*|вровень)" + _E)
-_HEDGE = re.compile(_W + r"(?:почти|примерно|практически|приблизительно|фактически|более-менее|плюс-минус|около|"
-                    r"в\s+целом|формально|условно|по\s+сути)" + _E)
+# A hedge: an approximation word or a frame that softens the claim. An equality said with it holds within 2 points, a
+# lead said with it is judged by its direction only, a difference within 2 points (fix1103 R1a: «позиция близка к
+# равной по материалу» was read as exact equality on a +1 board). The approximation words are one class, Russian and
+# English: «почти», «примерно», «практически», «приблизительно», «близко к …», «около/порядка/в районе <amount>»,
+# "roughly", "nearly", "almost", "approximately", "about/around/close to <amount or equality>". The ambiguous ones
+# («около», «близко», "about", "around") count only right before what they approximate («около короля», "think
+# about it" are no hedge).
+_EQ_AHEAD = r"(?:(?:материальн\w*|по\s+материалу|material(?:ly)?)\s+)?(?:равн|равен|поровн|одинаков|паритет|равенств|равновеси|баланс|нул|ничейн|" \
+            r"equal|even|level|parity|balance|the\s+same|par(?![a-z]))"
+_AMOUNT_AHEAD = r"(?:" + _NUM + r"|пол|пешк|пешек|кон[еьяи]|слон|ладь|ладей|ферз|фигур|единиц|очк|балл|" \
+                r"an?\s|one|two|three|four|five|half|pawn|piece|knight|bishop|rook|queen|exchange)"
+_APPROX = re.compile(
+    _W + r"(?:почти|примерно|практически|приблизительно|ориентировочно|более-менее|более\s+или\s+менее|"
+    r"плюс-минус|где-то|чуть\s+ли\s+не|едва\s+ли\s+не|грубо\s+говоря|"
+    r"roughly|nearly|almost|approximately|practically|virtually|more\s+or\s+less|give\s+or\s+take|"
+    r"or\s+so)" + _E +
+    r"|" + _W + r"(?:около|порядка|в\s+районе|в\s+пределах|about|around|some)\s+(?=(?:на\s+|в\s+|by\s+)?" + _AMOUNT_AHEAD + r")" +
+    r"|" + _W + r"(?:близк\w*|недалек\w*|рядом)\s+(?:к|от|с)\s+(?=" + _EQ_AHEAD + r")" +
+    r"|" + _W + r"(?:close|near)\s+to\s+(?=" + _EQ_AHEAD + r")" +
+    r"|" + _W + r"(?:about|around|nearly)\s+(?=" + _EQ_AHEAD + r")", re.IGNORECASE)
+# …and the softeners an equality has always been read with («фактически», «в целом», «формально», «по сути»): they
+# widen an equality, not a lead («партия фактически решена — белые впереди на ладью» is a lead of a rook).
+_HEDGE = re.compile(_APPROX.pattern + r"|" + _W + r"(?:фактически|в\s+целом|формально|условно|по\s+сути|essentially)" + _E,
+                    re.IGNORECASE)
 _MORE = re.compile(_W + r"(?:впереди|больше|опережа\w*|обгоня\w*|сильнее|богаче|плюс|в\s+плюсе|перевес\w*|преимуществ\w*|"
                    r"лишн\w+|выигрыва\w*\s+по\s+материалу)" + _E)
 _LESS = re.compile(_W + r"(?:позади|меньше|отста\w*|уступа\w*|минус|в\s+минусе|беднее|слабее|проигрыва\w*\s+по\s+материалу)" + _E)
@@ -213,7 +240,8 @@ def read(text: str) -> list:
                 am = _amount(low, a + dm.end(), b)
                 if am is not None and am.points and not am.partial and not _SIDE.search(cl) and \
                         not _conditional(cl, dm.start()):
-                    out.append(MatClaim("diff", points=am.points, at=a, end=b, span=cl.strip(), pos=a + dm.start()))
+                    out.append(MatClaim("diff", points=am.points, hedged=hedged(low, a + dm.start(), b), at=a, end=b,
+                                        span=cl.strip(), pos=a + dm.start()))
             continue
         if more and less:
             continue
@@ -242,7 +270,7 @@ def read(text: str) -> list:
         if word.startswith("лишн") and pts is None:
             continue
         out.append(MatClaim("lead", who=_who(side["s"]), more=pred is more, points=pts, at=a, end=b, span=cl.strip(),
-                            pos=a + pos, atleast=word.startswith("лишн")))
+                            pos=a + pos, atleast=word.startswith("лишн"), hedged=hedged(low, a + pos, b)))
     return out
 
 
@@ -281,3 +309,92 @@ def conditional(clause: str) -> bool:
     """*clause* (lowercased) names a condition — «после других ходов», «если …», «в случае …» — with no move written
     after «после»: a material claim in it is about another board (answer_check reads the rest of a claim's clause)."""
     return _conditional(clause.lower().replace("ё", "е"))
+
+
+# ── hedges and moves told (fix1103 R1) ──────────────────────────────────────────────────────────────────────────
+_HARD_STOP = re.compile(r"[.!?;:(\n]|,\s*(?:но|а|зато|хотя|однако|поэтому|потому|так\s+как|ведь|если|когда|пока|but|because|"
+                        r"since|while|if|when)" + _E)
+
+
+_NEAR_STOP = re.compile(r"[.!?;:(\n,—–]|\s-\s")
+
+
+def hedged(low: str, start: int, end: int, soft: bool = False) -> bool:
+    """An approximation (_APPROX; with *soft* also the softeners of _HEDGE) inside the claim low[start:end], in the
+    three words before it (not past a comma or a dash: «партия почти решена — белые впереди на ладью» is no
+    approximate lead) or right after it («равный плюс-минус», "equal, give or take"): the claim is approximate."""
+    head = low[max(0, start - 60): start]
+    stops = list(_NEAR_STOP.finditer(head))
+    if stops:
+        head = head[stops[-1].end():]
+    words = list(re.finditer(r"\S+", head))
+    w0 = start - len(head) + (words[-3].start() if len(words) >= 3 else (words[0].start() if words else len(head)))
+    tail = re.match(r"[\s,—–-]*(?:плюс-минус|более-менее|или\s+около\s+того|примерно|приблизительно|roughly|"
+                    r"more\s+or\s+less|give\s+or\s+take|or\s+so|approximately)" + _E, low[end:])
+    return bool((_HEDGE if soft else _APPROX).search(low, w0, end) or tail)
+
+
+# A move the student is told to make (fix1103 R1b: «забирай коня и возвращай материал в равновесие» was judged on the
+# board before the capture). TAKE: an imperative, a 2nd-person future or a perfective gerund of taking («бери»,
+# «возьми», «забирай», «побей», «руби», «съешь», «отыграй», «верни фигуру», «возьмёшь», «отыграешь», «забрав»;
+# "take", "capture", "grab", "recapture", "win back" at the head of a clause). RESULT: the claim's own verb says it
+# comes about («возвращай материал в равновесие», «восстанови равенство», «выровняешь», «материал выровняется /
+# сравняется», "restore the balance", "level things").
+_TAKE_RU = (r"(?:бери|берите|возьми|возьмите|возьмешь|возьмете|забирай|забирайте|забери|заберите|заберешь|заберете|"
+            r"побей|побейте|побьешь|бей|бейте|руби|рубите|сруби|срубите|срубай|срубайте|срубишь|съешь|съешьте|ешь|"
+            r"снимай|снимайте|сними|снимите|снимешь|отыграй|отыграйте|отыгрывай|отыгрывайте|отыграешь|отыграете|"
+            r"выиграй|выигрывай|выиграешь|хватай|прихвати|забрав|взяв|побив|срубив|отыграв|съев)")
+_RETURN_RU = r"(?:верни|верните|вернешь|возвращай|возвращайте|вернув)"
+_UNIT_ACC = r"(?:пешк[уи]|кон[яей]|слон(?:а|ов)?|ладь[юи]|ладей|ферз[яей]|фигур[уы]|качество)"
+_TAKE = re.compile(
+    _W + _TAKE_RU + _E +
+    r"|" + _W + _RETURN_RU + r"\s+(?:(?:обратно|назад|сво\w+|ее|его)\s+)?(?=" + _UNIT_ACC + r")" +
+    r"|(?:^|(?<=[,:;—–(]\s)|(?<=[,:;—–(])|(?<=\sand\s)|(?<=\sjust\s)|(?<=\sso\s)|(?<=\sthen\s))\s*"
+    r"(?:take|capture|grab|recapture|snap\s+up|win\s+back)" + _E +
+    r"(?!\s+(?:a\s+look|your\s+time|time|care|note|advantage|over|it\s+easy|control|aim|away))", re.IGNORECASE)
+_RESULT = re.compile(
+    _W + r"(?:возвращай\w*|верни\w*|вернешь|вернете|восстанови\w*|восстанавливай\w*|сравняй\w*|сравнивай\w*|"
+    r"сравняешь|выровняй\w*|выравнивай\w*|выровняешь|уравняй\w*|уравнивай\w*|уравняешь|выровняется|выравнивается|"
+    r"сравняется|сравнивается|уравняется|уравнивается|восстановится|восстанавливается|вернется|возвращается|"
+    r"restore|restores|restoring|equalize|equalise|equalizes|equalises|rebalance)" + _E, re.IGNORECASE)
+# What makes the claim the outcome of the move told before it: a joining «и», «тогда», «после чего», "and", or «снова»,
+# «опять», «вновь», «обратно», "again", "back" in the claim's own clause. A dash or a comma alone leaves it open
+# (now or after: «Бери коня — у чёрных лишняя фигура» may be the reason).
+_JOIN_OUTCOME = re.compile(_W + r"(?:и|тогда|после\s+чего|в\s+итоге|в\s+результате|and|so)" + _E, re.IGNORECASE)
+_AGAIN = re.compile(_W + r"(?:снова|опять|вновь|обратно|again|back)" + _E, re.IGNORECASE)
+# The board now named between the move and the claim: «бери коня — сейчас у чёрных лишняя фигура»
+_NOW_WORD = re.compile(_W + r"(?:сейчас|пока|уже|now|currently|already)" + _E, re.IGNORECASE)
+
+
+@dataclass
+class Told:
+    """A move the student is told to make, read before a claim at *pos*: *kind* 'outcome' (the claim is its result)
+    or 'open' (the claim may be about now or after it); *verbs* the TAKE verbs read ([] — only a RESULT verb: the
+    move is not told); *seg* the text from the first verb to the claim, where the move's words are."""
+    kind: str
+    verbs: list
+    seg: tuple
+
+
+def told_move(low: str, pos: int) -> Optional[Told]:
+    """The move the student is told to make that a material claim at *pos* of *low* (lowercased, «ё» as «е») is
+    about, or None: a TAKE verb before the claim in the same stretch (no full stop, colon, «но», «потому что», «если»
+    between), or a RESULT verb that the claim belongs to."""
+    head = low[:pos]
+    stops = list(_HARD_STOP.finditer(head))
+    s0 = stops[-1].end() if stops else 0
+    takes = [m for m in _TAKE.finditer(low, s0, pos)]
+    # the claim's own clause runs on past pos to the next stop: a RESULT verb there is the claim's verb
+    nxt = _HARD_STOP.search(low, pos)
+    e0 = nxt.start() if nxt else len(low)
+    results = [m for m in _RESULT.finditer(low, s0, e0)]
+    if not takes and not results:
+        return None
+    if takes:
+        last = takes[-1]
+        gap = low[last.end(): pos]
+        if _NOW_WORD.search(gap):
+            return None  # «бери коня — сейчас у чёрных лишняя фигура»: the board now is named
+        outcome = bool(results) or bool(_JOIN_OUTCOME.search(gap)) or bool(_AGAIN.search(low, pos, e0))
+        return Told("outcome" if outcome else "open", [(m.start(), m.end()) for m in takes], (takes[0].start(), pos))
+    return Told("outcome", [], (results[0].start(), pos))
