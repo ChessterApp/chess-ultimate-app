@@ -138,10 +138,17 @@ _WORDS = {
              r"|forks?|pins?|pinned|skewer\w*|traps?|trapped|threat\w*|promot\w*|castl\w*",
     # relation verbs
     "relation": r"напада\w*|нападет|напал\w*|атаку\w*|атакова\w*|бь[её]т|бьют|бить|бил\w*|защищ\w*|защит\w*|прикры\w*"
-                r"|держ\w*|контрол\w*|нацел\w*|давит|давят|целит\w*|смотрит|под\s+бо\w+|под\s+удар\w*|висит|висят"
-                r"|attack\w*|defend\w*|protect\w*|guard\w*|hits?|controls?|covers?|hanging|undefended",
+                r"|держ\w*|контрол\w*|нацел\w*|давит|давят|давить|давил\w*|давлени\w*|давя|целит\w*|смотрит"
+                r"|под\s+бо\w+|под\s+удар\w*|висит|висят"
+                r"|attack\w*|defend\w*|protect\w*|guard\w*|hits?|controls?|covers?|hanging|undefended"
+                # what a move is said to do to a point (R3 03.11, VERDICT 1102b §1c: «укрепить ходом Be7», «Be2
+                # укрепляет c2» passed as no board word): strengthen, support, guard, block, close, threaten
+                r"|укреп\w*|подкреп\w*|поддерж\w*|стереж\w*|стерег\w*|охраня\w*|охран\w*|угрож\w*|блокир\w*"
+                r"|заблокир\w*|перекр\w*|закрыва\w*|закрыть\w*|закро\w*|закрыл\w*|закрой\w*"
+                r"|strengthen\w*|reinforc\w*|support\w*|block\w*|threaten\w*",
     # quantifiers and modality the claims do not carry
-    "quant": r"только|лишь|единственн\w*|вс[её]|всех|всем|все|оба|обе|обоих|вынужд\w*|обязан\w*|нельзя|невозможн\w*"
+    "quant": r"только(?!\s+что)|лишь|единственн\w*|вс[её](?!\s+(?:равно|ещ[её]|же|таки)(?![\w-]))|всех|всем"
+             r"|оба|обе|обоих|вынужд\w*|обязан\w*|нельзя|невозможн\w*"
              r"|никак\w*|никуда|некуда|ни\s+одн\w*|не\s+мо(?:жет|гут|чь)|only|both|all|must|forced|cannot|can't|never",
     # what the claims carry as a negation («ничем не защищена»)
     "neg": r"ничем|нечем|никем|некому|никто|ничто|ничего|nothing|nobody|none",
@@ -153,6 +160,18 @@ _PIECE_OF = [(re.compile(r"(?<![\w-])(?:кон[ьяюеи]\w*|кон[её]м|к�
              (re.compile(r"(?<![\w-])(?:ферз\w*|queens?|уәзір\w*)(?![\w-])", re.I), chess.QUEEN),
              (re.compile(r"(?<![\w-])(?:корол\w*|kings?|патша\w*)(?![\w-])", re.I), chess.KING),
              (re.compile(r"(?<![\w-])(?:пешк\w*|пешек|pawns?|сарбаз\w*)(?![\w-])", re.I), chess.PAWN)]
+
+
+# A name, not a relation: «берлинская защита», «защита Каро-Канн», «английская атака», "the Sicilian Defence" — an
+# opening's name says nothing about what defends or attacks what on the board (live 02.11 st2#4: «Это испанская партия,
+# берлинская защита» was unproven by «защита»). A national or place adjective, or a capitalised name after the noun.
+_NAME_NOUN = r"(?:защит(?:а|ы|е|у|ой)|атак(?:а|и|е|у|ой)|гамбит\w*)"
+_NAME = re.compile(r"(?<![\w-])[А-ЯЁа-яё][а-яё-]*(?:ск|цк)(?:ая|ой|ую|ие|их)\s+" + _NAME_NOUN + r"(?![\w-])"
+                   r"|(?<![\w-])" + _NAME_NOUN + r"\s+[А-ЯЁ][а-яё]{2,}(?:[-–][А-ЯЁа-яё][а-яё]+)?(?![\w-])"
+                   r"|(?<![\w-])[A-Z][\w-]+\s+(?:Defen[cs]e|Attack|Gambit)(?![\w-])")
+
+
+_IDIOM = re.compile(r"(?<![\w-])(?:вс[её]\s+равно|все\s+равно)(?![\w-])", re.IGNORECASE)
 
 
 @dataclass
@@ -189,6 +208,8 @@ def anchors(text: str) -> list:
     for m in _SQUARE.finditer(text):
         if free(m.start(), m.end()):
             out.append(Anchor("square", m.start(), m.end(), m.group(1)))
+    taken.extend((m.start(), m.end()) for m in _NAME.finditer(text))  # an opening's name is no relation
+    taken.extend((m.start(), m.end()) for m in _IDIOM.finditer(text))  # «всё равно» is "anyway", no equality
     for kind, rx in _WORD_RE.items():
         for m in rx.finditer(text):
             if not free(m.start(), m.end()):
@@ -309,18 +330,193 @@ def prove(sentence: str, ctx: Any) -> Proof:
         return Proof("unproven", f"proof failed: {type(exc).__name__}")
 
 
+# ── relations the sentence states, proven on the board (R3 03.11) ───────────────────────────────────────────────
+# What a relation word asks of the board when no claim the judge found true carries it (VERDICT 1102b §1c: «Слон c4
+# бьёт по f7, поэтому этот пункт стоит укрепить ходом Be7» was proven word by word — Be7 the engine's move, «бьёт по
+# f7» true — while Be7 does not defend f7). The move the sentence names is the means: the piece it moves must hold the
+# relation, on the board after it, to the point the sentence is about. Words of no relation the attack map decides
+# (block, close, pin, hang) are proven only inside a true claim.
+_MEANS_REL = [
+    (re.compile(r"^(?:защи\w*|укреп\w*|подкреп\w*|поддерж\w*|прикры\w*|стереж\w*|стерег\w*|охран\w*|держ\w*|"
+                r"defend\w*|protect\w*|guard\w*|support\w*|reinforc\w*|strengthen\w*|covers?)$", re.I), "defend"),
+    (re.compile(r"^(?:напада\w*|нападет|напал\w*|атаку\w*|атакова\w*|бь[её]т|бьют|бить|угрож\w*|attack\w*|hits?|"
+                r"threaten\w*)$", re.I), "attack"),
+    (re.compile(r"^(?:нацел\w*|целит\w*|смотрит|давит|давят|давить|давил\w*|давлени\w*|давя)$", re.I), "aim"),
+    (re.compile(r"^(?:контрол\w*|controls?)$", re.I), "hold"),
+]
+# A check-giving verb: «даёт шах», «с шахом», «объявит шах» — the check of a move, not the one on the board.
+_GIVES_CHECK = re.compile(r"(?<![\w-])(?:да[её]т|дать|даст|дава\w*|объяв\w*|поставит|ставит|с\s+шахом|gives?|giving|"
+                          r"with\s+check)(?![\w-])", re.IGNORECASE)
+# «только» / «лишь» / «единственный» before the defender a true defence claim names: the whole list of defenders.
+_ONLY = re.compile(r"^(?:только|лишь|единственн\w*|only)$", re.IGNORECASE)
+_CASTLE = re.compile(r"^(?:рокиров\w*|castl\w*)$", re.IGNORECASE)
+_LONG = re.compile(r"(?<![\w-])(?:длинн\w*|ферзев\w*|long|queenside)(?![\w-])|O-O-O|0-0-0", re.IGNORECASE)
+_SHORT = re.compile(r"(?<![\w-])(?:коротк\w*|королевск\w*|short|kingside)(?![\w-])", re.IGNORECASE)
+# «укрепляя центр»: the centre is its four squares — the relation holds to one of them
+_CENTRE = re.compile(r"(?<![\w-])(?:центр|центра|центру|центром|центре|cent(?:er|re))(?![\w-])", re.IGNORECASE)
+CENTRE_SQUARES = ("d4", "e4", "d5", "e5")
+
+
+_WHITE_WORD = re.compile(r"(?<![\w-])(?:бел\w*|white)(?![\w-])", re.IGNORECASE)
+_BLACK_WORD = re.compile(r"(?<![\w-])(?:ч[её]рн\w*|black)(?![\w-])", re.IGNORECASE)
+_YOU_WORD = re.compile(r"(?<![\w-])(?:ты|тебе|тебя|твой|твоя|твоего|твоему|твоим|you|your)(?![\w-])", re.IGNORECASE)
+_ME_WORD = re.compile(r"(?<![\w-])(?:я|мне|меня|мой|моя|моего|моему|моим)(?![\w-])", re.IGNORECASE)
+
+
+def _side_in_check(text: str, board: chess.Board, ctx: Any) -> bool:
+    """The side the sentence names (белые/чёрные, ты/я) is the side in check on *board* — the side to move; a sentence
+    that names no side speaks of the check on the board."""
+    white, black = bool(_WHITE_WORD.search(text)), bool(_BLACK_WORD.search(text))
+    if white and black:
+        return False
+    if white or black:
+        return board.turn == (chess.WHITE if white else chess.BLACK)
+    you, me = bool(_YOU_WORD.search(text)), bool(_ME_WORD.search(text))
+    if you or me:
+        student = getattr(ctx, "student_color", None)
+        if student is None:
+            return you and not me  # «ты» is the side to move when nobody said which side the student plays
+        return not (you and me) and board.turn == (student if you else not student)
+    return True
+
+
+def _after_boards(played: Optional[list]) -> list:
+    """[(board after the move, move, the moved piece's kind)] for the moves *played* (the engine's line or the game's
+    record), each board remembering its move (claim_scene._after: «конь» binds to the knight that just moved)."""
+    from src.claim_scene import _after
+
+    out = []
+    for board, move, _san in played or ():
+        mover = board.piece_at(move.from_square)
+        if mover is None:
+            continue
+        out.append((_after(board, move), move, mover.piece_type))
+    return out
+
+
+def _judged_after(claim: Any, after: list, ctx: Any) -> bool:
+    """A claim the check left unjudged (its subject a piece kind with no square), true on the board after a move the
+    sentence names that moved a piece of that kind: «лучший ход — Nc3: конь нападает на ферзя на d5»."""
+    from src.claim_judge import judge_on
+    from src.claim_types import PIECE_TYPE
+
+    s = getattr(claim, "subj", None)
+    if s is None or s.sq or not s.piece or claim.neg or claim.question or getattr(claim, "presup", ""):
+        return False
+    for board, _move, kind in after:
+        if PIECE_TYPE.get(s.piece) != kind:
+            continue
+        try:
+            v, _ = judge_on(claim, board, ctx)
+        except Exception:  # noqa: BLE001
+            v = None
+        if v is True:
+            return True
+    return False
+
+
+def _means_holds(a: Anchor, text: str, words: list, after: list, targets: list, ctx: Any) -> bool:
+    """The relation word *a* stated of the move the sentence names nearest to it: on the board after that move, the
+    piece it moved holds the relation to every point the sentence is about (*targets*) — or, with no square named, to
+    one square of the centre the sentence names («Играй d3, укрепляя центр»)."""
+    from src.claim_judge import judge_on
+    from src.claim_types import Claim, Ref
+
+    rel = next((r for rx, r in _MEANS_REL if rx.match(a.text)), None)
+    zone = not targets and bool(_CENTRE.search(text))
+    if zone:
+        targets = list(CENTRE_SQUARES)
+    if rel is None or not after or not targets:
+        return False
+    moves = [w for w in words if w.kind == "move"]
+    if not moves and len(after) == 1:
+        # «Играй d3, укрепляя центр»: the pawn move written as its square
+        moves = [w for w in words if w.kind == "square" and w.text == chess.square_name(after[0][1].to_square)][:1]
+    if not moves or len(moves) != len(after):
+        return False
+    nearest = min(range(len(moves)), key=lambda i: min(abs(moves[i].start - a.end), abs(a.start - moves[i].end)))
+    board, move, _kind = after[nearest]
+    prev = getattr(board, "rel_prev", None)
+    if prev is not None and prev.is_castling(move):
+        return False  # two pieces move: which one is the means, the words do not say
+    mover = chess.square_name(move.to_square)
+    held = []
+    for t in targets:
+        v = None
+        if t != mover:
+            # the piece on the point is named: a piece defends only its own side's, attacks only the other's
+            there = board.piece_at(chess.parse_square(t))
+            obj = Ref(sq=t, piece=there.symbol().upper()) if there is not None else Ref(sq=t)
+            claim = Claim(rel=rel, subj=Ref(sq=mover), objs=(obj,))
+            try:
+                v, _ = judge_on(claim, board, ctx)
+            except Exception:  # noqa: BLE001
+                v = None
+        held.append(v is True)
+    return any(held) if zone else all(held)
+
+
+def _only_holds(a: Anchor, text: str, claims: list, board: Optional[chess.Board]) -> bool:
+    """«Коня b1 прикрывает только ладья a1», «f7 защищает только король»: the defender a true defence claim names right
+    after «только» is every defender of the piece it defends, on the board the claim was judged on."""
+    from src.claim_judge import defenders
+    from src.claim_types import PIECE_TYPE
+
+    if board is None or not _ONLY.match(a.text):
+        return False
+    following = text[a.end:a.end + 40].lower().split()[:3]
+    for claim in claims:
+        if claim.rel != "defend" or claim.neg or claim.subj is None:
+            continue
+        s = claim.subj
+        named = (s.text or "").lower()
+        if not any(w.strip(",.;:!?—–-«»") in (named, s.sq or "#") for w in following if w):
+            continue  # «только» is not before this claim's defender
+        objs = [o for o in claim.objs if o is not None and o.sq]
+        if len(objs) != 1:
+            continue
+        t = chess.parse_square(objs[0].sq)
+        occupant = board.piece_at(t)
+        if occupant is None:
+            continue
+        dfs = defenders(board, t, occupant.color)
+        if not dfs:
+            continue
+        if s.sq:
+            if dfs == [chess.parse_square(s.sq)]:
+                return True
+        elif s.piece and all(board.piece_at(d).piece_type == PIECE_TYPE[s.piece] for d in dfs) and len(dfs) == 1:
+            return True
+    return False
+
+
 def _prove(sentence: str, ctx: Any) -> Proof:
     text, verdicts = _record(sentence, ctx)
     words = anchors(text)
     if not words:
         return Proof("neutral")
+    moves = [a for a in words if a.kind == "move"]
+    played = engine_moves([a.san for a in moves], ctx) if moves else None
+    if not moves:
+        # «Играй e4»: a pawn move written as its square — the engine's first move when its line starts with it
+        first = next((a for a in words if a.kind == "square"), None)
+        played = engine_moves([first.text], ctx) if first is not None else None
+    elif played is None and _TOLD.search(text):
+        # moves told as made: the game's own record proves them (and what they moved, took, gave)
+        played = record_moves(moves, ctx)
+    after = _after_boards(played) if played else []
+    true_claims = []
+    for claim, status in verdicts or ():
+        if getattr(claim, "question", ""):
+            continue
+        if status == "true" or (status not in ("false",) and after and _judged_after(claim, after, ctx)):
+            true_claims.append(claim)
     spans = []  # the relation words of the claims found true
     claim_squares: set = set()  # …and the squares and pieces they are about
     claim_pieces: set = set()
+    claim_objects: list = []  # the points they are about (what is attacked, defended): a means relation's targets
     current = getattr(ctx, "current", None)
-    for claim, status in verdicts or ():
-        if status != "true" or getattr(claim, "question", ""):
-            continue
+    for claim in true_claims:
         if tuple(getattr(claim, "span", (0, 0))) != (0, 0):
             spans.append((claim.span[0], claim.span[1], claim))
         for ref in [claim.subj, claim.to, *claim.objs]:
@@ -337,21 +533,17 @@ def _prove(sentence: str, ctx: Any) -> Proof:
                         claim_pieces.add(found.piece_type)
             if ref.piece:
                 claim_pieces.add(chess.Piece.from_symbol(ref.piece).piece_type)
-    moves = [a for a in words if a.kind == "move"]
-    played = engine_moves([a.san for a in moves], ctx) if moves else None
-    if not moves:
-        # «Играй e4»: a pawn move written as its square — the engine's first move when its line starts with it
-        first = next((a for a in words if a.kind == "square"), None)
-        played = engine_moves([first.text], ctx) if first is not None else None
-    elif played is None and _TOLD.search(text):
-        # moves told as made: the game's own record proves them (and what they moved, took, gave)
-        played = record_moves(moves, ctx)
+        for ref in claim.objs:
+            if ref is not None and ref.sq and ref.sq not in claim_objects:
+                claim_objects.append(ref.sq)
     line_squares: set = set()
     line_pieces: set = set()
-    gives = {"check": False, "mate": False}
+    gives = {"check": False, "mate": False, "castle": False}
+    move_squares: set = set()
     if played:
         for board, move, san in played:
             line_squares.update({chess.square_name(move.from_square), chess.square_name(move.to_square)})
+            move_squares.update({chess.square_name(move.from_square), chess.square_name(move.to_square)})
             mover = board.piece_at(move.from_square)
             if mover:
                 line_pieces.add(mover.piece_type)
@@ -363,11 +555,39 @@ def _prove(sentence: str, ctx: Any) -> Proof:
             gives["mate"] |= san.endswith("#")
             if board.is_castling(move):
                 line_pieces.update({chess.KING, chess.ROOK})
+                gives["castle"] = "long" if chess.square_file(move.to_square) < 4 else "short"
+                # the rook moves too: «ладья встала на f1» after 0-0 (live 02.11 st2#4 was unproven by «f1»)
+                rank = chess.square_rank(move.from_square)
+                kingside = chess.square_file(move.to_square) == 6 or chess.square_file(move.to_square) == 7
+                line_squares.update({chess.square_name(chess.square(7 if kingside else 0, rank)),
+                                     chess.square_name(chess.square(5 if kingside else 3, rank)),
+                                     chess.square_name(chess.square(6 if kingside else 2, rank))})
             if not san[0].isupper():
                 line_squares.add(san[-2:] if san[-1].isdigit() else _bare(san)[-2:])
+    # The board on the screen gives check (or mate) itself: «…а не сам шах» said of it, with no move named and no
+    # check-giving verb (live 02.11 st3#10, after 4...Qxe4+).
+    on_board = {"check": False, "mate": False}
+    if current is not None and not moves and not _GIVES_CHECK.search(text) and _side_in_check(text, current, ctx):
+        on_board = {"check": current.is_check(), "mate": current.is_checkmate()}
+    # The points a means relation is about: what the true claims attack or defend, else the squares the sentence names
+    # outside its moves.
+    targets = list(claim_objects) or [a.text for a in words if a.kind == "square" and a.text not in move_squares]
 
     def inside(a: Anchor) -> Optional[Any]:
         return next((c for s, e, c in spans if s <= a.start and a.end <= e), None)
+
+    # A relation proven of the move («подкрепить ходом Be3» with Be3 defending d4) proves the points it holds to, and
+    # what stands on them, as a true claim would.
+    means = {id(a) for a in words if a.kind == "relation" and inside(a) is None
+             and _means_holds(a, text, words, after, targets, ctx)}
+    if means:
+        named = [t for t in targets if t in {w.text for w in words if w.kind == "square"}] or targets
+        for t in named:
+            claim_squares.add(t)
+            for board in [current] + [b for b, _m, _k in after[-1:]]:
+                found = board.piece_at(chess.parse_square(t)) if board is not None else None
+                if found is not None:
+                    claim_pieces.add(found.piece_type)
 
     unproven = []
     for a in words:
@@ -375,11 +595,15 @@ def _prove(sentence: str, ctx: Any) -> Proof:
         if a.kind == "move":
             ok = played is not None
         elif a.kind == "quant":
-            ok = False  # «только», «все», «вынужден»: no claim carries them
+            # «только», «все», «вынужден»: no claim carries them — except «только» before the one defender of a piece
+            # on the board on the screen (a sentence that names a move may be about the board after it)
+            ok = not moves and played is None and _only_holds(a, text, true_claims, current)
         elif a.kind == "neg":
             ok = claim is not None and (getattr(claim, "neg", False) or getattr(claim, "rel", "") == "undefended")
         elif claim is not None:
             ok = True
+        elif a.kind == "relation":
+            ok = id(a) in means
         elif a.kind == "square":
             ok = a.text in line_squares or a.text in claim_squares
         elif a.kind == "piece":
@@ -390,8 +614,12 @@ def _prove(sentence: str, ctx: Any) -> Proof:
             ok = bool(gives.get("capture"))
         elif a.kind == "check":
             low = a.text.lower()
-            ok = gives["mate"] if low.startswith(("мат", "checkmate", "mate")) else (
-                gives["check"] if low.startswith(("шах", "check")) else False)
+            ok = (gives["mate"] or on_board["mate"]) if low.startswith(("мат", "checkmate", "mate")) else (
+                (gives["check"] or on_board["check"]) if low.startswith(("шах", "check")) else False)
+        elif a.kind == "motif":
+            # «рокировка» told of the castling played — of its side, when the sentence names one
+            side = "long" if _LONG.search(text) else ("short" if _SHORT.search(text) else None)
+            ok = bool(gives["castle"]) and bool(_CASTLE.match(a.text)) and side in (None, gives["castle"])
         else:
             ok = False
         if not ok:
@@ -430,3 +658,71 @@ def restore(ctx: Any, snap: Optional[dict]) -> None:
             setattr(ctx, name, value)
         except Exception:  # noqa: BLE001
             pass
+
+
+# ── what a cut leaves (R3 03.11) ────────────────────────────────────────────────────────────────────────────────
+# 39 of 41 rewrites on the live run of 02.11 were abandoned and the flagged sentence simply left out; what followed it
+# often leaned on it: «точнее, ферзь e4 атакует коня b1…» (st3#8, the rest of a sentence split at «...»), «Поэтому…»,
+# «Кроме того…», a list whose item 2 was cut going on with «3.», a blank line doubled. The draft's words are kept; only
+# the word that points back at the sentence the student never saw goes, and the list is counted again.
+# (src/answer_check.strip_leaning_start stays as it is: the /learn tutor and the game comment use it.)
+_LEANS_ON_CUT = re.compile(
+    r"^(\s*(?:[>#-]+\s*)?)([*_]{0,2})(?:поэтому|потому\s+что|значит|отсюда|именно\s+поэтому|из-за\s+этого|в\s+итоге|"
+    r"тогда|точнее|вернее|то\s+есть|иначе\s+говоря|к\s+тому\s+же|более\s+того|причем|вдобавок|ведь|и|а|"
+    r"therefore|thus|hence|so|that'?s\s+why|this\s+means|in\s+other\s+words|more\s+precisely|moreover|furthermore|"
+    r"and|i\.e\.)(?![а-яёa-z])([*_]{0,2})[\s,—–:-]*", re.IGNORECASE)
+_FRAGMENT_START = re.compile(r"^(\s*)(?:\.\.\.|…|[,;:—–-])+\s*")
+_SAN_START = re.compile(r"[a-h](?:[1-8]|x[a-h])")
+_ITEM = re.compile(r"^(\s*)(\d{1,2})([.)])(\s+)(?![KQRBNКФЛСO0]?[a-h]?[1-8]?[x:×]?[a-h][1-8]|O-O|0-0)")
+_SHOWN_ITEM = re.compile(r"(?:^|\n)[ \t]*(\d{1,2})[.)][ \t]+(?![KQRBNКФЛСO0]?[a-h]?[1-8]?[x:×]?[a-h][1-8]|O-O|0-0)")
+
+
+def mend_after_cut(text: str, shown: str = "") -> str:
+    """*text*, the first words shown after a sentence left out (or the answer's very first words), without what points
+    back at the sentence the student never saw: a leaning word («Затем», «Поэтому», «точнее»), a fragment's leading
+    «…» or dash; a lowercase start capitalised when it opens a new sentence. A move («e4 — …») stays as written."""
+    from src.answer_check import strip_leaning_start
+
+    if not (text or "").strip():
+        return text
+    out = text
+    f = _FRAGMENT_START.match(out)
+    if f and len(out) - f.end() >= 12:
+        out = f.group(1) + out[f.end():]
+    for _ in range(3):  # «и тогда …», «а значит, …»: each word that leans back
+        leaned = strip_leaning_start(out)
+        if leaned == out:
+            m = _LEANS_ON_CUT.match(out)
+            if m and len(out) - m.end() >= 12:
+                mark = "" if m.group(3) else m.group(2)
+                leaned = m.group(1) + mark + out[m.end():]
+        if leaned == out:
+            break
+        out = leaned
+    lead = len(out) - len(out.lstrip())
+    body = out[lead:]
+    body_start = len(body) - len(body.lstrip("*_«\"("))
+    first = body[body_start:body_start + 1]
+    opens = not shown.strip() or shown.rstrip()[-1:] in ".!?…:»\"" or shown.endswith("\n")
+    if first.islower() and opens and not _SAN_START.match(body[body_start:]):
+        body = body[:body_start] + first.upper() + body[body_start + 1:]
+    return out[:lead] + body
+
+
+def renumber_item(text: str, shown: str, cut: Iterable[str] = ()) -> str:
+    """A numbered item after a cut one goes on the list as it is shown: «1. …» shown, «2. …» cut, «3. …» becomes «2. …»;
+    the list's first item cut, the next one is «1.». A line that opens with a move number («3. Nf3») is not an item."""
+    m = _ITEM.match(text or "")
+    if not m:
+        return text
+    n = int(m.group(2))
+    items = list(_SHOWN_ITEM.finditer(shown or ""))
+    if items:
+        want = int(items[-1].group(1)) + 1
+    elif any(_ITEM.match((c or "").lstrip()) for c in cut or ()):
+        want = 1
+    else:
+        return text
+    if n <= want:
+        return text
+    return m.group(1) + str(want) + text[m.end(1) + len(m.group(2)):]
