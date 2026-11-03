@@ -17,7 +17,7 @@ import asyncio
 import chess
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from contextlib import asynccontextmanager
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, NamedTuple, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -4776,17 +4776,29 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
     from src.answer_check import CheckContext, check_sentence
 
     def _check() -> list:
+        # What was said — the coach's sentence, its sentences before, the student's question — as every stage of this
+        # check reads it, the board check and the engine stage alike: squares said in words written as squares
+        # («слоном на эф четыре» → «слоном на f4»; src/game_intent.spoken_squares, Alexander's phone 24.10). Read once
+        # here, never raw below: the engine stage read the raw sentence and never saw a move said aloud, so «сыграй
+        # слоном на эф четыре» went unjudged while «сыграй слоном на f4» was (voice 03.11); the question read raw
+        # quoted no move, so the move the student asked about aloud was judged as the coach's advice.
+        heard = _voice_heard(body)
         # The positions the student's idea leads to («Стоит ли брать пешку f4?» → after exf4), as the text coach's
         # check has them: a move or an ECO code said after the capture is about that position (prod check 29.10).
-        ideas = []
-        if body.fen and body.question:
+        named = []
+        if body.fen and heard.question:
             try:
                 from src.prompt_builder import question_moves
 
-                ideas = [q["after_fen"] for q in question_moves(body.question, body.fen) if q.get("after_fen")]
+                named = question_moves(heard.question, body.fen)
             except Exception:  # noqa: BLE001 — the check still runs on the board alone
-                ideas = []
-        ctx = CheckContext.from_fens([body.fen] + ideas, [body.pgn] if body.pgn else [], question=body.question or "")
+                named = []
+        ideas = [q["after_fen"] for q in named if q.get("after_fen")]
+        ctx = CheckContext.from_fens([body.fen] + ideas, [body.pgn] if body.pgn else [], question=heard.question)
+        # The moves the student asked about are quoted, not advised, however the question names them: a question said
+        # aloud names its move in words («а если ферзь жэ четыре?»), which the notation reader of CheckContext does not
+        # read — the engine stage then judged the student's own idea as the coach's recommendation (voice 03.11).
+        ctx.quoted |= {q["san"] for q in named if q.get("legal") and q.get("san")}
         # An ending of ≤ 7 pieces: the tablebase result judges «это выигрыш» /
         # «ничья» (src/answer_check_rules.py) — the voice coach called a dead
         # draw a win on 2026-10-06.
@@ -4821,13 +4833,9 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                 raise  # the game is unknown, not absent: 503, never a check without it (28.10)
             except Exception:  # noqa: BLE001 — the check still runs without the game
                 pass
-        # Squares the transcription writes in words («слона на цэ четыре», «пешке на е два») are squares to
-        # the check (src/game_intent.spoken_squares; Alexander's phone, 24.10).
-        from src.game_intent import spoken_squares
-
-        if body.previous:
-            _replay_previous(ctx, spoken_squares(body.previous[-1500:]))
-        spoken_text = spoken_squares(body.text[:1000])
+        if heard.previous:
+            _replay_previous(ctx, heard.previous)
+        spoken_text = heard.text
         issues = check_sentence(spoken_text, ctx)
         # What the relation checker flagged in this sentence (shadow: recorded, not returned) — for review, as the
         # text turn's relation_check event (src/answer_check_relations.py).
@@ -4874,7 +4882,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         from src.answer_check import proposed_move
         from src.hypothetical import verify_recommendation
 
-        found = proposed_move(body.text[:1000], ctx)
+        found = proposed_move(spoken_text, ctx)
         if found:
             used[0] = True
             why = verify_recommendation(found[0], found[1], found[2], config.COACH_MOVE_VERIFY_MOVETIME_MS,
@@ -4904,6 +4912,24 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         log_event("detector_shadow", surface="voice", user_id=user_id, session_id=body.session_id,
                   payload=shadow_record[0])
     return {"issues": issues, "engine": used[0]}
+
+
+class _VoiceHeard(NamedTuple):
+    text: str
+    previous: str
+    question: str
+
+
+def _voice_heard(body: "VoiceCheckRequest") -> _VoiceHeard:
+    """What /voice/check reads of a request — the sentence, the answer before it, the student's question — with squares
+    said in words written as squares (src/game_intent.spoken_squares), each once. Every stage of the check reads these
+    and none reads the request's raw text: a stage that did saw no move said aloud (voice 03.11). The language of the
+    student's words is still read from the raw question (_spoken_language): the squares written in Latin are not words."""
+    from src.game_intent import spoken_squares
+
+    return _VoiceHeard(text=spoken_squares(body.text[:1000]),
+                       previous=spoken_squares(body.previous[-1500:]) if body.previous else "",
+                       question=spoken_squares(body.question or ""))
 
 
 def _shadow_voice_record(ctx) -> Optional[dict]:
