@@ -7991,8 +7991,12 @@ def _told_moves(sentence: str, ctx: CheckContext) -> list:
 
 
 def _names_left_square(sentence: str, move: chess.Move) -> bool:
-    """*sentence* names the square *move* leaves («Конь f3 …» after Ng5 from f3): it speaks of the board before it."""
-    return bool(re.search(r"(?<![A-Za-z0-9])" + chess.square_name(move.from_square) + r"(?![0-9])", sentence))
+    """*sentence* names the square *move* leaves as where a piece stands («Конь f3 …» after Ng5 from f3): it speaks of
+    the board before it. Named as where the move came from («Ладья с c8 бьёт по третьей горизонтали» after Rc3+) it
+    tells the move itself, and the board after it is the scene."""
+    sq = chess.square_name(move.from_square)
+    return any(not re.search(r"(?:^|[^\w])(?:с|со|из|from)\s+$", sentence[:m.start()], re.IGNORECASE)
+               for m in re.finditer(r"(?<![A-Za-z0-9])" + sq + r"(?![0-9])", sentence))
 
 
 def _after_told_move(sentence: str, snapshot: CheckContext, issues: list, told: list) -> list:
