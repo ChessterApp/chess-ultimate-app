@@ -33,6 +33,15 @@ from src.sessions import Session
 from src.tools import twic_search
 
 
+@pytest.fixture(autouse=True)
+def _db_checks_on(monkeypatch):
+    """These tests judge what the database checks cut: both on (they ship in shadow — test_games_db_switches_2026_11_04)."""
+    from src import config
+
+    monkeypatch.setattr(config, "COACH_DB_CLAIM_CHECK", "on")
+    monkeypatch.setattr(config, "COACH_LOADED_GAME_CHECK", "on")
+
+
 @pytest.fixture(scope="module")
 def declarations():
     from src.tool_bridge import build_tool_declarations

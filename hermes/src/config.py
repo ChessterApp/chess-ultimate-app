@@ -321,6 +321,13 @@ COACH_ANSWER_FIX_TIMEOUT_S = float(os.environ.get("COACH_ANSWER_FIX_TIMEOUT_S", 
 #                          sentence; on cuts it and sends the issue to the rewrite. Read at call time, so a test
 #                          or the harness (scripts/eval_relations.py) can patch it.
 COACH_RELATION_CHECK = os.environ.get("COACH_RELATION_CHECK", "on").strip().lower()
+# The games-database checks of the answer check (src/answer_check_db.py, 03–04.11), each off | shadow | on, default
+# shadow: computed and logged (the turn's db_check event), never cut — the last check of 04.11 still cut true sentences.
+#   COACH_DB_CLAIM_CHECK    — «поиск ничего не нашёл», «нет доступа к базе» with no empty database search of the turn.
+#   COACH_LOADED_GAME_CHECK — a move of the database game on the board told wrong («на 13-м ходу белые взяли…»).
+# Read at call time (src/answer_check_db.mode).
+COACH_DB_CLAIM_CHECK = os.environ.get("COACH_DB_CLAIM_CHECK", "shadow").strip().lower()
+COACH_LOADED_GAME_CHECK = os.environ.get("COACH_LOADED_GAME_CHECK", "shadow").strip().lower()
 
 # The student's idea on the board (2026-10-04): a move named in the message
 # («а если Rg1?», «поставить ладью на g1») is played on the board the moment it

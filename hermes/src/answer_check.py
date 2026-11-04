@@ -403,6 +403,9 @@ class CheckContext:
     # not run there, Асан 19.10: the lesson tutor is the team's), 'game' (a move comment — recorded, never cut, until
     # its flags are reviewed). src/answer_check_relations.mode reads it.
     relation_surface: str = "text"
+    # The games-database checks in shadow (src/answer_check_db.game_db_issues): (part, sentence, issues) they would
+    # have cut, for the turn's db_check event.
+    db_shadow: list = field(default_factory=list)
     MAX_BOARDS = 400
 
     @classmethod
@@ -4216,20 +4219,6 @@ def strip_leaning_start(text: str) -> str:
     return m.group(1) + mark + rest[:1].upper() + rest[1:]
 
 
-class Sentence(str):
-    """A whole sentence the gate judged, with ``end``: where it ends in the text fed to the gate. A board mark
-    written before that point and after the sentence before it is the sentence's own (src/server.py holds it until
-    the sentence is shown, and drops it with a cut sentence — live run 04.11)."""
-
-    end: int = -1
-
-
-def _ending_at(text: str, end: int) -> "Sentence":
-    out = Sentence(text)
-    out.end = end
-    return out
-
-
 class SentenceGate:
     """Holds streamed text until its sentence is complete and checked.
 
@@ -4255,7 +4244,6 @@ class SentenceGate:
         self.hold_promises = hold_promises
         self._board_changed = False
         self._held: list = []
-        self._fed = 0  # characters fed so far: where the judged sentences end (``Sentence.end``)
         self._buf = ""
         self._released = ""  # the start of the current sentence, already out
         # The last sentence shown: DeepSeek sometimes writes a sentence twice in a
@@ -4292,17 +4280,14 @@ class SentenceGate:
         if not self.enabled:
             return [(text, [], text)] if text else []
         self._buf += text
-        self._fed += len(text)
-        pos = self._fed - len(self._buf)
         out: list[tuple[str, list[str], str]] = []
         sentences, self._buf = _split_sentences(self._buf)
         if len(self._buf) > self.MAX_HOLD:
             sentences.append(self._buf)
             self._buf = ""
         for sentence in sentences:
-            pos += len(sentence)
             sentence = chess_terms(normalize_notation(sentence), self.ctx.language, self.ctx.question_raw)  # «рыцарь» → «конь»
-            full = _ending_at(self._released + sentence, pos)
+            full = self._released + sentence
             self._released = ""
             if len(full.strip()) >= 12 and self._same(full, self._prev):
                 continue  # the model repeated its last sentence word for word
@@ -4323,7 +4308,7 @@ class SentenceGate:
             pending = self._released + self._buf
             wrong = language_issue(pending, self.ctx.language)
             if wrong:
-                out.append((self._buf, [wrong], _ending_at(pending, self._fed)))
+                out.append((self._buf, [wrong], pending))
                 self._buf = ""
                 self._released = ""
                 return out
@@ -4364,7 +4349,7 @@ class SentenceGate:
 
     def flush(self) -> list[tuple[str, list[str], str]]:
         rest, self._buf = chess_terms(normalize_notation(self._buf), self.ctx.language, self.ctx.question_raw), ""
-        full, self._released = _ending_at(self._released + rest, self._fed), ""
+        full, self._released = self._released + rest, ""
         pairs = self._hold([(rest, check_sentence(full, self.ctx) if self.enabled else [], full)] if rest else [])
         held, self._held = self._held, []
         # The turn is over: a promise still held was not kept — it is marked, the rest goes out in order.

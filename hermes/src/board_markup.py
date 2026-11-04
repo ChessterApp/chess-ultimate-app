@@ -67,19 +67,6 @@ class MarkupFilter:
         # back only if a word follows; "emitted" — that space already went out,
         # so a space right after the mark is dropped.
         self._gap: Optional[str] = None
-        # Where each mark stood in the clean text (characters let through before it, over the whole answer), and
-        # what it added, for the actions of the last ``feed``: a mark goes on the board with its sentence, and is
-        # taken back when the answer check cuts that sentence (live run 04.11: the red arrow of a cut sentence
-        # stayed on the board with no words to it).
-        self._out_total = 0
-        self.mark_offsets: list[int] = []
-        self.mark_added: list[list] = []
-        self._added: list = []
-
-    def retract(self, added: list) -> None:
-        """A mark's arrows / squares are taken back: later marks no longer carry them."""
-        self._arrows = [a for a in self._arrows if a not in added]
-        self._squares = [s for s in self._squares if s not in added]
 
     def _emit(self, out: list[str], text: str) -> None:
         if not text:
@@ -159,15 +146,9 @@ class MarkupFilter:
         return san or f"{a}–{b}"
 
     def feed(self, text: str) -> tuple[str, list[dict]]:
-        clean, actions = self._feed(text)
-        self._out_total += len(clean)
-        return clean, actions
-
-    def _feed(self, text: str) -> tuple[str, list[dict]]:
         self._pending += text
         out: list[str] = []
         actions: list[dict] = []
-        self.mark_offsets, self.mark_added = [], []
         self._settle_sub(out, self._pending)
         while True:
             start = self._pending.find("[[")
@@ -223,8 +204,6 @@ class MarkupFilter:
                     self._gap = "emitted" if self._last in (" ", "\n") else None
             if parsed:
                 actions.append(parsed)
-                self.mark_offsets.append(self._out_total + sum(len(x) for x in out))
-                self.mark_added.append(list(self._added))
             if words is not None:
                 self._sub = words
                 self._settle_sub(out, self._pending)
@@ -236,7 +215,6 @@ class MarkupFilter:
         self._settle_sub(out, self._pending, final=not self._pending)
         self._emit(out, self._pending)
         self._pending = ""
-        self._out_total += sum(len(x) for x in out)
         return "".join(out)
 
     def _parse(self, mark: str) -> Optional[dict]:
@@ -272,19 +250,18 @@ class MarkupFilter:
         else:
             return None
         if kind.startswith("arrow"):
-            self._added = []
+            added = False
             for a, b, color in _ARROW.findall(body):
                 arrow = {"from": a.lower(), "to": b.lower(), "brush": (color or "green").lower()}
                 if a.lower() != b.lower() and arrow not in self._arrows:
                     self._arrows.append(arrow)
-                    self._added.append(arrow)
-            return {"type": "draw_arrows", "arrows": list(self._arrows)} if self._added else {}
+                    added = True
+            return {"type": "draw_arrows", "arrows": list(self._arrows)} if added else {}
         squares = [s.lower() for s in _SQUARE.findall(body)]
         new = [s for s in dict.fromkeys(squares) if s not in self._squares]
         if not new:
             return {}
         self._squares.extend(new)
-        self._added = list(new)
         color = next((c for c in _COLORS if re.search(rf"\b{c}\b", body, re.IGNORECASE)), "yellow")
         return {"type": "highlight_squares", "squares": list(self._squares), "color": color}
 

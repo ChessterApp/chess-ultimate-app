@@ -27,6 +27,15 @@ from src import tool_selector as ts
 from src.answer_check import CheckContext, check_sentence
 from src.sessions import Session
 
+
+@pytest.fixture(autouse=True)
+def _db_checks_on(monkeypatch):
+    """These tests judge what the database checks cut: both on (they ship in shadow — test_games_db_switches_2026_11_04)."""
+    from src import config
+
+    monkeypatch.setattr(config, "COACH_DB_CLAIM_CHECK", "on")
+    monkeypatch.setattr(config, "COACH_LOADED_GAME_CHECK", "on")
+
 S, P = "search_master_games", "get_game_pgn"
 
 WCH6 = """[Event "FIDE World Championship 2021"]

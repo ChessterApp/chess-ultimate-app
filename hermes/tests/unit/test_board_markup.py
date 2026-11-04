@@ -102,9 +102,9 @@ def test_marks_become_board_frames_and_never_reach_the_text(mock_agent, mock_pro
     agent.session_prompt_tokens = agent.session_completion_tokens = agent.session_cache_read_tokens = 0
 
     def _chat(message, stream_callback=None):
-        for chunk in ["Играй d4 [[arr", "ows: d2d4 green]] — ", "центр твой. ", "Дальше развивай фигуры."]:
+        for chunk in ["Играй d4 [[arr", "ows: d2d4 green]] — ", "центр твой."]:
             stream_callback(chunk)
-        return "Дальше развивай фигуры."
+        return "центр твой."
 
     agent.chat.side_effect = _chat
     mock_agent.return_value = agent
@@ -113,16 +113,13 @@ def test_marks_become_board_frames_and_never_reach_the_text(mock_agent, mock_pro
                                 json={"message": "Что играть?"})
     frames = [json.loads(l[6:]) for l in resp.text.splitlines() if l.startswith("data: ")]
     text = "".join(f["delta"] for f in frames if "delta" in f)
-    assert text == "Играй d4 — центр твой. Дальше развивай фигуры."
+    assert text == "Играй d4 — центр твой."
     [board] = [f for f in frames if "board_actions" in f]
     [action] = board["board_actions"]
     assert action["type"] == "draw_arrows" and action["board_id"]
     assert action["arrows"] == [{"from": "d2", "to": "d4", "brush": "green"}]
-    # The arrow goes out with its sentence — once the sentence passed the check (a cut one takes its arrow with it,
-    # live run 04.11) — and before the text after it, not at the end of the turn.
+    # The arrow went out before the rest of the text.
     kinds = [next(iter(f)) for f in frames]
-    deltas = [i for i, k in enumerate(kinds) if k == "delta"]
-    told = next(i for i in deltas if "центр" in frames[i]["delta"])
-    assert told < kinds.index("board_actions") < max(deltas)
+    assert kinds.index("board_actions") < max(i for i, k in enumerate(kinds) if k == "delta")
     session = session_store.get(frames[-1]["session_id"], "markup-user")
-    assert [m for m in session.messages if m.role == "assistant"][-1].content == "Играй d4 — центр твой. Дальше развивай фигуры."
+    assert [m for m in session.messages if m.role == "assistant"][-1].content == "Играй d4 — центр твой."

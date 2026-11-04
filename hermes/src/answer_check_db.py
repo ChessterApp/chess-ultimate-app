@@ -27,6 +27,9 @@ The server records the turn's database results and the game it loaded (``note_to
 ``note_board_game``); with nothing recorded nothing is judged (the voice check, the lesson tutor). Conditions,
 alternatives, negations and other games are never read as claims: a right sentence cut is worse than a wrong one
 let through.
+
+Each check has its switch (``mode``: COACH_DB_CLAIM_CHECK, COACH_LOADED_GAME_CHECK — off | shadow | on); both ship in
+shadow: what they would cut is logged (the turn's ``db_check`` event), nothing is cut.
 """
 
 from __future__ import annotations
@@ -842,12 +845,70 @@ def forget_board_game(ctx) -> None:
             setattr(ctx, name, None)
 
 
+# ── each check's switch: off | shadow | on ───────────────────────────────────────────────────────────────────────
+# The last check of 04.11 (311 true and 115 false sentences beside production ecdadca9): both checks catch what
+# production lets through (the loaded game's moves 54 false sentences, the database claims 35) and still cut true
+# ones — the loaded game's moves 15 («На 11-м ходу ты поставил ферзя на f3» about the student's game, «На 25-м ходу
+# Фишер сыграл b3, укрепив слона c4» read as the reply), the database claims 1 («Комментариев к этой партии в базе
+# нет, но все ходы есть»). Each ships in shadow: it runs, its verdicts are recorded in ``ctx.db_shadow`` and
+# logged as the turn's ``db_check`` event (src/server.py), nothing is cut, until the log is reviewed.
+SWITCHES = {"db_claim": "COACH_DB_CLAIM_CHECK", "loaded_game": "COACH_LOADED_GAME_CHECK"}
+_OFF = ("off", "0", "false", "no", "")
+_ON = ("on", "1", "true", "yes")
+SHADOW_BYTES = 6000  # one coach_events row (the logger stubs payloads over 8 KB)
+
+
+def mode(part: str) -> str:
+    """'off' | 'shadow' | 'on' of *part* ('db_claim' | 'loaded_game'), read from src.config at call time (tests patch
+    it). A value nobody meant is shadow: computed, never cut."""
+    from src import config
+
+    raw = str(getattr(config, SWITCHES[part], "shadow") or "").strip().lower()
+    if raw in _OFF:
+        return "off"
+    if raw in _ON:
+        return "on"
+    return "shadow"
+
+
 def game_db_issues(lowered: str, original: str, ctx) -> list[str]:
-    """Both checks above; never raises."""
+    """Both checks above, each by its switch (``mode``): on — its issues cut the sentence; shadow — recorded in
+    ``ctx.db_shadow`` as (part, sentence, issues), never returned; off — not run. Never raises."""
     out: list[str] = []
-    for check, args in ((db_claim_issues, (lowered, ctx, original)), (loaded_game_issues, (original, ctx))):
+    for part, check, args in (("db_claim", db_claim_issues, (lowered, ctx, original)),
+                              ("loaded_game", loaded_game_issues, (original, ctx))):
         try:
-            out += check(*args)
+            current = mode(part)
+            if current == "off":
+                continue
+            issues = check(*args)
+            if not issues:
+                continue
+            if current == "on":
+                out += issues
+                continue
+            shadow = getattr(ctx, "db_shadow", None)
+            if isinstance(shadow, list):
+                shadow.append((part, original or lowered, list(issues)))
+            logger.info("db check (shadow, %s): %s | %s", part, "; ".join(issues)[:300], (original or lowered).strip()[:200])
         except Exception:  # noqa: BLE001 — the check must never break a turn
             logger.debug("%s failed", check.__name__, exc_info=True)
     return out
+
+
+def log_record(ctx) -> Optional[dict]:
+    """The payload of the turn's ``db_check`` event — what the checks in shadow would have cut — or None. Never
+    raises."""
+    try:
+        entries = [{"part": part, "sentence": " ".join(str(sentence).split())[:300],
+                    "issues": [str(i)[:300] for i in issues]}
+                   for part, sentence, issues in list(getattr(ctx, "db_shadow", None) or [])]
+        if not entries:
+            return None
+        total = len(entries)
+        while entries and len(json.dumps(entries, ensure_ascii=False).encode("utf-8")) > SHADOW_BYTES:
+            entries.pop()
+        return {"db_shadow": entries, "db_shadow_total": total,
+                "modes": {part: mode(part) for part in SWITCHES}}
+    except Exception:  # noqa: BLE001
+        return None

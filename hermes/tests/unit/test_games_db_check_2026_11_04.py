@@ -10,7 +10,8 @@ Fresh sentences (283 true, 126 false, 39 targeted) and a live run with the real 
     memory" ("I'll" read as a player) passed; moves told with the piece in the instrumental («конём»), castling,
     «вторглась / поставили / отвели», the reply («…, а Синдаров в ответ съел слона на e2»), Kazakh and an
     impossible numbered move were not judged;
-  * the red arrow of a cut sentence stayed on the board (the mark went out before its sentence was checked);
+  * the red arrow of a cut sentence stayed on the board (the mark went out before its sentence was checked — the
+    change that held marks lost marks of shown sentences and was taken back on 04.11, production behaviour kept);
     «Соблазнительно сыграть Nxf7 — так все и попадаются…» was read as advice, «после Nxf7 чёрные бьют на g2» as the
     knight's attack;
   * «загрузи третью из списка» loaded the fifth game, «а следующую?» the wrong one;
@@ -28,8 +29,7 @@ import chess.pgn
 import pytest
 
 from src import answer_check_db as acd
-from src.answer_check import CheckContext, SentenceGate, check_sentence, proposed_move
-from src.board_markup import MarkupFilter
+from src.answer_check import CheckContext, check_sentence, proposed_move
 from src.game_list_ref import list_note, list_reference, shown_order
 from src.sessions import Session
 
@@ -270,30 +270,6 @@ def test_the_side_after_a_move_is_the_subject_of_its_attack():
     assert check_sentence(s, ctx) == []
 
 
-# ── a board mark goes out with its sentence ─────────────────────────────────────────────────────────────────────
-
-@pytest.mark.unit
-def test_markup_filter_tells_where_each_mark_stood_and_takes_it_back():
-    mk = MarkupFilter()
-    clean, actions = mk.feed("Плохо: Nxf7 [[arrows: e5f7 red]] проигрывает. ")
-    assert actions and mk.mark_offsets == [len("Плохо: Nxf7")]
-    assert mk.mark_added == [[{"from": "e5", "to": "f7", "brush": "red"}]]
-    mk.retract(mk.mark_added[0])
-    _, later = mk.feed("Лучше Bxf7+ [[arrows: c4f7 green]].")
-    assert later[0]["arrows"] == [{"from": "c4", "to": "f7", "brush": "green"}]  # the red one is not carried on
-
-
-@pytest.mark.unit
-def test_the_gate_tells_where_each_judged_sentence_ends():
-    gate = SentenceGate(CheckContext.from_fens(), enabled=True)
-    first = "Позиция примерно равная. "
-    pairs = gate.feed(first + "Дальше")
-    whole = [p for p in pairs if getattr(p[2], "end", -1) >= 0]
-    assert whole and whole[0][2].end == len(first)
-    pairs = gate.feed(" всё просто.") + gate.flush()
-    assert [p[2].end for p in pairs if getattr(p[2], "end", -1) >= 0] == [len(first) + len("Дальше всё просто.")]
-
-
 # ── «третью из списка» ──────────────────────────────────────────────────────────────────────────────────────────
 
 MIAMI = [
@@ -387,12 +363,10 @@ def test_get_puzzle_passes_over_forks_by_other_pieces():
         assert got["on_board"] == "0CCGQ" and "made by another piece" in got["how_to_show"]
 
 
-# ── the text turn: marks with their sentence, the list's game by its id ────────────────────────────────────────
+# ── the text turn: the list's game by its id ────────────────────────────────────────────────────────────────────
 
 USER = {"X-User-Id": "games-db-check"}
 START = chess.STARTING_FEN
-CUT = "У белых лишний ферзь [[arrows: e2e4 red]]. "
-OK = "Позиция примерно равная. "
 FIX = "Материал равный, у каждой стороны по ферзю."
 
 
@@ -469,26 +443,6 @@ class TestTurn:
             resp = self.client.post("/api/coach/chat", headers=USER, json=body)
         assert resp.status_code == 200
         return [json.loads(line[6:]) for line in resp.text.splitlines() if line.startswith("data: ")]
-
-    @staticmethod
-    def _arrows(frames):
-        return [a for f in frames for a in f.get("board_actions") or [] if a.get("type") == "draw_arrows"]
-
-    def test_the_arrow_of_a_cut_sentence_never_reaches_the_board(self):
-        frames = self._turn_with([OK, CUT])
-        assert "".join(f.get("delta", "") for f in frames) == OK + FIX
-        assert self._arrows(frames) == []  # was the red e2→e4 arrow with no words to it
-
-    def test_the_arrow_of_a_shown_sentence_goes_out_after_it(self):
-        frames = self._turn_with([OK, "Смотри на центр [[arrows: d2d4 green]]. "])
-        kinds = [("delta" if "delta" in f else "board") for f in frames if "delta" in f or "board_actions" in f]
-        assert self._arrows(frames) and kinds.index("board") > kinds.index("delta")
-
-    def test_a_cut_arrow_is_not_carried_by_a_later_one(self):
-        self.monkeypatch.setattr(self.config, "COACH_ANSWER_FIX", False)
-        frames = self._turn_with([CUT, "Смотри на центр [[arrows: d2d4 green]]. "])
-        arrows = self._arrows(frames)
-        assert arrows and arrows[-1]["arrows"] == [{"from": "d2", "to": "d4", "brush": "green"}]
 
     def test_the_third_of_the_list_is_named_to_the_model_by_its_id(self):
         frames = self._turn_with([(S, {"event": "Miami"}, MIAMI), LISTED], message="Что есть в базе с Майами?")
