@@ -7904,7 +7904,8 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None, *, spoken:
             # a move of the sentence before is no scene for a sentence that names its piece where it stood («Ng5 —
             # …» then «Конь f3 бьёт e5 и защищает пешку d4»: the knight on f3 is the board before Ng5; integration
             # 04.11, test_fix1103 subj-new-ru)
-            prior = [m for m in snapshot.told_before if m not in told and not _names_left_square(sentence, m)]
+            prior = [m for m in snapshot.told_before
+                     if m not in told and not _names_left_square(sentence, m, snapshot.current)]
             issues = _after_told_move(sentence, snapshot, issues, told + prior)
         except Exception:  # noqa: BLE001
             logger.debug("after-told-move judging failed", exc_info=True)
@@ -7990,13 +7991,22 @@ def _told_moves(sentence: str, ctx: CheckContext) -> list:
     return out[:3]
 
 
-def _names_left_square(sentence: str, move: chess.Move) -> bool:
-    """*sentence* names the square *move* leaves as where a piece stands («Конь f3 …» after Ng5 from f3): it speaks of
-    the board before it. Named as where the move came from («Ладья с c8 бьёт по третьей горизонтали» after Rc3+) it
-    tells the move itself, and the board after it is the scene."""
-    sq = chess.square_name(move.from_square)
-    return any(not re.search(r"(?:^|[^\w])(?:с|со|из|from)\s+$", sentence[:m.start()], re.IGNORECASE)
-               for m in re.finditer(r"(?<![A-Za-z0-9])" + sq + r"(?![0-9])", sentence))
+_SUBJECT_PIECE = {"конь": chess.KNIGHT, "слон": chess.BISHOP, "ладья": chess.ROOK, "ферзь": chess.QUEEN,
+                  "король": chess.KING, "пешка": chess.PAWN, "knight": chess.KNIGHT, "bishop": chess.BISHOP,
+                  "rook": chess.ROOK, "queen": chess.QUEEN, "king": chess.KING, "pawn": chess.PAWN}
+
+
+def _names_left_square(sentence: str, move: chess.Move, board: chess.Board) -> bool:
+    """*sentence* has the piece *move* moves, on the square it leaves, as its subject («Конь f3 бьёт e5 …» after Ng5
+    from f3): it speaks of the board before the move. A square named as where the move came from («Ладья с c8 бьёт по
+    третьей горизонтали» after Rc3+) or an object on it («напали на пешку e4») leaves the board after it a scene."""
+    piece = board.piece_at(move.from_square)
+    if piece is None:
+        return False
+    rx = (r"(?<![а-яёa-z])(?P<p>конь|слон|ладья|ферзь|король|пешка|knight|bishop|rook|queen|king|pawn)\s+"
+          r"(?:(?:на|on)\s+)?" + chess.square_name(move.from_square) + r"(?![0-9])")
+    return any(_SUBJECT_PIECE[m["p"].lower()] == piece.piece_type
+               for m in re.finditer(rx, sentence.replace("ё", "е"), re.IGNORECASE))
 
 
 def _after_told_move(sentence: str, snapshot: CheckContext, issues: list, told: list) -> list:
