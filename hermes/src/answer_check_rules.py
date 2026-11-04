@@ -84,8 +84,9 @@ _CANNOT_CASTLE = [
                r"|\bcastling\s+(?:kingside\s+|queenside\s+|short\s+|long\s+)?is\s+(?:not\s+(?:legal|possible|allowed|available)|"
                r"illegal|impossible)\b", re.IGNORECASE),
     re.compile(r"рок[иеі]ровка\s+жасай\s+алмай\w*|рок[иеі]ровка\s+жасауға\s+болмайды", re.IGNORECASE),
-    re.compile(_W + r"рок[иеі]р\w*\s+(?:[а-яё]+\s+){0,2}?(?:нельзя|не\s+можешь|не\s+можете|не\s+получится|не\s+разрешено|"
-               r"невозможно|запрещено)" + _E, re.IGNORECASE),
+    # (review-miss 02.11 #13: «Рокироваться коротко тебе сейчас нельзя» — three words between)
+    re.compile(_W + r"рок[иеі]р\w*\s+(?:[а-яё]+\s+){0,3}?(?:нельзя|не\s+можешь|не\s+можете|не\s+получится|не\s+разрешено|"
+               r"невозможно|запрещено|не\s+выйдет)" + _E, re.IGNORECASE),
 ]
 
 
@@ -598,6 +599,17 @@ def _king_issues(text: str, ctx) -> list[str]:
             color = chess.BLACK
         else:
             color = ctx.student_color if ctx.student_color is not None else board.turn
+            if not side.startswith(("тво", "ваш", "your")):
+                # «Соперник не может рокироваться: его король под шахом» (review-fp 02.11): the opponent's king in a game;
+                # outside one, or with both sides named, either king may be meant
+                from src.castle_reason import _subject
+
+                colours, how = _subject(text, ctx)
+                if how in ("named", "opponent", "coach"):
+                    color = colours[0]
+                elif how == "unclear":
+                    if any(board.king(c) is not None and board.is_attacked_by(not c, board.king(c)) for c in colours):
+                        continue
         b = board.copy(stack=False)
         b.turn = color
         if not b.is_check():
@@ -1401,6 +1413,43 @@ def _parse_lowered(board: chess.Board, written: str) -> Optional[chess.Move]:
     return None
 
 
+class _Span:
+    """A match-like span (start, end, «m») for a move told in words."""
+
+    def __init__(self, start: int, end: int, words: str):
+        self._s, self._e, self._w = start, end, words
+
+    def start(self) -> int:
+        return self._s
+
+    def end(self) -> int:
+        return self._e
+
+    def __getitem__(self, key):
+        return self._w
+
+
+_AFTER_WORDS = re.compile(r"(?<![а-яёa-z])(?:после|сначала|after|first)\s+(?:хода\s+|того\s+как\s+(?:ты\s+)?(?:сыграешь\s+|пойд[её]шь\s+)?)?$",
+                          re.IGNORECASE)
+
+
+def _after_word_move(head: str, board: chess.Board):
+    """(span, move) of the last move told in words right after «после (хода)» / «сначала» in *head* — «После хода
+    пешкой на b4 можно будет рокироваться» (review-miss 03.11: the step was read in notation only) — or None."""
+    from src.move_words import prose_moves
+
+    found = None
+    for pm in prose_moves(head, board):
+        if pm["move"] is None:
+            continue
+        at = head.find(pm["words"], max(0, pm.get("at", 0) - 2))
+        if at < 0:
+            continue
+        if _AFTER_WORDS.search(head[max(0, at - 40):at]):
+            found = (_Span(at, at + len(pm["words"]), pm["words"]), pm["move"])
+    return found
+
+
 def _castle_after_move_issues(text: str, ctx) -> list[str]:
     board = getattr(ctx, "current", None)
     if board is None or not re.search(_CASTLE_WORD, text + " " + (getattr(ctx, "question", "") or ""), re.IGNORECASE):
@@ -1412,8 +1461,13 @@ def _castle_after_move_issues(text: str, ctx) -> list[str]:
     if claim is None and re.search(_CASTLE_WORD, getattr(ctx, "question", "") or "", re.IGNORECASE):
         claim = _YES_WILL.search(text)  # «А если сначала b3, потом рокировка будет?» — «Да, станет возможна.»
     move_txt = None
+    word_move = None
     if claim is not None:
         moves = [m for m in _AFTER_MOVE.finditer(text[:claim.start()])]
+        if not moves:
+            word_move = _after_word_move(text[:claim.start()], board)
+            if word_move is not None:
+                moves = [word_move[0]]
         if moves:
             move_txt = moves[-1]["m"]
             between = text[moves[-1].end():claim.start()]
@@ -1426,17 +1480,23 @@ def _castle_after_move_issues(text: str, ctx) -> list[str]:
     else:
         now = _CASTLE_NOW_AFTER.search(text)
         moves = [m for m in _AFTER_MOVE.finditer(text[:now.start()])] if now else []
+        if now is not None and not moves:
+            word_move = _after_word_move(text[:now.start()], board)
+            if word_move is not None:
+                moves = [word_move[0]]
         if now is None or not moves or not text[:moves[-1].start()].strip(" *_—–-").lower() in ("", "да", "да,", "yes", "yes,"):
             return []  # present tense only right after «после b3»: «после b3 можно рокироваться»
         claim, move_txt = now, moves[-1]["m"]
         between = text[moves[-1].end():claim.start()]
         if _MOVE_LOW.search(between) or _ON_REPLY.search(between) or _STEP.search(between):
             return []
+    if word_move is not None and moves and moves[-1] is word_move[0]:
+        move_txt = word_move[1]
     if not move_txt or _negated_before(text, claim.start()):
         return []
     if _LATER.search(text[claim.end():]):
         return []  # «…станет возможна, когда слон уйдёт», «…, но сначала убери слона» — the condition is named
-    move = _parse_lowered(board, move_txt)
+    move = move_txt if isinstance(move_txt, chess.Move) else _parse_lowered(board, move_txt)
     if move is None or board.is_castling(move):
         return []
     wing = _wing(text) or _wing(getattr(ctx, "question", "") or "")

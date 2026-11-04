@@ -22,6 +22,8 @@ from __future__ import annotations
 import os
 from typing import Callable, Optional
 
+import re
+
 import chess
 
 # Engine time for each threat search: the best reply of a side that moves twice.
@@ -106,9 +108,55 @@ def exposed_pieces(board: chess.Board, color: Optional[chess.Color] = None) -> l
     return out
 
 
-def static_facts(board: chess.Board, lines: Optional[list] = None) -> list[str]:
+def relative_pins(board: chess.Board, limit: int = 2) -> list[str]:
+    """«the black knight f6 is pinned to the black queen d8: if it moves, Bxd8 takes the queen» — a piece on a line
+    between an enemy slider and a more valuable piece of its own side (not the king: is_pinned has those), when taking
+    the piece behind wins material by exchange count. Only absolute pins were told, so «связан ли конь?» invited «нет»
+    (review-facts 03.11)."""
+    out = []
+    for color in (chess.WHITE, chess.BLACK):
+        for sq, piece in board.piece_map().items():
+            if piece.color != color or piece.piece_type == chess.KING or board.is_pinned(color, sq):
+                continue
+            for att in board.attackers(not color, sq):
+                ap = board.piece_at(att)
+                if ap is None or ap.piece_type not in (chess.BISHOP, chess.ROOK, chess.QUEEN):
+                    continue
+                df = (chess.square_file(sq) > chess.square_file(att)) - (chess.square_file(sq) < chess.square_file(att))
+                dr = (chess.square_rank(sq) > chess.square_rank(att)) - (chess.square_rank(sq) < chess.square_rank(att))
+                f, r, behind = chess.square_file(sq) + df, chess.square_rank(sq) + dr, None
+                while 0 <= f < 8 and 0 <= r < 8:
+                    if board.piece_at(chess.square(f, r)) is not None:
+                        behind = chess.square(f, r)
+                        break
+                    f, r = f + df, r + dr
+                if behind is None:
+                    continue
+                bp = board.piece_at(behind)
+                if bp.color != color or bp.piece_type == chess.KING or VALUES[bp.piece_type] <= VALUES[piece.piece_type]:
+                    continue
+                if VALUES[ap.piece_type] >= VALUES[bp.piece_type] and board.attackers(color, behind):
+                    continue  # the capture behind costs the attacker as much: no pin worth telling
+                lifted = board.copy(stack=False)
+                lifted.remove_piece_at(sq)
+                lifted.turn = not color
+                lifted.ep_square = None
+                take = chess.Move(att, behind)
+                if take not in lifted.legal_moves:
+                    continue
+                out.append(f"{_piece(board, sq)} is pinned to {_piece(board, behind)}: if it moves, "
+                           f"{lifted.san(take)} takes the {chess.piece_name(bp.piece_type)}")
+                break
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def static_facts(board: chess.Board, lines: Optional[list] = None, explicit: bool = False) -> list[str]:
     """Hanging, attacked and pinned pieces of both sides, as sentences. *lines* (the engine's lines of the turn, raw
-    analyze_* form) vet the fork facts; without them the forks are checked by exchange counts (fork_facts)."""
+    analyze_* form) vet the fork facts; without them the forks are checked by exchange counts (fork_facts). *explicit*
+    (the voice note, review-facts 03.11): pins to a queen or a rook too, and a group cut at MAX_ITEMS_PER_KIND says what
+    it left out; off, the text is as it was (the lesson tutor's)."""
     hanging, outnumbered, cheaper, defended, pinned = [], [], [], [], []
     exposed = {sq: kind for sq, kind, _, _ in exposed_pieces(board)}
     for sq, piece in board.piece_map().items():
@@ -140,6 +188,17 @@ def static_facts(board: chess.Board, lines: Optional[list] = None) -> list[str]:
     facts = []
     for group in (hanging, outnumbered, cheaper, pinned, defended):
         facts.extend(group[:MAX_ITEMS_PER_KIND])
+        if explicit and len(group) > MAX_ITEMS_PER_KIND:
+            # the cut was silent: under «verified» facts the model read «nothing else is attacked» (review-facts 03.11)
+            rest = [re.search(r" on ([a-h][1-8])| ([a-h][1-8]) is", g) for g in group[MAX_ITEMS_PER_KIND:]]
+            squares = [m.group(1) or m.group(2) for m in rest if m]
+            facts.append(f"also attacked in the same way: {', '.join(squares)}" if squares
+                         else f"and {len(group) - MAX_ITEMS_PER_KIND} more like these")
+    if explicit:
+        try:
+            facts.extend(relative_pins(board))
+        except Exception:  # noqa: BLE001
+            pass
     facts.extend(fork_facts(board, lines=lines))
     return facts
 
@@ -800,7 +859,8 @@ def _forced_replies(board: chess.Board, best: chess.Move, after: chess.Board) ->
     return text
 
 
-def dynamic_facts(board: chess.Board, best_uci: Optional[str], best_score: float, analyse: Analyse) -> list[str]:
+def dynamic_facts(board: chess.Board, best_uci: Optional[str], best_score: float, analyse: Analyse,
+                  explicit: bool = False) -> list[str]:
     """The threat of the best move and the opponent's threat now, as sentences.
 
     *best_score* is the best line's score for the side to move, in pawns.
@@ -832,5 +892,11 @@ def dynamic_facts(board: chess.Board, best_uci: Optional[str], best_score: float
     if now:
         facts.append(f"{other} threatens {now} if {side} ignores it")
     if board.is_check():
-        facts.insert(0, f"{side} is in check")
+        told = f"{side} is in check"
+        if explicit:
+            # who gives it and the ways out — the bare «White is in check» left the coach to guess (review-facts 03.11)
+            item = check_reply_item(board)
+            if item:
+                told = check_reply_text(item, board)
+        facts.insert(0, told)
     return facts

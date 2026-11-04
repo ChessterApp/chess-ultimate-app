@@ -28,7 +28,7 @@ FILES = {
 # «г пять»), plus «за» — what it heard for «це» on Alexander's phone («конь за шесть» = Nc6, 25.10).
 _SPOKEN_FILE = {
     "a": ("а", "эй"), "b": ("бэ", "бе", "би", "б"), "c": ("цэ", "це", "си", "сэ", "с", "за"), "d": ("дэ", "де", "ди", "д"),
-    "e": ("е", "э"), "f": ("эф", "эфф", "ф"), "g": ("гэ", "ге", "же", "джи", "г", "ж"), "h": ("аш", "аша", "ха", "эйч", "х"),
+    "e": ("е", "э"), "f": ("эф", "эфф", "ф"), "g": ("гэ", "ге", "же", "жэ", "джи", "г", "ж"), "h": ("аш", "аша", "ха", "эйч", "х"),
 }
 _SPOKEN_RANK = {"один": "1", "одна": "1", "раз": "1", "два": "2", "две": "2", "три": "3", "четыре": "4",
                 "четыри": "4", "пять": "5", "шесть": "6", "семь": "7", "восемь": "8"}
@@ -40,9 +40,15 @@ _SPOKEN_SQUARE = re.compile(
     r"(?<![\w-])(" + "|".join(sorted(list(_FILE_WORD) + list("abcdefgh"), key=len, reverse=True)) + r")[\s-]*("
     + "|".join(sorted(_SPOKEN_RANK, key=len, reverse=True)) + r"|[1-8])(?![\w-])",
     re.IGNORECASE)
-_MOVE_CONTEXT = re.compile(
+_MOVE_CONTEXT_V1031 = re.compile(
     r"(?:кон\w*|слон\w*|лад\w*|ферз\w*|корол\w*|пешк\w*|knight|bishop|rook|queen|king|pawn|на|ход\w*|сыгра\w*|"
     r"пойд\w*|иду|бью|бер\w*|возьм\w*|если|давай)\W*$", re.IGNORECASE)
+_MOVE_CONTEXT = re.compile(
+    r"(?:кон\w*|слон\w*|лад\w*|ферз\w*|корол\w*|пешк\w*|knight|bishop|rook|queen|king|pawn|на|ход\w*|сыгра\w*|"
+    r"пойд\w*|иду|бью|бер\w*|возьм\w*|если|давай|"
+    # a square named as a square, a route, an attack (review-miss 02.11 #2: «поле е два», «с е один на d2», «через а семь»,
+    # «бьёт же один» were left as words, so the castling reason and the move were never read)
+    r"пол[еяю]|полем|клетк\w*|с|со|через|из-за|бь[её]т|бьют|атаку\w*|контролиру\w*|держит)\W*$", re.IGNORECASE)
 
 
 def spoken_squares(text: str) -> str:
@@ -57,6 +63,9 @@ def spoken_squares(text: str) -> str:
         if word in _AMBIGUOUS and m.group(2).lower() in _SPOKEN_RANK and not short \
                 and not _MOVE_CONTEXT.search(t[max(0, m.start() - 20):m.start()]):
             return m.group(0)
+        if word in _AMBIGUOUS and m.group(2).lower() in ("две", "одна") and not short \
+                and not _MOVE_CONTEXT_V1031.search(t[max(0, m.start() - 20):m.start()]):
+            return m.group(0)  # «бьёт же две пешки»: a count after the new cues, not g2
         return f"{file}{rank}" if file and rank else m.group(0)
 
     t = _SPOKEN_SQUARE.sub(sub, t)

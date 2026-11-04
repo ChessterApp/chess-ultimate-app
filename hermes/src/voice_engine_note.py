@@ -233,11 +233,15 @@ def line_search(board: chess.Board, fen: str, movetime_ms: int, speculate: bool 
         spec.done()
 
 
-def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int] = None) -> Optional[dict]:
+def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int] = None,
+                explicit_rules: bool = False) -> Optional[dict]:
     """Return {fen, note, best, lines} for a legal position, or None when it cannot be analysed.
 
     With *movetime_ms* the engine searches for that long instead of to *depth*
     (the text turn waits for the line, so it must be ready on time).
+    *explicit_rules*: the coach's own note (voice and text turn) — castling with the squares that decide it and the
+    pawn and queen moves of the side to move (src/board_rules.rule_facts, voice 02.11); off for the lesson tutor
+    and the hidden board, whose facts stay as they were.
     """
     fen = repair_fen(fen)
     try:
@@ -298,7 +302,7 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
         parts.append(book_moves)
 
     # COACH_ENGINE_FACTS=0 leaves the line as moves and evaluations only.
-    facts = _facts(board, result["lines"][0], prefetch, lines=result["lines"]) if with_facts else []
+    facts = _facts(board, result["lines"][0], prefetch, lines=result["lines"], explicit=explicit_rules) if with_facts else []
     typed: Optional[list] = None  # None: no line facts collected (COACH_ENGINE_FACTS=0) — the block falls back
     if with_facts:
         # The typed facts this line vets (src/turn_facts, plan 31.10 P8): the safe squares of an attacked piece that
@@ -375,7 +379,7 @@ def _book_moves(fen: str, limit: int = 5) -> Optional[str]:
             + "; ".join(told) + ".")
 
 
-def _facts(board: chess.Board, top: dict, prefetch, lines: Optional[list] = None) -> list[str]:
+def _facts(board: chess.Board, top: dict, prefetch, lines: Optional[list] = None, explicit: bool = False) -> list[str]:
     """What hangs, what is pinned, what the best move and the opponent threaten.
 
     *lines* are all the engine's lines of the turn (default: *top* alone): a fork is told only when its move starts
@@ -393,17 +397,18 @@ def _facts(board: chess.Board, top: dict, prefetch, lines: Optional[list] = None
         score = top.get("score") or 0.0
         if top.get("mate_in") is not None:
             score = 10000.0 if top["mate_in"] > 0 else -10000.0
-        return (_rules(board) + static_facts(board, lines)
-                + dynamic_facts(board, best_uci, float(score), _threat_analysis))
+        return (_rules(board, explicit) + static_facts(board, lines, explicit=explicit)
+                + dynamic_facts(board, best_uci, float(score), _threat_analysis, explicit=explicit))
     except Exception:  # noqa: BLE001 — the facts are a bonus on top of the moves
-        return (_rules(board) + static_facts(board, lines)) if board.is_valid() else []
+        return (_rules(board, explicit) + static_facts(board, lines, explicit=explicit)) if board.is_valid() else []
 
 
-def _rules(board: chess.Board) -> list[str]:
-    """Castling, en passant, the tablebase, textbook endings, pawn structure (src/board_rules.py)."""
+def _rules(board: chess.Board, explicit: bool = False) -> list[str]:
+    """Castling, en passant, the tablebase, textbook endings, pawn structure (src/board_rules.py); *explicit*: the
+    deciding castling squares and the side to move's pawn and queen moves too."""
     try:
         from src.board_rules import rule_facts
 
-        return rule_facts(board)
+        return rule_facts(board, explicit=explicit)
     except Exception:  # noqa: BLE001
         return []

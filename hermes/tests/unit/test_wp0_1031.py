@@ -271,6 +271,14 @@ PLAN_NAMES = {
     "race_distance", "mate_squares", "king_direction", "trades", "placement", "ending_unproven", "tablebase_keeps", "comment_record",
     "structure_read",
     "rule_scope",
+    "word_move",
+    "castle_reason",
+    "word_move_san",
+    "castle_advice",
+    "check_claim",
+    "after_told_move",
+    "material_direction",
+    "castle_state",
 }
 
 

@@ -483,6 +483,30 @@ DETECTOR_DEFAULTS = {
     # fix1102 K4: rule talk («Рокировка разрешена, только если …», «Двойной знак означает …») is not judged on the board
     # (src/claim_scope.rule_spans); off = every detector reads the whole sentence, as before
     "rule_scope": "on",
+    # voice 02.11: a move proposed in words («пойти ферзём на d1», «пешкой на d3») that has no legal form on the board
+    # now — the piece already there, the square taken, the way blocked (src/answer_check._word_move_issues)
+    "word_move": "on",
+    # voice1102: the reason given for «castling is impossible» judged against the rule (src/castle_reason.py): a square
+    # off the king's path («поле f2 под боем»), a square nothing attacks, an attacker that does not attack it, a check
+    # that is not there, a piece in the way that is not; off = the possibility alone is judged, as before
+    "castle_reason": "on",
+    # review 02.11: a written move after a proposal word that has no legal form now («Сыграй Qg4», «Лучше Nd5»)
+    "word_move_san": "on",
+    # review 02.11: castling proposed or called available when it cannot be played now («Рокируйся коротко», «Давай
+    # рокируемся», «Сыграй O-O», «королём на g1»), judged by src/board_rules.castling_status
+    "castle_advice": "on",
+    # review-miss 03.11: a check claimed for a move told in words or notation («Конём на g4 — шах», «Иди ладьёй на b1 с
+    # шахом», «Ход Na5 объявляет шах») or for the board now («Внимание: тебе шах») judged by board.gives_check / is_check
+    "check_claim": "on",
+    # review-fp 03.11: a standing claim cut on the board now is re-judged on the board after the move told just before
+    # it (this sentence's or the sentence before's: «Сыграй Nd5. Конь атакует слона e3»); off = judged on the board now
+    "after_told_move": "on",
+    # review-miss 03.11: a material claim with no amount («Ты отстаёшь по материалу», «Материал равный», «ты потерял
+    # качество») judged by the sign of the balance on the board now
+    "material_direction": "on",
+    # review-miss 03.11: a named side said to have castled («Ты уже рокировался»), or to still be able to castle / to be
+    # able no longer («Соперник ещё может рокироваться», «…уже не может сделать короткую рокировку»), by castling_status
+    "castle_state": "on",
 }
 RELATION_DETECTORS = frozenset({
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",
@@ -553,6 +577,10 @@ COACH_TRADE_SWING_NAMED = _env_flag("COACH_TRADE_SWING_NAMED", False)
 # Prevention (P8): the facts of the turn (fork facts vetted by the engine, piece safety, attack balance, the game's
 # material and captures, opening ideas, rules from the board) go to the model; off renders nothing new.
 COACH_TURN_FACTS = _env_flag("COACH_TURN_FACTS", True)
+# Prevention (voice 02.11): the coach's rule facts (voice note, text turn) say castling with the king's squares that
+# decide it and the side to move's pawn and queen moves (src/board_rules.rule_facts explicit); off = as before. The
+# lesson tutor and the hidden board never ask for them.
+COACH_EXPLICIT_RULES = _env_flag("COACH_EXPLICIT_RULES", True)
 # Speed (P7, next1031/speed): persistent Stockfish processes instead of one process per search, and the board's
 # positions analysed while the student thinks. Each has its own off switch (0 = today's behaviour).
 #   STOCKFISH_POOL             — the pool on/off (default on).

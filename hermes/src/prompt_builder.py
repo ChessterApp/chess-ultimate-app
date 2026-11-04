@@ -1228,11 +1228,13 @@ BOARD_BLOCK_KINDS = ("check_replies", "piece_safety", "attack_balance", "recaptu
 ENGINE_BLOCK_KINDS = ("piece_safety", "attack_balance")
 
 
-def board_facts_block(fen: Optional[str], given: Optional[list] = None) -> str:
+def board_facts_block(fen: Optional[str], given: Optional[list] = None, explicit_rules: bool = False) -> str:
     """What hangs, what is attacked, what is pinned on the board — verified by
     python-chess, no engine, no best move. For a live game, where the engine
     line is withheld so the coach hints rather than tells (production,
-    2026-10-05: the coach proposed Nf7 with the queen on h5 hanging to g6)."""
+    2026-10-05: the coach proposed Nf7 with the queen on h5 hanging to g6).
+    *explicit_rules*: the coach's turn (not the lesson tutor) — castling with the squares that decide it and the
+    pawn and queen moves of the side to move (src/board_rules.rule_facts, voice 02.11)."""
     if not fen:
         return ""
     try:
@@ -1248,7 +1250,7 @@ def board_facts_block(fen: Optional[str], given: Optional[list] = None) -> str:
         try:
             from src.board_rules import rule_facts
 
-            facts = rule_facts(board) + facts
+            facts = rule_facts(board, explicit=explicit_rules) + facts
         except Exception:  # noqa: BLE001
             pass
         # The typed facts of the board (src/turn_facts, plan 31.10 P8): the replies to a check by kind, where an

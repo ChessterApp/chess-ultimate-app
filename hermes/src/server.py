@@ -17,7 +17,7 @@ import asyncio
 import chess
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from contextlib import asynccontextmanager
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, NamedTuple, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -2251,7 +2251,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             # Behind the scan in the engine pool's queue (a tool call's level): the scan's two halves keep both
             # processes, and the note is read only when it is ready by the time the scan is (review-wiring 01.11:
             # at the scan's level it took a process from it, and the game-load turn waited 2.1 s against 1.4 s).
-            review_note_future = _engine_pool.submit(_engine_priority(2), engine_note, final_fen)
+            review_note_future = _engine_pool.submit(_engine_priority(2), engine_note, final_fen, explicit_rules=True)
     # An opening named in the message: its book line goes on the board and into
     # the turn before the model is called (src/opening_knowledge.py) — the engine
     # line below then describes the line's final position, not the old board.
@@ -2422,7 +2422,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     note_fen = hidden_fen or session.board_state  # the hidden board's position when the question is about it
     if (config.COACH_ENGINE_NOTE and (body.fen or opening_plan or endgame or hidden_fen) and note_fen
             and not live_game and review_future is None and not wants_puzzle):
-        engine_future = _engine_pool.submit(engine_note, note_fen, movetime_ms=note_movetime)
+        engine_future = _engine_pool.submit(engine_note, note_fen, movetime_ms=note_movetime, explicit_rules=True)
         engine_future.add_done_callback(
             lambda f, sid=session.id, bid=active_board.id, fen=note_fen: _after_engine_line(f, sid, bid, fen))
     # A live game: the evaluation and the opponent's threat (no best move) — the
@@ -2546,7 +2546,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 # board's own facts are not — what hangs is a fact, not a hint.
                 from src.prompt_builder import board_facts_block
 
-                facts_note = board_facts_block(session.board_state, given=given_facts)
+                facts_note = board_facts_block(session.board_state, given=given_facts, explicit_rules=True)
                 if facts_note:
                     turn_context = f"{turn_context}\n\n{facts_note}"
         except Exception:  # noqa: BLE001 — never block a turn on the game note
@@ -3090,7 +3090,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     try:
                         from src.prompt_builder import board_facts_block
 
-                        facts_only = board_facts_block(note_fen, given=given_facts)
+                        facts_only = board_facts_block(note_fen, given=given_facts, explicit_rules=True)
                         if facts_only:
                             old_board_blocks.append(facts_only)
                             message = f"{message}\n\n{facts_only}"
@@ -4869,6 +4869,23 @@ async def coach_voice_engine_note(body: VoiceEngineNoteRequest, request: Request
     return note
 
 
+def _voice_game_rules(fen: str) -> str:
+    """The rule facts of the game's position for the voice coach's [Game] note: castling with the squares that
+    decide it, en passant, the side to move's pawn and queen moves, the pawn structure (src/board_rules.rule_facts,
+    explicit; no tablebase — it names moves). The text coach's game turn has them in its board facts; the voice
+    game note had the evaluation and the threat only (voice 02.11: «пешкой с d2 на d3» with a black bishop on d3,
+    castling «impossible because of f2»). '' when there are none or the switch is off."""
+    if not getattr(config, "COACH_EXPLICIT_RULES", True):
+        return ""
+    try:
+        from src.board_rules import rule_facts
+
+        facts = rule_facts(chess.Board(fen), with_tablebase=False, explicit=True, game=True)
+    except Exception:  # noqa: BLE001 — a bonus on top of the game's line
+        return ""
+    return (" Rules of the position (verified on the board): " + "; ".join(facts) + ".") if facts else ""
+
+
 def _voice_board_note(fen: str, session_id: Optional[str], user_id: str) -> Optional[dict]:
     """What the text coach's turn gets about the board, for the voice coach (parity, 2026-10-15): in a live
     game the evaluation and the opponent's threat with no best move (src/hypothetical.live_game_note), on a
@@ -4900,9 +4917,10 @@ def _voice_board_note(fen: str, session_id: Optional[str], user_id: str) -> Opti
             return {"fen": fen, "note": None, "kind": "game"}
         return {"fen": fen, "kind": "game", "eval": live.get("eval"), "threat": live.get("threat"),
                 "note": ("[Game] Engine facts for the game (no best move for the student): " + live["note"].replace("\n", " ")
+                         + _voice_game_rules(fen)
                          + " Say who stands better in words only, warn about the threat when it matters, and never name "
                            "the best move unless the student insists twice — hint. Never claim a threat that is not here.")}
-    note = engine_note(fen)
+    note = engine_note(fen, explicit_rules=True)
     if note is None:
         return None
     head = _mate_headline(note.get("mate_in"), fen).replace("\n", " ").strip()
@@ -4943,17 +4961,29 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
     from src.answer_check import CheckContext, check_sentence
 
     def _check() -> list:
+        # What was said — the coach's sentence, its sentences before, the student's question — as every stage of this
+        # check reads it, the board check and the engine stage alike: squares said in words written as squares
+        # («слоном на эф четыре» → «слоном на f4»; src/game_intent.spoken_squares, Alexander's phone 24.10). Read once
+        # here, never raw below: the engine stage read the raw sentence and never saw a move said aloud, so «сыграй
+        # слоном на эф четыре» went unjudged while «сыграй слоном на f4» was (voice 03.11); the question read raw
+        # quoted no move, so the move the student asked about aloud was judged as the coach's advice.
+        heard = _voice_heard(body)
         # The positions the student's idea leads to («Стоит ли брать пешку f4?» → after exf4), as the text coach's
         # check has them: a move or an ECO code said after the capture is about that position (prod check 29.10).
-        ideas = []
-        if body.fen and body.question:
+        named = []
+        if body.fen and heard.question:
             try:
                 from src.prompt_builder import question_moves
 
-                ideas = [q["after_fen"] for q in question_moves(body.question, body.fen) if q.get("after_fen")]
+                named = question_moves(heard.question, body.fen)
             except Exception:  # noqa: BLE001 — the check still runs on the board alone
-                ideas = []
-        ctx = CheckContext.from_fens([body.fen] + ideas, [body.pgn] if body.pgn else [], question=body.question or "")
+                named = []
+        ideas = [q["after_fen"] for q in named if q.get("after_fen")]
+        ctx = CheckContext.from_fens([body.fen] + ideas, [body.pgn] if body.pgn else [], question=heard.question)
+        # The moves the student asked about are quoted, not advised, however the question names them: a question said
+        # aloud names its move in words («а если ферзь жэ четыре?»), which the notation reader of CheckContext does not
+        # read — the engine stage then judged the student's own idea as the coach's recommendation (voice 03.11).
+        ctx.quoted |= {q["san"] for q in named if q.get("legal") and q.get("san")}
         # An ending of ≤ 7 pieces: the tablebase result judges «это выигрыш» /
         # «ничья» (src/answer_check_rules.py) — the voice coach called a dead
         # draw a win on 2026-10-06.
@@ -4988,13 +5018,9 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                 raise  # the game is unknown, not absent: 503, never a check without it (28.10)
             except Exception:  # noqa: BLE001 — the check still runs without the game
                 pass
-        # Squares the transcription writes in words («слона на цэ четыре», «пешке на е два») are squares to
-        # the check (src/game_intent.spoken_squares; Alexander's phone, 24.10).
-        from src.game_intent import spoken_squares
-
-        if body.previous:
-            _replay_previous(ctx, spoken_squares(body.previous[-1500:]))
-        spoken_text = spoken_squares(body.text[:1000])
+        if heard.previous:
+            _replay_previous(ctx, heard.previous)
+        spoken_text = heard.text
         issues = check_sentence(spoken_text, ctx)
         # What the relation checker flagged in this sentence (shadow: recorded, not returned) — for review, as the
         # text turn's relation_check event (src/answer_check_relations.py).
@@ -5041,7 +5067,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         from src.answer_check import proposed_move
         from src.hypothetical import verify_recommendation
 
-        found = proposed_move(body.text[:1000], ctx)
+        found = proposed_move(spoken_text, ctx)
         if found:
             used[0] = True
             why = verify_recommendation(found[0], found[1], found[2], config.COACH_MOVE_VERIFY_MOVETIME_MS,
@@ -5071,6 +5097,24 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         log_event("detector_shadow", surface="voice", user_id=user_id, session_id=body.session_id,
                   payload=shadow_record[0])
     return {"issues": issues, "engine": used[0]}
+
+
+class _VoiceHeard(NamedTuple):
+    text: str
+    previous: str
+    question: str
+
+
+def _voice_heard(body: "VoiceCheckRequest") -> _VoiceHeard:
+    """What /voice/check reads of a request — the sentence, the answer before it, the student's question — with squares
+    said in words written as squares (src/game_intent.spoken_squares), each once. Every stage of the check reads these
+    and none reads the request's raw text: a stage that did saw no move said aloud (voice 03.11). The language of the
+    student's words is still read from the raw question (_spoken_language): the squares written in Latin are not words."""
+    from src.game_intent import spoken_squares
+
+    return _VoiceHeard(text=spoken_squares(body.text[:1000]),
+                       previous=spoken_squares(body.previous[-1500:]) if body.previous else "",
+                       question=spoken_squares(body.question or ""))
 
 
 def _shadow_voice_record(ctx) -> Optional[dict]:

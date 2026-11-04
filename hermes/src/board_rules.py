@@ -48,6 +48,16 @@ def _piece(board: chess.Board, sq: chess.Square) -> str:
 
 # ── Castling ────────────────────────────────────────────────────────────────
 
+def pawn_held_back(board: chess.Board, holder: chess.Square, pawn: chess.Square) -> bool:
+    """The piece on *holder* holds the pawn on *pawn* back: it stands on, or attacks, the square the pawn advances to
+    («её держит пешка e6», «пешка c6 держит пешку d4» — review-fp 03.11). False when there is no pawn there."""
+    p = board.piece_at(pawn)
+    if p is None or p.piece_type != chess.PAWN or board.piece_at(holder) is None:
+        return False
+    ahead = pawn + (8 if p.color == chess.WHITE else -8)
+    return 0 <= ahead < 64 and (holder == ahead or ahead in board.attacks(holder))
+
+
 def castling_status(board: chess.Board, color: Optional[chess.Color] = None) -> dict:
     """{'O-O': (legal, reason), 'O-O-O': (legal, reason)} for *color* (default:
     the side to move). The reason names what forbids it; '' when legal.
@@ -109,22 +119,35 @@ def castling_status(board: chess.Board, color: Optional[chess.Color] = None) -> 
     return out
 
 
-def castling_facts(board: chess.Board) -> list[str]:
+def castling_facts(board: chess.Board, explicit: bool = False) -> list[str]:
     """Castling of the side to move, when it is a real question.
 
     A wing whose only obstacle is its own pieces in between is obvious and left
     out; a legal castling, one forbidden by an attacked square or by check, and
-    a right lost while king and rook stand at home are said."""
+    a right lost while king and rook stand at home are said.
+
+    *explicit* (the voice and text coach's facts, voice 02.11) names the king's squares that decide the wing and
+    closes the door on attacked squares next to them: the note said «f1 is attacked by the bishop d3» for O-O and,
+    apart, «the pawn f2 is attacked by the bishop c5», and the voice coach said castling was impossible because of
+    f2. Off, the text is as it was (the lesson tutor's facts stay untouched)."""
     color = board.turn
     rank = 0 if color == chess.WHITE else 7
     king_home = board.piece_at(chess.square(4, rank)) == chess.Piece(chess.KING, color)
     if not king_home:
+        if explicit:
+            # «могу ли я рокироваться?» with the king gone: the note said nothing, and the coach made up a reason
+            # (review-facts 03.11)
+            return [f"{_color(color)}: no castling any more — the king has left {chess.square_name(chess.square(4, rank))}"]
         return []
     st = castling_status(board, color)
     parts, blocked = [], []
     for wing, label, rook_file in (("O-O", "short castling (O-O)", 7), ("O-O-O", "long castling (O-O-O)", 0)):
         legal, why = st[wing]
         rook_home = board.piece_at(chess.square(rook_file, rank)) == chess.Piece(chess.ROOK, color)
+        if explicit and rook_home:
+            text, own_only = _explicit_castling(board, color, wing, label, legal, why)
+            (blocked if own_only else parts).append(text)
+            continue
         if legal:
             # «Поле b1 же бьёт ладья» — the rook's square, not the king's: it does not matter (prod, 2026-10-13).
             rook_path = [chess.square(f, rank) for f in ((1,) if wing == "O-O-O" else ())]
@@ -140,12 +163,108 @@ def castling_facts(board: chess.Board) -> list[str]:
             blocked.append(f"{label} is NOT possible now — {why}, and nothing else stands there")
         else:
             parts.append(f"{label} is NOT possible now — {why}" + _chased_still_attacks(board, why, color))
-    if parts:
+    if parts or (explicit and blocked):
+        # explicit: a wing barred only by its own pieces is said even alone — with no castling line at all the coach
+        # had nothing to answer «могу ли я рокироваться?» from (review-facts 03.11: 23 of 54 positions)
         parts += blocked
-    return [f"{_color(color)}: " + "; ".join(parts)] if parts else []
+    out = [f"{_color(color)}: " + "; ".join(parts)] if parts else []
+    if explicit:
+        other = _other_side_castling(board)
+        if other:
+            out.append(other)
+    return out
 
 
-def _chased_still_attacks(board: chess.Board, why: str, color: chess.Color) -> str:
+def _other_side_castling(board: chess.Board) -> str:
+    """One short line on the castling of the side NOT to move (for its next move), when its king is at home with a right:
+    the coach was asked about the opponent's castling and had no fact (review-facts 03.11)."""
+    color = not board.turn
+    rank = 0 if color == chess.WHITE else 7
+    if board.piece_at(chess.square(4, rank)) != chess.Piece(chess.KING, color):
+        return ""
+    if not (board.has_kingside_castling_rights(color) or board.has_queenside_castling_rights(color)):
+        return ""
+    st = castling_status(board, color)
+    bits = []
+    for wing in ("O-O", "O-O-O"):
+        has = board.has_kingside_castling_rights(color) if wing == "O-O" else board.has_queenside_castling_rights(color)
+        if not has:
+            continue
+        legal, why = st[wing]
+        if legal:
+            bits.append(f"{wing} possible")
+        elif why.startswith("pieces stand between"):
+            continue  # obvious, and every opening position has it (size)
+        elif " is attacked by " in why:
+            bits.append(f"{wing} barred — {why.split(' — ')[0]}")
+        else:
+            bits.append(f"{wing} not possible — {why}")
+    return f"{_color(color)} (on its next move): " + "; ".join(bits) if bits else ""
+
+
+# The king's squares that decide each wing, and the squares next to them a coach mixes up with them: the rook's
+# path and the pawns in front (voice 02.11: «рокировка невозможна — поле f2 под боем слона»; f2 is not on the way).
+_KING_SQUARES = {"O-O": (4, 5, 6), "O-O-O": (4, 3, 2)}
+_NEIGHBOUR_FILES = {"O-O": ((7,), (4, 5, 6, 7)), "O-O-O": ((0, 1), (1, 2, 3, 4))}
+
+
+def _explicit_castling(board: chess.Board, color: chess.Color, wing: str, label: str, legal: bool,
+                       why: str) -> tuple[str, bool]:
+    """(text, own_only) for one wing's castling of the side to move, its deciding squares said (castling_facts,
+    explicit). *own_only*: barred only by its own pieces in between — said only next to the other wing, as before."""
+    rank = 0 if color == chess.WHITE else 7
+    ahead = 1 if color == chess.WHITE else 6
+    king_sqs = [chess.square(f, rank) for f in _KING_SQUARES[wing]]
+    names = ", ".join(chess.square_name(s) for s in king_sqs)
+    rook_files, pawn_files = _NEIGHBOUR_FILES[wing]
+    near = [chess.square(f, rank) for f in rook_files] + [chess.square(f, ahead) for f in pawn_files]
+    # The squares next to them that are attacked, by square only and scoped to castling: «an attack on the rook a1 does
+    # not matter» read apart from its sentence as a safety verdict on a rook the same note calls undefended (review-facts
+    # 03.11). A square whose piece is attacked and not safe is left out — that attack matters, just not for castling.
+    try:
+        from src.position_facts import exposed_pieces
+
+        unsafe = {sq for sq, _kind, _a, _d in exposed_pieces(board, color)}
+    except Exception:  # noqa: BLE001
+        unsafe = set(near)
+    hit = [s for s in near if board.is_attacked_by(not color, s) and s not in unsafe]
+    door = ""
+    if hit:
+        door = (f"castling depends only on {names}; an attack on " + ", ".join(chess.square_name(s) for s in hit)
+                + " does not stop it")
+    if legal:
+        return f"{label} is legal now" + (f" ({door})" if door else ""), False
+    if why.startswith("pieces stand between"):
+        # Not «and nothing else stands there» alone: with them gone the king may still be in check or land on an
+        # attacked square (review-facts 03.11: g1 hit by Bc5 behind the knight g1).
+        more = []
+        if board.is_check():
+            more.append("the king is in check now")
+        for sq in king_sqs[1:]:
+            attackers = board.attackers(not color, sq)
+            if attackers:
+                verb = "land on" if sq == king_sqs[-1] else "pass"
+                more.append(f"the king would {verb} {chess.square_name(sq)}, which "
+                            + " and ".join(_piece(board, a) for a in attackers) + " attacks")
+        tail = ("; even with them gone it stays impossible: " + " and ".join(more)) if more else ", and nothing else stops it"
+        return f"{label} is NOT possible now — {why}{tail}", True
+    if why.startswith("the king is in check"):
+        return f"{label} is NOT possible now — {why}", False
+    if " is attacked by " in why:
+        bits = []
+        for sq in king_sqs[1:]:
+            attackers = board.attackers(not color, sq)
+            if attackers:
+                verb = "land on" if sq == king_sqs[-1] else "pass"
+                who = " and ".join(_piece(board, a) for a in attackers)
+                bits.append(f"{verb} {chess.square_name(sq)}, which {who} attacks")
+        if bits:
+            return (f"{label} is NOT possible now — the king would " + " and ".join(bits)
+                    + (f"; {door}" if door else "") + _chased_still_attacks(board, why, color, explicit=True)), False
+    return f"{label} is NOT possible now — {why}", False
+
+
+def _chased_still_attacks(board: chess.Board, why: str, color: chess.Color, explicit: bool = False) -> str:
     """For castling barred by an attacked square: where the attacker, once chased, still attacks it.
 
     «Сыграй b3 — слон уйдёт, и рокировка станет возможна» (prod, 2026-10-06 and 2026-10-13): after b3 the
@@ -160,6 +279,7 @@ def _chased_still_attacks(board: chess.Board, why: str, color: chess.Color) -> s
     b.turn = not color
     b.ep_square = None
     keeps = []
+    by_piece: dict = {}
     for attacker in board.attackers(not color, target):
         piece = board.piece_at(attacker)
         if piece is None or piece.piece_type in (chess.PAWN, chess.KING):
@@ -171,10 +291,48 @@ def _chased_still_attacks(board: chess.Board, why: str, color: chess.Color) -> s
             after.push(mv)
             if mv.to_square in after.attackers(not color, target) or target in after.attacks(mv.to_square):
                 keeps.append(piece.symbol().upper() + chess.square_name(mv.to_square))
-    if not keeps:
-        return ""
-    return (f"; chasing the attacker away does not by itself allow it — it can step to {', '.join(keeps[:5])} "
-            f"and still attack {chess.square_name(target)}")
+                by_piece.setdefault(attacker, []).append(chess.square_name(mv.to_square))
+    if not explicit:
+        if not keeps:
+            return ""
+        return (f"; chasing the attacker away does not by itself allow it — it can step to {', '.join(keeps[:5])} "
+                f"and still attack {chess.square_name(target)}")
+    # explicit: the opponent's retreats told as the opponent's, not in bare SAN («it can step to Be2» read as White's
+    # Be2), and the side to move's own moves that do make castling legal next move — a block (review-facts 03.11)
+    out = ""
+    for attacker, squares in list(by_piece.items())[:1]:
+        squares = squares[:5]
+        listed = ", ".join(squares[:-1]) + " or " + squares[-1] if len(squares) > 1 else squares[0]
+        out += (f"; chasing the attacker away does not by itself allow it — {_piece(board, attacker)} could retreat to "
+                f"{listed} and still attack {chess.square_name(target)}")
+    opens = []
+    if board.turn == color and not board.is_check():
+        rank = 0 if color == chess.WHITE else 7
+        for mv in board.legal_moves:
+            if board.is_castling(mv) or board.piece_type_at(mv.from_square) == chess.KING:
+                continue
+            after = board.copy(stack=False)
+            after.push(mv)
+            if after.is_check():
+                continue
+            after.push(chess.Move.null())
+            for wing, to_file in (("O-O", 6), ("O-O-O", 2)):
+                castle = chess.Move(chess.square(4, rank), chess.square(to_file, rank))
+                path = chess.SquareSet.between(castle.from_square, castle.to_square) | chess.SquareSet([castle.to_square])
+                if target in path and not board.is_legal(castle) and after.is_legal(castle):
+                    try:
+                        from src.position_facts import exposed_pieces
+
+                        lost = mv.to_square in {sq for sq, *_ in exposed_pieces(after, color)}
+                    except Exception:  # noqa: BLE001
+                        lost = True
+                    if not lost:  # not a block that hangs the blocker (02.11: Qe2 is taken by Bxe2)
+                        opens.append((board.san(mv), wing))
+            if len(opens) >= 3:
+                break
+    if opens:
+        out += "; " + ", ".join(f"after {san} {wing} becomes legal (if the opponent does nothing about it)" for san, wing in opens[:3])
+    return out
 
 
 # ── En passant ──────────────────────────────────────────────────────────────
@@ -192,6 +350,83 @@ def en_passant_facts(board: chess.Board) -> list[str]:
     sans = ", ".join(board.san(m) for m in moves)
     return [f"en passant is available now: {sans} takes the pawn on {chess.square_name(victim)} that has just "
             f"moved two squares (the capturing pawn lands on {chess.square_name(ep)}); only on this move"]
+
+
+# ── The moves of the side to move ───────────────────────────────────────────
+
+def _san_list(board: chess.Board, moves: list, marks: bool = True) -> list[str]:
+    """*moves* in SAN, in board order; a promotion once, as «c8=Q (or =R, =B, =N)» — «the only pawn moves: c8=Q+» read
+    as «only a queen» (review-facts 03.11). *marks* False: no «+»/«#» (the game note names no mate: review-facts 03.11)."""
+    keep = [m for m in moves if m.promotion in (None, chess.QUEEN)]
+    keep.sort(key=lambda m: (chess.square_file(m.from_square), m.from_square, chess.square_file(m.to_square),
+                             m.to_square))
+    out = []
+    for m in keep:
+        san = board.san(m)
+        if not marks:
+            san = san.rstrip("+#")
+        if m.promotion == chess.QUEEN:
+            san += " (or =R, =B, =N)"
+        out.append(san)
+    return out
+
+
+def placement_facts(board: chess.Board) -> list[str]:
+    """Where every piece stands, both sides: «Pieces — White: Ke1, Qd1, Ra1, …; pawns a2 b2 …. Black: …». The note
+    listed the queen's and the pawns' moves only, so «конь на d4», «слоном на e3», «ладья на f1» had nothing to be
+    checked against but the raw FEN the model misread on 02.11 (review-facts 03.11)."""
+    order = (chess.KING, chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT)
+    sides = []
+    for color in (chess.WHITE, chess.BLACK):
+        pieces = [chess.piece_symbol(t).upper() + chess.square_name(sq)
+                  for t in order for sq in sorted(board.pieces(t, color))]
+        pawns = " ".join(chess.square_name(sq) for sq in sorted(board.pieces(chess.PAWN, color),
+                                                                key=lambda q: (chess.square_file(q), q)))
+        sides.append(f"{_color(color)}: " + ", ".join(pieces) + (f"; pawns {pawns}" if pawns else "; no pawns"))
+    return ["Pieces on the board — " + ". ".join(sides)]
+
+
+def move_facts(board: chess.Board, marks: bool = True, placement: bool = False) -> list[str]:
+    """The pawn moves and the queen's moves the side to move has now, and the pawns that cannot move with why.
+
+    Voice 02.11 (prod, White's move 9): «пойди ферзём на d1» with the queen already on d1, then twice «пешкой с d2
+    на d3» with Black's bishop on d3. The coach proposes pawn pushes and queen moves from its head; this says which
+    ones are there (python-chess, the legal moves) and where the queen stands. Nothing when the game is over."""
+    if board.is_game_over():
+        return []
+    color = board.turn
+    legal = list(board.legal_moves)
+    bits = []
+    for q in sorted(board.pieces(chess.QUEEN, color)):
+        sans = _san_list(board, [m for m in legal if m.from_square == q], marks)
+        bits.append(f"the queen {chess.square_name(q)} can play only " + ", ".join(sans) if sans else
+                    f"the queen {chess.square_name(q)} has no legal move now")
+    pawns = sorted(board.pieces(chess.PAWN, color))
+    if pawns:
+        sans = _san_list(board, [m for m in legal if m.from_square in pawns], marks)
+        bits.append("the only pawn moves: " + (", ".join(sans) if sans else "none"))
+        if not board.is_check():
+            stuck = []
+            step = 8 if color == chess.WHITE else -8
+            for sq in sorted(pawns, key=lambda q: (chess.square_file(q), q)):
+                if any(m.from_square == sq for m in legal):
+                    continue
+                ahead = sq + step
+                occupant = board.piece_at(ahead) if 0 <= ahead < 64 else None
+                if occupant is not None and placement and occupant.color == color:
+                    continue  # its own piece in front: the placement line says it (size, review-facts 03.11)
+                if occupant is not None:
+                    stuck.append(f"{chess.square_name(sq)} ({chess.square_name(ahead)} is taken by "
+                                 f"the {_color(occupant.color).lower()} {chess.piece_name(occupant.piece_type)})")
+                elif board.is_pinned(color, sq):
+                    stuck.append(f"{chess.square_name(sq)} (pinned)")
+            if stuck:
+                # with the placement line, a pawn behind its own piece is left to it: the list is then the pawns the
+                # opponent stops — said so, not as every pawn that cannot move (review-facts 03.11)
+                bits.append(("pawns stopped by the opponent: " if placement else "pawns that cannot move: ") + ", ".join(stuck))
+    if not bits:
+        return []
+    return [f"{_color(color)} to move — " + "; ".join(bits)]
 
 
 # ── Pawn structure ──────────────────────────────────────────────────────────
@@ -428,15 +663,32 @@ def tablebase_facts(board: chess.Board, tb: Optional[dict]) -> list[str]:
     return [text]
 
 
-def rule_facts(board: chess.Board, with_tablebase: bool = True) -> list[str]:
-    """Every rule fact above for *board*, in the order a coach needs them."""
+def rule_facts(board: chess.Board, with_tablebase: bool = True, explicit: bool = False, game: bool = False) -> list[str]:
+    """Every rule fact above for *board*, in the order a coach needs them.
+
+    *explicit* (the coach's voice and text facts; voice 02.11): castling with the squares that decide it, and the
+    pawn and queen moves of the side to move (move_facts). Off — the lesson tutor, the knowledge topics — the facts
+    are as they were."""
     facts = game_state_facts(board)
     if facts:
         return facts
-    facts += castling_facts(board)
+    if explicit:
+        try:
+            from src import config
+
+            explicit = bool(getattr(config, "COACH_EXPLICIT_RULES", True))
+        except Exception:  # noqa: BLE001
+            pass
+    facts += castling_facts(board, explicit=explicit)
     facts += en_passant_facts(board)
+    if explicit:
+        # *game*: the voice game note — no «+»/«#» on the moves (it names no best move, and a marked mate is one) and no
+        # pawn structure (review-facts 03.11: 191 of its 438 chars, in 61 of 78 positions)
+        facts += placement_facts(board)
+        facts += move_facts(board, marks=not game, placement=True)
     tb = tablebase(board) if with_tablebase else None
     facts += tablebase_facts(board, tb)
     facts += known_endgame_facts(board)
-    facts += structure_facts(board)
+    if not (explicit and game):
+        facts += structure_facts(board)
     return facts
