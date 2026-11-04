@@ -118,7 +118,7 @@ def test_a_proposal_said_aloud_after_sentences_said_aloud(engine_calls):
 
 NO_MOVE = [
     # nothing proposed: the engine is not asked, whether the squares are written or said
-    (SCOTCH_B, "Здесь хорошо пойти ферзём на аш четыре."),  # not a proposal in the written form either
+    (SCOTCH_B, "Здесь ферзь на дэ восемь пока стоит хорошо."),  # (03.11: «хорошо пойти ферзём …» is a proposal now)
     (SCOTCH_B, "Не играй ферзём на аш четыре — потеряешь темп."),
     (QGD_W, "Слон на цэ восемь пока не развит."),
     (NAJDORF_W, "Конь на эф шесть защищает пешку е четыре? Нет, он на неё нападает."),

@@ -156,6 +156,10 @@ _BLOCK = [
                r"пока\s+|still\s+)?(?:мешает|меша[ею]т|стоит\s+(?:между|на\s+пути|на\s+месте)|загораживает|перекрывает|"
                r"не\s+ушел|не\s+ушёл|не\s+выведен\w*|не\s+развит\w*|is\s+in\s+the\s+way|stands?\s+in\s+the\s+way|"
                r"(?:is|are)\s+still\s+(?:at\s+home|on\s+its\s+square))", re.IGNORECASE),
+    # «…невозможна: мешает конь на c1», «…, мешает слон на f8»: the verb first, as speech has it (review-miss 03.11)
+    re.compile(_W + r"(?:мешает|меша[ею]т|загораживает|перекрывает|стоит\s+на\s+пути)\s+(?:ещ[её]\s+|сейчас\s+|пока\s+|тебе\s+|"
+               r"вс[её]\s+ещ[её]\s+)?(?:тво\w+\s+|сво\w+\s+)?(?P<pt>" + _PT_NOM + r")(?:\s+(?:на\s+|с\s+)?" + _SQ.format("s") + r")?"
+               + _E, re.IGNORECASE),
     # «между королём и ладьёй стоит слон (на f1)», "between the king and the rook stands the bishop"
     re.compile(r"(?:между\s+корол\w+\s+и\s+ладь\w+|на\s+пути\s+(?:корол\w+|ладь\w+))\s+(?:ещ[её]\s+|вс[её]\s+ещ[её]\s+)?"
                r"(?:стоит|стоят|есть|находится|находятся)\s+(?:тво\w+\s+|сво\w+\s+|сво\w+\s+же\s+)?(?P<pt>" + _PT_NOM + r")"
@@ -699,9 +703,10 @@ def castle_reason_issues(text: str, ctx) -> list[str]:
                     issues.append(f"the castling reason is wrong: no {chess.piece_name(pt)} stands between the king and "
                                   f"the rook for {' or '.join(wings)}. The truth on this board — {_truth(board, colour, wings)}")
     # ── a moved king or rook: only with the game's record ──
+    # A right the position keeps is evidence too (review-miss 03.11): the site sends the real game's FEN, and a FEN that
+    # keeps the right for that wing with king and rook at home says neither has moved. A right absent stays no evidence.
     m = bound_reason([_MOVED])
-    in_game = bool(getattr(ctx, "game_moves", None) or getattr(ctx, "game_engine_moves", None))
-    if m is not None and in_game:
+    if m is not None:
         board = _board_for(text, claim[1] if m.start() > claim[0] else m.start(), ctx)
         who = (m.groupdict().get("who") or m.groupdict().get("who2") or m.groupdict().get("who3") or "").lower()
         rook_said = who.startswith(("лад", "rook"))
@@ -743,12 +748,17 @@ _ADVICE = re.compile(
     r"давай(?:те)?\s+(?:сделаем|проведем|проведём|сыграем)|"
     r"советую|предлагаю|рекомендую|попробуй(?:те)?|лучше(?:\s+всего)?|стоит|нужно|надо|следует|хорошо\s+бы)\s+"
     r"(?:(?:сейчас|уже|сразу|прямо|тебе|вам|все-таки|просто|наконец|же|именно)\s+){0,2}"
-    r"(?:сделать\s+|провести\s+|сыграть\s+)?(?:коротк\w+\s+|длинн\w+\s+)?рок[иі]р(?:оваться|уемся|уйся|овался|овалась|"
+    r"(?:сделать\s+|провести\s+|сыграть\s+|для\s+)?(?:коротк\w+\s+|длинн\w+\s+)?рок[иі]р(?:оваться|уемся|уйся|овался|овалась|овки|"
     r"овку|овка|овкой)(?:\s+в\s+(?:длинную|короткую|королевскую|ферзевую)\s+сторону|\s+на\s+(?:королевский|ферзевый)\s+фланг)?"
     r"|(?P<can>можно|можешь|можете)\s+(?:(?:сейчас|уже|сразу|спокойно|смело|тебе|вам|прямо)\s+){0,2}(?:сделать\s+)?"
     r"(?:коротк\w+\s+|длинн\w+\s+)?рок[иі]р\w*"
     r"|(?P<avail>(?:коротк\w+\s+|длинн\w+\s+)?рокировка\s+(?:(?:тебе|уже|сейчас|здесь|тут|вполне)\s+){0,2}"
     r"(?:доступна|возможна|разрешена))"
+    # castling as the next step after a move told before it (review-miss 03.11): «Сначала слоном на c4, а потом сразу
+    # рокировка в длинную», «Освободи место: слоном на h3, и длинная рокировка готова» — judged only with that step
+    r"|(?P<then>(?:потом|затем)\s+(?:(?:сразу|уже|можно)\s+){0,2}(?:коротк\w+\s+|длинн\w+\s+)?рокировк[ауи]"
+    r"(?:\s+в\s+(?:длинную|короткую)(?:\s+сторону)?)?)"
+    r"|(?P<ready>(?:коротк\w+\s+|длинн\w+\s+)?рокировк[ауи]\s+(?:(?:уже|сразу|сразу\s+же|тоже)\s+)?готова)"
     r")" + _E
     + r"|(?<![a-z])(?:let'?s\s+castle|you\s+(?:should|can|could)\s+(?:now\s+)?castle|^\W*castle)"
       r"(?:\s+(?:kingside|queenside|short|long))?(?![a-z])", re.IGNORECASE)
@@ -769,7 +779,58 @@ _ADVICE_AGAINST = re.compile(_W + r"(?:не\s+рок[иі]р\w*|рано|не\s+
 _ADVICE_HEAD_OK = re.compile(r"(?:теперь|сейчас|здесь|тут|так|что|поэтому|значит|лучше|всего|просто|сразу|обязательно|смело|"
                              r"спокойно|а|и|ну|да|вот|ты|тебе|вам|мой|наш|совет|следующим|ходом|самое|время|пора|может|"
                              r"быть|давай|давайте|now|so|just|then|my|advice|here)", re.IGNORECASE)
+# «Когда рокироваться?», «Когда мне лучше рокироваться?»: «когда» asks the time — it is not a condition of the answer
+_WHEN_Q = re.compile(r"^\W*(?:а\s+)?(?:так\s+)?когда\s+(?:(?:же|мне|нам|лучше|стоит|нужно|надо|можно|уже|пора)\s+){0,3}"
+                     r"(?:коротк\w+\s+|длинн\w+\s+)?рок[иі]р\w*(?:\s+[а-яё]+){0,3}\s*\?\s*$"
+                     r"|^\W*when\s+(?:should|do|can|must)\s+(?:i|we)\s+castle\b[^?]*\?\s*$", re.IGNORECASE)
+# The step words a castling told after a step may carry before it: the step is judged, not a condition
+_STEP_HEAD = re.compile(_W + r"(?:сначала|сперва|потом|затем|first|then)" + _E, re.IGNORECASE)
+_AT_ONCE = re.compile(_W + r"(?:сразу|тут\s+же|немедленно|следующим\s+ходом|immediately|right\s+after)" + _E, re.IGNORECASE)
 _ADVICE_SUGGEST_Q = re.compile(r"^\W*(?:а\s+)?(?:может(?:\s+быть)?|давай(?:те)?|почему\s+бы)" + _E, re.IGNORECASE)
+
+
+def _castle_after_step(head: str, advice: str, board: chess.Board, ctx) -> Optional[str]:
+    """The issue of castling advised right after one step («Сыграй Bc5 и рокируйся коротко», «Сначала слоном на c4, а
+    потом сразу рокировка в длинную»), judged on the board after the step with the same side to move, when its own
+    pieces still stand between or the king or the rook is gone; None when it is possible, depends on the reply, or the
+    step is not one clear legal move."""
+    from src.answer_check import _word_step_board
+
+    if re.search(r"(?<![а-яё])(?:не|нельзя|если|когда|бы)(?![а-яё])", head):
+        return None
+    step = _word_step_board(head, board)
+    if step is None:
+        from src.answer_check_rules import _MOVE_LOW, _parse_lowered
+
+        sans = []
+        for x in _MOVE_LOW.finditer(head):  # the text is lowered: «сыграй nc3»
+            mv = _parse_lowered(board, x.group(0))
+            if mv is None:
+                return None
+            sans.append(mv)
+        if len(sans) != 1 or board.is_castling(sans[0]):
+            return None
+        step = board.copy(stack=False)
+        step.push(sans[0])
+        step.turn = board.turn
+        step.ep_square = None
+    if step.is_check():
+        return None
+    student = getattr(ctx, "student_color", None)
+    student = board.turn if student is None else student
+    if student != board.turn:
+        return None
+    wing = _wing(advice)
+    wings = [wing] if wing else ["O-O", "O-O-O"]
+    st = castling_status(step, student)
+    if any(st[w][0] for w in wings):
+        return None
+    lasting = ("pieces stand between", "the king is not on its starting square", "there is no ")
+    if not all(st[w][1].startswith(lasting) for w in wings):
+        return None  # an attacked square or a check: the reply decides
+    why = "; ".join(f"{w}: {st[w][1]}" for w in wings)
+    return (f"castling is proposed right after the step told before it, but even after that step it cannot be played "
+            f"({_side_name(student)}) — {why}")
 
 
 def castle_advice_issues(text: str, ctx) -> list[str]:
@@ -790,8 +851,8 @@ def castle_advice_issues(text: str, ctx) -> list[str]:
         if student_side(ctx, text) != current.turn:
             return []
     question = getattr(ctx, "question", "") or ""
-    if CONDITIONAL.search(question) and not NOW.search(text):
-        return []  # «а если я уведу слона, можно рокироваться?»
+    if CONDITIONAL.search(question) and not NOW.search(text) and not _WHEN_Q.match(question.strip()):
+        return []  # «а если я уведу слона, можно рокироваться?» — not «Когда рокироваться?»
     if _OPINION.search(text) or _ADVICE_AGAINST.search(text):
         return []
     prev = getattr(ctx, "scene_before", None)
@@ -811,13 +872,32 @@ def castle_advice_issues(text: str, ctx) -> list[str]:
             continue
         head = text[sent_start:m.start()]
         tail = text[m.end():sent_end]
-        if _ADVICE_LATER_HEAD.search(head) or _ADVICE_LATER.search(tail):
-            continue
         from src.answer_check import _MOVE, _to_san
         from src.move_words import prose_moves
 
-        if prose_moves(head, current) or any(x["san"][0] in "KQRBN" or "x" in x["san"] for x in _MOVE.finditer(_to_san(head)[0])):
-            continue  # «уведи слона и рокируйся»: castling after another move
+        from src.answer_check_rules import _MOVE_LOW
+
+        told_step = bool(prose_moves(head, current) or any(x["san"][0] in "KQRBN" or "x" in x["san"]
+                                                           for x in _MOVE.finditer(_to_san(head)[0])) or _MOVE_LOW.search(head))
+        if (m["then"] or m["ready"]) and not told_step:
+            continue  # «потом рокировка», «рокировка готова» with no step told: a plan, not the move now
+        # «потом/затем» castling right after the step only with «сразу»: «надёжно выглядит ход слоном на e2, а затем
+        # короткая рокировка» is a plan (the knight g1 goes out on the way — replay_live 03.11), not the next move
+        planned = bool(_STEP_HEAD.search(head) or m["then"]) and not _AT_ONCE.search(head + " " + m.group(0))
+        stepped = told_step and (m["then"] or m["ready"] or m["imp"]) and not planned and not _ADVICE_LATER.search(tail) \
+            and not _ADVICE_LATER_HEAD.search(_STEP_HEAD.sub(" ", head))
+        if (m["then"] or m["ready"]) and not stepped:
+            continue
+        if not stepped and (_ADVICE_LATER_HEAD.search(head) or _ADVICE_LATER.search(tail)):
+            continue
+        if told_step:
+            # «уведи слона и рокируйся»: castling after another move — judged on the board after that step, and only for
+            # what no reply can change: its own pieces still in between, the king or the rook gone (review-miss 03.11:
+            # «Сыграй Bc5 и рокируйся коротко» with the knight g8 at home)
+            issue = _castle_after_step(head, text[m.start():sent_end], current, ctx)
+            if issue:
+                return [issue]
+            continue
         words = re.findall(r"[а-яёa-z'-]+", head)
         if len(words) > 5 or not all(_ADVICE_HEAD_OK.fullmatch(w) for w in words):
             continue  # «Заверши развитие и рокируйся», «Выведи коня, потом рокируйся»: a plan, castling one step of it
@@ -835,3 +915,77 @@ def castle_advice_issues(text: str, ctx) -> list[str]:
         why = "; ".join(f"{w}: {st[w][1]}" for w in wings)
         return [f"castling is proposed for {_side_name(student)}'s move now, but it cannot be played on this board — {why}"]
     return []
+
+
+# ── A side's castling state (review-miss 03.11, castle_state) ─────────────────────────────────────────────────────────
+# «Ты уже рокировался», «Твой король уже спрятан рокировкой»: the side has castled — false when its king stands at home
+# with a castling right kept (a king that castled has lost both). «Соперник ещё может рокироваться (в короткую)»: false
+# when its king or that rook has left for good. «Соперник уже не может сделать короткую рокировку»: false when that
+# castling is legal on its move right now. Judged only for a side the sentence names (you, the opponent, White, Black);
+# a sentence that does not say whose, a condition, a question or an opinion is not judged.
+_STATE_CASTLED = re.compile(
+    _W + r"(?:уже\s+)?(?:рокировал(?:ся|ась|ись)|(?:сделал|провел|провёл|выполнил)\w*\s+(?:коротк\w+\s+|длинн\w+\s+)?"
+    r"рокировку|(?:спрятан|укрыт|уведен|уведён)\w*\s+(?:в\s+безопасност\w+\s+)?рокировкой)" + _E
+    + r"|(?<![a-z])(?:has|have|'ve)\s+(?:already\s+)?castled(?![a-z])", re.IGNORECASE)
+_STATE_STILL = re.compile(
+    _W + r"(?:ещ[её]|вс[её]\s+ещ[её]|по-прежнему)\s+(?:может|могут|можешь|можете|сможет|смогут|сможешь|сможете)\s+"
+    r"(?:[а-яё]+\s+){0,2}?(?:сделать\s+|провести\s+)?(?:коротк\w+\s+|длинн\w+\s+)?рок[иі]р\w*" + _E
+    + r"|(?<![a-z])(?:can|may)\s+still\s+castle(?![a-z])", re.IGNORECASE)
+_STATE_NO_LONGER = re.compile(
+    _W + r"(?:уже|больше)\s+не\s+(?:может|могут|можешь|можете|сможет|смогут|сможешь|сможете)\s+(?:[а-яё]+\s+){0,2}?"
+    r"(?:сделать\s+|провести\s+)?(?:коротк\w+\s+|длинн\w+\s+)?рок[иі]р\w*" + _E
+    + r"|(?<![a-z])can\s+no\s+longer\s+castle(?![a-z])", re.IGNORECASE)
+_STATE_SIDES = ("named", "opponent", "you", "unclear")
+
+
+def _state_false(kind: str, board: chess.Board, colour: bool, wings: list) -> Optional[str]:
+    """Why the *kind* claim about *colour*'s castling is false on *board*, or None when it is true or cannot be told."""
+    rank = 0 if colour == chess.WHITE else 7
+    st = castling_status(board, colour)
+    if kind == "castled":
+        home = board.piece_at(chess.square(4, rank)) == chess.Piece(chess.KING, colour)
+        if home and (board.has_kingside_castling_rights(colour) or board.has_queenside_castling_rights(colour)):
+            return (f"the {_side_name(colour).lower()} king stands on {chess.square_name(chess.square(4, rank))} with "
+                    f"the right to castle kept — it has not castled")
+        return None
+    if kind == "still":
+        gone = ("the king is not on its starting square", "there is no ")
+        if all(not st[w][0] and st[w][1].startswith(gone) for w in wings):
+            return "; ".join(f"{w}: {st[w][1]}" for w in wings)
+        return None
+    legal = [w for w in wings if st[w][0]]
+    return f"{' and '.join(legal)} is legal on {_side_name(colour)}'s move now" if legal else None
+
+
+def castle_state_issues(text: str, ctx) -> list[str]:
+    """Claims in *text* (lower case; rule talk hidden) about whether a named side has castled or can still castle."""
+    current = getattr(ctx, "current", None)
+    if current is None or not _CASTLE.search(text):
+        return []
+    from src.claim_scope import denied_before
+
+    issues: list[str] = []
+    for sent in re.finditer(r"[^.;!?\n]+[.;!?\n]?", text):
+        s = sent.group(0)
+        if s.rstrip().endswith("?") or _OPINION.search(s) or _HYPO.search(s) or not _CASTLE.search(s):
+            continue
+        for kind, rx in (("castled", _STATE_CASTLED), ("still", _STATE_STILL), ("no_longer", _STATE_NO_LONGER)):
+            for m in rx.finditer(s):
+                if kind != "no_longer" and denied_before(s, m.start(), window=14):
+                    continue  # «ты ещё не рокировался»
+                # whose: read in the claim's own clause — «Ты уже рокировался, а белые ещё нет» is about the student
+                lo = max([x.end() for x in _CONTRAST.finditer(s, 0, m.start())] or [0])
+                hi = next((x.start() for x in _CONTRAST.finditer(s, m.end())), len(s))
+                subject, how = _subject(s[lo:hi], ctx)
+                if how not in _STATE_SIDES or not subject:
+                    continue
+                wing = _wing(s[max(0, m.start() - 30):m.end() + 30])
+                wings = [wing] if wing else ["O-O", "O-O-O"]
+                whys = [_state_false(kind, current, c, wings) for c in subject]
+                if all(whys):
+                    claim = {"castled": "has already castled", "still": "can still castle",
+                             "no_longer": "can no longer castle"}[kind]
+                    issues.append(f"«{m.group(0).strip()}» says the side {claim}, which is false on this board — "
+                                  + "; ".join(f"{_side_name(c)}: {w}" for c, w in zip(subject, whys)))
+                    break
+    return issues

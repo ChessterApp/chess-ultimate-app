@@ -49,7 +49,13 @@ _SPOKEN_WITH = re.compile(
     r"\s+(?P<piece>ладь[её]й|кон[её]м|слоном|ферз[её]м|корол[её]м|пешкой)\s+(?P<to>" + SQ + r")(?![0-9])"
     r"(?!\s*[-–—]?\s*[a-h][1-8](?![0-9]))")  # «ладьёй a8-a5»: a8 is where it stands
 
+_RU_INSTR = r"(?P<piece>ладь[её]й|кон[её]м|слоном|ферз[её]м|корол[её]м|пешкой)"
+_RU_OBJ = r"(?:ч[её]рн\w+\s+|бел\w+\s+|его\s+|их\s+|вражеск\w+\s+)?(?:ферзя|коня|слона|ладью|короля|пешку)"
+
 _PATTERNS = [
+    # «возьми конём ферзя на d8», «бей пешкой пешку на f2»: the instrument, then the piece taken with its square
+    # (review-miss 03.11 — the accusative was read as the mover)
+    re.compile(_B + _RU_TAKE + r"\s+(?:сво\w+\s+)?" + _RU_INSTR + r"\s+" + _RU_OBJ + rf"\s+(?:на\s+)?(?P<to>{SQ})(?![0-9])"),
     _SPOKEN,
     _SPOKEN_WITH,
     # «ладью на g1», «коня с f3 на d5», «ладьёй на h4», «пешку на e5»; «пешкой на d2 на d3» — the from-square said with

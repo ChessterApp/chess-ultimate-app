@@ -488,6 +488,18 @@ DETECTOR_DEFAULTS = {
     # review 02.11: castling proposed or called available when it cannot be played now («Рокируйся коротко», «Давай
     # рокируемся», «Сыграй O-O», «королём на g1»), judged by src/board_rules.castling_status
     "castle_advice": "on",
+    # review-miss 03.11: a check claimed for a move told in words or notation («Конём на g4 — шах», «Иди ладьёй на b1 с
+    # шахом», «Ход Na5 объявляет шах») or for the board now («Внимание: тебе шах») judged by board.gives_check / is_check
+    "check_claim": "on",
+    # review-fp 03.11: a standing claim cut on the board now is re-judged on the board after the move told just before
+    # it (this sentence's or the sentence before's: «Сыграй Nd5. Конь атакует слона e3»); off = judged on the board now
+    "after_told_move": "on",
+    # review-miss 03.11: a material claim with no amount («Ты отстаёшь по материалу», «Материал равный», «ты потерял
+    # качество») judged by the sign of the balance on the board now
+    "material_direction": "on",
+    # review-miss 03.11: a named side said to have castled («Ты уже рокировался»), or to still be able to castle / to be
+    # able no longer («Соперник ещё может рокироваться», «…уже не может сделать короткую рокировку»), by castling_status
+    "castle_state": "on",
 }
 RELATION_DETECTORS = frozenset({
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",

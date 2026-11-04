@@ -25,13 +25,14 @@ LIVE = "r2qk1nr/ppp3pp/3p4/2b1p3/1nP5/3b1NP1/PP1P1PBP/R1BQK2R w KQkq - 0 9"
 
 # (fen, wing, expected: "legal" | squares that bar it | a reason prefix, door: attacked neighbours said not to matter)
 CASTLING = [
-    (LIVE, "O-O", {"f1": ["the black bishop on d3"]}, ["e2", "the pawn f2"]),
+    (LIVE, "O-O", {"f1": ["the black bishop on d3"]}, ["e2", "f2"]),
     # the Italian: Bc5 hits f2 — castling is legal, the pawn f2 does not matter
-    ("r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4", "O-O", "legal", ["the pawn f2"]),
+    ("r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4", "O-O", "legal", ["f2"]),
     # the same for Black: Bc4 hits f7, O-O is legal
-    ("r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQK2R b KQkq - 5 4", "O-O", "legal", ["the pawn f7"]),
-    # g1 attacked by the bishop c5: the king may not land there
-    ("r3k2r/8/8/2b5/8/8/8/R3K2R w KQkq - 0 1", "O-O", {"g1": ["the black bishop on c5"]}, ["the rook h1", "f2", "h2"]),
+    ("r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQK2R b KQkq - 5 4", "O-O", "legal", ["f7"]),
+    # g1 attacked by the bishop c5: the king may not land there (the rook h1 hangs to the rook h8: its square is left
+    # out of the castling clause, review-facts 03.11)
+    ("r3k2r/8/8/2b5/8/8/8/R3K2R w KQkq - 0 1", "O-O", {"g1": ["the black bishop on c5"]}, ["f2", "h2"]),
     # f1 and g1 both attacked, by two pieces
     ("4k3/8/b7/8/8/7n/8/4K2R w K - 0 1", "O-O",
      {"f1": ["the black bishop on a6"], "g1": ["the black knight on h3"]}, ["e2", "f2"]),
@@ -80,20 +81,21 @@ def test_castling_names_the_deciding_squares_and_closes_the_door(fen, wing, expe
         named = set(re.findall(r"(?:pass|land on) ([a-h][1-8]), which", text))
         assert named == set(expected), text
     if door:
-        tail = text.split("an attack on ", 1)[1].split(" does not matter")[0]
-        assert tail.split(" or ") == door, text
+        # squares only, scoped to castling (review-facts 03.11: «an attack on the rook a1 does not matter» read as safety)
+        tail = text.split("an attack on ", 1)[1].split(" does not stop it")[0]
+        assert tail.split(", ") == door, text
         rank = "1" if board.turn == chess.WHITE else "8"
         kings = ("e", "f", "g") if wing == "O-O" else ("e", "d", "c")
-        assert f"only {', '.join(k + rank for k in kings)} decide {wing}" in text
+        assert f"castling depends only on {', '.join(k + rank for k in kings)}" in text
     else:
-        assert "does not matter" not in text, text
+        assert "does not stop it" not in text, text
 
 
 def test_the_live_board_says_f1_and_puts_f2_aside():
     text = _wing_text(LIVE, "O-O")
     assert text.startswith("short castling (O-O) is NOT possible now — the king would pass f1, which the black "
-                           "bishop on d3 attacks; only e1, f1, g1 decide O-O — an attack on e2 or the pawn f2 does "
-                           "not matter")
+                           "bishop on d3 attacks; castling depends only on e1, f1, g1; an attack on e2, f2 does "
+                           "not stop it")
     assert "c5" not in text.split("chasing")[0]  # the bishop c5 is not a reason
 
 
@@ -106,9 +108,14 @@ def test_door_squares_are_really_attacked_and_never_the_kings_own():
             assert chess.square_name(sq) not in ("e1", "f1", "g1", "d1", "c1", "e8", "f8", "g8", "d8", "c8")
 
 
-def test_no_castling_fact_when_it_is_no_question():
-    assert castling_facts(chess.Board(), explicit=True) == []                       # own pieces in between only
-    assert castling_facts(chess.Board("4k3/8/8/8/8/8/8/5K1R w - - 0 1"), explicit=True) == []  # king not home
+def test_castling_fact_even_when_only_own_pieces_bar_it():
+    # review-facts 03.11: with no castling line at all «могу ли я рокироваться?» had no fact to answer from
+    start = castling_facts(chess.Board(), explicit=True)
+    assert len(start) == 1 and start[0].count("pieces stand between the king and the rook") == 2
+    assert start[0].count("nothing else stops it") == 2
+    assert castling_facts(chess.Board("4k3/8/8/8/8/8/8/5K1R w - - 0 1"), explicit=True) == [
+        "White: no castling any more — the king has left e1"]
+    assert castling_facts(chess.Board()) == [] and castling_facts(chess.Board("4k3/8/8/8/8/8/8/5K1R w - - 0 1")) == []
 
 
 # ── the moves of the side to move ───────────────────────────────────────────
@@ -134,10 +141,14 @@ BOARDS = [chess.Board(LIVE), chess.Board()] + [chess.Board(f) for f, *_ in CASTL
 
 def _parse(fact: str) -> dict:
     out = {"queens": {}, "pawns": None, "stuck": {}}
+    fact = fact.replace(" (or =R, =B, =N)", "")  # a promotion said once for every piece (review-facts 03.11)
     for part in fact.split(" to move — ", 1)[1].split("; "):
         m = re.match(r"the queen ([a-h][1-8]) can play only (.+)$", part)
-        if m:
-            out["queens"][m.group(1)] = [] if m.group(2) == "no move" else m.group(2).split(", ")
+        none = re.match(r"the queen ([a-h][1-8]) has no legal move now$", part)
+        if none:
+            out["queens"][none.group(1)] = []
+        elif m:
+            out["queens"][m.group(1)] = m.group(2).split(", ")
         elif part.startswith("the only pawn moves: "):
             rest = part[len("the only pawn moves: "):]
             out["pawns"] = [] if rest == "none" else rest.split(", ")
@@ -215,7 +226,7 @@ def test_default_rule_facts_are_as_before():
 def test_explicit_rule_facts_and_the_switch(monkeypatch):
     board = chess.Board(LIVE)
     rich = rule_facts(board, with_tablebase=False, explicit=True)
-    assert any("decide O-O" in f for f in rich) and any(f.startswith("White to move — the queen d1") for f in rich)
+    assert any("castling depends only on e1, f1, g1" in f for f in rich) and any(f.startswith("White to move — the queen d1") for f in rich)
     monkeypatch.setattr(config, "COACH_EXPLICIT_RULES", False)
     assert rule_facts(board, with_tablebase=False, explicit=True) == rule_facts(board, with_tablebase=False)
 
@@ -239,7 +250,7 @@ def test_engine_note_rules_for_the_coach_only():
     from src.voice_engine_note import _rules
 
     board = chess.Board(LIVE)
-    assert any("an attack on e2 or the pawn f2 does not matter" in f for f in _rules(board, True))
+    assert any("an attack on e2, f2 does not stop it" in f for f in _rules(board, True))
     assert not any("does not matter" in f for f in _rules(board))
 
 
@@ -249,7 +260,8 @@ def test_voice_game_note_gets_the_rules(monkeypatch):
     text = server._voice_game_rules(LIVE)
     assert text.startswith(" Rules of the position (verified on the board): White: short castling (O-O) is NOT "
                            "possible now — the king would pass f1")
-    assert "the queen d1 can play only Qa4+, Qb3, Qc2, Qe2" in text
+    assert "the queen d1 can play only Qa4, Qb3, Qc2, Qe2" in text  # no «+»/«#» in the game note (review-facts 03.11)
+    assert "pawn structure" not in text and "Pieces on the board — White: Ke1, Qd1" in text
     assert "tablebase" not in text
     monkeypatch.setattr(config, "COACH_EXPLICIT_RULES", False)
     assert server._voice_game_rules(LIVE) == ""
@@ -288,5 +300,6 @@ def test_the_voice_game_note_in_a_live_game(monkeypatch):
     finally:
         session_store._sessions.pop(session.id, None)
     assert note["kind"] == "game"
-    assert "Rules of the position (verified on the board): White to move — the queen d1 can play only" in note["note"]
+    assert "Rules of the position (verified on the board): White: " in note["note"]
+    assert "White to move — the queen d1 can play only" in note["note"]
     assert "never name the best move" in note["note"]

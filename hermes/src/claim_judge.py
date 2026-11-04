@@ -446,6 +446,14 @@ def _judge_attack(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
                 ok_any = ok_any or ok
             if not ok_any and pawn_aim:
                 raise _Undecided
+            if not ok_any and rel == "hold" and tp is not None and tp.piece_type == chess.PAWN \
+                    and getattr(ctx, "relation_surface", "") != "lesson":
+                from src.board_rules import pawn_held_back
+
+                if any(pawn_held_back(board, a, t) for a in subj):
+                    # «её держит твоя пешка e6», «пешка c6 держит твою пешку d4»: a pawn held back — the holder stands on
+                    # or hits the square it advances to (review-fp 03.11: E1, E3); not judged by the attack map
+                    raise _Undecided
             if not ok_any:
                 if len(subj) == 1:
                     a = subj[0]

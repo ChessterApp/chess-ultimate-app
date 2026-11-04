@@ -4695,7 +4695,7 @@ def _voice_game_rules(fen: str) -> str:
     try:
         from src.board_rules import rule_facts
 
-        facts = rule_facts(chess.Board(fen), with_tablebase=False, explicit=True)
+        facts = rule_facts(chess.Board(fen), with_tablebase=False, explicit=True, game=True)
     except Exception:  # noqa: BLE001 — a bonus on top of the game's line
         return ""
     return (" Rules of the position (verified on the board): " + "; ".join(facts) + ".") if facts else ""

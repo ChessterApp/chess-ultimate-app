@@ -156,6 +156,9 @@ FALSE = [
     # a moved king, in a game with its record
     ("Ты не можешь рокироваться, потому что король уже ходил.", ITAL, {"game_moves": ["e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5"]},
      "have not moved in this game"),
+    # …and with no record when the position keeps the right with king and rook at home (review-miss 03.11: the site
+    # sends the real game's FEN; a kept right is evidence, an absent one is not)
+    ("Рокировка невозможна: король уже ходил.", ITAL, {}, "have not moved in this game"),
     # after a told move: judged on the board after it
     ("После h3 рокировка всё равно невозможна: поле g1 бьёт слон d3.", LIVE, {}, "nothing of Black's attacks g1"),
     # the king's way named, a square off it; a counterfactual («бы») still names the path
@@ -200,7 +203,6 @@ TRUE = [
     ("Длинная рокировка возможна: поле b1 под боем слона f5, но это не важно — b1 должно быть только пустым.", QS_W_D, {}),
     ("Рокироваться нельзя, потому что король под шахом от слона b4.", CHECK, {}),
     ("Короткая рокировка невозможна, потому что слон на f1 ещё не ушёл.", KNG1, {}),
-    ("Рокировка невозможна: король уже ходил.", ITAL, {}),                                 # no game record: unjudged
     ("Ты не можешь рокироваться: король уже ходил.", "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w - - 2 3",
      {"game_moves": ["e4", "e5", "Ke2", "Nc6", "Ke1", "Nb8"]}),
     ("После h3 рокировка всё равно невозможна: поле f1 бьёт слон d3.", LIVE, {}),

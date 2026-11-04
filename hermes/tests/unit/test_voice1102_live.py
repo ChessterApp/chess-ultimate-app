@@ -55,5 +55,5 @@ def test_the_rule_facts_name_what_the_model_merged():
     from src.board_rules import rule_facts
 
     facts = " ".join(rule_facts(chess.Board(FEN), with_tablebase=False, explicit=True))
-    assert "f1, which the black bishop on d3 attacks" in facts and "the pawn f2 does not matter" in facts
+    assert "f1, which the black bishop on d3 attacks" in facts and "an attack on e2, f2 does not stop it" in facts
     assert "d2 (d3 is taken by the black bishop)" in facts and "Qe2" in facts

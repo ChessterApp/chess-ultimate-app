@@ -114,6 +114,11 @@ _STEM_TYPE = {"пешк": chess.PAWN, "кон": chess.KNIGHT, "слон": chess.
               "корол": chess.KING}
 
 
+# Castling told in words, and the squares its rook and king land on: «ладья перейдёт на f1» inside it is its result.
+_CASTLING_WORD = re.compile(_B + r"(?:рок[иеі]р\w*|castl\w*)|(?<![a-z0-9-])(?:o-o(?:-o)?|0-0(?:-0)?)(?![a-z0-9-])")
+_CASTLING_RESULT = {chess.ROOK: {chess.F1, chess.D1, chess.F8, chess.D8}, chess.KING: {chess.G1, chess.C1, chess.G8, chess.C8}}
+
+
 def _unread_move(text: str, board: Optional[chess.Board] = None) -> bool:
     if re.search(r"[0oо]-[0oо]", text):
         return True
@@ -542,6 +547,11 @@ def _one_sentence(text: str, ctx) -> list[str]:
                 if walk is not None:
                     walk.branched = True  # «он» with nothing to name; a piece passing a square on its way
                 break
+            if _CASTLING_WORD.search(low[:start]) and to in _CASTLING_RESULT.get(ptype, ()) \
+                    and getattr(ctx, "relation_surface", "text") != "lesson":  # the lesson tutor reads as before
+                if walk is not None:
+                    walk.branched = True
+                break  # «При рокировке ладья перейдёт на f1, а король на g1»: the castling's own result, not a line (review-fp 03.11)
             if walk is not None and walk.moves:
                 last = walk.moves[-1]
                 if last.to_square == to and walk.board.piece_type_at(to) == ptype:

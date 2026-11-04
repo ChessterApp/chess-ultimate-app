@@ -397,10 +397,10 @@ def _facts(board: chess.Board, top: dict, prefetch, lines: Optional[list] = None
         score = top.get("score") or 0.0
         if top.get("mate_in") is not None:
             score = 10000.0 if top["mate_in"] > 0 else -10000.0
-        return (_rules(board, explicit) + static_facts(board, lines)
-                + dynamic_facts(board, best_uci, float(score), _threat_analysis))
+        return (_rules(board, explicit) + static_facts(board, lines, explicit=explicit)
+                + dynamic_facts(board, best_uci, float(score), _threat_analysis, explicit=explicit))
     except Exception:  # noqa: BLE001 — the facts are a bonus on top of the moves
-        return (_rules(board, explicit) + static_facts(board, lines)) if board.is_valid() else []
+        return (_rules(board, explicit) + static_facts(board, lines, explicit=explicit)) if board.is_valid() else []
 
 
 def _rules(board: chess.Board, explicit: bool = False) -> list[str]:

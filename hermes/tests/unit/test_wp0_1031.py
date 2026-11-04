@@ -275,6 +275,10 @@ PLAN_NAMES = {
     "castle_reason",
     "word_move_san",
     "castle_advice",
+    "check_claim",
+    "after_told_move",
+    "material_direction",
+    "castle_state",
 }
 
 
