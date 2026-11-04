@@ -464,7 +464,17 @@ def _play(board: chess.Board, m: MoveRef, ctx: Any, history: list, first: bool, 
         if first:
             for b0, mv in reversed(history[-HISTORY_LOOKBACK:]):
                 if _same_move(b0, m, mv):
-                    return [(_after(b0, mv), f"right after {_san_where(b0, mv)} was played")]
+                    out = [(_after(b0, mv), f"right after {_san_where(b0, mv)} was played")]
+                    # «После dxc5 пешку e5 будет защищать ферзь c7» after 12.dxc5: the same move is the reply now
+                    # (12...dxc5) — a reading too; the claim is wrong only when it is wrong on both (fix1103, review-fp t21)
+                    if board is getattr(ctx, "current", None) and not m.number and m.side is None:
+                        try:
+                            now = to_move(board, m)
+                        except Exception:  # noqa: BLE001
+                            now = None
+                        if now is not None:
+                            out.append((_after(board, now), "after " + _san_where(board, now)))
+                    return out
     if m.number:
         hit = _numbered(ctx, m)
         if hit is not None:

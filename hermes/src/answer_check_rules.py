@@ -1010,6 +1010,30 @@ def line_end(text: str, ctx):
     return (board, last) if board else None
 
 
+def line_walk(text: str, ctx) -> tuple:
+    """((board before, SAN), …) for each move of the line *text* writes, played as _line_scene plays it; () when it
+    writes none. A forced reply claimed in a later sentence «после <ход этой линии>» may be about the middle of it
+    (fix1103, review-fp a01: «Продолжение Nxd5 Bxd8 Bb4+ Qd2 … После Bb4+ у белых единственный ход — Qd2»)."""
+    toks, from_one = _line_tokens(text, len(text))
+    if not toks or getattr(ctx, "current", None) is None:
+        return ()
+    current = ctx.current
+    roots = [current] + [b for b in getattr(ctx, "boards", []) if b is not current and ctx.is_given(b)]
+    for root in roots:
+        if root.board_fen() == chess.STARTING_BOARD_FEN and current.board_fen() != chess.STARTING_BOARD_FEN and not from_one:
+            continue
+        b, walk = root.copy(stack=False), []
+        try:
+            for tok in toks:
+                mv = b.parse_san(tok)
+                walk.append((b.copy(stack=False), b.san(mv)))
+                b.push(mv)
+        except ValueError:
+            continue
+        return tuple(walk)
+    return ()
+
+
 def _clause(lowered: str, at: int) -> str:
     """The clause of the claim at *at*: from the last comma, dash or «и / а / но» before it, and 25 characters on."""
     return re.split(r"[,;:—–]|\sи\s|\sа\s|\sно\s", lowered[max(0, at - 30): at])[-1] + lowered[at: at + 25]
@@ -1036,6 +1060,17 @@ def _readings(text: str, lowered: str, at: int, upto: int, named_at, ctx) -> tup
             played = _play(end, toks)
             if played:
                 clear.append(played)
+        # «После Bb4+ …» where Bb4+ is a move in the middle of the line the sentence before wrote: that line, up to
+        # the move, is a reading too (fix1103, review-fp a01) — it only clears, like every derived board.
+        fl = getattr(ctx, "forced_line", None)
+        if toks and fl and len(fl) > 3 and fl[2] <= 3:
+            want = _norm_san(toks[0])
+            for before, san in fl[3]:
+                if _norm_san(san) != want:
+                    continue
+                played = _play(before, toks)
+                if played and all(played[0].fen() != c[0].fen() for c in condemn + clear):
+                    clear.append(played)
         return condemn, clear
     # No move written before the claim: the board as it is («сейчас»), a move of it named first («Kxb3! —
     # единственный ход»), or the scene of the sentence before («Rxh6+. Король обязан отойти…») — one move from

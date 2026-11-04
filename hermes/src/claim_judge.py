@@ -40,6 +40,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
+import re
+
 import chess
 
 from src.claim_types import PIECE_TYPE, RULE_RELATIONS, UNDECIDED, BoardSet, Claim, Ref, Verdict
@@ -493,6 +495,20 @@ def _kind(ref: Ref) -> str:
     return NAME[PIECE_TYPE[ref.piece]] if ref and ref.piece else "piece"
 
 
+_STEM = {"Q": r"ферз|queen", "R": r"лад|rook", "B": r"слон|bishop", "N": r"кон[ьяеюё]|knight", "P": r"пешк|pawn",
+         "K": r"корол|king"}
+
+
+def _bare_twin(ref: Ref, ctx: Any) -> bool:
+    """The sentence names *ref*'s piece both with its square and without one («…и ферзь d8, а защищают ферзь, …»): the
+    bare word may have taken the square of the other — which piece it is, the words do not say (fix1103)."""
+    sent = (getattr(ctx, "sentence_now", "") or "").lower()
+    if not ref or not ref.piece or not ref.sq or ref.piece not in _STEM or not sent:
+        return False
+    found = re.findall(r"(?<![а-яёa-z])(?:" + _STEM[ref.piece] + r")[а-яёa-z]*(?:\s+(?:на\s+|с\s+|on\s+)?([a-h][1-8]))?", sent)
+    return ref.sq.lower() in found and "" in found
+
+
 def _judge_defend(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
     objs = [o for o in _targets(claim) if o.sq]
     if not objs:
@@ -538,7 +554,9 @@ def _judge_defend(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
                 a = subj[0]
                 ap = board.piece_at(a)
                 if tp is not None and ap is not None and ap.color != tp.color:
-                    if o.pronoun or s.pronoun:
+                    if o.pronoun or s.pronoun or _bare_twin(s, ctx):
+                        # (fix1103, review-fp g05: «…атакуют пешка c5 и ферзь d8, а защищают ферзь, конь f3…» — the bare
+                        # «ферзь» took the square of the queen named before it, the other side's: the same as a pronoun)
                         # «А защищают его только чёрная ладья с f7 и ферзь с d8» with «его» read as White's bishop: a
                         # defender of the other side says the pronoun means another piece — not a board fact.
                         raise _Undecided

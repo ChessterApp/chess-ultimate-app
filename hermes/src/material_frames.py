@@ -350,6 +350,7 @@ _TAKE = re.compile(
     _W + _TAKE_RU + _E +
     r"|" + _W + _RETURN_RU + r"\s+(?:(?:обратно|назад|сво\w+|ее|его)\s+)?(?=" + _UNIT_ACC + r")" +
     r"|(?:^|(?<=[,:;—–(]\s)|(?<=[,:;—–(])|(?<=\sand\s)|(?<=\sjust\s)|(?<=\sso\s)|(?<=\sthen\s))\s*"
+    r"(?:(?:just|simply|now|then|so|first)\s+)?"  # fix1103: "Just take on d4", "Simply recapture" at a clause head
     r"(?:take|capture|grab|recapture|snap\s+up|win\s+back)" + _E +
     r"(?!\s+(?:a\s+look|your\s+time|time|care|note|advantage|over|it\s+easy|control|aim|away))", re.IGNORECASE)
 _RESULT = re.compile(
@@ -362,8 +363,26 @@ _RESULT = re.compile(
 # (now or after: «Бери коня — у чёрных лишняя фигура» may be the reason).
 _JOIN_OUTCOME = re.compile(_W + r"(?:и|тогда|после\s+чего|в\s+итоге|в\s+результате|and|so)" + _E, re.IGNORECASE)
 _AGAIN = re.compile(_W + r"(?:снова|опять|вновь|обратно|again|back)" + _E, re.IGNORECASE)
-# The board now named between the move and the claim: «бери коня — сейчас у чёрных лишняя фигура»
+# The board now named between the move and the claim: «бери коня — сейчас у чёрных лишняя фигура». Only in the
+# claim's own clause (after the last comma, dash or joining word of the gap): a «сейчас»/"now" right after the move
+# says when to make it («Recapture on d4 right now, and material is level again», «Возьми сейчас на d5, и материал
+# снова равный» — fix1103, review-fp t09).
 _NOW_WORD = re.compile(_W + r"(?:сейчас|пока|уже|now|currently|already)" + _E, re.IGNORECASE)
+_CLAUSE_SEP = re.compile(r"[,—–]|\s-\s|" + _W + r"(?:и|а|тогда|and|so|then)" + _E, re.IGNORECASE)
+# A verb of taking whose object is no material: «забирай центр», «бери под контроль», «выигрывай темп/время/
+# пространство», "grab space", "take control", "win a tempo" — the move told (if any is written) is no capture
+# (fix1103, review-fp t04: «Забирай центр ходом d4, и материал останется равным» was judged after Bxf7+).
+_NONMAT_OBJ = re.compile(
+    r"\s*(?:(?:же|себе|весь|всю|все|скорее|сразу|сначала|быстрее|поскорее|the|a|an|some|more|your|back\s+the)\s+)*"
+    r"(?:центр\w*|пространств\w*|темп\w*|врем\w+|инициатив\w*|контрол\w*|под\s+контроль|поле|поля|пункт\w*|клетк\w*|"
+    r"лини\w+|вертикал\w+|горизонтал\w+|диагонал\w+|форпост\w*|ключ\w*|позици\w+|иници\w+|"
+    r"space|cent(?:er|re)|tempo|tempi|time|initiative|control|square|file|diagonal|outpost|charge|the\s+lead)" + _E,
+    re.IGNORECASE)
+
+
+def idiom_take(low: str, end: int) -> bool:
+    """The verb of taking ending at *end* takes no material («забирай центр», "grab space"): an idiom (fix1103)."""
+    return bool(_NONMAT_OBJ.match(low, end))
 
 
 @dataclass
@@ -374,6 +393,7 @@ class Told:
     kind: str
     verbs: list
     seg: tuple
+    idiom: bool = False  # every verb of taking read takes no material («забирай центр ходом d4»): no capture guessed
 
 
 def told_move(low: str, pos: int) -> Optional[Told]:
@@ -393,8 +413,10 @@ def told_move(low: str, pos: int) -> Optional[Told]:
     if takes:
         last = takes[-1]
         gap = low[last.end(): pos]
-        if _NOW_WORD.search(gap):
+        seps = list(_CLAUSE_SEP.finditer(gap))
+        if _NOW_WORD.search(gap, seps[-1].end() if seps else 0):
             return None  # «бери коня — сейчас у чёрных лишняя фигура»: the board now is named
         outcome = bool(results) or bool(_JOIN_OUTCOME.search(gap)) or bool(_AGAIN.search(low, pos, e0))
-        return Told("outcome" if outcome else "open", [(m.start(), m.end()) for m in takes], (takes[0].start(), pos))
+        return Told("outcome" if outcome else "open", [(m.start(), m.end()) for m in takes], (takes[0].start(), pos),
+                    idiom=all(idiom_take(low, m.end()) for m in takes))
     return Told("outcome", [], (results[0].start(), pos))

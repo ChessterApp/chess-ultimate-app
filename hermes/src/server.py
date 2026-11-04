@@ -3301,7 +3301,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if cut_any:
                     # «1. …» shown, «2. …» cut: «3. …» goes on as «2. …»
                     text = renumber_item(text, shown_text, [fix["sentence"] or ""] + [d["sentence"] for d in fix["dropped"]]
-                                         + [u["sentence"] for u in fix["unproven"]])
+                                         + [u["sentence"] for u in fix["unproven"]], board=check_ctx.current)
                 frames.extend(_answer_frames(text))
             return frames
 

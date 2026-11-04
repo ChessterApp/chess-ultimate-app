@@ -671,6 +671,16 @@ _LEANS_ON_CUT = re.compile(
     r"тогда|точнее|вернее|то\s+есть|иначе\s+говоря|к\s+тому\s+же|более\s+того|причем|вдобавок|ведь|и|а|"
     r"therefore|thus|hence|so|that'?s\s+why|this\s+means|in\s+other\s+words|more\s+precisely|moreover|furthermore|"
     r"and|i\.e\.)(?![а-яёa-z])([*_]{0,2})[\s,—–:-]*", re.IGNORECASE)
+# …but not the first word of a fixed phrase or a pair (fix1103, review-fp x01/x02/x05/x06): "So far", "So long as",
+# "Thus far", "So that", «Тогда как», «И так», «А то», a correlative «И X, и Y» / «Ни X, ни Y», a hyphenated
+# file name («а-пешка»). The word stays, and so does the sentence as the draft wrote it.
+_KEEPS_START = re.compile(
+    r"^\s*(?:[>#-]+\s*)?[*_]{0,2}(?:"
+    r"[а-яёa-z]{1,9}-[а-яёa-z]"
+    r"|(?:so|thus|and)\s+(?:far|long|that|much|many|as|to|on|forth|called)(?![a-z])"
+    r"|тогда\s+как(?![а-яё])|и\s+(?:так|то|все\s*же|всё\s*же)(?![а-яё])|а\s+то(?![а-яё])"
+    r"|(?P<pair>и|ни)\s+[^.!?;:\n]*?,\s*(?P=pair)\s"
+    r")", re.IGNORECASE)
 _FRAGMENT_START = re.compile(r"^(\s*)(?:\.\.\.|…|[,;:—–-])+\s*")
 _SAN_START = re.compile(r"[a-h](?:[1-8]|x[a-h])")
 _ITEM = re.compile(r"^(\s*)(\d{1,2})([.)])(\s+)(?![KQRBNКФЛСO0]?[a-h]?[1-8]?[x:×]?[a-h][1-8]|O-O|0-0)")
@@ -690,6 +700,8 @@ def mend_after_cut(text: str, shown: str = "") -> str:
     if f and len(out) - f.end() >= 12:
         out = f.group(1) + out[f.end():]
     for _ in range(3):  # «и тогда …», «а значит, …»: each word that leans back
+        if _KEEPS_START.match(out):
+            break
         leaned = strip_leaning_start(out)
         if leaned == out:
             m = _LEANS_ON_CUT.match(out)
@@ -709,12 +721,51 @@ def mend_after_cut(text: str, shown: str = "") -> str:
     return out[:lead] + body
 
 
-def renumber_item(text: str, shown: str, cut: Iterable[str] = ()) -> str:
+# A list of candidate moves: «1. d3 — …», «2. Qe2: …» — a number, one move, then a dash or a colon (fix1103, review-fp
+# x03: «3. Nc3 — …» after a cut «2. Qe2 — …» kept its 3). It is a list, not a game's move numbers, when every move
+# of it is legal on the board the answer is about (the candidates of one position).
+_MOVE_ITEM_SAN = r"(?:[KQRBNКФЛС]?[a-h]?[1-8]?[x:×]?[a-h][1-8](?:=[QRBN])?|O-O-O|O-O|0-0-0|0-0)[+#]?"
+_MOVE_ITEM = re.compile(r"^(\s*)(\d{1,2})([.)])(\s+)(?P<san>" + _MOVE_ITEM_SAN + r")\s*[—–:-]")
+_SHOWN_MOVE_ITEM = re.compile(r"(?:^|\n)[ \t]*(\d{1,2})[.)][ \t]+(?P<san>" + _MOVE_ITEM_SAN + r")\s*[—–:-]")
+
+
+def _candidate_list(sans: list, board) -> bool:
+    """Every move of *sans* is legal on *board*: the items are candidates of one position, not moves of a game."""
+    if board is None or not sans:
+        return False
+    from src.answer_check import _to_san
+
+    for san in sans:
+        try:
+            board.parse_san(_to_san(san)[0].replace("0", "O").rstrip("+#"))
+        except ValueError:
+            return False
+    return True
+
+
+def renumber_item(text: str, shown: str, cut: Iterable[str] = (), board=None) -> str:
     """A numbered item after a cut one goes on the list as it is shown: «1. …» shown, «2. …» cut, «3. …» becomes «2. …»;
-    the list's first item cut, the next one is «1.». A line that opens with a move number («3. Nf3») is not an item."""
+    the list's first item cut, the next one is «1.». A line that opens with a move number («3. Nf3») is not an item,
+    unless it is one of a list of candidate moves legal on *board* («1. d3 — …», «3. Nc3 — …»)."""
     m = _ITEM.match(text or "")
     if not m:
-        return text
+        mm = _MOVE_ITEM.match(text or "")
+        if not mm:
+            return text
+        shown_moves = list(_SHOWN_MOVE_ITEM.finditer(shown or ""))
+        cut_moves = [c for c in (_MOVE_ITEM.match((c or "").lstrip()) for c in cut or ()) if c]
+        if not _candidate_list([mm["san"]] + [x["san"] for x in shown_moves] + [c["san"] for c in cut_moves], board):
+            return text
+        n = int(mm.group(2))
+        if shown_moves:
+            want = int(shown_moves[-1].group(1)) + 1
+        elif cut_moves:
+            want = 1
+        else:
+            return text
+        if n <= want:
+            return text
+        return mm.group(1) + str(want) + text[mm.end(1) + len(mm.group(2)):]
     n = int(m.group(2))
     items = list(_SHOWN_ITEM.finditer(shown or ""))
     if items:
