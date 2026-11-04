@@ -3945,6 +3945,11 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
     from src.answer_check_facts import record_fact_issues
 
     issues += record_fact_issues(lowered, text, ctx)
+    # The games database and the game the coach loaded from it: a claim no tool of the turn made, a move the game
+    # did not have (src/answer_check_db.py, review 03.11).
+    from src.answer_check_db import game_db_issues
+
+    issues += game_db_issues(lowered, text, ctx)
     # Who attacks, defends, pins, holds what — each claim judged on the board it is about (src/answer_check_relations.py,
     # off | shadow | on by COACH_RELATION_CHECK; fail-open). After the facts, so this sentence's scene_trail is filled.
     from src.answer_check_relations import relation_issues

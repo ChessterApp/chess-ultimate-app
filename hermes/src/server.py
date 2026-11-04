@@ -436,6 +436,7 @@ def _create_agent(
     user_query: Optional[str] = None,
     mode: str = "full",
     fallback_model: Optional[str] = None,
+    carry_tools: Optional[tuple] = None,
 ):
     """Create a Hermes AIAgent configured for chess coaching.
 
@@ -504,6 +505,7 @@ def _create_agent(
             user_query,
             topk=config.COACH_TOOL_SUBSET_TOPK,
             mode=mode,
+            carry=tuple(carry_tools or ()),
         )
         # A named opening keeps the book tools: «против жареной печени» matched
         # none of their keywords and the model answered from memory (2026-09-30).
@@ -1075,7 +1077,12 @@ def _parse_white_eval(text) -> Optional[float]:
 def _student_side_note(ctx) -> str:
     """Whose side «ты» is, for the rewrite: the student's colour in a game, else
     the side to move (production, 2026-10-05: the rewrite told a student playing
-    Black «у тебя лишняя ладья» about White's rook)."""
+    Black «у тебя лишняя ладья» about White's rook). A master game the coach loaded
+    is nobody's: «У тебя ферзь и конь…» about Carlsen's game (review 03.11)."""
+    if getattr(ctx, "master_game", None) and getattr(ctx, "student_color", None) is None:
+        from src.answer_check_db import master_game_side_note
+
+        return master_game_side_note(ctx)
     side = getattr(ctx, "student_color", None)
     if side is None and getattr(ctx, "current", None) is not None:
         side = ctx.current.turn
@@ -2301,9 +2308,20 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # The agent does not depend on the prompt (it only stores it), so it is
     # built while the profile arrives and the prompt is assembled.
     fallback_model = _turn_fallback_model(model)
+    # The conversation's database game: «загрузи вторую», «а предыдущую?» after a search keep the game tools
+    # (src/tool_selector.game_context_tools; review 03.11 — the selector saw only this message).
+    carry_tools: tuple = ()
+    try:
+        from src.tool_selector import game_context_tools
+
+        earlier = [m.content for m in session.messages[:-1] if m.role == "user"][-2:]
+        carry_tools = game_context_tools(body.message, tuple(earlier), session.game_tools_turns_ago(),
+                                         active_board.source)
+    except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
+        logger.debug("game context tools failed", exc_info=True)
     agent_task = asyncio.create_task(asyncio.to_thread(
         _create_agent, model=model, system_prompt="", session_id=session_id,
-        user_query=body.message, fallback_model=fallback_model,
+        user_query=body.message, fallback_model=fallback_model, carry_tools=carry_tools,
     ))
     profile = await profile_task
     _mark("profile")
@@ -2572,6 +2590,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             student_color=student_color,
         )
         check_ctx.language = turn_language  # a sentence in the wrong language is rewritten like a wrong move
+        # What the turn's database tools return, and a database game already on the board, are what the answer may
+        # say of them (src/answer_check_db.py, review 03.11).
+        check_ctx.db_tracked = True
+        try:
+            if (active_board.source or {}).get("twic_game_id") and active_board.pgn:
+                from src.answer_check_db import note_board_game
+
+                note_board_game(check_ctx, active_board.pgn)
+        except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
+            logger.debug("board game note failed", exc_info=True)
         try:
             # The session's other boards (an earlier game in the same chat): not the positions this turn is about.
             this_turn = {CheckContext._key(chess.Board(f)) for f in
@@ -2621,7 +2649,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         tb_line_state = {"left": config.COACH_TABLEBASE_LINE_CHECKS if config.COACH_ANSWER_CHECK else 0}
         fix = {"running": False, "done": False, "sentence": None, "issues": [], "dropped": [],
                "reply": None, "started": None, "first_ms": None, "emitted": False,
-               "shown_prefix": "", "head": ""}
+               "shown_prefix": "", "head": "", "gen": 0}
         turn_msg = {"message": None}
 
         # ── Two-stage answer ──────────────────────────────────────────────
@@ -2715,6 +2743,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 tool_name, str(args)[:200], str(result)[:200],
             )
             tool_results.append(result)
+            try:
+                from src.answer_check_db import note_tool_result
+                from src.tool_selector import GAME_TRAIL_TOOLS
+
+                if tool_name in GAME_TRAIL_TOOLS:
+                    session.note_game_tools()
+                # What the database said this turn: «база ничего не вернула» is told only after an empty search.
+                note_tool_result(check_ctx, tool_name, result, shown=not session.board_lock_strict)
+            except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
+                logger.debug("database tool bookkeeping failed", exc_info=True)
             # The board changes go out the moment the tool finishes: the arrows
             # of an answer used to reach the student only when the whole turn was
             # over, seconds after the text that talks about them.
@@ -2894,32 +2932,40 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 session.lock_board(None)  # the tools of later calls (voice, the next turn) are free again
                 loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
-        def _run_fix(shown: str, wrong: str, issues: list):
-            """The rest of the answer after a wrong sentence: one tool-free call."""
+        def _run_fix(shown: str, wrong: str, issues: list, gen: int = 0):
+            """The rest of the answer after a wrong sentence: one tool-free call. *gen* tags its frames: a rewrite
+            called off (a tool call came after the sentence — the answer is still to be written) is ignored."""
             reply = None
             try:
+                from src.answer_check_db import turn_tools_note
                 from src.answer_check_relations import issues_for_fix
                 from src.quick_reply import stream_completion
 
                 # The board truth of the relation checker first, at most three reasons (the full list is logged).
                 issues = issues_for_fix(issues, check_ctx)
+                turn_text = forget_old_board_text(turn_msg["message"] or augmented_message, old_board_blocks) \
+                    if board_moved["fen"] else (turn_msg["message"] or augmented_message)
+                # What the turn's tools did (the database's results, the game loaded on the board): the rewrite has no
+                # tools and wrote «нет доступа к базе» after the game was loaded (review 03.11).
+                tools_note = turn_tools_note(check_ctx)
+                if tools_note:
+                    turn_text = f"{turn_text}\n\n{tools_note}"
 
                 reply = stream_completion(
                     model=model,
                     api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-                    messages=fix_messages(forget_old_board_text(turn_msg["message"] or augmented_message, old_board_blocks)
-                                          if board_moved["fen"] else (turn_msg["message"] or augmented_message),
-                                          shown, wrong, issues,
+                    messages=fix_messages(turn_text, shown, wrong, issues,
                                           lang_note, _student_side_note(check_ctx)),
-                    on_delta=lambda text: loop.call_soon_threadsafe(queue.put_nowait, ("fix", text)),
+                    on_delta=lambda text: loop.call_soon_threadsafe(queue.put_nowait, ("fix", (gen, text))),
                     timeout_s=config.COACH_ANSWER_FIX_TIMEOUT_S,
                     max_tokens=config.COACH_ANSWER_FIX_MAX_TOKENS,
                     temperature=0.4,
+                    should_abort=lambda: fix["gen"] != gen,
                 )
             except Exception:  # noqa: BLE001 — without the rewrite the wrong part is just left out
                 logger.debug("answer fix crashed", exc_info=True)
             finally:
-                loop.call_soon_threadsafe(queue.put_nowait, ("fix_done", reply))
+                loop.call_soon_threadsafe(queue.put_nowait, ("fix_done", (gen, reply)))
 
         turn_started = time.monotonic()
         quick_future = loop.run_in_executor(None, _run_quick) if two_stage else None
@@ -3013,8 +3059,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         # The start of the sentence that already went out (before its
                         # first move or piece): the rewrite must not say it again.
                         fix.update(running=True, sentence=sentence, issues=issues, started=time.monotonic(),
-                                   shown_prefix=sentence[: len(sentence) - len(text)] if sentence.endswith(text) else "")
-                        loop.run_in_executor(None, _run_fix, "".join(answer_parts), sentence, issues)
+                                   shown_prefix=sentence[: len(sentence) - len(text)] if sentence.endswith(text) else "",
+                                   gen=fix["gen"] + 1)
+                        loop.run_in_executor(None, _run_fix, "".join(answer_parts), sentence, issues, fix["gen"])
                     else:
                         fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
                         fix["after_drop"] = True
@@ -3213,7 +3260,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     for frame in _sentence_frames(await _verified(gate.feed(payload)), "agent"):
                         yield frame
                 elif kind == "fix":
-                    if not fix["running"] or not payload:
+                    fix_gen, payload = payload
+                    if fix_gen != fix["gen"] or not fix["running"] or not payload:
                         continue
                     if not fix["emitted"]:
                         # Hold the first characters until the shown start of the
@@ -3257,6 +3305,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     for frame in _sentence_frames(await _verified(fix_gate.feed(payload)), "fix"):
                         yield frame
                 elif kind == "fix_done":
+                    fix_gen, payload = payload
+                    if fix_gen != fix["gen"]:
+                        continue  # a rewrite called off: the draft after its tools went on instead
                     fix["reply"] = payload
                     if fix["head"] and not fix["emitted"]:
                         # A rewrite shorter than the held prefix: send it as it is.
@@ -3273,6 +3324,17 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     fix["running"] = False
                     fix["done"] = True
                 elif kind == "tool_call":
+                    if fix["running"] and not fix["emitted"]:
+                        # The wrong sentence came before a tool call («I'll search the…»): the answer is still to be
+                        # written, after the tools. The sentence alone is left out and the rewrite — which sees no tool
+                        # result and wrote «нет доступа к базе» while the game went on the board — is called off
+                        # (review 03.11, t12).
+                        logger.info("answer check: rewrite called off by a tool call | %s",
+                                    (fix["sentence"] or "").strip()[:200])
+                        fix["dropped"].append({"sentence": (fix["sentence"] or "").strip()[:300],
+                                               "issues": fix["issues"], "before_tool": True})
+                        fix.update(running=False, sentence=None, issues=[], started=None, head="", shown_prefix="",
+                                   gen=fix["gen"] + 1, after_drop=True)
                     yield _sse({"tool_call": payload})
                 elif kind == "tool_result":
                     yield _sse({"tool_result": payload})

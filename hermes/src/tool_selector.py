@@ -87,7 +87,9 @@ TOOL_KEYWORDS = {
     "get_game_pgn": ("pgn", "полн", "текст парти", "запись парти", "толық"),
     "get_opening_stats": (
         "дебют", "статистик", "eco", "сицилиан", "испанск", "итальянск", "французск",
-        "каро", "славянск", "ферзев", "королевск", "гамбит", "защит", "начало",
+        "каро", "славянск", "ферзев", "королевск", "гамбит", "защит",
+        # «начало» by its phrases: as a word form it took «покажи эту партию с начала» (review 03.11).
+        "начало партии", "начала партии", "начале партии", "дебютное начало", "начало дебюта",
         "ашылу",
     ),
     "get_position_stats": (
@@ -111,6 +113,8 @@ TOOL_KEYWORDS = {
     "get_user_games": (
         "мои парти", "моих парти", "мою парти", "последн", "недавн", "сыграл", "сохранён",
         "сохранен", "истори", "ойындарым", "соңғы",
+        # English own games: 'Analyze my recent games' lost get_user_games to get_game_pgn on a tie (review 03.11).
+        "my game", "my last", "my recent", "my latest", "i played", "i lost", "i won", "i just played",
     ),
     "get_user_repertoire": ("мой репертуар", "моего репертуар", "репертуар", "мои дебюты", "чем я играю"),
     "get_user_progress": (
@@ -269,12 +273,33 @@ def _stem_hits(query: str, query_tokens: set, stems: tuple, tokens: list = None)
     return hits
 
 
+# Another tool's name in a description («use get_game_pgn with a returned id») is not a word of what the tool does:
+# split on «_», it gave get_game_pgn 'games', 'position', 'find', 'search' and pushed get_user_games out of
+# 'Analyze my recent games' (review 03.11).
+_IDENTIFIER = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
+# …nor are the examples it quotes («Карлсен», «Синдаров — Накамура»): «Кто сильнее, Карлсен или Каспаров?» scored the
+# database search by them.
+_QUOTED_EXAMPLE = re.compile(r"«[^»]{0,80}»")
+# Words that name something else for one tool: «база знаний» is the topics, not the games database.
+TOOL_EXCLUDES = {"search_master_games": re.compile(r"баз\w*\s+знани\w*", re.IGNORECASE)}
+
+
+# The tools whose quoted examples are players' names, not the words of a request.
+_NAME_EXAMPLE_TOOLS = frozenset({"search_master_games", "get_game_pgn"})
+
+
 def _score(query_tokens: set, declaration: dict, query: str = "", tokens: list = None) -> int:
     """Overlap between the query and a tool's name, description, and keyword stems."""
-    haystack = _tokenize(declaration.get("name", "")) | _tokenize(
-        declaration.get("description", "")
-    )
+    description = _IDENTIFIER.sub(" ", declaration.get("description", "") or "")
+    if declaration.get("name") in _NAME_EXAMPLE_TOOLS:
+        description = _QUOTED_EXAMPLE.sub(" ", description)
+    haystack = _tokenize(declaration.get("name", "")) | _tokenize(description)
     stems = TOOL_KEYWORDS.get(declaration.get("name", ""), ())
+    exclude = TOOL_EXCLUDES.get(declaration.get("name", ""))
+    if exclude is not None and exclude.search(query or ""):
+        query = exclude.sub(" ", query)
+        tokens = _token_list(query)
+        query_tokens = query_tokens & _tokenize(query)
     return len(query_tokens & haystack) + _stem_hits(query, query_tokens, stems, tokens)
 
 
@@ -282,16 +307,25 @@ def _score(query_tokens: set, declaration: dict, query: str = "", tokens: list =
 
 # Tools a request for a particular game needs, whatever its words scored.
 INTENT_TOOLS = ("search_master_games",)
+# …and those a conversation about a database game keeps on its next turns (``game_context_tools``).
+GAME_TOOLS = ("search_master_games", "get_game_pgn")
 
-# A game: «партия» in its forms (also the Kazakh «партиясын»), «игру Карлсена», «ойын», "game", «матч».
+# A game: «партия» in its forms (also the Kazakh «партиясын»), its diminutives («партейку», «партеечку»,
+# «партиюшку»), a typo of it («парию», «партю», «патрию»), «игру Карлсена», «ойын», "game", «матч», and Russian typed
+# in Latin letters ('partiyu', 'igru').
 _GAME_NOUN = re.compile(
-    r"(?<![\w-])(?:парти(?:я|и|ю|ей|й|ям|ями|ях)|партия\w+|игр(?:а|у|ы|е|ой)|ойын\w*|матч\w*|games?|match(?:es)?)"
-    r"(?![\w-])", re.IGNORECASE)
-# …the student's own, or the one on the board: not the database's.
+    r"(?<![\w-])(?:парти(?:я|и|ю|ей|й|ям|ями|ях)|партия\w+|парте(?:йк|ечк)\w*|партиюшк\w*|партийк\w*|"
+    r"(?=\w{5,}(?![\w-]))па(?:рт|тр|р)и?[юяи]|игр(?:а|у|ы|е|ой)|ойын\w*|матч\w*|games?|match(?:es)?|"
+    r"parti(?:ya|yu|ju|i|ii|iyu|yi)\w*|igr[uy])(?![\w-])", re.IGNORECASE)
+# …the student's own, or the one on the board: not the database's. A link, a Lichess / Chess.com account,
+# «вчерашнюю», «моего соперника» — the student's games too (review 03.11).
 _OWN_GAME = re.compile(
-    r"(?<![\w-])(?:мо(?:я|ю|ей|и|их|им|ими)|сво(?:ю|ей|и|их|ими)|my|mine|менің|өзімнің|"
-    r"я\s+(?:сыграл|играл|проиграл|выиграл)\w*|i\s+(?:played|lost|won)|"
-    r"(?:эт(?:а|у|ой|ом|и|их)|данн\w+|текущ\w+|нашу|нашей|наша|this|current|our|осы|бұл)\s+(?:[\w-]+\s+)?"
+    r"(?<![\w-])(?:мо(?:я|ю|ей|и|их|им|ими|его|ему|[её]м)|мной|сво(?:ю|ей|и|их|ими)|my|mine|менің|өзімнің|"
+    r"я\s+(?:только\s+что\s+|недавно\s+)?(?:сыграл|играл|проиграл|выиграл)\w*|"
+    r"i\s+(?:just\s+|recently\s+)?(?:played|lost|won|drew)|"
+    r"вчерашн\w*|сегодняшн\w*|позавчерашн\w*|недавн\w*|yesterday'?s?|today'?s?|"
+    r"lichess\w*|личес\w*|личесс\w*|chess\.com|chesscom|чесском\w*|чес\.ком|https?://\S+|"
+    r"(?:эт(?:а|у|ой|ом|и|их)|данн\w+|текущ\w+|нашу|нашей|наша|this|that|current|our|осы|бұл)\s+(?:[\w-]+\s+)?"
     r"(?:парти\w*|игр\w*|game|ойын\w*))(?![\w-])", re.IGNORECASE)
 # …named by a year, the database, an event.
 _YEAR = re.compile(r"(?<!\d)(?:1[89]\d\d|20\d\d)(?!\d)")
@@ -302,36 +336,155 @@ _EVENT = re.compile(
     r"(?<![\w-])(?:турнир\w*|супертурнир\w*|чемпионат\w*|олимпиад\w*|претендент\w*|мемориал\w*|кубк\w*|кубок|"
     r"гран-при|жарыс\w*|tournament\w*|championship\w*|candidates|olympiad|memorial|wijk|tata\s+steel|"
     r"norway\s+chess|sinquefield|grand\s+(?:chess\s+tour|prix|swiss))(?![\w-])", re.IGNORECASE)
-# «найди / загрузи / открой партию …» — fetching a game, not discussing one.
+# «найди / загрузи / открой партию …» — fetching a game, not discussing one…
 _FETCH = re.compile(
     r"(?<![\w-])(?:найд\w*|найти|поищ\w*|ищ[иу]\w*|отыщ\w*|загруз\w*|подгруз\w*|открой\w*|открыть|"
-    r"find|search|look\s+up|load|pull\s+up|fetch|open|тап\w*|ізде\w*|жүкте\w*|аш)(?![\w-])", re.IGNORECASE)
+    r"find|search|look\s+up|load|pull\s+up|fetch|open|replay|go\s+through|step\s+through|пролиста\w*|"
+    r"тап\w*|ізде\w*|жүкте\w*|аш)(?:-ка)?(?![\w-])", re.IGNORECASE)
+# …and «покажи / выведи / поставь / хочу посмотреть партию …» — the same request in other words: «покажи партию
+# ногербека» missed (review 03.11). Without a game named it is only a show verb (``asks_for_game``).
+_SHOW = re.compile(
+    r"(?<![\w-])(?:покаж\w*|показа\w*|выведи\w*|вывести|включи\w*|постав\w*|посмотр\w*|глян\w*|"
+    r"show|display|put\s+up|көрсет\w*|қой\w*)(?:-ка)?(?![\w-])", re.IGNORECASE)
+# A game told as played by the players named: «как Карлсен обыграл Каруану», «как играл Дин Лижэнь».
+_PLAYED = re.compile(
+    r"(?<![\w-])(?:сыграл\w*|играл\w*|выиграл\w*|обыграл\w*|победил\w*|проиграл\w*|разгромил\w*|"
+    r"played|beat|won|lost|defeated|ойнады|ұтты)(?![\w-])", re.IGNORECASE)
+_LAST = re.compile(r"(?<![\w-])(?:последн\w*|свеж\w*|latest|last|most\s+recent|соңғы)(?![\w-])", re.IGNORECASE)
+# A game the database knows by its id («партию 3622931», «с id 3622931»).
+_GAME_ID = re.compile(r"(?<![\d.,])\d{5,9}(?![\d.,])")
 # A score typed into the message is the student's own game, whatever the words.
 _MOVE_LIST = re.compile(r"(?<![\w.])1\.\s*(?:[a-hKQRBNOКФЛС]|e4|d4)", re.IGNORECASE)
+# Not a game from the database: an opening named «… партия» («итальянская партия», "Italian Game"), a game to play
+# («новую партию», «сыграем партию», "a new game"), a lesson or a puzzle the words are about (review 03.11).
+_OPENING_GAME = re.compile(
+    r"(?<![\w-])(?:[а-яё]+(?:ск|цк)(?:ая|ую|ой|ие|их|ое)|венск\w*|four\s+knights|italian|scotch|vienna|"
+    r"ponziani|english|spanish|russian|king'?s|queen'?s|bishop'?s)\s+(?:парти\w*|game)(?![\w-])",
+    re.IGNORECASE)
+_PLAY_A_GAME = re.compile(
+    r"(?<![\w-])(?:нов(?:ую|ая|ой|ые)|сыгра(?:ем|ть|й|йте|ли\s+бы)|поигра(?:ем|ть)|игра(?:ть|ем)|давай(?:те)?|"
+    r"new|another|play|ойнай\w*)\s+(?:(?:ещ[её]|одну|по|a|one|in)\s+)?(?:парти\w*|игр\w*|game|ойын\w*)",
+    re.IGNORECASE)
+_OTHER_OBJECT = re.compile(
+    r"(?<![\w-])(?:урок\w*|задач\w*|задани\w*|упражнени\w*|головоломк\w*|lesson\w*|puzzle\w*|exercise\w*|"
+    r"сабақ\w*|есеп\w*)(?![\w-])", re.IGNORECASE)
+
+
+def _named_game(text: str) -> bool:
+    """The words name which game: a year, an event, the database or its id."""
+    return bool(_YEAR.search(text) or _EVENT.search(text) or _DATABASE.search(text) or _GAME_ID.search(text))
 
 
 def asks_for_game(query: str) -> bool:
     """The message asks for a particular game from the master database.
 
-    A game («партия», "game", «ойын», «матч») that is not the student's own or the one on the board,
-    named by a player, a year, an event or the database, or fetched («найди / загрузи / открой
-    партию»); or two players named against each other («Синдаров — Накамура»), or a player and the
-    database («что есть в базе по Карлсену»)."""
-    from src.player_names import mentions_player, names_two_players
+    A game («партия», "game", «ойын», «матч») that is not the student's own, the one on the board, an opening
+    («итальянская партия») or a game to play, named by a player, a year, an event, an id or the database, or
+    fetched («найди / загрузи / открой / покажи партию»); two players named against each other («Синдаров —
+    Накамура», «Карлсен-Каруана») with what they played; a player and the database; a player's game told as
+    played or as his last one («как Карлсен обыграл Каруану в 2018», «покажи, как играл Дин последнюю»)."""
+    from src.player_names import count_players, mentions_player, names_two_players
 
     text = query or ""
-    if names_two_players(text):
-        return True
     own = bool(_OWN_GAME.search(text)) or bool(_MOVE_LIST.search(text))
-    game = bool(_GAME_NOUN.search(text))
-    if game and not own:
-        if _YEAR.search(text) or _DATABASE.search(text) or _EVENT.search(text) or _FETCH.search(text):
+    if own:
+        # «Сравни мою партию с партией Карлсена»: a known master beside the student's game is a database game too;
+        # «мою партию против Иванова» (an unknown name) is the student's.
+        from src.player_names import known_player_in
+
+        return bool(_GAME_NOUN.search(text)) and not _MOVE_LIST.search(text) and known_player_in(text) \
+            and not re.search(r"https?://|lichess|chess\.com|личес|чесском", text, re.IGNORECASE)
+    named = _named_game(text)
+    fetch = bool(_FETCH.search(text)) or bool(_SHOW.search(text))
+    # A tournament's name is not two players: «Кто выиграл Tata Steel 2025?» (review 03.11).
+    people = _EVENT.sub(" ", text)
+    player = mentions_player(people)
+    # «Найди сицилианскую партию Каспарова» names a player: the opening is only which of his games.
+    game = bool(_GAME_NOUN.search(text)) and not _PLAY_A_GAME.search(text) \
+        and not (_OPENING_GAME.search(text) and not (player or named))
+    if game and not player and not named and _LAST.search(text):
+        return False  # «Открой последнюю партию» with nobody named: the student's own last game
+    two = names_two_players(people) or count_players(people) >= 2
+    if _OTHER_OBJECT.search(text) and not (named or two):
+        return False  # «Открой урок про …», «Дай задачу из партии Таля» — a lesson or a puzzle
+    if two and (game or named or fetch or _PLAYED.search(text)):
+        return True
+    if game:
+        if named or fetch or player:
             return True
-        if mentions_player(text):
-            return True
-    if not own and _DATABASE.search(text) and mentions_player(text):
+        return False
+    if _DATABASE.search(text) and player:
+        return True
+    if player and fetch and (_LAST.search(text) or _PLAYED.search(text) or named):
+        return True
+    if fetch and _GAME_ID.search(text) and re.search(r"(?<![\w-])(?:id|номер\w*|№)(?![\w-])", text, re.IGNORECASE):
         return True
     return False
+
+
+# ── The student's own games ──────────────────────────────────────────────────────────────────
+
+# «мою / мои партии», "my (last) game(s)", «я сыграл», "I (just) played", «ойындарым», «сыгранную мной»: the
+# student's own games. English own-game questions lost get_user_games — it has no English description words —
+# and got the master database instead (review 03.11: 'Show my last game', 'Open the game I just played').
+OWN_GAME_TOOLS = ("get_user_games",)
+_OWN_GAMES = re.compile(
+    r"(?<![\w-])(?:(?:мо(?:я|ю|ей|и|их|им|ими)|сво(?:ю|ей|и|их|ими)|my|менің|өзімнің)\s+(?:[\w-]+\s+){0,2}?"
+    r"(?:парти\w*|игр\w*|games?|ойын\w*)|ойындарым\w*|(?:сыгранн\w*|проигранн\w*|выигранн\w*)\s+мной)(?![\w-])",
+    re.IGNORECASE)
+# «я сыграл», "I (just) played" — the student's games only beside a game word: «Всё, я проиграл?» is about the board.
+_I_PLAYED = re.compile(
+    r"(?<![\w-])(?:я\s+(?:только\s+что\s+|недавно\s+|сегодня\s+|вчера\s+)?(?:сыграл|играл|проиграл|выиграл)\w*|"
+    r"i(?:'ve|\s+have)?\s+(?:just\s+|recently\s+)?(?:played|lost|won|drew))(?![\w-])", re.IGNORECASE)
+# The master-database tools an own-game question does not score by its words («Load my last game»: 'load',
+# 'game'), unless another player is named («сравни мою партию с партией Карлсена»).
+_MASTER_DB_TOOLS = frozenset({"search_master_games", "get_game_pgn"})
+
+
+def asks_for_own_games(query: str) -> bool:
+    """The message is about the student's own games (not a link: the import tools take that)."""
+    text = query or ""
+    if re.search(r"https?://|lichess\.org/|chess\.com/", text, re.IGNORECASE) or _MOVE_LIST.search(text):
+        return False  # a link: the import tools; a score typed in: the game is in the message
+    return bool(_OWN_GAMES.search(text)) or bool(_I_PLAYED.search(text) and _GAME_NOUN.search(text))
+
+
+# ── A conversation about a database game ───────────────────────────────────────────────────
+
+# The tools whose use makes the next turns about the database's games.
+GAME_TRAIL_TOOLS = frozenset({"search_master_games", "get_game_pgn", "find_games_by_position"})
+# How many turns after such a tool the game tools stay: «загрузи вторую», «а предыдущую?» come right after.
+GAME_TRAIL_TURNS = 2
+# A turn that goes on with the games found: an ordinal, a pronoun, «ещё», «предыдущую», «против Гукеша», moves.
+_FOLLOW_UP_GAME = re.compile(
+    r"(?<![\w-])(?:перв\w*|втор\w*|трет\w*|четв[её]рт\w*|пят\w*|шест\w*|седьм\w*|восьм\w*|девят\w*|десят\w*|"
+    r"предыдущ\w*|следующ\w*|прошл\w*|друг\w*|ещ[её]|е[её]|эт\w+|тот|ту|та|номер\w*|№|"
+    r"против|с|со|vs|ходы|ходам|пролист\w*|"
+    r"first|second|third|fourth|fifth|previous|next|another|other|that|this|it|one|against|"
+    r"(?:бірінші|екінші|үшінші|төртінші|алдыңғы|келесі|қарсы|басқа|осы|сол)\w*)(?![\w-])|(?<!\d)\d{1,2}(?:-?(?:ю|й|я|ую|ая))?(?!\d)",
+    re.IGNORECASE)
+
+
+def game_context_tools(query: str, history: tuple = (), game_tools_turns_ago: "int | None" = None,
+                       board_source: "dict | None" = None) -> tuple:
+    """The game tools this turn keeps from the conversation, beside its own words.
+
+    The selector sees only the current message: «загрузи вторую», «а предыдущую?», «а против Гукеша?» after a
+    search of the database got neither search_master_games nor get_game_pgn, and the coach said the database gave
+    nothing (review 03.11). They stay when one of them (or find_games_by_position) ran in the last
+    ``GAME_TRAIL_TURNS`` turns, when one of the last two messages asked for a game, or when the board holds a
+    database game and this message goes on with it (an ordinal, a pronoun, «против …», «ещё»)."""
+    text = query or ""
+    if _OWN_GAME.search(text) and not re.search(r"(?<![\w-])(?:эт\w+|this|that)(?![\w-])", text, re.IGNORECASE):
+        return ()  # the student turns to their own games
+    if game_tools_turns_ago is not None and 0 < game_tools_turns_ago <= GAME_TRAIL_TURNS:
+        return GAME_TOOLS
+    if any(asks_for_game(q) for q in list(history)[-2:]):
+        return GAME_TOOLS
+    if board_source and board_source.get("twic_game_id") and (
+            _FOLLOW_UP_GAME.search(text) or _GAME_NOUN.search(text)):
+        return GAME_TOOLS
+    return ()
 
 
 # ── Companions: what a chosen tool needs to finish the job ──────────────────────────────────
@@ -341,6 +494,10 @@ COMPANION_TOOLS = {
     "search_master_games": ("get_game_pgn",),
     "find_games_by_position": ("get_game_pgn",),
 }
+# …and those that come along wherever the tool ranks: a game search is for loading a game (search_master_games third
+# on «Покажи, как Карлсен обыграл Каруану в 2018» came without get_game_pgn, review 03.11). find_games_by_position
+# is not here: «в этой позиции» of an ordinary question brings it, and nothing should come with it then.
+ALWAYS_COMPANIONS = {"search_master_games": ("get_game_pgn",)}
 # «Use get_game_pgn with a returned id», «Then call board_control …», «use find_critical_moments to …».
 _FOLLOW_UP = re.compile(r"\b(?:then\s+)?(?:use|call)\s+([a-z][a-z0-9_]+)", re.IGNORECASE)
 # At most this many tools beyond core + topk: the intent's and the companions.
@@ -363,6 +520,7 @@ def _select_flat(
     mode: str,
     core: frozenset,
     panel_suppressed: frozenset,
+    carry: tuple = (),
 ) -> list:
     """Core scoring/selection over flat dicts (each has ``name``/``description``).
 
@@ -384,6 +542,17 @@ def _select_flat(
 
     # Stable sort keeps original relative order for equal scores -> deterministic.
     scores = {id(d): _score(query_tokens, d, query, tokens) for d in others}
+    own_games = asks_for_own_games(query)
+    # Only the student's games: the master database neither scores nor comes as a companion («Load my last game»).
+    no_master = frozenset()
+    if own_games:
+        from src.player_names import mentions_player
+
+        if not mentions_player(query):
+            no_master = _MASTER_DB_TOOLS
+            for d in others:
+                if d.get("name") in no_master:
+                    scores[id(d)] = 0
     ranked = sorted(others, key=lambda d: scores[id(d)], reverse=True)
     chosen = ranked[: max(topk, 0)]
 
@@ -393,28 +562,36 @@ def _select_flat(
     taken = {d.get("name") for d in core_decls} | {d.get("name") for d in chosen}
     extra: list = []
     intent = [n for n in INTENT_TOOLS if n in by_name] if asks_for_game(query) else []
-    for name in intent:
+    if own_games:
+        intent += [n for n in OWN_GAME_TOOLS if n in by_name]
+    # The conversation's game tools (``game_context_tools``: «загрузи вторую» after a search), then the intent's.
+    carried = [n for n in dict.fromkeys(carry or ()) if n in by_name]
+    for name in carried + intent:
         if name not in taken and len(extra) < MAX_EXTRA_TOOLS:
             extra.append(by_name[name])
             taken.add(name)
     added_companions: list = []
-    # Companions come with the tools that carry the turn: the intent's, and the best-scored tool
-    # when the query clearly asked for it (two signals or more). A tool that only touched one word
-    # of the query («в этой позиции», «lichess») brings none — an ordinary question keeps its set.
-    leaders = [by_name[n] for n in intent]
+    # Companions come with the tools that carry the turn: the conversation's and the intent's, the
+    # best-scored tool when the query clearly asked for it (two signals or more) — by its description
+    # and the table — and any chosen tool by ``ALWAYS_COMPANIONS``.
+    # A tool that only touched one word of the query brings nothing from its description.
+    leaders = [(by_name[n], True) for n in dict.fromkeys(carried + intent)]
     if chosen and scores[id(chosen[0])] >= 2:
-        leaders.append(chosen[0])
-    for d in leaders:
-        for name in companions(d, set(by_name)):
-            if name not in taken and len(extra) < MAX_EXTRA_TOOLS:
+        leaders.append((chosen[0], True))
+    leaders += [(d, False) for d in chosen]
+    for d, by_description in leaders:
+        names = companions(d, set(by_name)) if by_description else \
+            [n for n in ALWAYS_COMPANIONS.get(d.get("name"), ()) if n in by_name]
+        for name in names:
+            if name not in taken and name not in no_master and len(extra) < MAX_EXTRA_TOOLS:
                 extra.append(by_name[name])
                 added_companions.append(name)
                 taken.add(name)
 
     selected = core_decls + chosen + extra
     logger.info(
-        "tool subset: %d sent %s; intent=%s companions=%s",
-        len(selected), [d.get("name") for d in selected], intent, added_companions,
+        "tool subset: %d sent %s; intent=%s carried=%s companions=%s",
+        len(selected), [d.get("name") for d in selected], intent, carried, added_companions,
     )
     return selected
 
@@ -426,6 +603,7 @@ def select_tool_subset(
     mode: str = "full",
     core: frozenset = CORE_TOOLS,
     panel_suppressed: frozenset = PANEL_SUPPRESSED_TOOLS,
+    carry: tuple = (),
 ) -> list:
     """Return a query-relevant subset of *declarations*.
 
@@ -440,7 +618,7 @@ def select_tool_subset(
     tools in ``panel_suppressed`` are removed from the candidate pool and not
     force-included. Any other ``mode`` value behaves as ``full``.
     """
-    return _select_flat(declarations, query, topk, mode, core, panel_suppressed)
+    return _select_flat(declarations, query, topk, mode, core, panel_suppressed, carry)
 
 
 def select_openai_tool_subset(
@@ -450,8 +628,11 @@ def select_openai_tool_subset(
     mode: str = "full",
     core: frozenset = CORE_TOOLS,
     panel_suppressed: frozenset = PANEL_SUPPRESSED_TOOLS,
+    carry: tuple = (),
 ) -> list:
     """Subset OpenAI-format tool dicts by query relevance.
+
+    ``carry``: tools the conversation keeps for this turn (``game_context_tools``), added like the intent's.
 
     ``tools`` are OpenAI-shaped:
     ``{"type": "function", "function": {"name", "description", "parameters"}}``.
@@ -468,5 +649,5 @@ def select_openai_tool_subset(
         }
         for t in tools
     ]
-    selected = _select_flat(proxies, query, topk, mode, core, panel_suppressed)
+    selected = _select_flat(proxies, query, topk, mode, core, panel_suppressed, carry)
     return [p["_orig"] for p in selected]

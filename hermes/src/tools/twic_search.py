@@ -3,7 +3,10 @@
 import json
 import logging
 import os
+import re
 import sqlite3
+
+import chess
 
 from tools.registry import registry
 
@@ -25,8 +28,8 @@ DEFAULT_LIMIT = 20
 SEARCH_GAMES_SCHEMA = {
     "name": "search_master_games",
     "description": (
-        "Search the TWIC master games database (millions of real games with their full moves, up to this "
-        "week). Filter by player and opponent (any spelling: «Карлсен», «Синдаров — Накамура», Carlsen), "
+        "Search the TWIC master games database (millions of real games with their full moves, updated "
+        "weekly). Filter by player and opponent (any spelling: «Карлсен», «Синдаров — Накамура», Carlsen), "
         "event, ECO, opening, result and years. Newest first: the first row is the latest game of the player. "
         "Then use get_game_pgn with a returned id for the moves (show=true puts the game on the board)."
     ),
@@ -65,7 +68,7 @@ def _name_columns(conn: sqlite3.Connection) -> tuple[str, str, bool]:
 
 
 def _player_condition(player: str, opponent: str = None,
-                      columns: tuple = ("white_name", "black_name", False)) -> tuple[str, list]:
+                      columns: tuple = ("white_name", "black_name", False), strict: bool = True) -> tuple[str, list]:
     """The WHERE part for one player (either colour) or two players against each other.
 
     Names are matched in any spelling (src/player_names.py): «Карлсена» → Carlsen, «Javohir» →
@@ -74,7 +77,7 @@ def _player_condition(player: str, opponent: str = None,
     people = split_players(player) if player else []
     if opponent and len(people) < 2:
         people = (people or [])[:1] + [opponent]
-    pats = [name_patterns(p) for p in people[:2]]
+    pats = [name_patterns(p, strict=strict) for p in people[:2]]
     if normalized:
         pats = [list(dict.fromkeys(normalized_pattern(x) for x in p)) for p in pats]
     pats = [p for p in pats if p]
@@ -129,14 +132,25 @@ def _year(value) -> "int | None":
 
 
 def _search(conn, player, opponent, event, eco, opening, result, year_min, year_max, limit) -> list[dict]:
+    rows = _search_once(conn, player, opponent, event, eco, opening, result, year_min, year_max, limit, True)
+    if not rows and (player or opponent) and _player_condition(player or "", opponent, strict=False) != \
+            _player_condition(player or "", opponent, strict=True):
+        # «Robert Hübner» asks for both words; a database that has only «Hubner,R» gets the surname alone. A plain
+        # «Stahlberg» finds the row stored as «St\ufffdhlberg» by its consonants (src/player_names._skeleton).
+        rows = _search_once(conn, player, opponent, event, eco, opening, result, year_min, year_max, limit, False)
+    return rows
+
+
+def _search_once(conn, player, opponent, event, eco, opening, result, year_min, year_max, limit,
+                 strict: bool) -> list[dict]:
     conditions = []
     params = []
 
     if player or opponent:
-        # One name: its longest word («Javohir Sindarov» → Sindarov), in its database spellings — a
-        # Russian name transliterated, kh/h and umlauts varied (src/player_names.py). Two names: a game
-        # between them, either colour.
-        clause, clause_params = _player_condition(player or "", opponent, _name_columns(conn))
+        # A known player by any word of the name, else its words in their database spellings — a Russian
+        # name transliterated, kh/h and umlauts varied (src/player_names.py). Two names: a game between
+        # them, either colour.
+        clause, clause_params = _player_condition(player or "", opponent, _name_columns(conn), strict)
         if clause:
             conditions.append(clause)
             params.extend(clause_params)
@@ -228,8 +242,9 @@ GET_PGN_SCHEMA = {
     "name": "get_game_pgn",
     "description": (
         "The full game — every move and the headers — for a database game id from search_master_games or "
-        "find_games_by_position. With show=true it also puts the game on the board in front of the student, "
-        "who steps through the moves: set it when the student asks to load, show or open the game."
+        "find_games_by_position. With show=true it also puts the game on the board in front of the student "
+        "to step through: set it when the student asks to load, show or open the game. The result spells out "
+        "every move: tell the game from that list."
     ),
     "parameters": {
         "type": "object",
@@ -257,18 +272,38 @@ PGN_FILE_PATH = os.environ.get(
 def _read_movetext(offset: int, length: int) -> str:
     """The game's text from the master PGN: ``length`` bytes at ``offset``.
 
-    The file is read as bytes and decoded with replacement, as the site's
-    /games/<id>/pgn does (errors='replace'): TWIC holds Latin-1 names, and a
-    strict text read raised on any such byte near the game, so the coach got
-    no moves for games the database page shows (live site, 02.11).
+    The file is read as bytes: TWIC holds Latin-1 names, and a strict text read
+    raised on any such byte near the game, so the coach got no moves for games the
+    database page shows (live site, 02.11). A game's bytes are UTF-8 or, when they
+    are not, Latin-1 — «Hübner», not «H\ufffdbner», which the model then
+    retold as «Штольберг» for Ståhlberg (review 03.11).
     """
     try:
         with open(PGN_FILE_PATH, "rb") as f:
             f.seek(offset)
-            return f.read(length).decode("utf-8", errors="replace")
+            data = f.read(length)
     except (OSError, ValueError) as e:
         logger.warning("Could not read PGN file: %s", e)
         return ""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("latin-1")
+
+
+_TAG = re.compile(r'^\[(\w+)\s+"((?:[^"\\]|\\.)*)"\]\s*$', re.MULTILINE)
+
+
+def _fix_names(headers: dict, pgn_text: str) -> dict:
+    """The index's names where it stored a replacement character («St\ufffdhlberg»): the game's own tags."""
+    if not any("\ufffd" in str(headers.get(k) or "") for k in ("White", "Black", "Event")):
+        return headers
+    tags = dict(_TAG.findall(pgn_text or ""))
+    fixed = dict(headers)
+    for key in ("White", "Black", "Event"):
+        if "\ufffd" in str(fixed.get(key) or "") and tags.get(key) and "\ufffd" not in tags[key]:
+            fixed[key] = tags[key]
+    return fixed
 
 
 def get_game_pgn(
@@ -318,6 +353,7 @@ def get_game_pgn(
     }
 
     pgn_text = pgn_text.strip()
+    headers = _fix_names(headers, pgn_text)
     if pgn_text and not pgn_text.startswith("["):
         tag_block = "".join(f'[{k} "{v}"]\n' for k, v in headers.items() if v)
         pgn_text = f"{tag_block}\n{pgn_text}"
@@ -325,7 +361,62 @@ def get_game_pgn(
     if not pgn_text:
         # No moves to show: say so, so the coach never invents the score.
         return {"error": f"The moves of game {game_id} could not be read.", "headers": headers}
-    return {"pgn": pgn_text, "headers": headers}
+    out = {"id": game_id, "pgn": pgn_text, "headers": headers}
+    moves = move_list(pgn_text)
+    if moves:
+        out["moves"] = moves
+        out["note"] = MOVES_NOTE
+    return out
+
+
+# The coach retold a loaded game from memory: «на 4-м ходу белые взяли пешку на e4» for 4...Nxe4, «33.d8=Q+» for
+# d8=R+, «Хюбнер забрал ладью» for a knight (review 03.11). Every move, told as what it is.
+MOVES_NOTE = ("moves: every move of this game in order — who moved, which piece, what it took. Tell the game only from "
+              "this list and the headers: a move, a capture or a side you cannot read here was not in this game.")
+_PIECE = {chess.PAWN: "pawn", chess.KNIGHT: "knight", chess.BISHOP: "bishop", chess.ROOK: "rook",
+          chess.QUEEN: "queen", chess.KING: "king"}
+
+
+def move_list(pgn_text: str) -> list:
+    """«4...Nxe4 Black knight f6 takes pawn e4» for every move of the game's main line ([] if it does not parse)."""
+    import io
+
+    import chess.pgn
+
+    try:
+        game = chess.pgn.read_game(io.StringIO(pgn_text))
+    except Exception:  # noqa: BLE001 — a score that does not parse gets no list
+        return []
+    if game is None:
+        return []
+    board = game.board()
+    out = []
+    for move in game.mainline_moves():
+        try:
+            san = board.san(move)
+        except (AssertionError, ValueError):
+            break
+        side = "White" if board.turn == chess.WHITE else "Black"
+        num = f"{board.fullmove_number}{'.' if board.turn == chess.WHITE else '...'}"
+        piece = board.piece_at(move.from_square)
+        words = f"{side} {_PIECE.get(piece.piece_type, '?') if piece else '?'} {chess.square_name(move.from_square)}"
+        if board.is_castling(move):
+            words = f"{side} castles {'kingside' if board.is_kingside_castling(move) else 'queenside'}"
+        elif board.is_capture(move):
+            victim_sq = move.to_square if not board.is_en_passant(move) else move.to_square + (-8 if board.turn else 8)
+            victim = board.piece_at(victim_sq)
+            words += f" takes {_PIECE.get(victim.piece_type, '?') if victim else 'pawn'} {chess.square_name(move.to_square)}"
+        else:
+            words += f" to {chess.square_name(move.to_square)}"
+        if move.promotion:
+            words += f", promotes to {_PIECE[move.promotion]}"
+        board.push(move)
+        if board.is_checkmate():
+            words += ", checkmate"
+        elif board.is_check():
+            words += ", check"
+        out.append(f"{num}{san} {words}")
+    return out
 
 
 def _with_board(result: dict) -> dict:
@@ -344,7 +435,10 @@ def _with_board(result: dict) -> dict:
         return {**result, "shown": False, "board_hint": "This game's score could not be put on the board."}
     if not moves:
         return {**result, "shown": False, "board_hint": "This game has no moves to put on the board."}
-    return {**result, "board_actions": [{"type": "load_pgn", "pgn": pgn}]}
+    action = {"type": "load_pgn", "pgn": pgn}
+    if result.get("id"):
+        action["game_id"] = result["id"]  # the board remembers it is this database game (src/sessions.py)
+    return {**result, "board_actions": [action]}
 
 
 def _handle_get_game_pgn(args: dict, **kwargs) -> str:

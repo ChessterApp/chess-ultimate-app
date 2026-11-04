@@ -174,9 +174,10 @@ _NAME_ENDINGS = ("ого", "его", "ому", "ему", "ыми", "ими", "о
                  "а", "у", "е", "ы", "и", "я", "ю")
 
 # Latin spellings that differ in the database: umlauts written out or dropped, kh/h.
-_LATIN_SWAPS = (("ü", ("u", "ue")), ("ö", ("o", "oe")), ("ä", ("a", "ae")), ("ue", ("ü", "u")),
+_LATIN_SWAPS = (("ü", ("ue", "u")), ("ö", ("oe", "o")), ("ä", ("ae", "a")), ("ue", ("ü", "u")),
                 ("oe", ("ö", "o")), ("ae", ("ä", "a")), ("é", ("e",)), ("á", ("a",)), ("ć", ("c",)),
-                ("č", ("c",)), ("š", ("s",)), ("ž", ("z",)), ("ł", ("l",)), ("ø", ("o", "oe")))
+                ("č", ("c",)), ("š", ("s",)), ("ž", ("z",)), ("ł", ("l",)), ("ø", ("o", "oe")), ("å", ("a", "aa")),
+                ("í", ("i",)), ("ó", ("o",)), ("ñ", ("n",)))
 
 
 def is_cyrillic(text: str) -> bool:
@@ -209,6 +210,13 @@ def _translit_options(word: str) -> list:
             continue
         if ch == "е" and (not prev or prev in _VOWELS + "ьъ"):  # «Есипенко», «Андреев»: e / ye
             options.append(("e", "ye"))
+        elif ch == "х" and not prev:
+            options.append(("h",))  # «%h…%» holds «Kh…» and «H…» alike: the pattern is a substring
+        elif ch == "ю" and prev and prev not in _VOWELS + "ьъ":
+            # «Хюбнер» is Hübner (Hubner, Huebner), «Матюшин» Matyushin: one letter for ü/u, or yu / ue / iu
+            options.append(("yu", "_", "ue", "iu"))
+        elif ch == "с" and prev == "е" and i + 1 == len(word):
+            options.append(("s", "z"))  # «Мартинес» is Martinez, «Перес» Perez
         elif ch == "к":
             options.append(("_",))  # k or c, one letter either way
         else:
@@ -240,6 +248,10 @@ def _latin_variants(word: str, cap: int) -> list:
     """A Latin name as given plus its umlaut and kh/h spellings (nothing more for a plain name)."""
     out = [word]
     low = word.lower()
+    if re.search(r"[^\x00-\x7f]", word):
+        # «Hübner», «Ståhlberg»: the index decoded TWIC's Latin-1 bytes with replacement («H\ufffdbner»), so the
+        # letter is one ``_`` — which also matches the plain «Hubner» (review 03.11).
+        out.append(re.sub(r"[^\x00-\x7f]", "_", word))
     for src, dsts in _LATIN_SWAPS:
         if src in low:
             for dst in dsts:
@@ -261,17 +273,48 @@ def known_player(token: str) -> Optional[tuple]:
     for rx, pats in _KNOWN:
         if rx.fullmatch(low):
             return pats
+    if "-" in low:  # «Вашье-Лаграва»: the first part names him
+        head = low.split("-", 1)[0]
+        for rx, pats in _KNOWN:
+            if len(head) >= 4 and rx.fullmatch(head):
+                return pats
     return None
 
 
 _NAME_TOKEN = re.compile(r"[^\W\d_]+(?:[-'’][^\W\d_]+)*", re.UNICODE)
 
 
-def name_patterns(name: str, cap: int = MAX_VARIANTS) -> list:
+def _skeleton(word: str) -> Optional[str]:
+    """A plain Latin name with each vowel one ``_``: «Stahlberg» → «St_hlb_rg» finds «St\ufffdhlberg», a row the index
+    decoded from TWIC's Latin-1 with replacement (review 03.11). Loose — «Niemann» would find «Naumann» — so only the
+    search's second try uses it, when the plain spellings found nothing."""
+    if len(word) < 5 or re.search(r"[^\x00-\x7f]", word) or not re.search(r"[aeiouyAEIOUY]", word):
+        return None
+    return re.sub(r"[aeiouyAEIOUY]", "_", word)
+
+
+def _spellings(word: str, cap: int, loose: bool = False) -> list:
+    """One word of a name in its database spellings (transliterated when Cyrillic), the usual one first."""
+    if not is_cyrillic(word):
+        out = _latin_variants(word, cap)
+        skeleton = _skeleton(word) if loose else None
+        return (out[: cap - 1] + [skeleton]) if skeleton else out
+    base = _strip_name_ending(word.lower().replace("ё", "е"))
+    out = _combine(_translit_options(base), cap)
+    if loose:  # «Мартинес» → «m_rt_n_z» finds «Mart\ufffdnez»
+        skeletons = [k for k in (_skeleton(v) for v in out[:2]) if k]
+        out = out[: max(cap - len(skeletons), 1)] + skeletons
+    return list(dict.fromkeys(out))
+
+
+def name_patterns(name: str, cap: int = MAX_VARIANTS, strict: bool = True) -> list:
     """LIKE patterns (``%…%``) that find the player *name* in white_name / black_name.
 
-    One name («Карлсен», «Magnus Carlsen», «Javohir Sindarov», «Непомнящего»): a known player
-    by any word of it; otherwise its longest word, transliterated when Cyrillic."""
+    A known player by any word of it, in any script («Карлсен», «Magnus Carlsen», «Daniil Dubov»). One other
+    word: its spellings. Two or more («Robert Hübner», «Жансая Абдумалик», «казыбека ногербека»): both words in
+    TWIC's order «Surname,First…» either way round (``%Hübner%Rob%`` / ``%Robert%Hüb%``) — the longest word alone
+    found «Robert» in Fischer,Robert James and, on the 4.35M production rows, would bury Hübner under the
+    newest Roberts (review 03.11). ``strict=False``: the longest word alone (the search's second try)."""
     tokens = _NAME_TOKEN.findall(name or "")
     if not tokens:
         return []
@@ -279,11 +322,31 @@ def name_patterns(name: str, cap: int = MAX_VARIANTS) -> list:
         pats = known_player(tok)
         if pats:
             return list(pats)
+        if not is_cyrillic(tok) and _KNOWN_LATIN.fullmatch(tok):
+            return [f"%{tok}%"]
+    words = [t for t in tokens if len(t) >= 2]
+    if len(words) >= 2:
+        if "," in (name or ""):
+            surname, other = words[0], words[1]  # «Hübner, Robert»
+        else:
+            surname, other = words[-1], words[0]  # «Robert Hübner»
+        if not strict:  # the surname alone, never the first name: «%Robert%» is every Robert
+            return [f"%{v}%" for v in _spellings(surname, cap, loose=True)]
+        first = _spellings(surname, cap)
+        second = _spellings(other, cap)
+        out = [f"%{first[0]}%{second[0][:3]}%", f"%{second[0]}%{first[0][:3]}%"]
+        out += [f"%{v}%{second[0][:3]}%" for v in first[1:]]
+        return list(dict.fromkeys(out))[:cap]
     word = max(tokens, key=len)
-    if not is_cyrillic(word):
-        return [f"%{v}%" for v in _latin_variants(word, cap)]
-    base = _strip_name_ending(word.lower().replace("ё", "е"))
-    return [f"%{v}%" for v in _combine(_translit_options(base), cap)]
+    return [f"%{v}%" for v in _spellings(word, cap, loose=not strict)]
+
+
+def is_multiword(name: str) -> bool:
+    """*name* gives more than one word and no known player: ``name_patterns`` asks for both words."""
+    tokens = [t for t in _NAME_TOKEN.findall(name or "") if len(t) >= 2]
+    if len(tokens) < 2:
+        return False
+    return not any(known_player(t) or (not is_cyrillic(t) and _KNOWN_LATIN.fullmatch(t)) for t in tokens)
 
 
 def normalized_pattern(pattern: str) -> str:
@@ -300,9 +363,41 @@ _PAIR_SPLIT = re.compile(r"\s+(?:[-—–]|vs\.?|v\.|versus|против|и|and|
 
 
 def split_players(text: str) -> list:
-    """The one or two players a ``player`` argument names («Синдаров — Накамура» → two)."""
+    """The one or two players a ``player`` argument names («Синдаров — Накамура», «Carlsen-Caruana» → two;
+    «Vachier-Lagrave» stays one)."""
     parts = [p.strip(" ,.;") for p in _PAIR_SPLIT.split(text or "") if p and p.strip(" ,.;")]
+    if len(parts) == 1:
+        sides = _hyphen_pair(parts[0])
+        if sides:
+            return sides
     return parts[:2] if parts else []
+
+
+# Hyphenated words that are one name or one place, not two players: «Вашье-Лаграв», «Каро-Канн», «Вейк-ан-Зее».
+_HYPHEN_WHOLE = re.compile(
+    r"(?:вашье|vachier|каро|caro|вейк|wijk|сент|saint|st|гран|grand|нимцо|nimzo|ле|la|де|de|ван|van|фон|von|"
+    r"абу|abu|бен|ben|эль|el|аль|al)-.*|.*-(?:лаграв\w*|lagrave|канн|kann|зее|zee|луис\w*|louis|при|prix)",
+    re.IGNORECASE)
+
+
+def _hyphen_pair(token: str) -> list:
+    """«Карлсен-Каруана» → ["Карлсен", "Каруана"] when both sides are players: known ones, or two capitalised names
+    that are no hyphenated surname or place."""
+    token = (token or "").strip(" ,.;«»\"'")
+    m = re.fullmatch(r"([^\W\d_]{3,})-([^\W\d_]{3,})", token)
+    if not m or _HYPHEN_WHOLE.fullmatch(token):
+        return []
+    a, b = m.group(1), m.group(2)
+
+    def known(w: str) -> bool:
+        return bool(known_player(w) or _KNOWN_LATIN.fullmatch(w))
+
+    if known(a) and known(b):
+        return [a, b]
+    if a[:1].isupper() and b[:1].isupper() and len(a) >= 4 and len(b) >= 4 \
+            and not _NOT_NAMES.fullmatch(a.lower()) and not _NOT_NAMES.fullmatch(b.lower()):
+        return [a, b]
+    return []
 
 
 def event_terms(event: str) -> list:
@@ -400,10 +495,32 @@ _PAIR = re.compile(
 
 
 def names_two_players(text: str) -> bool:
-    """*text* names two players against each other («Синдаров — Накамура», "Carlsen vs Nakamura")."""
+    """*text* names two players against each other («Синдаров — Накамура», "Carlsen vs Nakamura",
+    «Карлсен-Каруана»)."""
     named = {w.lower() for w in _named_words(text)}
     for m in _PAIR.finditer(text or ""):
         sides = [m.group(1), m.group(2)]
         if all(s.lower() in named or known_player(s) or _KNOWN_LATIN.fullmatch(s) for s in sides):
             return True
+    for tok in re.findall(r"(?<![\w-])[^\W\d_]{3,}-[^\W\d_]{3,}(?![\w-])", text or ""):
+        if _hyphen_pair(tok):
+            return True
     return False
+
+
+def count_players(text: str) -> int:
+    """How many different players *text* names: known ones in any form or script, and capitalised names
+    («Найди Карлсен Непомнящий 2021 шестая» → 2)."""
+    found: set = set()
+    for tok in _NAME_TOKEN.findall((text or "").lower()):
+        for part in tok.split("-"):
+            pats = known_player(part) if len(part) >= 3 else None
+            if pats:
+                found.add(pats[0])
+    for m in _KNOWN_LATIN.finditer(text or ""):
+        word = re.sub(r"'s$", "", m.group(0).lower())
+        found.add(f"%{word.capitalize()}%")
+    for word in _named_words(text):
+        if not (known_player(word.lower()) or _KNOWN_LATIN.fullmatch(word)):
+            found.add(word.lower())
+    return len(found)

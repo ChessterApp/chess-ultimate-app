@@ -76,8 +76,23 @@ class Board(BaseModel):
         if self.source and "coach" in self.source:
             self.source = {k: v for k, v in self.source.items() if k != "coach"} or None
 
+    def _forget_db_game(self, fens: Optional[list] = None) -> None:
+        """Another game or position replaced the database game on the board: its id goes (the answer check and the
+        next turn's tools read it as the game on the board — src/answer_check_db.py, review 03.11). The same game
+        saved again by the page (*fens* equal to the board's) keeps it."""
+        if not (self.source and "twic_game_id" in self.source):
+            return
+        if fens is not None and self.pgn:
+            try:
+                if _fens_from_pgn(self.pgn) == fens:
+                    return
+            except ValueError:
+                pass
+        self.source = {k: v for k, v in self.source.items() if k != "twic_game_id"} or None
+
     def set_fen(self, fen: str) -> None:
         chess.Board(fen)  # validates
+        self._forget_db_game()
         self.fen = fen
         self.pgn = ""
         self.ply = 0
@@ -90,6 +105,7 @@ class Board(BaseModel):
 
     def load_pgn(self, pgn: str, ply: Optional[int] = None) -> None:
         fens = _fens_from_pgn(pgn)
+        self._forget_db_game(fens)
         self.pgn = pgn
         self.ply = len(fens) - 1 if ply is None else max(0, min(ply, len(fens) - 1))
         self.fen = fens[self.ply]

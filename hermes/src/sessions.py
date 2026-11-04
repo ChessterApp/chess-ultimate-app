@@ -89,6 +89,24 @@ class Session(BaseModel):
     # asked for — «дальше» / «ещё задачу» continue them on the server, not on the model's goodwill (21.10).
     _puzzle_queue: list = PrivateAttr(default_factory=list)
     _last_puzzle_theme: Optional[str] = PrivateAttr(default=None)
+    # The number of the student's messages when a database tool (search_master_games, get_game_pgn,
+    # find_games_by_position) last ran: the next turns keep those tools — «загрузи вторую» after a search
+    # (src/tool_selector.game_context_tools, review 03.11). Not serialized: after a restart the messages and the
+    # board's twic_game_id carry it.
+    _game_tools_at: Optional[int] = PrivateAttr(default=None)
+
+    def user_turns(self) -> int:
+        return sum(1 for m in self.messages if m.role == "user")
+
+    def note_game_tools(self) -> None:
+        """A database tool ran in this turn."""
+        self._game_tools_at = self.user_turns()
+
+    def game_tools_turns_ago(self) -> Optional[int]:
+        """How many of the student's messages ago a database tool last ran (1: in the previous turn)."""
+        if self._game_tools_at is None:
+            return None
+        return self.user_turns() - self._game_tools_at
 
     @property
     def puzzle_queue(self) -> list:
@@ -223,6 +241,12 @@ class Session(BaseModel):
                     # The coach put this position up: the student may ask for another without losing
                     # anything of their own (src/question_position.student_owns, 2026-10-20).
                     target.mark_coach(str(action.get("type")))
+                    # A game from the database (get_game_pgn show=true) or not: «а предыдущую его партию?» goes on
+                    # with it (src/tool_selector.game_context_tools, 03.11).
+                    source = {k: v for k, v in (target.source or {}).items() if k != "twic_game_id"}
+                    if action.get("type") == "load_pgn" and isinstance(action.get("game_id"), int):
+                        source["twic_game_id"] = action["game_id"]
+                    target.source = source or None
                 self.save_board(target)
                 changed = target
         return changed
