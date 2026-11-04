@@ -329,6 +329,12 @@ COACH_RELATION_CHECK = os.environ.get("COACH_RELATION_CHECK", "on").strip().lowe
 # Read at call time (src/answer_check_db.mode).
 COACH_DB_CLAIM_CHECK = os.environ.get("COACH_DB_CLAIM_CHECK", "shadow").strip().lower()
 COACH_LOADED_GAME_CHECK = os.environ.get("COACH_LOADED_GAME_CHECK", "shadow").strip().lower()
+# The proof of the rewrite (src/rewrite_proof.py, fix1102 K6): a rewrite's sentence with a board word is shown only
+# when the check proved it. off | shadow | on, default shadow: the live run of 04.11 (175 inputs) dropped 36 of 40
+# rewrites as unproven, at least 15 of them true («Black» the only issue, the Russian rewrite right) — shadow logs
+# what the proof would drop (answer_check event, unproven_shadow) and shows the rewrite as production does.
+# Read at call time.
+COACH_REWRITE_PROOF = os.environ.get("COACH_REWRITE_PROOF", "shadow").strip().lower()
 
 # The student's idea on the board (2026-10-04): a move named in the message
 # («а если Rg1?», «поставить ладью на g1») is played on the board the moment it

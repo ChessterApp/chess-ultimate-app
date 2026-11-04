@@ -2862,7 +2862,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                # check; a draft that ends at the tool gets the rewrite (verification 04.11: an empty answer).
                "superseded": False, "held": [], "held_done": None, "tools_after": [],
                "mode": None, "pending": False, "held_fix": [], "draft_pairs": [],
-               "draft_raw": [], "main_flush": False, "unproven": [], "unjudged": [], "abandon": False}
+               "draft_raw": [], "main_flush": False, "unproven": [], "unproven_shadow": [], "unjudged": [],
+               "abandon": False}
         turn_msg = {"message": None}
 
         # ── Two-stage answer ──────────────────────────────────────────────
@@ -3360,8 +3361,18 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if source == "agent" and fix["superseded"]:
                     _call_off_held_fix()  # the draft after the tools passed the check: it is the answer
                 if source == "fix":
-                    proof = prove(sentence, check_ctx)
-                    if proof.status == "unproven":
+                    proof_mode = config.COACH_REWRITE_PROOF
+                    proof = prove(sentence, check_ctx) if proof_mode in ("on", "shadow") else None
+                    if proof is not None and proof_mode == "shadow":
+                        if proof.status == "unproven":
+                            logger.info("answer fix unproven (shadow): %s | %s", proof.why[:200], sentence.strip()[:200])
+                            fix["unproven_shadow"].append({"sentence": sentence.strip()[:300], "why": proof.why[:300]})
+                        proof = None  # shown as production shows a rewrite: every sentence the check passes
+                    if proof is None:
+                        if fix["mode"] is None:
+                            fix["mode"] = "rewrite"
+                            fix["draft_pairs"], fix["draft_raw"] = [], []
+                    elif proof.status == "unproven":
                         logger.info("answer fix unproven: %s | %s", proof.why[:200], sentence.strip()[:200])
                         fix["unproven"].append({"sentence": sentence.strip()[:300], "why": proof.why[:300]})
                         if fix["mode"] is None:
@@ -3369,7 +3380,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                             break
                         fix["after_drop"] = True
                         continue
-                    if fix["mode"] is None:
+                    if proof is not None and fix["mode"] is None:
                         if proof.status == "neutral" and not fix.get("db_only"):
                             fix["held_fix"].append(text)  # goes out with the first proven sentence, or never
                             continue
@@ -3946,6 +3957,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             # shown because their only issues were malformed texts.
             "fix_outcome": fix["mode"] if fix["sentence"] else None,
             "unproven": fix["unproven"][:6],
+            "unproven_shadow": fix["unproven_shadow"][:6],  # COACH_REWRITE_PROOF=shadow: what the proof would drop
             "unjudged": fix["unjudged"][:6],
         }
         if answer_check["fixed"] or answer_check["dropped"] or answer_check["unjudged"]:

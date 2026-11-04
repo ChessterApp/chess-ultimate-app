@@ -283,3 +283,47 @@ class TestTurn:
         prompt = seen["messages"][1]["content"]
         assert "(by )" not in prompt and "a bishop on a4 does not attack f7" in prompt
         assert text == "Хороший вопрос. Конь f3 нападает на пешку e5."
+
+
+@pytest.mark.unit
+class TestTurnProofShadow:
+    """COACH_REWRITE_PROOF=shadow, the default since the live run of 04.11 (36 of 40 rewrites dropped as unproven, at
+    least 15 of them true): the rewrite is shown as production shows it — each sentence the check passes — and what
+    the proof would drop is logged (unproven_shadow)."""
+
+    def setup_method(self):
+        self.turns = TestTurn()
+        self.turns.setup_method()
+
+    def _turn(self, draft, rewrite, fen=RUY, user="k6-shadow", message="что тут происходит?", mode="shadow"):
+        events = []
+        with patch("src.server.config.COACH_REWRITE_PROOF", mode), \
+                patch("src.server.log_event", side_effect=lambda name, **kw: events.append((name, kw))):
+            text, seen = self.turns._raw_turn(draft, rewrite, fen, user, message)
+        seen["events"] = events
+        return text.strip(), seen
+
+    def _check(self, seen):
+        return next(kw for name, kw in seen["events"] if name == "answer_check")
+
+    def test_an_unproven_rewrite_is_shown_and_logged(self):
+        text, seen = self._turn(DRAFT, "Конь вынужден уйти на g5 с шахом, и чёрные теряют пешку f7.")
+        assert text == "Хороший вопрос. Конь вынужден уйти на g5 с шахом, и чёрные теряют пешку f7."
+        shadow = self._check(seen)["payload"]["unproven_shadow"]
+        assert [u["sentence"] for u in shadow] == ["Конь вынужден уйти на g5 с шахом, и чёрные теряют пешку f7."]
+        assert self._check(seen)["payload"]["unproven"] == []
+
+    def test_a_proven_rewrite_stands_in_for_the_rest(self):
+        text, seen = self._turn(DRAFT, "Подумай вот о чём. Конь f3 нападает на пешку e5, а защищает её конь c6.")
+        assert text == "Хороший вопрос. Подумай вот о чём. Конь f3 нападает на пешку e5, а защищает её конь c6."
+        assert self._check(seen)["payload"]["unproven_shadow"] == []
+
+    def test_a_rewrite_that_opens_with_a_wrong_claim_is_still_abandoned(self):
+        text, _ = self._turn(DRAFT, "Слон a4 нападает на пешку f7 и ладью h8. Конь f3 нападает на пешку e5.")
+        assert text == "Хороший вопрос. Спокойно рокируйся."
+
+    def test_off_proves_nothing(self):
+        text, seen = self._turn(DRAFT, "Конь вынужден уйти на g5 с шахом, и чёрные теряют пешку f7.", mode="off")
+        assert text == "Хороший вопрос. Конь вынужден уйти на g5 с шахом, и чёрные теряют пешку f7."
+        assert self._check(seen)["payload"]["unproven_shadow"] == []
+

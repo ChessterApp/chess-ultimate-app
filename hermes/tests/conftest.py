@@ -26,3 +26,12 @@ def _engine_pool_off(monkeypatch):
     if os.environ.get("HERMES_TEST_STOCKFISH_POOL") != "1":  # =1: the suite on the pool (a parity run)
         monkeypatch.setattr(config, "STOCKFISH_POOL", False)
     monkeypatch.setattr(config, "COACH_PRECOMPUTE", False)
+
+
+@pytest.fixture(autouse=True)
+def _rewrite_proof_on(monkeypatch):
+    """The rewrite proof (fix1102 K6) ships in shadow (config.COACH_REWRITE_PROOF, live run 04.11); the tests written
+    for it judge it switched on. The shadow tests switch it back themselves."""
+    from src import config
+
+    monkeypatch.setattr(config, "COACH_REWRITE_PROOF", "on")
