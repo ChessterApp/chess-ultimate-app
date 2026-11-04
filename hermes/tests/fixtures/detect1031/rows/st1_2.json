@@ -1,0 +1,251 @@
+{
+ "id": "st1#2",
+ "turn": {
+  "set": "st1",
+  "id": "st1#2",
+  "message": "Кf3",
+  "answer": "Nf3 — и чёрные ответили d6: это классическая сицилианская, вариант «современный» (Дракон без ...g6). Позиция примерно равна, у тебя чуть приятнее за счёт центра. Чёрные держат пешку e7 на месте и готовят ...Nf6 и ...g6 — типичный план за них. Тебе стоит занять центр пешкой d4 — но подумай, в какой момент это сделать: если сразу d4, чёрные могут ответить cxd4 и завязать размен. Как думаешь, что подготовить сначала: d4 или Nc3?",
+  "live_game": true
+ },
+ "kind": "opening_name",
+ "quote": "это классическая сицилианская, вариант «современный» (Дракон без ...g6)",
+ "error": "1.e4 c5 2.Nf3 d6 is the general 2...d6 Sicilian (B50, 'Modern Variations'). It is not the Classical Sicilian, which is a specific line with ...Nc6 and ...Nf6 after the Open Sicilian, and it is not a 'Dragon without ...g6'. The Dragon is defined by ...g6.",
+ "owner": "P2",
+ "tier": "must",
+ "expect": "caught",
+ "stage": "sync",
+ "mechanism": "I1 open_plain + I2 open_recap + I3",
+ "status": "caught",
+ "sentence": "Nf3 — и чёрные ответили d6: это классическая сицилианская, вариант «современный» (Дракон без ...g6). ",
+ "sentence_index": 0,
+ "prefix": [],
+ "replay_issues": [
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkbnr/pp2pppp/3p4/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3",
+    "moves": [],
+    "fen": "rnbqkbnr/pp2pppp/3p4/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3"
+   },
+   {
+    "root": "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+    "moves": [],
+    "fen": "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+   },
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+    "moves": [],
+    "fen": "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+   },
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    },
+    {
+     "$b": 2
+    },
+    {
+     "$b": 3
+    },
+    {
+     "$b": 4
+    }
+   ],
+   "quoted": {
+    "$s": [
+     "Nf3"
+    ]
+   },
+   "given": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b",
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pp2pppp/3p4/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": true,
+   "language": "ru",
+   "engine_eval": 0.34,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": [
+    "c5",
+    "d6"
+   ],
+   "game_moves": [
+    "e4",
+    "c5",
+    "Nf3",
+    "d6"
+   ],
+   "question": "кf3",
+   "question_raw": "Кf3",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b",
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b",
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pp2pppp/3p4/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pp2pppp/3p4/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b",
+     "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pp2pppp/3p4/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_ends": {
+    "$s": [
+     "rnbqkbnr/pp2pppp/3p4/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w"
+    ]
+   },
+   "line_captures": {
+    "$d": [
+     [
+      "rnbqkbnr/pp2pppp/3p4/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w",
+      {
+       "$s": []
+      }
+     ]
+    ]
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": [
+     {
+      "$t": [
+       "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b",
+       "d7d6"
+      ]
+     },
+     {
+      "$t": [
+       "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w",
+       "g1f3"
+      ]
+     },
+     {
+      "$t": [
+       "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+       "c7c5"
+      ]
+     },
+     {
+      "$t": [
+       "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w",
+       "e2e4"
+      ]
+     }
+    ]
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [
+    {
+     "$t": [
+      {
+       "$b": 5
+      },
+      [
+       "e4",
+       "c5",
+       "Nf3",
+       "d6"
+      ]
+     ]
+    }
+   ],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": [
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": [],
+   "game_lines": 1
+  }
+ },
+ "fidelity": true
+}

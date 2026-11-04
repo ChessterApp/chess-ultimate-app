@@ -1,0 +1,231 @@
+{
+ "id": "g1-resign-eval",
+ "turn": {
+  "set": "out_71.json",
+  "id": "g1-resign",
+  "message": "Сдаюсь",
+  "answer": "Понял, партия окончена — счёт 1-0 в пользу движка. Сдаваться в такой момент совершенно нормально: конь на f6 под боем пешки e5, и ты честно не захотел его терять.\n\nХочешь, разберём эту короткую партию по шагам — или начнём новую? Могу сразу подсказать: если играешь защиту Алехина, логичнее не выводить коня под e5, а сначала подтолкнуть пешку — тогда конь останется с темпом.",
+  "live_game": true
+ },
+ "kind": "wrong_eval_or_line",
+ "quote": "конь на f6 под боем пешки e5, и ты честно не захотел его терять",
+ "error": "The answer suggests the knight would be lost, but it isn't in danger. Black has seven legal knight moves, and four of them are safe retreats (Nd5, Ne4, Ng4, Ng8). The main move 2...Nd5 leaves Black only about +0.8 down by Stockfish, which is the normal Alekhine position, so there was nothing to lose.",
+ "owner": "P8",
+ "tier": "out",
+ "expect": "not_caught",
+ "stage": "sync",
+ "mechanism": "prevent: safety, resign block",
+ "status": "missed",
+ "sentence": "Сдаваться в такой момент совершенно нормально: конь на f6 под боем пешки e5, и ты честно не захотел его терять.",
+ "sentence_index": 1,
+ "prefix": [
+  "Понял, партия окончена — счёт 1-0 в пользу движка. "
+ ],
+ "replay_issues": [
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkb1r/pppppppp/5n2/4P3/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2",
+    "moves": [],
+    "fen": "rnbqkb1r/pppppppp/5n2/4P3/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2"
+   },
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkb1r/pppppppp/5n2/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2",
+    "moves": [],
+    "fen": "rnbqkb1r/pppppppp/5n2/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2"
+   },
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    },
+    {
+     "$b": 2
+    },
+    {
+     "$b": 3
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "rnbqkb1r/pppppppp/5n2/4P3/8/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkb1r/pppppppp/5n2/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": false,
+   "language": "ru",
+   "engine_eval": 0.67,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": [
+    "e4",
+    "e5"
+   ],
+   "game_moves": [
+    "e4",
+    "Nf6",
+    "e5"
+   ],
+   "question": "сдаюсь",
+   "question_raw": "Сдаюсь",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": [
+     "rnbqkb1r/pppppppp/5n2/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "rnbqkb1r/pppppppp/5n2/4P3/8/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkb1r/pppppppp/5n2/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "rnbqkb1r/pppppppp/5n2/4P3/8/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": [
+     "rnbqkb1r/pppppppp/5n2/4P3/8/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkb1r/pppppppp/5n2/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_ends": {
+    "$s": [
+     "rnbqkb1r/pppppppp/5n2/4P3/8/8/PPPP1PPP/RNBQKBNR b"
+    ]
+   },
+   "line_captures": {
+    "$d": [
+     [
+      "rnbqkb1r/pppppppp/5n2/4P3/8/8/PPPP1PPP/RNBQKBNR b",
+      {
+       "$s": []
+      }
+     ]
+    ]
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": [
+     {
+      "$t": [
+       "rnbqkb1r/pppppppp/5n2/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+       "e4e5"
+      ]
+     },
+     {
+      "$t": [
+       "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+       "g8f6"
+      ]
+     },
+     {
+      "$t": [
+       "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w",
+       "e2e4"
+      ]
+     }
+    ]
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [
+    {
+     "$t": [
+      {
+       "$b": 4
+      },
+      [
+       "e4",
+       "Nf6",
+       "e5"
+      ]
+     ]
+    }
+   ],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": [
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": [],
+   "game_lines": 1
+  }
+ },
+ "fidelity": true
+}

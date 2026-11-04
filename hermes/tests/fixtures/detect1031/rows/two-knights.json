@@ -1,0 +1,150 @@
+{
+ "id": "two-knights",
+ "turn": {
+  "set": "out_30.json",
+  "id": "two-knights",
+  "message": "Можно ли тут поставить мат двумя конями?",
+  "answer": "Нет — двумя конями мат здесь не форсируется.\n\nЭто классический ничейный эндшпиль: два коня в одиночку не могут загнать короля в угол и поставить мат. Мат случается только если чёрный король сам забредёт в угол, и ты поймаешь момент — но заставить его туда пойти нельзя.\n\nЧтобы почувствовать, как это выглядит на практике, выведу позицию из нашего урока.\n\nДва коня — это тупик: ничейный эндшпиль, и здесь ты не выиграешь, даже если чёрный король неосторожно встанет на край. Кстати, похожая проблема у тебя в профиле — базовые маты ладьёй и королём. Как раз для этого есть твой урок «Мат ладьей и королем» — https://chesster.io/learn/chess-tactics/checkmate-with-rook-and-king.\n\nХочешь, поставлю на доску пример из него, чтобы разобрать схему оттеснения короля?",
+  "live_game": false
+ },
+ "kind": "wrong_eval_or_line",
+ "quote": "Мат случается только если чёрный король сам забредёт в угол",
+ "error": "A K+2N vs K mate is possible on the edge as well as in the corner, for example with the black king on d8, e1 or a4 (python-chess finds mates on every edge square that is not a corner). So it is wrong to say mate needs the king in the corner.",
+ "owner": "P5",
+ "tier": "must",
+ "expect": "caught",
+ "stage": "sync",
+ "mechanism": "C7 mate_squares",
+ "status": "caught",
+ "sentence": "Мат случается только если чёрный король сам забредёт в угол, и ты поймаешь момент — но заставить его туда пойти нельзя.",
+ "sentence_index": 3,
+ "prefix": [
+  "Нет — двумя конями мат здесь не форсируется.",
+  "\n\n",
+  "Это классический ничейный эндшпиль: два коня в одиночку не могут загнать короля в угол и поставить мат. "
+ ],
+ "replay_issues": [
+  [],
+  [],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "8/8/8/8/8/2k5/8/K1N1N3 w - - 0 1",
+    "moves": [],
+    "fen": "8/8/8/8/8/2k5/8/K1N1N3 w - - 0 1"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "8/8/8/8/8/2k5/8/K1N1N3 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 0.05,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "можно ли тут поставить мат двумя конями?",
+   "question_raw": "Можно ли тут поставить мат двумя конями?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "8/8/8/8/8/2k5/8/K1N1N3 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "8/8/8/8/8/2k5/8/K1N1N3 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

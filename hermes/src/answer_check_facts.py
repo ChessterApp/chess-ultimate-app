@@ -101,6 +101,11 @@ def warm_book_index() -> None:
         logger.debug("book index build failed", exc_info=True)
 
 
+def book_index_ready() -> bool:
+    """The book index is built (src/server /health: book_index_ready)."""
+    return _BOOK_THROUGH is not None
+
+
 def _book_index() -> Optional[dict]:
     """The index. On the event loop (the text gate) it is never waited for: until it is built — in the background —
     a board with no record of its own is not judged; a worker thread (POST voice/check) or a script builds it."""

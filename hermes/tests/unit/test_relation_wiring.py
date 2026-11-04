@@ -36,7 +36,9 @@ USER = {"X-User-Id": "relation-wiring"}
 SAYS = {
     UNDEFENDED: [Claim(rel="undefended", subj=None, objs=(Ref(sq="f6", piece="N"),))],
     "f6 нападает на d4": [Claim(rel="attack", subj=Ref(sq="f6", piece="N"), objs=(Ref(sq="d4"),))],
-    "f6 нападает на e4": [Claim(rel="attack", subj=Ref(sq="f6", piece="N"), objs=(Ref(sq="e4"),))],
+    # the span of «нападает» in «Конь f6 нападает на e4.»: a rewrite's sentence is shown only when its words lie in claims
+    # found true (src/rewrite_proof, fix1102 K6)
+    "f6 нападает на e4": [Claim(rel="attack", subj=Ref(sq="f6", piece="N"), objs=(Ref(sq="e4"),), span=(8, 16))],
 }
 
 
@@ -311,7 +313,10 @@ class TestTextTurn:
         monkeypatch.setattr(config, "COACH_RELATION_CHECK", "on")
         monkeypatch.setattr(config, "COACH_ANSWER_FIX", True)
         shown, events, _ = self._turn_with(ST4_ANSWER)
-        assert UNDEFENDED not in shown and "защищён пешками e7 и g7" in shown
+        # «защищён пешками e7 и g7» is no claim of SAYS, so nothing proves it (fix1102 K6): the rewrite is not kept and the
+        # draft goes on after the cut sentence
+        assert UNDEFENDED not in shown and "защищён пешками e7 и g7" not in shown and "чем начнёшь" in shown
+        assert events["answer_check"]["fix_outcome"] == "draft"
         assert len(self.fix_prompts) == 1
         why = self.fix_prompts[0].split("Why it is wrong (checked on the board): ", 1)[1]
         assert why.startswith("f6 (Black knight) is attacked by nothing and defended by e7, g7")
@@ -320,8 +325,9 @@ class TestTextTurn:
         """fix_gate shares check_ctx: a rewrite sentence with a false relation claim is left out too."""
         monkeypatch.setattr(config, "COACH_RELATION_CHECK", "on")
         monkeypatch.setattr(config, "COACH_ANSWER_FIX", True)
-        shown, events, _ = self._turn_with(ST4_ANSWER, fix_text="Конь f6 нападает на d4. Конь f6 нападает на e4.")
+        shown, events, _ = self._turn_with(ST4_ANSWER, fix_text="Конь f6 нападает на e4. Конь f6 нападает на d4.")
         assert "нападает на e4" in shown and "нападает на d4" not in shown
+        assert events["answer_check"]["fix_outcome"] == "rewrite"
         dropped = [d["sentence"] for d in events["answer_check"]["dropped"]]
         assert dropped == ["Конь f6 нападает на d4."]
         assert events["turn_end"]["relation_flags"] == 2

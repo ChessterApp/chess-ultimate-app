@@ -1,0 +1,159 @@
+{
+ "id": "lucena",
+ "turn": {
+  "set": "out_30.json",
+  "id": "lucena",
+  "message": "Как здесь выиграть? Объясни план.",
+  "answer": "Это позиция Люцены — классический способ выиграть с ладьёй и пешкой против ладьи. Сейчас лучший ход — **Rd1+**: ладья шахует чёрного короля и гонит его на одну вертикаль дальше от пешки.\n\nПлан такой: после шаха ставим ладью на d4 — она закроет короля от шахов с фланга. Затем белый король выходит из-под пешки (Kc7), и ладья на d4 образует «мост» — когда чёрная ладья начнёт шаховать по вертикали d, наша ладья просто перекроет линию. Продолжение: Rd1+ Ke7, Rd4 Ke6, Kc7 — и пешка проходит в ферзи.\n\nХочешь, разберём, почему ладья идёт именно на d4, а не остаётся на первой линии?",
+  "live_game": false
+ },
+ "kind": "wrong_attack_or_defence",
+ "quote": "когда чёрная ладья начнёт шаховать по вертикали d, наша ладья просто перекроет линию",
+ "error": "After Kc7 the black rook checks along the c- and b-files (Rc2+ Kb6 Rb2+ ...). The 'bridge' is the white rook going from d4 to b4 to block a check on the b-file. White's king never stands on the d-file in this line, so there are no checks along the d-file to block. The answer gets the mechanism of the bridge wrong.",
+ "owner": "P3D",
+ "tier": "must",
+ "expect": "caught",
+ "stage": "sync",
+ "mechanism": "C2a checks_geometry",
+ "status": "caught",
+ "sentence": "Затем белый король выходит из-под пешки (Kc7), и ладья на d4 образует «мост» — когда чёрная ладья начнёт шаховать по вертикали d, наша ладья просто перекроет линию. ",
+ "sentence_index": 4,
+ "prefix": [
+  "Это позиция Люцены — классический способ выиграть с ладьёй и пешкой против ладьи. ",
+  "Сейчас лучший ход — **Rd1+**: ладья шахует чёрного короля и гонит его на одну вертикаль дальше от пешки.",
+  "\n\n",
+  "План такой: после шаха ставим ладью на d4 — она закроет короля от шахов с фланга. "
+ ],
+ "replay_issues": [
+  [],
+  [],
+  [],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1",
+    "moves": [],
+    "fen": "1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "1K1k4/1P6/8/8/8/8/r7/2R5 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 4.19,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "как здесь выиграть? объясни план.",
+   "question_raw": "Как здесь выиграть? Объясни план.",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "1K1k4/1P6/8/8/8/8/r7/2R5 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "1K1k4/1P6/8/8/8/8/r7/2R5 w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [
+    [
+     "Rd1+",
+     "Ke7",
+     "Rd4",
+     "Ke6"
+    ]
+   ],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

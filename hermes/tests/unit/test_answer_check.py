@@ -191,7 +191,8 @@ class TestTurn:
 
         def _fix(**kwargs):
             seen["messages"] = kwargs["messages"]
-            kwargs["on_delta"]("Ход, о котором речь — удар конём на f7: конь на f7 бьёт ферзя d8 и ладью h8.")
+            # A sentence the check proves (fix1102 K6: a rewrite says only that): the bishop on c4 does hit f7.
+            kwargs["on_delta"]("Ход, о котором речь — удар по f7: слон c4 нападает на пешку f7.")
             reply = QuickReply(model=kwargs["model"])
             reply.prompt_tokens, reply.completion_tokens = 100, 20
             return reply
@@ -206,7 +207,7 @@ class TestTurn:
         assert "f3 прыгает" not in text and "ерунда" not in text
         # «Ход, о котором речь — » announces the move: held with it (a cut move left such a start
         # dangling on production, 2026-10-07), so the rewrite writes the sentence whole.
-        assert text == "Хороший вопрос. Ход, о котором речь — удар конём на f7: конь на f7 бьёт ферзя d8 и ладью h8."
+        assert text == "Хороший вопрос. Ход, о котором речь — удар по f7: слон c4 нападает на пешку f7."
         fix_prompt = seen["messages"][1]["content"]
         assert "a knight cannot move from f3 to d5" in fix_prompt
         assert "Хороший вопрос." in fix_prompt  # what the student saw: the move's start was held with it
@@ -271,6 +272,7 @@ class TestRewriteOverlap:
 
     @patch("src.server.config.COACH_ENGINE_NOTE", False)
     @patch("src.server.config.COACH_OPENING_PRESTEP", False)
+    @patch("src.rewrite_proof._prove", lambda sentence, ctx: __import__("src.rewrite_proof").rewrite_proof.Proof("proven"))
     @patch("src.quick_reply.stream_completion")
     @patch("src.server._create_agent")
     @patch("src.server.load_user_profile")

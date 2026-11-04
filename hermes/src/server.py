@@ -214,6 +214,14 @@ def _warm_up() -> None:
     started = time.monotonic()
     steps = {}
     try:
+        # The analysis processes (src/engine_pool.py, plan 31.10 P7a): started once here, no process per search.
+        from src import engine_pool
+
+        if engine_pool.start():
+            steps["engine_pool"] = int((time.monotonic() - started) * 1000)
+    except Exception:  # noqa: BLE001 — warming up is best-effort
+        logger.warning("warm-up: engine pool failed", exc_info=True)
+    try:
         _create_agent(quick_model(), "warm-up", session_id="warm-up", user_query="warm-up")
         steps["agent"] = int((time.monotonic() - started) * 1000)
     except Exception:  # noqa: BLE001 — warming up is best-effort
@@ -946,6 +954,18 @@ def _engine_moves(game: dict) -> list:
     return [m for i, m in enumerate(game.get("moves") or []) if i % 2 == first]
 
 
+def _record_leads_to(moves: list, fen: Optional[str]) -> bool:
+    """The game record *moves* (SAN from the start) ends in the position of *fen* — pieces, side to move."""
+    try:
+        board = chess.Board()
+        for san in moves:
+            board.push_san(san)
+        target = chess.Board(fen) if fen else None
+    except ValueError:
+        return False
+    return target is not None and board.board_fen() == target.board_fen() and board.turn == target.turn
+
+
 def _parse_move_token(token: str, board) -> Optional[str]:
     """*token* as a legal SAN move of *board* (Russian notation too), else None."""
     from src.notation import russian_to_san
@@ -1016,7 +1036,95 @@ def _served_model(agent, routed_model: str) -> str:
 
 # Engine lines for text turns run here, not on the default executor that also
 # carries the agent and the reaction; engine_note itself caps parallel engines.
-_engine_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="engine-note")
+# 8 threads (plan 31.10 P7a): the Stockfish processes are the engine pool's now (src/engine_pool.py), so a thread
+# waiting here for a process costs nothing, and the pool is the CPU limit.
+class _ContextExecutor(ThreadPoolExecutor):
+    """A thread pool whose tasks run in a copy of the submitter's context (contextvars), as asyncio.to_thread's do:
+    a caller's turn_facts.suspended() — the lesson tutor's, whose facts stay as main's — and its answer-check shadow
+    sink reach the engine work it submits."""
+
+    def submit(self, fn, /, *args, **kwargs):
+        import contextvars
+
+        ctx = contextvars.copy_context()
+        return super().submit(ctx.run, fn, *args, **kwargs)
+
+
+_engine_pool = _ContextExecutor(max_workers=8, thread_name_prefix="engine-note")
+
+# Every board save starts the analysis of its new position in the background (src/engine_precompute.py, plan 31.10
+# P7b; COACH_PRECOMPUTE=0 or STOCKFISH_POOL=0 switches it off at call time).
+from src import engine_precompute  # noqa: E402
+
+engine_precompute.install()
+
+
+def _after_engine_line(future, session_id: str, board_id: str, fen: str) -> None:
+    """The turn's engine line is ready: the positions after its top moves are analysed as the answer check will ask."""
+    try:
+        if future.cancelled() or future.exception() is not None:
+            return
+        engine_precompute.after_engine_line(session_id, board_id, fen, future.result())
+    except Exception:  # noqa: BLE001 — background work never touches the turn
+        logger.debug("precompute after the engine line failed", exc_info=True)
+
+
+def _after_ideas(future, session_id: str, board_id: str) -> None:
+    """The student's idea moves were looked at: the positions after them get the forced-reply confirm in advance."""
+    try:
+        if future.cancelled() or future.exception() is not None:
+            return
+        engine_precompute.after_ideas(session_id, board_id, list((future.result() or {}).get("fens") or []))
+    except Exception:  # noqa: BLE001 — background work never touches the turn
+        logger.debug("precompute after the idea moves failed", exc_info=True)
+
+
+def _game_final_fen(pgn: str) -> Optional[str]:
+    """The final position of a game's PGN, or None."""
+    try:
+        import io as _io
+
+        import chess.pgn as _pgn
+
+        game = _pgn.read_game(_io.StringIO(pgn or ""))
+        if game is None:
+            return None
+        board = game.end().board()
+        return None if board.is_game_over() or not board.move_stack else board.fen()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _review_final_block(note: dict) -> str:
+    """The engine line of a reviewed game's final position (plan 31.10 P7b): the model needed an analyze_position
+    round of its own for it (prod 29.10, `game-load`: a whole extra model call)."""
+    return ("## Engine analysis of the game's final position\n"
+            f"{note['note']}\n"
+            "Stockfish already analysed the position the game ended in, as analyze_position would: do not call "
+            "analyze_position for it. Evaluations are from White's side.")
+
+
+def _engine_priority(level: int):
+    """fn → fn(*args) with its Stockfish searches at *level* in the engine pool's queue (src/engine_pool.py):
+    0 a sentence the answer check holds, 1 an engine line, 2 a tool call, 3 work done in advance."""
+    from src import engine_pool
+
+    return lambda fn, *args, **kwargs: engine_pool.at_priority(level, fn, *args, **kwargs)
+
+
+def _held_check(ctx, sentence: Optional[str]):
+    """fn → fn(*args) for a sentence the answer check holds: its searches at the front of the engine pool's queue
+    (PRIORITY_CHECK — every engine check of a held sentence, not only the line verdict), and the shadow records its
+    detectors make on the worker thread go to the turn's check (src/answer_check.shadow_into), so they reach the
+    detector_shadow event like the sync detectors' (review-wiring 01.11)."""
+    from src import engine_pool
+    from src.answer_check import shadow_into
+
+    def run(fn, *args, **kwargs):
+        with shadow_into(ctx, sentence), engine_pool.priority(engine_pool.PRIORITY_CHECK):
+            return fn(*args, **kwargs)
+
+    return run
 
 
 _POSITION_ACTIONS = frozenset({"set_fen", "set_puzzle", "load_pgn", "clear_board"})
@@ -1125,6 +1233,22 @@ if not _timings_log.handlers:
     _timings_log.addHandler(_timings_handler)
     _timings_log.setLevel(logging.INFO)
     _timings_log.propagate = False
+
+
+# The final position's engine line of a reviewed game is read only when it is ready by the time the scan is: a
+# cached line (the precompute analysed the game while it was on the board) ends within this; a search still running
+# is left to the model's own analyze_position, as before 31.10.
+REVIEW_NOTE_GRACE_S = 0.05
+
+
+def _ready_result(future, grace_s: float):
+    """*future*'s result when it is done within *grace_s*, else None (never raises, never waits longer)."""
+    if future is None:
+        return None
+    try:
+        return future.result(timeout=grace_s)
+    except Exception:  # noqa: BLE001 — late or failed: left out
+        return None
 
 
 def _await_review(future, started: float, state: dict) -> Optional[dict]:
@@ -1247,6 +1371,17 @@ def lesson_link_line(tool_results: list, answer: str, language: str) -> Optional
         return template.format(title=lesson.get("title") or "", course=course, url=lesson["url"])
     return None
 
+
+# A turn whose every sentence was left out by the answer check and whose rewrite proved nothing (fix1102 K6): an honest
+# line, never an empty bubble and never a guess.
+_CHECK_EMPTY_TEXT = {
+    "ru": "Не хочу сказать тебе неточность, а проверить свой ответ по доске сейчас не получилось. Спроси, пожалуйста, "
+          "ещё раз — можно чуть конкретнее.",
+    "kz": "Саған қате айтқым келмейді, ал жауабымды тақтада қазір тексере алмадым. Сұрағыңды қайта қойшы — сәл нақтырақ.",
+    "kk": "Саған қате айтқым келмейді, ал жауабымды тақтада қазір тексере алмадым. Сұрағыңды қайта қойшы — сәл нақтырақ.",
+    "en": "I don't want to tell you something inaccurate, and I couldn't verify my answer on the board just now. "
+          "Please ask again — a bit more specifically if you can.",
+}
 
 _STREAM_CUT_TEXT = {
     "ru": "(Связь с моделью оборвалась, ответ неполный — задайте вопрос ещё раз.)",
@@ -1377,12 +1512,36 @@ async def health():
         "stockfish": {
             "available": stockfish_available,
             "circuit": stockfish_circuit.status(),
+            # The persistent analysis processes (src/engine_pool.py): processes alive, busy, waiting, restarts.
+            "pool": _engine_pool_status(),
         },
         "supabase": {
             "configured": bool(os.environ.get("SUPABASE_URL")),
             "circuit": supabase_circuit.status(),
         },
+        # The ECO book's indexes the text gate reads (src/answer_check_facts.py, src/openings_book.py) are built: until
+        # then the first turns after a restart do not judge «здесь белые пошли …» (plan 31.10 [J]; built in _warm_up).
+        "book_index_ready": _book_index_ready(),
     }
+
+
+def _engine_pool_status() -> dict:
+    try:
+        from src import engine_pool
+
+        return engine_pool.status()
+    except Exception:  # noqa: BLE001 — the health check never fails on it
+        return {"on": None}
+
+
+def _book_index_ready() -> bool:
+    try:
+        from src.answer_check_facts import book_index_ready
+        from src.openings_book import position_index_ready
+
+        return bool(book_index_ready() and position_index_ready())
+    except Exception:  # noqa: BLE001 — the health check never fails on it
+        return False
 
 
 @app.post("/v1/chat/completions")
@@ -2083,6 +2242,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if review_pgn:
             review_future = _engine_pool.submit(find_critical_moments, review_pgn)
     review_state = {"used": False, "ms": None, "moments": None}
+    # …and the engine line of the game's final position, as the analyze_position tool asks it (depth 16, 3 lines):
+    # read from what the precompute did while the game was on the board, else searched beside the scan.
+    review_note_future = None
+    if review_future is not None and config.COACH_ENGINE_NOTE and engine_precompute.enabled():
+        final_fen = _game_final_fen(review_pgn)
+        if final_fen:
+            # Behind the scan in the engine pool's queue (a tool call's level): the scan's two halves keep both
+            # processes, and the note is read only when it is ready by the time the scan is (review-wiring 01.11:
+            # at the scan's level it took a process from it, and the game-load turn waited 2.1 s against 1.4 s).
+            review_note_future = _engine_pool.submit(_engine_priority(2), engine_note, final_fen)
     # An opening named in the message: its book line goes on the board and into
     # the turn before the model is called (src/opening_knowledge.py) — the engine
     # line below then describes the line's final position, not the old board.
@@ -2254,6 +2423,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     if (config.COACH_ENGINE_NOTE and (body.fen or opening_plan or endgame or hidden_fen) and note_fen
             and not live_game and review_future is None and not wants_puzzle):
         engine_future = _engine_pool.submit(engine_note, note_fen, movetime_ms=note_movetime)
+        engine_future.add_done_callback(
+            lambda f, sid=session.id, bid=active_board.id, fen=note_fen: _after_engine_line(f, sid, bid, fen))
     # A live game: the evaluation and the opponent's threat (no best move) — the
     # coach hints, but it must know what hangs and what is coming (2026-10-05).
     live_future = None
@@ -2316,6 +2487,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 hypo_future = _engine_pool.submit(
                     hypothetical_notes, idea_fen, legal_named, idea_movetime, not live_game,
                 )
+                hypo_future.add_done_callback(
+                    lambda f, sid=session.id, bid=active_board.id: _after_ideas(f, sid, bid))
         except Exception:  # noqa: BLE001 — the idea block is best-effort
             logger.debug("question moves failed", exc_info=True)
             named_moves = []
@@ -2357,6 +2530,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     current_message = (
         f"{body.context_note.strip()}\n\n{body.message}" if body.context_note else body.message
     )
+    # The typed facts (src/turn_facts) the blocks below give the model this turn — the answer check's
+    # CheckContext.facts: this turn's own, never the last ones another session collected for the position.
+    given_facts: list = []
     # A live game on the active board: the coach must know it is playing, what
     # has been played, and that hints are hints (see game_mode.game_context).
     if active_board.kind == "game" and active_board.game_state:
@@ -2370,7 +2546,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 # board's own facts are not — what hangs is a fact, not a hint.
                 from src.prompt_builder import board_facts_block
 
-                facts_note = board_facts_block(session.board_state)
+                facts_note = board_facts_block(session.board_state, given=given_facts)
                 if facts_note:
                     turn_context = f"{turn_context}\n\n{facts_note}"
         except Exception:  # noqa: BLE001 — never block a turn on the game note
@@ -2550,7 +2726,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     bestofn_message = f"{bestofn_message}\n\n{hidden_note_block(note['note'], hidden_what)}"
                 elif note:
                     bestofn_message = (f"{bestofn_message}\n\n"
-                                       f"{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative), mate_in=note.get('mate_in'), fen=note.get('fen'))}")
+                                       f"{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative), mate_in=note.get('mate_in'), fen=note.get('fen'), facts=note.get('typed_facts'))}")
                 bestofn_message = f"{bestofn_message}\n\n{lang_note}"
                 async for frame in _bestofn_event_stream(
                     base_agent=agent, model=model, system_prompt=system_prompt,
@@ -2580,6 +2756,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # rewrite of the rest of the answer after a wrong sentence.
         from src.answer_check import (PROMISE_ISSUE, CheckContext, SentenceGate, chess_terms, fix_messages, proposed_move,
                                       strip_leaks)
+        from src.rewrite_proof import (ends_the_draft, fix_issues, mend_after_cut, prove, renumber_item, restore, snapshot,
+                                       well_formed)
 
         # Every board of the session counts (a capture named for the second
         # board was cut as impossible on the first, 2026-10-02), and in a game
@@ -2656,22 +2834,35 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if active_board.kind == "game" and active_board.game_state:
             check_ctx.game_engine_moves = _engine_moves(active_board.game_state)
             check_ctx.game_moves = list(active_board.game_state.get("moves") or [])
+            # The pre-step played the student's move this turn (K3 02.11): «Можно, но сильнее d5» may be the move
+            # the student could have played instead — src/answer_check.board_before_students_move.
+            check_ctx.student_moved_now = bool(game_step and ((game_step.get("view") or {}).get("student") or {}).get("san"))
         # «Покажу на доске.» waits for a board action of the turn and is left out without one (prod 29.10).
         gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK), hold_promises=True)
-        fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK), hold_promises=True)
+        # The rewrite's sentences go out whole, each once it is checked and proven (src/rewrite_proof.py): no start of
+        # one is released before it is judged, whatever COACH_STREAM_SENTENCE_STARTS says (fix1102 K6).
+        fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK), hold_promises=True, release_starts=False)
         fix_markup = MarkupFilter(session.board_state)
         # The coach's recommendation («сыграй Rg1») is checked by the engine
         # before the sentence is shown (src/hypothetical.verify_recommendation).
         verify_state = {"left": config.COACH_MOVE_VERIFY_PER_TURN if config.COACH_MOVE_VERIFY else 0,
                         "checked": 0, "caught": 0, "ms": 0}
         tb_line_state = {"left": config.COACH_TABLEBASE_LINE_CHECKS if config.COACH_ANSWER_CHECK else 0}
+        # The rewrite after a wrong sentence (fix1102 K6): ``mode`` None while it is undecided, 'rewrite' once its first
+        # sentence with a board word is proven (it then stands in for the rest of the draft), 'draft' once it is
+        # abandoned — a wrong or unproven first such sentence, none at all, a failed call: the draft then goes on after
+        # the cut sentence — and 'end' when it is abandoned and the draft is in the wrong language (the answer ends).
+        # Until it is decided the draft's text is held (``draft_pairs`` checked, ``draft_raw`` not yet), and the
+        # rewrite's neutral sentences too (``held_fix``). ``pending``: the call has not returned.
         fix = {"running": False, "done": False, "sentence": None, "issues": [], "dropped": [],
                "reply": None, "started": None, "first_ms": None, "emitted": False,
                "shown_prefix": "", "head": "", "gen": 0,
                # A tool call came after the wrong sentence while its rewrite was still unseen: the rewrite goes on
                # but is held — the draft written after the tools stands in for it once a sentence of it passes the
                # check; a draft that ends at the tool gets the rewrite (verification 04.11: an empty answer).
-               "superseded": False, "held": [], "held_done": None, "tools_after": []}
+               "superseded": False, "held": [], "held_done": None, "tools_after": [],
+               "mode": None, "pending": False, "held_fix": [], "draft_pairs": [],
+               "draft_raw": [], "main_flush": False, "unproven": [], "unjudged": [], "abandon": False}
         turn_msg = {"message": None}
 
         # ── Two-stage answer ──────────────────────────────────────────────
@@ -2888,7 +3079,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     old_board_blocks.append(hidden_note_block(note['note'], hidden_what))
                     message = f"{message}\n\n{old_board_blocks[-1]}"
                 elif note:
-                    old_board_blocks.append(engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative), mate_in=note.get('mate_in'), fen=note.get('fen')))
+                    old_board_blocks.append(engine_note_block(
+                        note['note'], opening=bool(opening_plan and not opening_plan.relative), mate_in=note.get('mate_in'),
+                        fen=note.get('fen'), facts=note.get('typed_facts'), given=given_facts))
                     message = f"{message}\n\n{old_board_blocks[-1]}"
                 elif engine_future is not None and note_fen:
                     # The engine was late (load, a slow lookup): the board's own facts — what hangs,
@@ -2897,7 +3090,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     try:
                         from src.prompt_builder import board_facts_block
 
-                        facts_only = board_facts_block(note_fen)
+                        facts_only = board_facts_block(note_fen, given=given_facts)
                         if facts_only:
                             old_board_blocks.append(facts_only)
                             message = f"{message}\n\n{facts_only}"
@@ -2910,6 +3103,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
                     add_solution_line(check_ctx, engine_solution_line(
                         note, check_ctx, body.message, task_on_board=bool(puzzle_note or site_puzzle_hit)))
+                    # The engine's lines from the board on the screen: what a rewrite may name as moves (src/rewrite_proof).
+                    try:
+                        from src.answer_check_relations import line_from
+
+                        check_ctx.engine_lines = [ln for ln in (
+                            line_from(note.get("fen"), (x or {}).get("moves") if isinstance((x or {}).get("moves"), list)
+                                      else str((x or {}).get("moves") or "").split(), check_ctx.current, plies=8)
+                            for x in (note.get("lines") or [])) if ln]
+                    except Exception:  # noqa: BLE001 — without them a rewrite names no move
+                        logger.debug("engine lines for the rewrite failed", exc_info=True)
                     check_ctx.engine_eval = _parse_white_eval((note.get("lines") or [{}])[0].get("eval"))
                     # The tablebase is exact where the engine is not (a +1.13 dead draw).
                     tb = note.get("tablebase")
@@ -2934,14 +3137,34 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 from src.endgame_claims import tablebase_from_cache
 
                 tablebase_from_cache(check_ctx)
+                # The typed facts the model was given this turn (src/turn_facts, plan 31.10 P8): the ones the blocks
+                # above rendered — what a detector may quote («you were given: …»).
+                check_ctx.facts = list(given_facts)
                 hypo = _await_engine_note(hypo_future, engine_started, hypo_state)
                 if hypo:
                     old_board_blocks.append(
                         hypothetical_block(hypo['note'], live_game=bool(live_game), where=past['label'] if past else None))
                     message = f"{message}\n\n{old_board_blocks[-1]}"
+                # The rules the board itself shows this turn — a stalemate an idea move makes, a mate, an illegal
+                # castling — with the facts of the recommended move (src/rules_facts.rules_block, plan 31.10: P6 writes
+                # the body; "" until then, so the message is as before).
+                try:
+                    from src.rules_facts import rules_block
+
+                    verdict_rules = rules_block(body.message, board_verdicts={
+                        "fen": idea_fen, "ideas": list((hypo or {}).get("items") or []),
+                        "idea_fens": list((hypo or {}).get("fens") or []),
+                        "engine_lines": list((note or {}).get("lines") or [])})
+                except Exception:  # noqa: BLE001 — never block a turn on the rules
+                    verdict_rules = ""
+                if verdict_rules:
+                    message = f"{message}\n\n{verdict_rules}"
                 review = _await_review(review_future, engine_started, review_state)
                 if review:
                     message = f"{message}\n\n{review_block(review)}"
+                    review_note = _ready_result(review_note_future, REVIEW_NOTE_GRACE_S)
+                    if isinstance(review_note, dict) and review_note.get("note"):
+                        message = f"{message}\n\n{_review_final_block(review_note)}"
                     # The «Моменты» card of the review (src/review_moments.py): the scan ran
                     # here, not as a tool, so its tool_result frame is sent from here.
                     summary = build_summary("find_critical_moments", {"pgn": review_pgn}, review,
@@ -2970,8 +3193,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 from src.answer_check_relations import issues_for_fix
                 from src.quick_reply import stream_completion
 
-                # The board truth of the relation checker first, at most three reasons (the full list is logged).
-                issues = issues_for_fix(issues, check_ctx)
+                # Only issue texts a reader can check (src/rewrite_proof.fix_issues: no «defended (by )», no «exf4 is
+                # impossible after exf4»), the relation checker's board truth first, at most three (the full list is logged).
+                issues = issues_for_fix(fix_issues(issues), check_ctx)
+                if not issues:
+                    return  # nothing proven to write from: the draft goes on (fix_done with no reply)
                 turn_text = forget_old_board_text(turn_msg["message"] or augmented_message, old_board_blocks) \
                     if board_moved["fen"] else (turn_msg["message"] or augmented_message)
                 # What the turn's tools did (the database's results, the game loaded on the board): the rewrite has no
@@ -3081,11 +3307,30 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         def _sentence_frames(pairs, source: str) -> list:
             """Checked sentences → frames. A wrong sentence of the model's answer is
             not shown and starts the rewrite (which replaces the rest of the draft);
-            a wrong sentence of the rewrite is left out."""
+            a wrong sentence of the rewrite is left out.
+
+            The rewrite says only what the check proved (src/rewrite_proof.py, fix1102 K6): its first sentence with a
+            board word decides it — proven, the rewrite stands in for the rest of the draft (its neutral sentences held
+            until then go out first); wrong or unproven, the rewrite is abandoned (``fix['abandon']``: the caller resumes
+            the draft, ``_resume_draft``). Later on an unproven sentence of a kept rewrite is left out like a wrong one.
+            *source* 'draft' is the draft resumed after an abandoned rewrite: its wrong sentences are left out. An issue
+            text that states nothing checkable («defended (by )», «exf4 is impossible after exf4») is no verdict: a
+            sentence with no other issue is shown (src/rewrite_proof.well_formed)."""
             frames = []
             for text, issues, sentence in pairs:
                 if source == "agent" and (fix["running"] or fix["done"]) and not fix["superseded"]:
+                    if fix["running"] and fix["mode"] is None:
+                        fix["draft_pairs"].append((text, issues, sentence))  # the draft, if the rewrite is abandoned
                     continue  # the rewrite stands in for the rest of the draft
+                if source == "fix" and (fix["mode"] == "draft" or fix["abandon"]):
+                    continue  # an abandoned rewrite
+                if issues and issues != [PROMISE_ISSUE]:
+                    judged = well_formed(issues)
+                    if not judged:
+                        logger.info("answer check unjudged (malformed issue): %s | %s", "; ".join(issues),
+                                    sentence.strip()[:200])
+                        fix["unjudged"].append({"sentence": sentence.strip()[:300], "issues": list(issues)})
+                    issues = judged
                 if issues == [PROMISE_ISSUE]:
                     # «Покажу на доске.» and the turn ended with the board untouched: the promise alone is left
                     # out — nothing in it to rewrite (prod 29.10, rule-promote).
@@ -3100,33 +3345,100 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                             _call_off_held_fix()  # a new wrong sentence after the tools: its own rewrite
                         # The start of the sentence that already went out (before its
                         # first move or piece): the rewrite must not say it again.
-                        fix.update(running=True, sentence=sentence, issues=issues, started=time.monotonic(),
+                        fix.update(running=True, pending=True, sentence=sentence, issues=issues, started=time.monotonic(),
                                    shown_prefix=sentence[: len(sentence) - len(text)] if sentence.endswith(text) else "",
-                                   gen=fix["gen"] + 1)
+                                   ctx=snapshot(check_ctx), gen=fix["gen"] + 1)
                         loop.run_in_executor(None, _run_fix, "".join(answer_parts), sentence, issues, fix["gen"])
+                    elif source == "fix" and fix["mode"] is None:
+                        fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
+                        fix["abandon"] = True  # a rewrite that opens with a wrong claim is not kept
+                        break
                     else:
                         fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
                         fix["after_drop"] = True
                     continue
                 if source == "agent" and fix["superseded"]:
                     _call_off_held_fix()  # the draft after the tools passed the check: it is the answer
-                if fix.pop("after_drop", False) or not "".join(answer_parts).strip():
-                    # «Затем…» after the sentence left out — or the answer's very first words
-                    text = strip_leaning_start(text)
+                if source == "fix":
+                    proof = prove(sentence, check_ctx)
+                    if proof.status == "unproven":
+                        logger.info("answer fix unproven: %s | %s", proof.why[:200], sentence.strip()[:200])
+                        fix["unproven"].append({"sentence": sentence.strip()[:300], "why": proof.why[:300]})
+                        if fix["mode"] is None:
+                            fix["abandon"] = True
+                            break
+                        fix["after_drop"] = True
+                        continue
+                    if fix["mode"] is None:
+                        if proof.status == "neutral":
+                            fix["held_fix"].append(text)  # goes out with the first proven sentence, or never
+                            continue
+                        fix["mode"] = "rewrite"
+                        for held in fix.pop("held_fix", []):
+                            frames.extend(_answer_frames(held))
+                        fix["held_fix"] = []
+                        fix["draft_pairs"], fix["draft_raw"] = [], []
+                shown_text = "".join(answer_parts)
+                cut_any = bool(fix["sentence"] or fix["dropped"] or fix["unproven"])
+                if cut_any and fix.get("after_drop") and not text.strip():
+                    # The gap after a sentence left out waits for the next words (R3 03.11: «\n» used to take the
+                    # «Затем…» repair meant for them); a line break already shown is not doubled.
+                    if shown_text.strip() and not shown_text.endswith("\n"):
+                        frames.extend(_answer_frames(text))
+                    continue
+                if fix.pop("after_drop", False) or not shown_text.strip():
+                    # «Затем…», «Поэтому…», «точнее, …» after the sentence left out — or the answer's very first words
+                    text = mend_after_cut(text, shown_text) if cut_any else strip_leaning_start(text)
+                if cut_any:
+                    # «1. …» shown, «2. …» cut: «3. …» goes on as «2. …»
+                    text = renumber_item(text, shown_text, [fix["sentence"] or ""] + [d["sentence"] for d in fix["dropped"]]
+                                         + [u["sentence"] for u in fix["unproven"]], board=check_ctx.current)
                 frames.extend(_answer_frames(text))
             return frames
 
         def _call_off_held_fix():
             """The draft after the tools goes on instead of the held rewrite: the wrong sentence alone is left out
             (review 03.11, t12 — the rewrite, which saw no tool result, wrote «нет доступа к базе» while the game
-            went on the board)."""
+            went on the board). The proof state of the rewrite (fix1102 K6) is reset with it: the call it belonged to
+            is aborted (its frames carry the old *gen*), so nothing waits for it."""
             logger.info("answer check: rewrite called off by the draft after a tool call | %s",
                         (fix["sentence"] or "").strip()[:200])
             fix["dropped"].append({"sentence": (fix["sentence"] or "").strip()[:300], "issues": fix["issues"],
                                    "before_tool": True})
             fix.update(running=False, sentence=None, issues=[], started=None, head="", shown_prefix="",
                        gen=fix["gen"] + 1, after_drop=True, superseded=False, held=[], held_done=None,
-                       tools_after=[])
+                       tools_after=[], mode=None, pending=False, held_fix=[], draft_pairs=[], draft_raw=[],
+                       main_flush=False, abandon=False)
+            fix.pop("ctx", None)
+
+        async def _resume_draft() -> list:
+            """The rewrite is abandoned: the draft goes on after the cut sentence — the sentences already checked, then
+            the text held while the rewrite ran, then (the draft over) its last sentence. Every sentence is checked as
+            usual; the cut one is simply left out."""
+            if ends_the_draft(fix["issues"]):
+                # The draft is in the wrong language: it does not go on, the answer ends here (or with the plain line).
+                fix.update(running=False, done=True, mode="end", abandon=False, held_fix=[], draft_pairs=[],
+                           draft_raw=[], main_flush=False)
+                return []
+            fix.update(running=False, done=True, mode="draft", abandon=False, held_fix=[])
+            fix["after_drop"] = True
+            restore(check_ctx, fix.pop("ctx", None))  # the rewrite's sentences were never shown
+            frames = []
+            pairs, fix["draft_pairs"] = fix["draft_pairs"], []
+            frames.extend(_sentence_frames(pairs, "draft"))  # checked and verified when they came
+            raw, fix["draft_raw"] = fix["draft_raw"], []
+            for payload in raw:
+                payload, mark_actions = markup.feed(payload)
+                for action in mark_actions:
+                    frame = _board_frame([action])
+                    if frame:
+                        frames.append(frame)
+                if payload:
+                    frames.extend(_sentence_frames(await _verified(gate.feed(payload)), "draft"))
+            if fix.pop("main_flush", False):
+                tail = markup.flush()
+                frames.extend(_sentence_frames(await _verified((gate.feed(tail) if tail else []) + gate.flush()), "draft"))
+            return frames
 
         async def _line_outcomes(pairs):
             """«после Kd5 a6 Kc6 — ничья»: an outcome claim at the end of a written line, whose position the
@@ -3140,7 +3452,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if pending and not issues and tb_line_state["left"] > 0:
                     tb_line_state["left"] -= 1
                     try:
-                        issue = await loop.run_in_executor(None, judge_pending, pending)
+                        issue = await loop.run_in_executor(None, _held_check(check_ctx, sentence), judge_pending,
+                                                           pending)
                     except Exception:  # noqa: BLE001 — the check is best-effort
                         issue = None
                     if issue:
@@ -3169,13 +3482,28 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         started_v = time.monotonic()
                         try:
                             issue = await loop.run_in_executor(
-                                _engine_pool, verify_recommendation, found[0], found[1], found[2],
-                                config.COACH_MOVE_VERIFY_MOVETIME_MS, config.COACH_MOVE_VERIFY_CP, not live_game,
-                                written_line_after(sentence, found[2]),
+                                _engine_pool, _held_check(check_ctx, sentence), verify_recommendation, found[0],
+                                found[1], found[2], config.COACH_MOVE_VERIFY_MOVETIME_MS, config.COACH_MOVE_VERIFY_CP,
+                                not live_game, written_line_after(sentence, found[2]),
                             )
                         except Exception:  # noqa: BLE001 — the check is best-effort
                             logger.debug("move verification failed", exc_info=True)
                             issue = None
+                        if issue:
+                            # K3 02.11: «Можно, но сильнее d5» right after the student's move was played — the
+                            # other board the advice may be about; a move that holds there is not cut (fresh-fp f10)
+                            from src.answer_check import board_before_students_move
+
+                            alt = board_before_students_move(check_ctx, sentence, found[2])
+                            if alt is not None:
+                                try:
+                                    if await loop.run_in_executor(
+                                            _engine_pool, _held_check(check_ctx, sentence), verify_recommendation,
+                                            alt[0], alt[1], alt[2], config.COACH_MOVE_VERIFY_MOVETIME_MS,
+                                            config.COACH_MOVE_VERIFY_CP, not live_game) is None:
+                                        issue = None
+                                except Exception:  # noqa: BLE001
+                                    logger.debug("move verification (the board before) failed", exc_info=True)
                         verify_state["ms"] += int((time.monotonic() - started_v) * 1000)
                         if issue:
                             verify_state["caught"] += 1
@@ -3191,7 +3519,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     started_v = time.monotonic()
                     try:
                         issue = await loop.run_in_executor(
-                            _engine_pool, verify_claims, claims, config.COACH_MOVE_VERIFY_MOVETIME_MS, not live_game)
+                            _engine_pool, _held_check(check_ctx, sentence), verify_claims, claims,
+                            config.COACH_MOVE_VERIFY_MOVETIME_MS, not live_game)
                     except Exception:  # noqa: BLE001 — the check is best-effort
                         logger.debug("line verdict failed", exc_info=True)
                         issue = None
@@ -3217,8 +3546,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             verify_state["checked"] += 1
             started_f = time.monotonic()
             try:
-                issue = await loop.run_in_executor(_engine_pool, verify_forced_reply, claim,
-                                                   config.COACH_MOVE_VERIFY_MOVETIME_MS, not live_game)
+                issue = await loop.run_in_executor(_engine_pool, _held_check(check_ctx, sentence), verify_forced_reply,
+                                                   claim, config.COACH_MOVE_VERIFY_MOVETIME_MS, not live_game)
             except Exception:  # noqa: BLE001 — the check is best-effort
                 logger.debug("forced reply verification failed", exc_info=True)
                 issue = None
@@ -3274,8 +3603,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 yield frame
 
         async def _fix_done_frames(reply):
-            """The rewrite finished: what it held back, the end of its last sentence."""
+            """The rewrite finished: what it held back, the end of its last sentence — or, no sentence of it proven
+            (fix1102 K6), the draft going on after the cut sentence."""
             fix["reply"] = reply
+            fix["pending"] = False
+            if not fix["running"]:
+                return  # abandoned before it ended: the draft went on
             if fix["head"] and not fix["emitted"]:
                 # A rewrite shorter than the held prefix: send it as it is.
                 head, fix["head"] = fix["head"], ""
@@ -3288,6 +3621,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             tail = fix_markup.flush()
             for frame in _sentence_frames(await _verified((fix_gate.feed(tail) if tail else []) + fix_gate.flush()), "fix"):
                 yield frame
+            if fix["mode"] is None or fix["abandon"]:
+                # No sentence of the rewrite was proven (or the call failed): the draft goes on.
+                for frame in await _resume_draft():
+                    yield frame
             fix["running"] = False
             fix["done"] = True
 
@@ -3328,14 +3665,18 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             fix_gate.board_changed()
 
         try:
-            while not (main_done and quick["finished"] and not fix["running"]):
+            while not (main_done and quick["finished"] and not fix["running"] and not fix["pending"]):
                 item = await queue.get()
                 if item is sentinel:
                     main_done = True
+                    if fix["running"] and fix["mode"] is None and not fix["superseded"]:
+                        fix["main_flush"] = True  # the draft's end waits: it goes on if the rewrite is abandoned
+                        continue
                     # The end of the draft: an unfinished "[[" was not a mark, and
                     # the last sentence gets its check too.
                     tail = markup.flush()
-                    for frame in _sentence_frames(await _verified((gate.feed(tail) if tail else []) + gate.flush()), "agent"):
+                    for frame in _sentence_frames(await _verified((gate.feed(tail) if tail else []) + gate.flush()),
+                                                  "draft" if fix["mode"] == "draft" else "agent"):
                         yield frame
                     if fix["superseded"]:
                         # The draft ended at its tools with nothing after them that passed: the held rewrite is the
@@ -3348,14 +3689,19 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         if rerun:
                             logger.info("answer check: rewrite written again after the database tools | %s",
                                         (fix["sentence"] or "").strip()[:200])
-                            fix.update(gen=fix["gen"] + 1, started=time.monotonic(), head="", emitted=False)
+                            fix.update(gen=fix["gen"] + 1, started=time.monotonic(), head="", emitted=False,
+                                       pending=True, mode=None, held_fix=[], abandon=False)
                             loop.run_in_executor(None, _run_fix, "".join(answer_parts), fix["sentence"], fix["issues"],
                                                  fix["gen"])
                         else:
                             for payload in held:
                                 async for frame in _fix_frames(payload):
                                     yield frame
-                            if held_done is not None:
+                                if fix["abandon"]:
+                                    for frame in await _resume_draft():
+                                        yield frame
+                                    break
+                            if held_done is not None and fix["running"]:
                                 async for frame in _fix_done_frames(held_done[0]):
                                     yield frame
                     if not quick["finished"] and not quick["shown"]:
@@ -3387,7 +3733,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if not streamed_any:
                         _mark("answer_first")
                     streamed_any = True
-                    if (fix["running"] or fix["done"]) and not fix["superseded"]:
+                    if (fix["running"] or fix["done"]) and not fix["superseded"] and fix["mode"] != "draft":
+                        if fix["running"] and fix["mode"] is None:
+                            fix["draft_raw"].append(payload)  # held: it goes on if the rewrite is abandoned
                         continue  # the draft after a wrong sentence is replaced
                     # Inline [[arrows: …]] / [[squares: …]] marks become board
                     # actions now and never reach the text (src/board_markup.py).
@@ -3397,7 +3745,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if not payload:
                         continue
                     # Each sentence goes out once it is complete and checked.
-                    for frame in _sentence_frames(await _verified(gate.feed(payload)), "agent"):
+                    for frame in _sentence_frames(await _verified(gate.feed(payload)),
+                                                  "draft" if fix["mode"] == "draft" else "agent"):
                         yield frame
                 elif kind == "fix":
                     fix_gen, payload = payload
@@ -3408,6 +3757,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         continue
                     async for frame in _fix_frames(payload):
                         yield frame
+                    if fix["abandon"]:
+                        for frame in await _resume_draft():
+                            yield frame
                 elif kind == "fix_done":
                     fix_gen, payload = payload
                     if fix_gen != fix["gen"]:
@@ -3433,6 +3785,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     result_text = payload
                 elif kind == "error":
                     error_exc = payload
+            if fix["mode"] in ("draft", "end") and error_exc is None and not "".join(answer_parts).strip():
+                # The rewrite was abandoned and nothing of the draft is left to show: a plain line that the coach will
+                # not guess — never an empty answer (a lone «давай разберёмся» of the rewrite would promise what never comes).
+                for frame in _answer_frames(_CHECK_EMPTY_TEXT.get(turn_language, _CHECK_EMPTY_TEXT["ru"])):
+                    yield frame
             if streamed_any and error_exc is None and not turn_board_locked and config.COACH_LESSON_LINK:
                 # The lesson the topic tool found, when the model left its link out.
                 link = lesson_link_line(tool_results, "".join(answer_parts), turn_language)
@@ -3547,6 +3904,22 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                           model=model, payload=db_record)
         except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
             logger.debug("db check: the turn's record failed", exc_info=True)
+        # The plan-31.10 detectors in shadow (src/answer_check.record_shadow: (name, sentence, issues)): one event per
+        # turn, so a detector's prod flags can be graded before it is switched on (plan §7: ≥ 20 at ≥ 90 %).
+        # Collect: jq -c 'select(.event_type=="detector_shadow")' hermes/metrics/coach-events-*.jsonl
+        from src.answer_check import shadow_event_payload
+
+        shadow_record = shadow_event_payload(check_ctx)
+        if shadow_record:
+            log_event(
+                "detector_shadow",
+                surface="text",
+                user_id=user_id,
+                session_id=session.id,
+                turn_id=turn_id,
+                model=model,
+                payload=shadow_record,
+            )
         # The answer check: what was stopped and how the rest was written.
         fix_reply = fix["reply"]
         answer_check = {
@@ -3557,8 +3930,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             "fix_model": _reply_model(fix_reply) if fix_reply is not None else None,
             "fix_error": getattr(fix_reply, "error", None) if fix_reply is not None else None,
             "dropped": fix["dropped"],
+            # fix1102 K6: 'rewrite' (its first board sentence proven, it replaced the rest of the draft) or 'draft' (it
+            # was abandoned, the draft went on after the cut sentence); its sentences left out as unproven; sentences
+            # shown because their only issues were malformed texts.
+            "fix_outcome": fix["mode"] if fix["sentence"] else None,
+            "unproven": fix["unproven"][:6],
+            "unjudged": fix["unjudged"][:6],
         }
-        if answer_check["fixed"] or answer_check["dropped"]:
+        if answer_check["fixed"] or answer_check["dropped"] or answer_check["unjudged"]:
             log_event(
                 "answer_check",
                 severity="warn",
@@ -4114,6 +4493,13 @@ def _lesson_board_facts(message: str, fen: Optional[str], puzzle_fen: Optional[s
     return out
 
 
+# The lesson tutor's facts stay exactly as main's (plan 31.10 rule: /learn untouched): the plan-31.10 providers
+# (src/turn_facts: typed facts, fork vetting) are suspended for it and for the engine work it submits.
+from src import turn_facts as _turn_facts  # noqa: E402
+
+_lesson_board_facts = _turn_facts.without(_lesson_board_facts)
+
+
 @app.post("/api/lesson/chat")
 async def lesson_chat(body: LessonChatRequest, request: Request):
     """Lesson tutor chat — streams the tutor's reply as SSE token events.
@@ -4213,7 +4599,7 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
             if verify_left[0] <= 0 or check_ctx.current is None:
                 return pairs
             from src.answer_check import proposed_move, written_line_after
-            from src.hypothetical import verify_recommendation
+            from src.hypothetical import main_rules, verify_recommendation
 
             out = []
             for piece, issues, sentence in pairs:
@@ -4223,7 +4609,7 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
                         verify_left[0] -= 1
                         try:
                             issue = await loop.run_in_executor(
-                                _engine_pool, verify_recommendation, found[0], found[1], found[2],
+                                _engine_pool, main_rules(verify_recommendation), found[0], found[1], found[2],
                                 config.COACH_MOVE_VERIFY_MOVETIME_MS, config.COACH_MOVE_VERIFY_CP, False,
                                 written_line_after(sentence, found[2]))
                         except Exception:  # noqa: BLE001 — the check is best-effort
@@ -4613,8 +4999,19 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         # What the relation checker flagged in this sentence (shadow: recorded, not returned) — for review, as the
         # text turn's relation_check event (src/answer_check_relations.py).
         relation_record[0] = _relation_voice_record(ctx)
+        # …and what the plan-31.10 detectors in shadow found in it (src/answer_check.record_shadow), as the text turn's
+        # detector_shadow event: a shadow detector is graded on every surface it would cut on.
+        shadow_record[0] = _shadow_voice_record(ctx)
         if not body.engine:
             return issues  # the board check alone: the site's engine checks of this answer are spent
+        # The engine part holds the sentence as the text coach's engine stage does: its searches at the front of the
+        # pool's queue, its shadow records on this check (review-wiring 01.11).
+        try:
+            return _held_check(ctx, spoken_text)(_engine_part, ctx, spoken_text, issues)
+        finally:
+            shadow_record[0] = _shadow_voice_record(ctx)
+
+    def _engine_part(ctx, spoken_text: str, issues: list) -> list:
         if not issues and config.COACH_TABLEBASE_LINE_CHECKS > 0:
             # An outcome claim at the end of a line the coach said («после Kd5 a6 Kc6 — ничья»): the tablebase is
             # asked here, as in the text coach's engine stage (src/endgame_claims.py, 30.10).
@@ -4665,11 +5062,25 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
 
     used = [False]  # the engine or the tablebase was asked: the site counts it against the answer's engine checks
     relation_record = [None]
+    shadow_record = [None]
     issues = await asyncio.to_thread(_check)
     if relation_record[0]:
         log_event("relation_check", severity="warn" if relation_record[0]["relation_errors"] else "info",
                   surface="voice", user_id=user_id, session_id=body.session_id, payload=relation_record[0])
+    if shadow_record[0]:
+        log_event("detector_shadow", surface="voice", user_id=user_id, session_id=body.session_id,
+                  payload=shadow_record[0])
     return {"issues": issues, "engine": used[0]}
+
+
+def _shadow_voice_record(ctx) -> Optional[dict]:
+    """The detector_shadow payload of one voice sentence, or None (no shadow detector flagged it). Never raises."""
+    try:
+        from src.answer_check import shadow_event_payload
+
+        return shadow_event_payload(ctx)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _relation_voice_record(ctx) -> Optional[dict]:
@@ -4709,6 +5120,9 @@ def _replay_previous(ctx, said: str) -> None:
     # named, the end of the line they told) — and not their verdicts: each was checked when it was said.
     ctx.relation_shadow.clear()
     ctx.relation_stats.clear()
+    # …nor what a shadow detector noted in them: each was logged when it was checked (its own voice check).
+    if getattr(ctx, "detector_shadow", None):
+        ctx.detector_shadow.clear()
     # …and the side the earlier sentences spoke of («Под ударом у тебя слон c4» → «больше ничего» is about you).
     seed_facts_state(ctx, said)
 
@@ -5157,6 +5571,15 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
     check_ctx = CheckContext.from_fens([board.fen], [board.pgn] if board.pgn else [], student_color=student)
     check_ctx.language = comment_language
     check_ctx.relation_surface = "game"  # the relation checker records here (shadow), never cuts, until reviewed
+    # The game's own record, as the chat path gives it (fix 01.11): the game-record detectors (who took what, what
+    # was given up, the material by the record) judge a comment against the moves of this game — without them every
+    # one of them was silent here. Only a record that leads to the board's position: a comment is about that board.
+    moves = list(state.get("moves") or [])
+    # its own switch (review-wiring2 01.11): off, a comment's context is main's — no game record, so main's own checks
+    # that read one (the opening identity) stay off on comments too
+    if moves and _record_leads_to(moves, board.fen) and config.detector_mode("comment_record") != "off":
+        check_ctx.game_moves = moves
+        check_ctx.game_engine_moves = _engine_moves(state)
     gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
 
     async def event_stream():
@@ -5225,6 +5648,15 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
                           payload={"path": "game/comment", **relation_record})
         except Exception:  # noqa: BLE001 — bookkeeping never breaks a comment
             logger.debug("relation check: the game comment's record failed", exc_info=True)
+        try:  # the shadow detectors' records of the comment (review-wiring2 01.11: they were lost on this surface)
+            from src.answer_check import shadow_event_payload
+
+            shadow_record = shadow_event_payload(check_ctx)
+            if shadow_record:
+                log_event("detector_shadow", surface="game", user_id=user_id, session_id=session.id, model=model,
+                          payload={"path": "game/comment", **shadow_record})
+        except Exception:  # noqa: BLE001
+            logger.debug("detector shadow: the game comment's record failed", exc_info=True)
         if reply is not None and reply.error and not text:
             log_event("llm_error", severity="warn", surface="game", user_id=user_id, session_id=session.id,
                       model=model, ok=False, error_code=str(reply.error)[:80],

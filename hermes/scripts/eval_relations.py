@@ -3,7 +3,8 @@
 
     cd hermes
     python scripts/eval_relations.py [--parser grammar|fixture] [--judge relations|ref] [--mode off|shadow|on]
-                                     [--corpus [DIR]] [--real-path [REPLAY_PY]] [--gate] [--json out.json] [-v]
+                                     [--corpus [DIR]] [--real-path [REPLAY_PY]] [--latency-repeats N] [--gate]
+                                     [--json out.json] [-v]
 
 Each item runs in one process with COACH_RELATION_CHECK=off (legacy) and in the requested mode (patched at runtime;
 shadow and on both run, for the SHADOW == ON assertion). Sections:
@@ -16,10 +17,15 @@ shadow and on both run, for the SHADOW == ON assertion). Sections:
   CORPUS    (--corpus) every coach answer of the local runs: relation flags, new versus legacy, the list to review, the
             diff against the previous run's JSON.
   LATENCY   relation_issues p50/p99/max; check_sentence p50/p99 on the fixture run and on the 500-sentence sample of
-            codemap/timing.py (when its files exist).
+            codemap/timing.py (when its files exist). relation_p99_ms is the median of the p99 of --latency-repeats
+            timing passes over the fixture sentences (default 3; the lru caches of the readers cleared before each
+            pass): one pass on a shared machine is one draw of the load, not the code's cost (verify1102 §4, §6.7).
+            Each pass also times the thread's CPU (relation_p99_cpu_ms, not gated), which leaves out the time the
+            process waited for a core.
   SHADOW    shadow records exactly the issues on returns (single sentences; whole answers up to the first relation cut).
-  REAL PATH (--real-path) replay1030/replay.py (fake model, real Stockfish, async stage) off and in the mode, and the
-            catch table by class in the format of analysis_final.txt (base = off, branch = the mode).
+  REAL PATH (--real-path) replay1031/replay.py (fake model, real Stockfish, async stage, the book indexes warmed as
+            production warms them) off and in the mode, and the catch table of its analyze.py (base = off, branch = the
+            mode). replay1030 stays reproducible by passing its replay.py.
 --parser fixture reads tests/fixtures/relations/recorded_claims.json instead of parsing; --judge ref judges with
 tests/support/ref_judge.py (the llm design's verifier) instead of claim_scene + claim_judge. --gate reads
 tests/fixtures/relations/gates.json and exits 1 on a breach.
@@ -57,7 +63,41 @@ FIX = H / "tests" / "fixtures" / "relations"
 # The local runs the corpus and the timing sample come from (outside the repository; override by flag or env).
 SCRATCH = Path(os.environ.get("RELATION_SCRATCH", "/private/tmp/claude-501/-Users-asansabitov-Projects-ChessApp/"
                               "69fad51f-f89e-44e6-8aa6-5764f59ee34e/scratchpad/live1028"))
-PROD_RUN = Path(os.environ.get("RELATION_PROD_RUN", str(H.parents[1] / "local-preview" / "prod-run")))
+def _prod_run() -> Path:
+    """The local production runs (local-preview/prod-run next to the repository): RELATION_PROD_RUN, else next to this
+    checkout, else next to the main checkout of a worktree (git's common dir) — review-wiring2 01.11: a worktree outside
+    ChessApp/ silently read 2,298 sentences instead of 7,045."""
+    env = os.environ.get("RELATION_PROD_RUN")
+    if env:
+        return Path(env)
+    cands = [H.parents[1] / "local-preview" / "prod-run"]
+    try:
+        import subprocess
+
+        common = subprocess.run(["git", "-C", str(H), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                capture_output=True, text=True, timeout=5).stdout.strip()
+        if common:
+            cands.append(Path(common).parent.parent / "local-preview" / "prod-run")
+    except Exception:  # noqa: BLE001
+        pass
+    return next((c for c in cands if c.is_dir()), cands[0])
+
+
+PROD_RUN = _prod_run()
+
+
+def _corpus_dir() -> Path:
+    """The local runs --corpus reads: RELATION_CORPUS, else the durable copy local-preview/validate-corpus/live1028 next
+    to the checkout or the main checkout (the scratch folder is a temporary one: on 02.11 at 00:00 the system cleared its
+    stand/ and stand2/ runs and t1/t2, and the corpus fell from 7,045 to 5,798 sentences without an error), else the
+    scratch folder itself."""
+    env = os.environ.get("RELATION_CORPUS")
+    if env:
+        return Path(env)
+    for base in (PROD_RUN.parent, H.parents[1] / "local-preview"):
+        if (base / "validate-corpus" / "live1028" / "t1.json").is_file():
+            return base / "validate-corpus" / "live1028"
+    return SCRATCH
 
 # ── the seams: the claims and the judge the relation checker uses for the item being run ──────────────────────
 CUR = {"claims": [], "env": None, "text": ""}
@@ -69,6 +109,7 @@ class Recorder:
     def __init__(self):
         self.calls: list = []
         self.times: list = []
+        self.cpu: list = []  # the same calls in the thread's CPU time (no wait for a core)
         self.errors = 0
         self._orig = acr.relation_issues
 
@@ -78,12 +119,13 @@ class Recorder:
         def wrapped(text, ctx, prior):
             before = len(ctx.relation_shadow)
             errors = ctx.relation_stats.get("errors", 0)
-            t = time.perf_counter()
+            t, c = time.perf_counter(), time.thread_time()
             out = orig(text, ctx, prior)
-            dt = (time.perf_counter() - t) * 1000
+            dt, dc = (time.perf_counter() - t) * 1000, (time.thread_time() - c) * 1000
             self.errors += ctx.relation_stats.get("errors", 0) - errors
             if acr.mode() != "off":
                 self.times.append(dt)
+                self.cpu.append(dc)
             got = list(out) if out else [i for _, issues in ctx.relation_shadow[before:] for i in issues]
             self.calls.append(got)
             return out
@@ -122,6 +164,38 @@ def pct(xs: list, q: float) -> float:
         return 0.0
     xs = sorted(xs)
     return xs[min(len(xs) - 1, int(q * len(xs)))]
+
+
+def _clear_reader_caches() -> None:
+    """Empty the lru caches of the sentence readers, so a repeated timing pass starts as cold as the first one."""
+    for mod in [m for name, m in list(sys.modules.items()) if name.startswith("src.") and m is not None]:
+        for v in list(vars(mod).values()):
+            if callable(getattr(v, "cache_clear", None)) and getattr(v, "__module__", None) == mod.__name__:
+                v.cache_clear()
+
+
+def latency_passes(first: tuple, repeats: int, tri, recorded, rows, mode, parser, judge) -> dict:
+    """relation_issues timed over the fixture sentences in *repeats* passes (*first* = the (wall, cpu) times of the
+    main run, then repeats - 1 silent re-runs of the answers and the eval rows): the p99 of each pass and their median.
+    The median is the gated number: a single pass on a shared machine is one draw of its load (verify1102)."""
+    import contextlib
+    import io
+    import statistics
+
+    passes = [first]
+    timed = ["shadow", "on"] if mode != "off" else []  # the modes the first pass ran whose calls REC times (not off)
+    for _ in range(max(0, repeats - 1) if timed else 0):
+        _clear_reader_caches()
+        w0, c0 = len(REC.times), len(REC.cpu)
+        with contextlib.redirect_stdout(io.StringIO()):
+            run_answers(tri, recorded, rows, mode, parser, judge, modes=timed)
+            run_eval(rows, recorded["eval"], mode, parser, judge, modes=timed)
+        passes.append((REC.times[w0:], REC.cpu[c0:]))
+    p99w = [round(pct(w, .99), 3) for w, _ in passes]
+    p99c = [round(pct(c, .99), 3) for _, c in passes]
+    return {"passes": len(passes), "calls": [len(w) for w, _ in passes], "p99_wall": p99w, "p99_cpu": p99c,
+            "p50_wall": round(statistics.median(pct(w, .5) for w, _ in passes), 3),
+            "p99_wall_median": round(statistics.median(p99w), 3), "p99_cpu_median": round(statistics.median(p99c), 3)}
 
 
 # ── contexts (mirror src/server.py: the board, the shown board, the game and its line, the question, the student) ──
@@ -179,7 +253,9 @@ def norm(s: str) -> str:
 
 
 # ── EVAL ────────────────────────────────────────────────────────────────────────────────────────────────────────
-def run_eval(rows, recorded, mode, parser, judge):
+def run_eval(rows, recorded, mode, parser, judge, modes=None):
+    """*modes*: the checker modes each row runs in (default off, shadow and on; a timing pass runs only the ones the
+    relation checker times, and its results are not read)."""
     out = []
     for row in rows:
         r = {"row": row["row"], "label": row["label"], "ambiguous": row["ambiguous"], "graded": bool(row["graded_prod_finding"]),
@@ -190,12 +266,14 @@ def run_eval(rows, recorded, mode, parser, judge):
         CUR["env"] = ref_env(row["fen"], row["shown_board"], row["game_moves"], row["student"], row["question"]) if judge == "ref" else None
         CUR["text"] = (row.get("prev") or "")[-300:] + " " + row["sentence"] + " " + (row["question"] or "")
         runs = {}
-        for m in (["off"] if mode == "off" else ["off", "shadow", "on"]):
+        for m in modes or (["off"] if mode == "off" else ["off", "shadow", "on"]):
             set_mode(m)
             ctx = make_ctx(row["fen"], row["shown_board"], row["game_moves"], row["question"], row["student"],
                            row.get("puzzle_solution"), row.get("solution_lines"))
             issues, rel, dt = check(sentence, ctx)
             runs[m] = {"issues": issues, "rel": rel, "ms": dt}
+        if modes:
+            continue
         r["legacy"] = bool(runs["off"]["issues"])
         r["legacy_issues"] = runs["off"]["issues"]
         mine = runs.get(mode, runs["off"])
@@ -230,9 +308,9 @@ def sentences(text: str) -> list:
     return [s for s in done + [rest] if s.strip()]
 
 
-def run_answers(tri, recorded, eval_rows, mode, parser, judge):
+def run_answers(tri, recorded, eval_rows, mode, parser, judge, modes=None):
     """Every answer sentence by sentence, state carried, in off / shadow / on: per answer a list of per-sentence
-    results {sentence, legacy, relation, ...}."""
+    results {sentence, legacy, relation, ...}. *modes* as in run_eval (a timing pass: no results)."""
     by_sentence = defaultdict(list)
     for row in eval_rows:
         by_sentence[norm(row["sentence"])].append(row)
@@ -257,7 +335,7 @@ def run_answers(tri, recorded, eval_rows, mode, parser, judge):
             claims_for.append(cl)
         env = ref_env(a["fen"], a["shown"], a["game_moves"], a["student"], a["question"]) if judge == "ref" else None
         per = {}
-        for m in (["off"] if mode == "off" else ["off", "shadow", "on"]):
+        for m in modes or (["off"] if mode == "off" else ["off", "shadow", "on"]):
             set_mode(m)
             ctx = make_ctx(a["fen"] or chess.STARTING_FEN, a["shown"], a["game_moves"], a["question"], a["student"],
                            a.get("puzzle_solution"), a.get("solution_lines"), a.get("lines"), a.get("puzzle"))
@@ -269,6 +347,8 @@ def run_answers(tri, recorded, eval_rows, mode, parser, judge):
                 issues, rel, dt = check(s, ctx)
                 per[m].append({"sentence": s, "issues": issues, "rel": rel, "ms": dt})
                 said += s
+        if modes:
+            continue
         if mode != "off":
             for x, y in zip(per["shadow"], per["on"]):
                 if x["rel"] != y["rel"]:
@@ -414,7 +494,7 @@ def run_corpus(L: Path, mode: str, parser: str, judge: str):
 
 # ── LATENCY sample (codemap/timing.py) ──────────────────────────────────────────────────────────────────────────
 def timing_sample(mode: str):
-    files = glob.glob(str(PROD_RUN / "out_*.json")) + glob.glob(str(SCRATCH / "stand" / "out_*.json"))
+    files = glob.glob(str(PROD_RUN / "out_*.json")) + glob.glob(str(_corpus_dir() / "stand" / "out_*.json"))
     rows = []
     for f in files:
         try:
@@ -486,10 +566,13 @@ def main(argv=None) -> int:
     ap.add_argument("--parser", choices=("grammar", "fixture"), default="grammar")
     ap.add_argument("--judge", choices=("relations", "ref"), default="relations")
     ap.add_argument("--mode", choices=("off", "shadow", "on"), default="on")
-    ap.add_argument("--corpus", nargs="?", const=str(SCRATCH), default=None, metavar="DIR")
+    ap.add_argument("--corpus", nargs="?", const=str(_corpus_dir()), default=None, metavar="DIR",
+                    help="the local runs (default: local-preview/validate-corpus/live1028 when it exists, else the scratch)")
     ap.add_argument("--corpus-prev", default=None, help="a previous --json output to diff the corpus flags against")
-    ap.add_argument("--real-path", nargs="?", const=str(SCRATCH / "prod1029" / "replay1030" / "replay.py"), default=None,
-                    metavar="REPLAY_PY")
+    ap.add_argument("--real-path", nargs="?", const=str(SCRATCH / "prod1029" / "replay1031" / "replay.py"), default=None,
+                    metavar="REPLAY_PY", help="a replay.py (default: replay1031, the harness the 31.10 plan measures with)")
+    ap.add_argument("--latency-repeats", type=int, default=3, metavar="N",
+                    help="timing passes over the fixture sentences; relation_p99_ms is the median of their p99 (default 3)")
     ap.add_argument("--no-sample", action="store_true", help="skip the 500-sentence timing sample")
     ap.add_argument("--gate", action="store_true")
     ap.add_argument("--gates", default=str(FIX / "gates.json"), help="the bounds --gate reads (default: the fixture)")
@@ -598,6 +681,10 @@ def main(argv=None) -> int:
             for x in f["relation_issues"]:
                 print(f"  triage {f['id']} -> {x[:200]}")
 
+    # the fixture sentences' relation times: this run's pass, then the repeats (before the corpus, whose calls differ)
+    lat = latency_passes((list(REC.times), list(REC.cpu)), a.latency_repeats, tri, recorded, rows, a.mode, a.parser,
+                         a.judge)
+
     # 5. CORPUS
     if a.corpus:
         t0 = len(REC.times)
@@ -626,10 +713,11 @@ def main(argv=None) -> int:
                 print(f"  {'   ' if f['legacy_flagged'] else 'NEW'} {f['file']} | {f['sentence'][:120]}\n        -> {f['issues'][0][:200]}")
 
     # 6. LATENCY
-    rt = REC.times
-    m.update(relation_p99_ms=round(pct(rt, .99), 3), relation_calls=len(rt))
+    m.update(relation_p99_ms=lat["p99_wall_median"], relation_p99_cpu_ms=lat["p99_cpu_median"], relation_calls=lat["calls"][0])
+    report["latency"] = lat
     cs = [r["ms"] for r in ev] + [x["ms"] for out in results.values() for x in out]
-    line = (f"LATENCY relation p50 {pct(rt, .5):.3f} p99 {pct(rt, .99):.3f} max {max(rt) if rt else 0:.3f} ms ({len(rt)} calls) | "
+    line = (f"LATENCY relation p50 {lat['p50_wall']:.3f} p99 {lat['p99_wall_median']:.3f} ms, median of {lat['passes']} passes "
+            f"{lat['p99_wall']} (cpu {lat['p99_cpu']}) (calls a pass {lat['calls']}) | "
             f"check_sentence (fixtures) p50 {pct(cs, .5):.2f} p99 {pct(cs, .99):.2f} ms")
     if a.corpus and cor_times:
         # the real sentences alone (the eval rows are short): the bound the review asked for (30.10, wiring)

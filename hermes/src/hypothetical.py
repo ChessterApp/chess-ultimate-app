@@ -13,6 +13,8 @@ is checked against.
 
 from __future__ import annotations
 
+import contextvars
+import functools
 import logging
 import time
 from typing import Optional
@@ -21,9 +23,24 @@ import chess
 
 from src.fen_repair import repair_fen
 from src.position_facts import VALUES, static_facts
-from src.tools.stockfish import analyze_cached, analyze_position, analyze_timed
+from src.tools.stockfish import analyze_cached, analyze_position, analyze_timed, exact_get, exact_join, pool_on
 
 logger = logging.getLogger(__name__)
+
+
+def _answer_check(fn):
+    """The answer check holds a sentence while *fn* asks the engine: its searches go first in the engine pool's queue
+    (src/engine_pool.PRIORITY_CHECK; plan 31.10 P7a), before engine lines, tool calls and work done in advance."""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        from src import engine_pool
+
+        with engine_pool.priority(min(engine_pool.current_priority(), engine_pool.PRIORITY_CHECK)):
+            return fn(*args, **kwargs)
+
+    return wrapper
+
 
 MAX_MOVES = 3
 MIN_DEPTH = 10
@@ -44,6 +61,123 @@ def _keeps_decided(before: float, after: float, mover: chess.Color) -> bool:
     """The mover was decisively winning before (White-side pawns *before*) and still is after (*after*)."""
     sign = 1 if mover == chess.WHITE else -1
     return before * sign >= DECIDED and after * sign >= DECIDED
+
+
+# The /learn lesson tutor keeps main's move check exactly (Асан 19.10; review-wiring2 01.11: the two ending exits
+# below changed what it shows). Its call runs inside main_rules(), where neither exit applies.
+_MAIN_RULES: "contextvars.ContextVar[bool]" = contextvars.ContextVar("hypothetical_main_rules", default=False)
+
+
+def main_rules(fn):
+    """*fn* wrapped to run with main's recommended-move rules (no tablebase or unproven-ending exit), in whatever
+    thread it is submitted to."""
+
+    @functools.wraps(fn)
+    def run(*args, **kwargs):
+        token = _MAIN_RULES.set(True)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _MAIN_RULES.reset(token)
+
+    return run
+
+
+def _tablebase_keeps(board: chess.Board, san: str) -> bool:
+    """The endgame tablebase (≤ 7 pieces) says *san* keeps the result of *board* — a win stays a win, a draw a draw:
+    no mistake, whatever the engine's number drops by (lucena «Rd1+», +6.1 → +4.3, still the textbook win; stage-2
+    integration 31.10). Asked only when the engine would cut; fail-open (unknown → False). Its own switch, the
+    detector ``tablebase_keeps``; never inside main_rules() (the lesson tutor)."""
+    if _MAIN_RULES.get():
+        return False
+    try:
+        if not _switch_on("tablebase_keeps"):
+            return False
+        from src import board_rules
+
+        if len(board.piece_map()) > 7 or board.castling_rights:
+            return False
+        tb = board_rules.tablebase(board)
+        keeping = [k.rstrip("+#") for k in ((tb or {}).get("keeping") or []) if k]
+        return bool(keeping) and san.rstrip("+#") in keeping
+    except Exception:  # noqa: BLE001
+        return False
+
+
+# An ending of ≤ 7 pieces is decided by its result, which the tablebase knows and a 300 ms engine number does not:
+# lucena «Rd1+» read +6.5 → +4.4 in one run and +6.1 → +4.3 in another — the textbook win either way. When the
+# tablebase cannot be asked (unreachable, switched off, backing off), a move after which the engine still has the
+# mover clearly winning is undecided, not a mistake (stage-3 integration 31.10). A move the engine sees dropping the
+# win (below ENDING_WON) is still judged, and a tablebase answer always decides (_tablebase_keeps).
+ENDING_WON = 2.0
+
+
+def _ending_unproven(board: chess.Board, before: float, after: float) -> bool:
+    """≤ 7 pieces, no tablebase answer, and the mover clearly winning before and after the move (White-side
+    pawns *before* / *after*, ≥ ENDING_WON for the mover): the engine's drop proves no mistake. Fail-closed.
+    Its own switch, the detector ``ending_unproven`` (COACH_DETECTORS_OFF=ending_unproven: the engine stage judges
+    these endings as main did; review-wiring 01.11), and a log line each time it lets a move stand."""
+    if _MAIN_RULES.get():
+        return False
+    try:
+        if len(board.piece_map()) > 7 or board.castling_rights:
+            return False
+        sign = 1 if board.turn == chess.WHITE else -1
+        if before * sign < ENDING_WON or after * sign < ENDING_WON:
+            return False
+        if not _switch_on("ending_unproven"):
+            return False
+        from src import board_rules
+
+        tb = board_rules.tablebase(board)
+        if tb and tb.get("keeping"):
+            return False
+        logger.info("ending_unproven: %s %+.1f → %+.1f, no tablebase answer: the move is left unjudged", board.fen(),
+                    before, after)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _switch_on(name: str) -> bool:
+    """The detector *name*'s switch (src/config.detector_mode) is not 'off'. A name the config does not list yet
+    (the integration adds it to DETECTOR_DEFAULTS) counts as on, its default — unless COACH_DETECTORS_OFF names it."""
+    import os
+
+    from src import config
+
+    if name in config.DETECTOR_DEFAULTS:
+        return config.detector_mode(name) != "off"
+    off = {x.strip().lower() for x in (os.environ.get("COACH_DETECTORS_OFF") or "").split(",")}
+    return name not in off
+
+
+# K3 02.11 (VERDICT §6.1): a verdict on a move is the same on every run, whatever the host's load — the engine stage
+# searches each position it judges to a fixed depth from an empty hash (one thread: the same lines every time; the
+# exact store of src/tools/stockfish keeps them, and src/engine_precompute searches the likely ones in advance), never
+# for a time. A search that cannot reach the depth within VERIFY_MAX_MS says nothing: the sentence stands. A 300 ms
+# look reached depth 15–18 by the host's load, so a move near the threshold was cut in one run and shown in the next.
+# The /learn lesson tutor (main_rules()) keeps main's timed look.
+VERIFY_DEPTH = 16
+# A safety valve, not the verdict's clock: the searches are fixed in depth, so their numbers do not move with the load;
+# only a host so loaded that a depth-16 pair takes longer leaves the move unjudged (replay 02.11 at load 27–29: a
+# depth-16 search took 1.2 s, and a 2.5 s cap left name-caro-adv's Nf6 unjudged in 4 runs of 5). Most positions are
+# searched in advance (src/engine_precompute).
+VERIFY_MAX_MS = 6000
+
+
+def _fixed_line(fen: str, deadline: float) -> Optional[dict]:
+    """The engine's first line on *fen* at VERIFY_DEPTH (from an empty hash), or None when it cannot be had in time."""
+    res = _engine_lines(fen, 1, None, VERIFY_DEPTH, deadline)
+    return ((res or {}).get("lines") or [None])[0]
+
+
+def _look(fen: str, movetime_ms: int, deadline: float) -> Optional[dict]:
+    """One judged position's first line: fixed depth, or main's timed look inside main_rules() (the lesson tutor)."""
+    if _MAIN_RULES.get():
+        res = analyze_timed(fen, movetime_ms, multipv=1, min_depth=MIN_DEPTH)
+        return (res.get("lines") or [None])[0] if "error" not in res else None
+    return _fixed_line(fen, deadline)
 
 
 def _given_away(before: float, loss: float) -> str:
@@ -410,6 +544,7 @@ def _reply_point(after: chess.Board, reply_san: str) -> Optional[str]:
     return ("Why: " + "; ".join(bits) + ".") if bits else None
 
 
+@_answer_check
 def verify_line(board: chess.Board, line: list[str], movetime_ms: int = 300, threshold_cp: int = 150) -> Optional[str]:
     """Why a written line («после Nf7 Kxf7 Qxc5 у тебя перевес») ends badly for
     the side that starts it: the evaluation at its end against the position
@@ -426,10 +561,9 @@ def verify_line(board: chess.Board, line: list[str], movetime_ms: int = 300, thr
             end.push(mv)
         if len(played) < 2 or end.is_game_over():
             return None
-        base = analyze_timed(board.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
-        res = analyze_timed(end.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
-        b_line = (base.get("lines") or [None])[0] if "error" not in base else None
-        e_line = (res.get("lines") or [None])[0] if "error" not in res else None
+        deadline = time.monotonic() + VERIFY_MAX_MS / 1000.0
+        b_line = _look(board.fen(), movetime_ms, deadline)
+        e_line = _look(end.fen(), movetime_ms, deadline) if b_line else None
         if not b_line or not e_line:
             return None
         before = _white_pawns(b_line, board.turn)
@@ -497,6 +631,7 @@ def live_game_note(fen: str, movetime_ms: int = 300) -> Optional[dict]:
         return None
 
 
+@_answer_check
 def verify_recommendation(board: chess.Board, move: chess.Move, san: str, movetime_ms: int = 300,
                           threshold_cp: int = 150, reveal_best: bool = True, line: Optional[list] = None) -> Optional[str]:
     """Why the move the coach recommends is wrong on *board*, by the engine.
@@ -511,8 +646,8 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
     try:
         if move not in board.legal_moves:
             return None
-        base = analyze_timed(board.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
-        base_line = (base.get("lines") or [None])[0] if "error" not in base else None
+        deadline = time.monotonic() + VERIFY_MAX_MS / 1000.0
+        base_line = _look(board.fen(), movetime_ms, deadline)
         if not base_line:
             return None
         before = _white_pawns(base_line, board.turn)
@@ -523,15 +658,15 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
         after.push(move)
         if after.is_game_over():
             return None
-        res = analyze_timed(after.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
-        line = (res.get("lines") or [None])[0] if "error" not in res else None
+        line = _look(after.fen(), movetime_ms, deadline)
         if not line:
             return None
         after_pawns = _white_pawns(line, after.turn)
         if before is None or after_pawns is None:
             return None
         loss = (before - after_pawns) if board.turn == chess.WHITE else (after_pawns - before)
-        if loss * 100 < threshold_cp or _keeps_decided(before, after_pawns, board.turn):
+        if loss * 100 < threshold_cp or _keeps_decided(before, after_pawns, board.turn) \
+                or _tablebase_keeps(board, san) or _ending_unproven(board, before, after_pawns):
             # The move itself holds; a written line after it may still end badly.
             return verify_line(board, line_moves, movetime_ms, threshold_cp) if line_moves else None
         reply = _san_line(after, line.get("pv", ""), 3)
@@ -615,12 +750,15 @@ FORCED_CONFIRM_DEPTH = 17
 # …bounded in time all the same (review 30.10: 1.6 s alone, 2.5 s with a second turn running, on top of the timed
 # look): the confirming searches of one reading share this budget, and a search that runs out of it says nothing —
 # the sentence stands. An unloaded host reaches depth 17 for trap-legal in about 0.9 s.
-FORCED_CONFIRM_MAX_MS = 1000
+# K3 02.11: was 1000, then 3000 — a safety valve only: at load 27–29 trap-legal's depth-17 search alone took 2.9 s and the
+# claim stood in 4 runs of 5. The search after the student's idea move starts when the question arrives
+# (src/engine_precompute.after_ideas), so a held sentence usually joins it already under way.
+FORCED_CONFIRM_MAX_MS = 8000
 # …and one sentence's whole check — the timed look and the confirming search of each of its readings — shares this
 # budget (review 30.10, interplay: 1.1–2.4 s per sentence, two readings looked at one after another). A reading
 # that finds no time left says nothing, and since a claim is wrong only when it is wrong in every reading, the
 # sentence stands: a miss rather than a long silent hold.
-FORCED_TOTAL_MAX_MS = 2000
+FORCED_TOTAL_MAX_MS = 10000
 FORCED_CONFIRM_BAND = (0.35, 1.1)
 FORCED_MISTAKE_BAND = 1.0
 
@@ -640,10 +778,20 @@ def _engine_lines(fen: str, multipv: int, movetime_ms: Optional[int], depth: Opt
     if depth is None:
         res = analyze_timed(fen, movetime_ms, multipv=multipv, min_depth=MIN_DEPTH)
         return None if "error" in res else res
-    # A search of its own, never the cache: a timed look that happened to reach the depth served it before, with
-    # its gaps (trap-legal: 0.72 from the cache against 0.50 searched to depth 17 — the verdict flipped by what had
-    # been looked at first; merge 30.10).
-    if deadline is None:
+    # Never the analysis cache: a timed look that happened to reach the depth served it before, with its gaps
+    # (trap-legal: 0.72 from the cache against 0.50 searched to depth 17 — the verdict flipped by what had been
+    # looked at first; merge 30.10). Only the exact store (src/tools/stockfish.exact_get: searches to this depth
+    # from an empty hash, the same lines every run) answers it, so the sentence keeps its verdict in voice and later.
+    # analyze_position on the pool searches from an empty hash and keeps a complete result in that store; a search
+    # of the same position to this depth already at work (computed in advance after the student's idea moves or the
+    # engine line, src/engine_precompute.py) is joined within this search's time.
+    res = exact_get(fen, depth, multipv) if pool_on() else None
+    if res is None and pool_on():
+        left_s = (deadline - time.monotonic()) if deadline is not None else FORCED_CONFIRM_MAX_MS / 1000.0
+        res = exact_join(fen, depth, multipv, left_s)
+    if res is not None:
+        pass
+    elif deadline is None:
         res = analyze_position(fen, depth=depth, multipv=multipv)
     else:
         left = int((deadline - time.monotonic()) * 1000)
@@ -739,17 +887,14 @@ def _verify_one_reading(claim: dict, movetime_ms: int, reveal_best: bool, until:
     board, claimed = claim["board"], set(claim["moves"])
     if board.is_game_over() or not claimed or all(mv in claimed for mv in board.legal_moves):
         return None  # forced by the rules themselves
-    movetime = movetime_ms * FORCED_MOVETIME_FACTOR
-    issue, near = _forced_verdict(claim, _reply_rows(board, movetime_ms=movetime), reveal_best, movetime, None)
-    if issue is None and not near:
-        return None  # far from every line: the timed look is enough to let it stand
-    # Against the claim, or close to the line: only the fixed-depth search decides, within its time and what is
-    # left of the sentence's.
+    # K3 02.11: only the fixed-depth search decides, for and against the claim — a timed look let trap-legal's claim stand
+    # in 1 run of 3 (its gap read 0.69–0.72 at 600 ms, 0.50 at depth 17), whatever the confirming search would have said.
     deadline = min(time.monotonic() + FORCED_CONFIRM_MAX_MS / 1000.0, until)
     return _forced_verdict(claim, _reply_rows(board, depth=FORCED_CONFIRM_DEPTH, deadline=deadline), reveal_best,
                            None, FORCED_CONFIRM_DEPTH, deadline)[0]
 
 
+@_answer_check
 def verify_forced_reply(claim: dict, movetime_ms: int = 300, reveal_best: bool = True) -> Optional[str]:
     """Why the reply *claim* says is forced is not, by the engine; None when it holds or the engine cannot say.
 

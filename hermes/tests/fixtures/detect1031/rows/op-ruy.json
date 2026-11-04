@@ -1,0 +1,158 @@
+{
+ "id": "op-ruy",
+ "turn": {
+  "set": "out_71.json",
+  "id": "op-ruy",
+  "message": "Как называется этот вариант?",
+  "answer": "Это испанская партия, вариант Морфи — в книге дебютов он идёт под кодом C70.\n\nИдея чёрных здесь — сразу прогнать белого слона с b5 ходом a6. Слон под боем и ничем не защищён, так что уходить надо именно сейчас. Лучший отход — на a4: слон остаётся на диагонали, давящей на c6, и готов при случае взять коня.\n\nКстати, а что ты вообще хочешь получить от этого слона — держать связку или менять на c6?",
+  "live_game": false
+ },
+ "kind": "wrong_attack_or_defence",
+ "quote": "а что ты вообще хочешь получить от этого слона — держать связку или менять на c6?",
+ "error": "Nothing is pinned. The pawn on d7 stands between the knight on c6 and the king on e8, so the bishop on b5 (or a4 after retreating) has no pin on the knight to keep. A pin only appears after ...d7-d6 or ...d7-d5.",
+ "owner": "P3A",
+ "tier": "must",
+ "expect": "caught",
+ "stage": "sync",
+ "mechanism": "pin_noun (shadow first run) → P3B pin_exists",
+ "status": "missed",
+ "sentence": "Кстати, а что ты вообще хочешь получить от этого слона — держать связку или менять на c6?",
+ "sentence_index": 7,
+ "prefix": [
+  "Это испанская партия, вариант Морфи — в книге дебютов он идёт под кодом C70.",
+  "\n",
+  "\n",
+  "Идея чёрных здесь — сразу прогнать белого слона с b5 ходом a6. ",
+  "Слон под боем и ничем не защищён, так что уходить надо именно сейчас. ",
+  "Лучший отход — на a4: слон остаётся на диагонали, давящей на c6, и готов при случае взять коня.",
+  "\n\n"
+ ],
+ "replay_issues": [
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4",
+    "moves": [],
+    "fen": "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 0.38,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "как называется этот вариант?",
+   "question_raw": "Как называется этот вариант?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

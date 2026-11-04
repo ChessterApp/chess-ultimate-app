@@ -1,5 +1,6 @@
 """Tool 5: analyze_position — Stockfish engine analysis."""
 
+import contextlib
 import json
 import os
 import shutil
@@ -7,6 +8,7 @@ import logging
 import re
 import subprocess
 import threading
+import time
 from collections import OrderedDict
 
 import chess
@@ -101,12 +103,16 @@ def analyze_position(
     timeout: int = TIMEOUT_SECONDS,
     movetime_ms: int | None = None,
     max_ms: int | None = None,
+    searchmoves: tuple | list | None = None,
 ) -> dict:
     """Run Stockfish analysis on a FEN position — to *depth*, or for *movetime_ms* when given.
 
     *max_ms* bounds a search to *depth* in time, the engine server and the local fallback together: a search
     stopped short of the depth returns its lines as deep as they got (the caller decides whether that says
-    anything), and no time is left → an error."""
+    anything), and no time is left → an error.
+
+    *searchmoves* (UCI strings; plan 31.10): the search looks only at these moves of the side to move («решает ферзь»:
+    the queen's best). The engine server has no such option, so a restricted search is always local."""
     from src.fen_repair import repair_fen
 
     fen = repair_fen(fen)
@@ -119,7 +125,8 @@ def analyze_position(
     # The site's own engine server (engine.chesster.io) when ENGINE_API_URL is set:
     # no Stockfish process on the coach host, its cache and pool instead. Any
     # failure falls back to the local engine, so the turn never waits in vain.
-    if ENGINE_API_URL:
+    sm = _searchmoves(searchmoves)
+    if ENGINE_API_URL and not sm:
         try:
             remote = _analyze_remote(fen, depth, multipv, movetime_ms, wait_s=max_ms / 1000.0 if deadline else None)
             if remote and remote.get("lines"):
@@ -131,11 +138,33 @@ def analyze_position(
         cap = int((deadline - time.monotonic()) * 1000)
         if cap < 100:
             return {"error": "no time left for the search"}
+    if pool_on():
+        # A persistent process (src/engine_pool.py): the time cap is set once a process is free, so waiting for
+        # one counts against *max_ms* as the start of a new process did.
+        flight = None if movetime_ms else _exact_begin(fen, depth, multipv, sm)
+        result = {"error": "search failed"}
+        try:
+            if flight is not None and flight.job is not None:
+                from src import engine_pool
+
+                with engine_pool.priority(engine_pool.current_priority(), flight.job):
+                    result = _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline, sm)
+            else:
+                result = _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline, sm)
+            _exact_put(fen, depth, multipv, sm, movetime_ms, result)  # `ucinewgame` first: an empty hash
+            return result
+        finally:
+            if flight is not None:
+                _exact_end(fen, depth, multipv, sm, flight, result)
     with _running_lock:
         global _running
         _running += 1
     try:
-        return _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms, cap)
+        if sm:
+            result = _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms, cap, searchmoves=sm)
+        else:
+            result = _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms, cap)
+        return result
     finally:
         with _running_lock:
             _running -= 1
@@ -205,12 +234,85 @@ _running_lock = __import__("threading").Lock()
 def engines_running() -> int:
     """Stockfish processes at work right now — the turn shortens its searches
     when several students ask at once (local stand, 8 turns at once, 2026-10-05:
-    every engine line missed its 2.5 s wait and the answers went out without facts)."""
+    every engine line missed its 2.5 s wait and the answers went out without facts).
+
+    With the pool (plan 31.10 P7a): searches at work plus searches waiting for a process."""
     with _running_lock:
-        return _running
+        n = _running
+    if pool_on():
+        from src import engine_pool
+
+        n += engine_pool.running()
+    return n
 
 
-def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms, cap_ms=None) -> dict:
+def pool_on() -> bool:
+    """STOCKFISH_POOL (src/config.py), read at call time so a test or an operator can switch it."""
+    try:
+        from src import config
+
+        return bool(config.STOCKFISH_POOL)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _go_spec(depth: int, movetime_ms: int | None, searchmoves=()) -> str:
+    """The `go` arguments today's process-per-search path sends, before the caller's own time cap."""
+    restrict = f" searchmoves {' '.join(searchmoves)}" if searchmoves else ""
+    if movetime_ms:
+        return f"movetime {movetime_ms}{restrict}"
+    if MAX_MS > 0:
+        return f"depth {depth} movetime {MAX_MS}{restrict}"
+    return f"depth {depth}{restrict}"
+
+
+# A watcher of the search the calling thread is about to start on the pool (progress()): it sees the engine's output
+# lines as they come — src/voice_engine_note.engine_note starts the threat search after the best move from the
+# line's best move so far, beside the line, instead of after it (review-wiring 01.11: 1.81 s → ~1.5 s).
+_progress = threading.local()
+
+
+@contextlib.contextmanager
+def progress(on_line):
+    """Searches this thread starts on the pool inside the block report each output line to *on_line(line)*."""
+    old = getattr(_progress, "fn", None)
+    _progress.fn = on_line
+    try:
+        yield
+    finally:
+        _progress.fn = old
+
+
+def _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline=None, searchmoves=()) -> dict:
+    """analyze_position on the pool: the same `go`, the same parsing, the same result as a new process gives."""
+    from src import engine_pool
+
+    out = engine_pool.search(fen, go=_go_spec(depth, movetime_ms, searchmoves), multipv=multipv,
+                             deadline=deadline, clear_hash=True,
+                             timeout=None if movetime_ms or timeout == TIMEOUT_SECONDS else timeout,
+                             on_line=getattr(_progress, "fn", None))
+    if "error" in out:
+        return {"error": out["error"]}
+    if out.get("stopped"):
+        # A background search an answer needed the process for (or a board that changed): incomplete, never cached.
+        return {"error": "search stopped (preempted)"}
+    return _build_result(out["output"], depth, movetime_ms)
+
+
+def _searchmoves(searchmoves) -> tuple:
+    """*searchmoves* as a sorted tuple of valid UCI strings (() for none): one spelling for the cache key and the
+    `go` command."""
+    if not searchmoves:
+        return ()
+    out = set()
+    for m in searchmoves:
+        u = str(m).strip()
+        if re.fullmatch(r"[a-h][1-8][a-h][1-8][qrbn]?", u):
+            out.add(u)
+    return tuple(sorted(out))
+
+
+def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms, cap_ms=None, searchmoves=()) -> dict:
     try:
         proc = subprocess.Popen(
             [stockfish_path],
@@ -228,12 +330,13 @@ def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms,
         proc.stdin.write(f"setoption name MultiPV value {multipv}\n")
         proc.stdin.write(f"position fen {fen}\n")
         cap = min(c for c in (MAX_MS, cap_ms) if c and c > 0) if (MAX_MS > 0 or cap_ms) else 0
+        restrict = f" searchmoves {' '.join(searchmoves)}" if searchmoves else ""
         if movetime_ms:
-            proc.stdin.write(f"go movetime {movetime_ms}\n")
+            proc.stdin.write(f"go movetime {movetime_ms}{restrict}\n")
         elif cap > 0:
-            proc.stdin.write(f"go depth {depth} movetime {cap}\n")
+            proc.stdin.write(f"go depth {depth} movetime {cap}{restrict}\n")
         else:
-            proc.stdin.write(f"go depth {depth}\n")
+            proc.stdin.write(f"go depth {depth}{restrict}\n")
         proc.stdin.flush()
 
         lines = []
@@ -260,6 +363,11 @@ def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms,
     except BrokenPipeError:
         pass  # Stockfish already exited
 
+    return _build_result(lines, depth, movetime_ms)
+
+
+def _build_result(lines: list, depth: int, movetime_ms: int | None) -> dict:
+    """The analysis dict from Stockfish's output up to `bestmove` (one parser for the new-process and pool paths)."""
     # Parse info lines — keep only the deepest for each multipv
     best_lines: dict[int, dict] = {}
     for line in lines:
@@ -308,6 +416,9 @@ def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms,
 # (src/voice_engine_note.py): the board is usually analysed the moment it
 # changes, so the model's own call for the same position is answered from here.
 _CACHE_MAX = 256
+# With the pool (plan 31.10 P7a) the game evaluations, the review scan and the positions analysed in advance share
+# this cache too: a 40-move game alone is 41 positions. An entry is a few hundred bytes.
+_CACHE_MAX_POOL = 4096
 # Position (clocks ignored) → the deepest analysis of it so far.
 _cache: "OrderedDict[str, dict]" = OrderedDict()
 _cache_lock = threading.Lock()
@@ -323,9 +434,17 @@ def _result_depth(result: dict) -> int:
     return int(lines[0].get("depth") or 0) if lines else 0
 
 
-def _cache_get(fen: str, depth: int, multipv: int) -> dict | None:
-    """A cached analysis at least *depth* deep with at least *multipv* lines."""
+def _cache_key(fen: str, searchmoves=()) -> str:
+    """Position (clocks ignored), and the moves a restricted search looked at: a search of the queen's moves only is
+    never an answer for the whole position, nor the other way round (plan 31.10)."""
     key = " ".join(fen.split()[:4])
+    sm = _searchmoves(searchmoves)
+    return f"{key} searchmoves {' '.join(sm)}" if sm else key
+
+
+def _cache_get(fen: str, depth: int, multipv: int, searchmoves=()) -> dict | None:
+    """A cached analysis at least *depth* deep with at least *multipv* lines."""
+    key = _cache_key(fen, searchmoves)
     with _cache_lock:
         hit = _cache.get(key)
         if hit is None or len(hit.get("lines", [])) < multipv:
@@ -338,46 +457,274 @@ def _cache_get(fen: str, depth: int, multipv: int) -> dict | None:
         return {**hit, "lines": hit["lines"][:multipv]}
 
 
-def _cache_put(fen: str, result: dict) -> None:
+def _cache_put(fen: str, result: dict, searchmoves=()) -> None:
     """Keep *result* unless the cache already holds a deeper (or as deep and wider) run."""
-    if "error" in result or not result.get("lines"):
+    if "error" in result or not result.get("lines") or result.get("stopped"):
         return
-    key = " ".join(fen.split()[:4])
+    key = _cache_key(fen, searchmoves)
     with _cache_lock:
         old = _cache.get(key)
         if old is None or (_result_depth(result), len(result["lines"])) >= (_result_depth(old), len(old["lines"])):
             _cache[key] = result
         _cache.move_to_end(key)
-        while len(_cache) > _CACHE_MAX:
+        limit = _CACHE_MAX_POOL if pool_on() else _CACHE_MAX
+        while len(_cache) > limit:
             _cache.popitem(last=False)
 
 
-def analyze_cached(fen: str, depth: int = DEFAULT_DEPTH, multipv: int = DEFAULT_MULTIPV) -> dict:
-    """analyze_position behind a small LRU keyed by position (clocks ignored).
+# ── the exact store (plan 31.10 P7a, speed §3.2) ─────────────────────────────────────────────────────────────────
+# A search to a fixed depth that starts from an empty hash (a new process, or a pool process after `ucinewgame`)
+# gives the same lines every time. Those results, and only those, are kept here by (position, depth, lines,
+# restricted moves): the forced-reply confirm reads this store and no other, so the same sentence gets the same
+# verdict in text and voice and in later turns — never a timed look that happened to reach the depth (trap-legal:
+# 0.72 from the cache against 0.50 searched to depth 17, merge 30.10).
+_EXACT_MAX = 2048
+_exact: "OrderedDict[tuple, dict]" = OrderedDict()
+
+
+def _exact_key(fen: str, depth: int, multipv: int, searchmoves=()) -> tuple:
+    return (" ".join(fen.split()[:4]), int(depth), int(multipv), _searchmoves(searchmoves))
+
+
+def _complete(result: dict, depth: int) -> bool:
+    """Every line reached *depth* (or found a mate): the search ended at the depth, not at a time cap."""
+    lines = result.get("lines") or []
+    if "error" in result or result.get("time_capped") or result.get("remote") or not lines:
+        return False
+    return all(int(ln.get("depth") or 0) >= depth or ln.get("mate_in") is not None for ln in lines)
+
+
+def _exact_put(fen: str, depth: int, multipv: int, searchmoves, movetime_ms, result: dict) -> None:
+    if movetime_ms or not pool_on() or not _complete(result, depth):
+        return
+    key = _exact_key(fen, depth, multipv, searchmoves)
+    with _cache_lock:
+        _exact[key] = result
+        _exact.move_to_end(key)
+        while len(_exact) > _EXACT_MAX:
+            _exact.popitem(last=False)
+
+
+def exact_get(fen: str, depth: int, multipv: int, searchmoves=()) -> dict | None:
+    """The exact result for (position, depth, lines), or None."""
+    from src.fen_repair import repair_fen
+
+    key = _exact_key(repair_fen(fen), depth, multipv, searchmoves)
+    with _cache_lock:
+        hit = _exact.get(key)
+        if hit is not None:
+            _exact.move_to_end(key)
+        return hit
+
+
+def analyze_exact(fen: str, depth: int, multipv: int, *, max_ms: int | None = None,
+                  searchmoves: tuple | list | None = None) -> dict:
+    """A search to *depth* with *multipv* lines from an empty hash — the same lines on every run.
+
+    Served only from the exact store (never from a timed look or a search that kept its hash). A search bounded by
+    *max_ms* that stops short of the depth is returned as it is (its lines say so) and is not kept."""
+    sm = _searchmoves(searchmoves)
+    hit = exact_get(fen, depth, multipv, sm) if pool_on() else None  # STOCKFISH_POOL=0: a search every time, as before
+    if hit is not None:
+        return hit
+    kwargs = {"max_ms": max_ms} if max_ms else {}
+    if sm:
+        kwargs["searchmoves"] = sm
+    return analyze_position(fen, depth=depth, multipv=multipv, **kwargs)  # kept in the store when complete
+
+
+# Depth searches at work, by exact key: the forced-reply confirm joins one of the same position, depth and lines
+# (the precompute's, src/engine_precompute.py; the voice check of a sentence the text check is confirming) rather
+# than searching beside it — and gets the same complete result the store will keep.
+_exact_flights: dict = {}
+
+
+def _exact_begin(fen: str, depth: int, multipv: int, sm: tuple):
+    from src import engine_pool
+
+    key = _exact_key(fen, depth, multipv, sm)
+    with _inflight_lock:
+        if key in _exact_flights:
+            return None  # one at work already: this one runs beside it and is not the one joined
+        background = engine_pool.current_priority() >= engine_pool.PRIORITY_BACKGROUND
+        flight = _Flight(multipv, None, engine_pool.Job("exact flight", parent=engine_pool.current_job())
+                         if background else None)
+        _exact_flights[key] = flight
+        return flight
+
+
+def _exact_end(fen: str, depth: int, multipv: int, sm: tuple, flight, result: dict) -> None:
+    key = _exact_key(fen, depth, multipv, sm)
+    flight.result = result
+    flight.event.set()
+    with _inflight_lock:
+        if _exact_flights.get(key) is flight:
+            _exact_flights.pop(key, None)
+
+
+def exact_join(fen: str, depth: int, multipv: int, wait_s: float, searchmoves=()) -> dict | None:
+    """The complete result of a search to *depth* of this position already at work, waited for up to *wait_s*
+    (the search is promoted to the caller's priority); None when none is at work or it did not complete in time."""
+    from src import engine_pool
+    from src.fen_repair import repair_fen
+
+    if not pool_on() or wait_s <= 0:
+        return None
+    key = _exact_key(repair_fen(fen), depth, multipv, searchmoves)
+    with _inflight_lock:
+        flight = _exact_flights.get(key)
+    if flight is None:
+        return None
+    if flight.job is not None:
+        engine_pool.promote(flight.job, engine_pool.current_priority())
+    if not flight.event.wait(wait_s):
+        return None
+    res = flight.result or {}
+    return res if _complete(res, depth) else None
+
+
+def clear_exact_store() -> None:
+    with _cache_lock:
+        _exact.clear()
+
+
+# ── one search per position at a time (plan 31.10 P7a) ──────────────────────────────────────────────────────────
+# The site's prewarm (depth 16) and the turn's engine line (1500 ms) of the same board, or the voice and the text
+# check of the same move, used to run side by side on a 2-vCPU host. A request now waits for a search of the same
+# position already at work when that one ends no later than its own would and has as many lines; its result then
+# serves the request by the cache's own rule, or the request searches after all.
+_inflight: dict = {}
+_inflight_lock = threading.Lock()
+_MERGE_SLACK_S = 0.15
+
+
+class _Flight:
+    __slots__ = ("multipv", "ends_by", "event", "result", "job")
+
+    def __init__(self, multipv: int, ends_by: float | None, job=None):
+        self.multipv, self.ends_by, self.job = multipv, ends_by, job
+        self.event = threading.Event()
+        self.result: dict | None = None
+
+
+def _satisfies(result: dict | None, depth: int, multipv: int) -> bool:
+    """The cache's rule (_cache_get) for a result in hand."""
+    if not result or "error" in result or len(result.get("lines") or []) < multipv:
+        return False
+    return _result_depth(result) >= depth or bool(result.get("time_capped"))
+
+
+def _merged(fen: str, sm: tuple, need_depth: int, multipv: int, own_s: float | None, run) -> dict:
+    """*run()* unless a search of this position at work already answers the request (pool only).
+
+    A search the precompute started (src/engine_precompute.py) is joined too: it is then promoted to the joiner's
+    priority, so it is no longer stopped for an answer — the turn that asks for the line the background is computing
+    waits for that search instead of starting a second one beside it."""
+    from src import engine_pool
+
+    if not pool_on():
+        return run()
+    key = _cache_key(fen, sm)
+    now = time.monotonic()
+    own_end = now + own_s if own_s else None
+    prio = engine_pool.current_priority()
+    background = prio >= engine_pool.PRIORITY_BACKGROUND
+    with _inflight_lock:
+        flights = _inflight.get(key) or []
+        join = next((f for f in flights if f.multipv >= multipv and (
+            own_end is None or (f.ends_by is not None and f.ends_by <= own_end + _MERGE_SLACK_S))), None)
+        mine = None
+        if join is None:
+            # A background search gets a job of its own (a child of the precompute's), so promoting it raises this
+            # search alone, even before it has reached the pool's queue.
+            mine = _Flight(multipv, own_end, engine_pool.Job("flight", parent=engine_pool.current_job())
+                           if background else None)
+            _inflight.setdefault(key, []).append(mine)
+    if join is not None:
+        wait = None if join.ends_by is None else max(0.0, join.ends_by - time.monotonic()) + _MERGE_SLACK_S
+        if join.job is not None and not background:
+            # Promoted, the search runs at this request's priority and started before it: it ends about when a
+            # search of its own would, even after the queue it met (replay 31.10: a wait cut at its estimated end,
+            # then a search of its own, cost three turns their engine line). Twice its own time at most.
+            engine_pool.promote(join.job, prio)
+            wait = 2 * (own_s or MAX_MS / 1000.0 or 3.0) + 0.3
+        if join.event.wait(wait) and _satisfies(join.result, need_depth, multipv):
+            res = join.result
+            return {**res, "lines": res["lines"][:multipv]}
+        return run()
+    try:
+        if mine.job is not None:
+            with engine_pool.priority(prio, mine.job):
+                res = run()
+        else:
+            res = run()
+        mine.result = res
+        return res
+    finally:
+        mine.event.set()
+        with _inflight_lock:
+            flights = _inflight.get(key) or []
+            if mine in flights:
+                flights.remove(mine)
+            if not flights:
+                _inflight.pop(key, None)
+
+
+def analyze_cached(fen: str, depth: int = DEFAULT_DEPTH, multipv: int = DEFAULT_MULTIPV,
+                   searchmoves: tuple | list | None = None) -> dict:
+    """analyze_position behind a small LRU keyed by position (clocks ignored) and *searchmoves*.
 
     A cached run at least as deep, with at least as many lines, serves the
     request. Errors are never cached.
     """
-    hit = _cache_get(fen, depth, multipv)
+    sm = _searchmoves(searchmoves)
+    hit = _cache_get(fen, depth, multipv, sm)
     if hit is not None:
         return hit
-    result = analyze_position(fen, depth=depth, multipv=multipv)
-    _cache_put(fen, result)
-    return result
+
+    def _run():
+        hit2 = _cache_get(fen, depth, multipv, sm)  # a search that ended while this one looked
+        if hit2 is not None:
+            return hit2
+        if sm:
+            res = analyze_position(fen, depth=depth, multipv=multipv, searchmoves=sm)
+        else:
+            res = analyze_position(fen, depth=depth, multipv=multipv)
+        _cache_put(fen, res, sm)
+        return res
+
+    if not pool_on():
+        return _run()
+    return _merged(fen, sm, depth, multipv, (MAX_MS / 1000.0) if MAX_MS > 0 else None, _run)
 
 
-def analyze_timed(fen: str, movetime_ms: int, multipv: int = DEFAULT_MULTIPV, min_depth: int = 12) -> dict:
+def analyze_timed(fen: str, movetime_ms: int, multipv: int = DEFAULT_MULTIPV, min_depth: int = 12,
+                  searchmoves: tuple | list | None = None) -> dict:
     """Analysis bounded by time rather than depth, through the same cache.
 
     Depth then follows the host's speed and the result is ready on time — the
     text turn waits for it. A cached run at least *min_depth* deep serves it.
+    *searchmoves* (UCI): only these moves are searched, cached under their own key (plan 31.10, P4's «решает ферзь»).
     """
-    hit = _cache_get(fen, min_depth, multipv)
+    sm = _searchmoves(searchmoves)
+    hit = _cache_get(fen, min_depth, multipv, sm)
     if hit is not None:
         return hit
-    result = analyze_position(fen, multipv=multipv, movetime_ms=movetime_ms)
-    _cache_put(fen, result)
-    return result
+
+    def _run():
+        hit2 = _cache_get(fen, min_depth, multipv, sm)
+        if hit2 is not None:
+            return hit2
+        if sm:
+            res = analyze_position(fen, multipv=multipv, movetime_ms=movetime_ms, searchmoves=sm)
+        else:
+            res = analyze_position(fen, multipv=multipv, movetime_ms=movetime_ms)
+        _cache_put(fen, res, sm)
+        return res
+
+    if not pool_on():
+        return _run()
+    return _merged(fen, sm, min_depth, multipv, movetime_ms / 1000.0, _run)
 
 
 def _bounded_int(value, default: int, low: int, high: int) -> int:
@@ -407,11 +754,14 @@ def _live_game_turn(fen: str, kwargs: dict) -> str | None:
 
 
 def _handle_analyze_position(args: dict, **kwargs) -> str:
-    result = analyze_cached(
-        fen=args.get("fen", ""),
-        depth=_bounded_int(args.get("depth"), DEFAULT_DEPTH, 1, MAX_DEPTH),
-        multipv=_bounded_int(args.get("multipv"), DEFAULT_MULTIPV, 1, MAX_MULTIPV),
-    )
+    from src import engine_pool
+
+    with engine_pool.priority(engine_pool.PRIORITY_TOOL):  # the model's call waits behind checks and lines
+        result = analyze_cached(
+            fen=args.get("fen", ""),
+            depth=_bounded_int(args.get("depth"), DEFAULT_DEPTH, 1, MAX_DEPTH),
+            multipv=_bounded_int(args.get("multipv"), DEFAULT_MULTIPV, 1, MAX_MULTIPV),
+        )
     # In a game the engine plays the coach's moves at the game's strength, not Stockfish's best: a line from here
     # handed the coach a reply to announce as its own while the engine played another (Alexander 27.10). The live
     # position keeps only the student's candidate moves; the position after the student's move keeps no move at all.

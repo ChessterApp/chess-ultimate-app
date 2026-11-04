@@ -185,7 +185,8 @@ class TestTheEngineJudges:
         _engine(monkeypatch, {after: [("d6e5", -2.35), ("g4e6", -3.07), ("d6d5", -4.7)]},
                 {after: [("d6e5", -2.44), ("g4e6", -2.94), ("d6d5", -5.0)]}, calls)
         issue = verify_forced_reply(self._trap_claim(), 300, True)
-        assert [c[1] for c in calls] == [600, "depth"] and calls[1][2] == FORCED_CONFIRM_DEPTH
+        # K3 02.11: the fixed-depth search alone decides — no timed look first (it let trap-legal stand 1 run in 3)
+        assert [c[1] for c in calls] == ["depth"] and calls[0][2] == FORCED_CONFIRM_DEPTH
         assert issue and "Be6 is about as good (+2.9 for White against +2.4 for White after dxe5" in issue
 
     def test_a_timed_verdict_against_the_claim_is_not_final(self, monkeypatch):
@@ -195,12 +196,13 @@ class TestTheEngineJudges:
                 {after: [("d6e5", -2.4), ("g4e6", -3.6), ("d6d5", -5.0)]})
         assert verify_forced_reply(self._trap_claim(), 300, True) is None
 
-    def test_a_claim_far_from_the_lines_needs_no_deep_look(self, monkeypatch):
+    def test_a_claim_far_from_the_lines_is_judged_at_the_fixed_depth_too(self, monkeypatch):
+        # K3 02.11: a timed «far» could flip with the load as a timed «near» did; the fixed-depth look says it.
         after = _after(TRAP, "Nxe5").fen()
         calls = []
         _engine(monkeypatch, {after: [("d6e5", -2.4), ("g4e6", -4.6), ("d6d5", -5.0)]}, calls=calls)
         assert verify_forced_reply(self._trap_claim(), 300, True) is None
-        assert [c[1] for c in calls] == [600]
+        assert [c[1] for c in calls] == ["depth"]
 
     def test_a_deep_look_short_of_its_depth_says_nothing(self, monkeypatch):
         # A loaded host stops the search early: no verdict rather than one that flips with the load.
@@ -252,19 +254,19 @@ class TestTheEngineJudges:
         claim["also"] = [dict(claim, also=[])]  # a second reading, wrong too
         monkeypatch.setattr("src.hypothetical.FORCED_TOTAL_MAX_MS", 60000)
         assert verify_forced_reply(claim, 300, True)
-        assert [c[1] for c in calls] == [600, "depth", 600, "depth"]
-        # 600 ms + 1000 ms spent on the first reading: 400 ms left, short of the second one's timed look.
+        assert [c[1] for c in calls] == ["depth", "depth"]  # K3 02.11: the fixed-depth search alone, per reading
+        # The first reading's search spends its whole FORCED_CONFIRM_MAX_MS: less than a look's time is left for the second.
         calls.clear()
         clock[0] = 0.0
-        monkeypatch.setattr("src.hypothetical.FORCED_TOTAL_MAX_MS", 2000)
+        monkeypatch.setattr("src.hypothetical.FORCED_TOTAL_MAX_MS", hypothetical.FORCED_CONFIRM_MAX_MS + 400)
         assert verify_forced_reply(claim, 300, True) is None
-        assert [c[1] for c in calls] == [600, "depth"]
+        assert [c[1] for c in calls] == ["depth"]
         # A tighter budget cuts the confirming search of the first reading itself.
         calls.clear()
         clock[0] = 0.0
-        monkeypatch.setattr("src.hypothetical.FORCED_TOTAL_MAX_MS", 1200)
+        monkeypatch.setattr("src.hypothetical.FORCED_TOTAL_MAX_MS", 600)
         verify_forced_reply(self._trap_claim(), 300, True)
-        assert [c[1] for c in calls] == [600, "depth"] and 0 < calls[1][-1] <= 600, calls
+        assert [c[1] for c in calls] == ["depth"] and 0 < calls[0][-1] <= 600, calls
 
     def test_the_named_reply_much_worse_than_the_best(self, monkeypatch):
         # mate2-no: the king «must» move, Qxd5 takes the queen back.

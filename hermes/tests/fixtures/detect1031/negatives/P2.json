@@ -1,0 +1,244 @@
+{
+ "package": "P2",
+ "doc": "True controls: no detector may flag them (plan 31.10 §5.2). Seeded by WP-0; the package appends its own.",
+ "controls": [
+  {
+   "id": "kid-name",
+   "moves": "d4 Nf6 c4 g6 Nc3 Bg7 e4 d6",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это староиндийская защита.",
+   "why": "King's Indian",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "kid-classical",
+   "moves": "d4 Nf6 c4 g6 Nc3 Bg7 e4 d6 Nf3 O-O Be2 e5",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это староиндийская защита, классический вариант.",
+   "why": "5.Nf3 O-O 6.Be2 e5 is the King's Indian Classical Variation: «классический» is its own name",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "classical-sicilian",
+   "moves": "e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 Nc6",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это классический вариант сицилианской защиты.",
+   "why": "after 5...Nc6 the board is the Classical Sicilian",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "french",
+   "moves": "e4 e6 d4 d5",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это французская защита.",
+   "why": "French",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "caro-kann",
+   "moves": "e4 c6",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это защита Каро-Канн.",
+   "why": "Caro-Kann",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "classical-spanish-phrase",
+   "moves": "e4 e5 Nf3 Nc6 Bb5 a6",
+   "detector": "open_plain",
+   "sentence": "Это классическая испанская партия.",
+   "why": "«классическая испанская» is the Spanish in general here, not the Classical Variation (3...Bc5): the prototype wrongly flagged it on 3...a6",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "classical-qgd-phrase",
+   "moves": "d4 d5 c4 e6",
+   "detector": "open_plain",
+   "sentence": "Это классический ферзевый гамбит.",
+   "why": "the Queen's Gambit Declined, said plainly",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "najdorf-be2-quiet",
+   "moves": "e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6",
+   "detector": "open_character",
+   "sentence": "6.Сe2 — спокойная классика.",
+   "why": "6.Be2 is the quiet Classical (Opočenský) line",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "alekhine-knight-f6",
+   "moves": "e4 Nf6",
+   "detector": "open_defining",
+   "sentence": "В защите Алехина конь сразу идёт на f6.",
+   "why": "1...Nf6 is the Alekhine's defining move",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "spanish-bb5-classic",
+   "moves": "e4 e5 Nf3 Nc6 Bb5",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это классическая испанская партия.",
+   "why": "on the bare Ruy Lopez (3.Bb5, no variation entered) «классическая испанская» is the classic Ruy Lopez, not its Classical Variation (3...Bc5)",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "qg-c4-classic",
+   "moves": "d4 d5 c4",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это классический ферзевый гамбит.",
+   "why": "the Queen's Gambit said plainly on 2.c4",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "kid-d5-classical",
+   "moves": "d4 Nf6 c4 g6 Nc3 Bg7 e4 d6 Nf3 O-O Be2 e5 O-O Nc6 d5 Ne7",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Классическая староиндийская, вариант с d5 — пешечная структура закрыта.",
+   "why": "the board is the King's Indian Orthodox Variation (E97): Orthodox is what Russian players call классический",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "caro-classical",
+   "moves": "e4 c6 d4 d5 Nc3 dxe4 Nxe4 Bf5",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это классический вариант защиты Каро-Канн.",
+   "why": "4...Bf5 is the Caro-Kann Classical Variation (B18)",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "french-classical",
+   "moves": "e4 e6 d4 d5 Nc3 Nf6",
+   "question": "Как называется этот дебют?",
+   "detector": "open_plain",
+   "sentence": "Это классический вариант французской защиты.",
+   "why": "3...Nf6 is the French Classical Variation (C11)",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "classical-sicilian-recap",
+   "moves": "e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 Nc6",
+   "student": "w",
+   "detector": "open_recap",
+   "sentence": "5.Nc3 Nc6 — это классический вариант сицилианской защиты.",
+   "why": "the game's own last moves, then the identity: the board is the Classical Sicilian (B56)",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "modern-sicilian-recap",
+   "moves": "e4 c5 Nf3 d6",
+   "student": "w",
+   "detector": "open_recap",
+   "sentence": "Nf3 — и чёрные ответили d6: это современный вариант сицилианской.",
+   "why": "after 2...d6 the board is the Sicilian Defense: Modern Variations (B50)",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "sicilian-open-recap",
+   "moves": "e4 c5 Nf3 d6 d4 cxd4 Nxd4",
+   "student": "w",
+   "detector": "open_recap",
+   "sentence": "1.e4 c5 2.Nf3 d6 3.d4 cxd4 4.Nxd4 — это открытый вариант сицилианской защиты.",
+   "why": "the game's record up to now, then the identity: 3.d4 cxd4 4.Nxd4 is the Open Sicilian",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "najdorf-be3-sharp-said",
+   "moves": "e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6",
+   "detector": "open_character",
+   "sentence": "6.Сe3 — английская атака, очень острая игра.",
+   "why": "the English Attack called sharp: true",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "najdorf-be3-denied",
+   "moves": "e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6",
+   "detector": "open_character",
+   "sentence": "6.Сe3 ведёт вовсе не к спокойной игре, а к острой борьбе.",
+   "why": "the calm character denied: true",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "najdorf-be2-contrast",
+   "moves": "e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6",
+   "detector": "open_character",
+   "sentence": "В отличие от 6.Сe3, ход 6.Сe2 ведёт к спокойной игре.",
+   "why": "the calm words are said of 6.Be2 (the Opočenský line), not of 6.Be3",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "italian-giuoco-calm",
+   "moves": "e4 e5 Nf3 Nc6 Bc4 Bc5",
+   "detector": "open_character",
+   "sentence": "Это итальянская партия, вариант «джокко пиано» — спокойное, позиционное начало.",
+   "why": "the Giuoco Piano is a quiet opening",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "alekhine-queen-early",
+   "moves": "e4 Nf6",
+   "detector": "open_defining",
+   "sentence": "Если играешь защиту Алехина, не выводи ферзя рано.",
+   "why": "the queen makes no Alekhine move",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "alekhine-white-advice",
+   "moves": "e4 Nf6",
+   "detector": "open_defining",
+   "sentence": "Играя белыми против защиты Алехина, не спеши выводить коня на c3 — главный ход здесь 2.e5.",
+   "why": "advice to White, whose moves do not define the Alekhine; 2.e5 is its main line",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "sicilian-against",
+   "moves": "e4 c5",
+   "detector": "open_defining",
+   "sentence": "Против сицилианской защиты не спеши ставить пешку на c3.",
+   "why": "an opening named after «против»: the advice is to its opponent",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  },
+  {
+   "id": "alekhine-knight-c6",
+   "moves": "e4 Nf6",
+   "detector": "open_defining",
+   "sentence": "В защите Алехина не стоит торопиться ставить коня на c6.",
+   "why": "c6 is no square of the Alekhine's defining moves",
+   "stage": "sync",
+   "source": "P2 (plan 31.10): the package's own true controls"
+  }
+ ]
+}

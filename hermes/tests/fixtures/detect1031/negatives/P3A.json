@@ -1,0 +1,160 @@
+{
+ "package": "P3A",
+ "doc": "True controls: no detector may flag them (plan 31.10 §5.2). Seeded by WP-0; the package appends its own.",
+ "controls": [
+  {
+   "id": "razvyazka",
+   "moves": "e4 e5",
+   "detector": "pin_escape",
+   "sentence": "Развязка партии наступила только на тридцатом ходу.",
+   "why": "«развязка» (the dénouement) is not «развязать»",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "french-bishop-locked-by",
+   "moves": "e4 e6 d4 d5 e5",
+   "detector": "locked",
+   "sentence": "Слон c8 заперт пешками e6 и d5.",
+   "why": "blockers named: the existing locked_by relation, true",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "pinned-move-remove",
+   "fen": "rnbqk1nr/pppp1ppp/4p3/8/1b1P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 2 3",
+   "detector": "pin_escape",
+   "emits": true,
+   "sentence": "Сначала убери связку.",
+   "why": "Nc3 is pinned to the king by Bb4: the pin «убери» names is there",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  },
+  {
+   "id": "pinned-move-remove-with-moves",
+   "fen": "rnbqk1nr/pppp1ppp/4p3/8/1b1P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 2 3",
+   "detector": "pin_escape",
+   "emits": true,
+   "sentence": "Сначала уберите связку: сыграйте Bd2 или Be3, и только потом конь получит свободу.",
+   "why": "the pin on c3 is on the board now",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  },
+  {
+   "id": "pinned-move-king-out",
+   "fen": "rnbqk1nr/pppp1ppp/4p3/8/1b1P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 2 3",
+   "detector": "pin_escape",
+   "emits": true,
+   "sentence": "Что, по-твоему, стоит сделать — отогнать слона или увести короля из-под связки?",
+   "why": "the knight c3 is pinned to the king e1: stepping the king off the line unpins it",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  },
+  {
+   "id": "nimzo-remove-question",
+   "fen": "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 2 4",
+   "detector": "pin_escape",
+   "emits": true,
+   "sentence": "Хочешь снять связку прямо сейчас?",
+   "why": "Nimzo-Indian: Bb4 pins Nc3 to Ke1",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  },
+  {
+   "id": "present-escape-pinned-now",
+   "moves": "d4 Nf6 c4 e6 Nc3 Bb4",
+   "detector": "pin_escape",
+   "emits": true,
+   "sentence": "Конь c3 уходит из-под связки.",
+   "why": "the knight c3 is pinned by Bb4 now (before it goes)",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  },
+  {
+   "id": "legal-trap-escape-with-move",
+   "moves": "e4 e5 Nf3 d6 Bc4 Bg4 Nc3 g6 Nxe5",
+   "detector": "pin_escape",
+   "emits": true,
+   "sentence": "Nxe5: конь уходит из-под связки.",
+   "why": "before 5.Nxe5 the knight f3 was pinned to the queen d1 by Bg4 (Legal's trap)",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  },
+  {
+   "id": "king-steps-off-the-pin",
+   "moves": "e4 e5 Nf3 Nc6 Bb5 d6 c3 Ke7",
+   "detector": "pin_escape",
+   "emits": true,
+   "sentence": "4...Ke7: король уходит из-под связки.",
+   "why": "before 4...Ke7 the knight c6 was pinned to the king e8 by Bb5",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  },
+  {
+   "id": "queen-a6-holds-pin",
+   "fen": "2rr2k1/p3bpp1/q3pn1p/1Np5/1nQ2B2/6PP/PP2PPN1/R2R2K1 b - - 0 1",
+   "detector": "pin_noun",
+   "emits": true,
+   "sentence": "Потому что ладья бьёт ферзя с поля, где её саму никто не атакует, а ферзь a6 продолжает держать связку.",
+   "why": "Qa6 pins Nb5 to the queen c4",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  },
+  {
+   "id": "bishop-c4-holds-pin-f7",
+   "fen": "3Rn1k1/1b3ppp/p1p5/4q3/2B1n3/P6P/2Q2PP1/6K1 w - - 0 1",
+   "detector": "pin_noun",
+   "emits": true,
+   "sentence": "Кстати, заметьте: слон на c4 уже держит связку по f7, а ладья d8 — по e8, так что у чёрных нет спокойного ответа с разменом.",
+   "why": "Bc4 pins f7 to the king g8",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  },
+  {
+   "id": "nimzo-pin-held",
+   "fen": "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 2 4",
+   "detector": "pin_noun",
+   "emits": true,
+   "sentence": "Чёрные сохраняют связку и давят на e4.",
+   "why": "Bb4 keeps the pin on Nc3",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  },
+  {
+   "id": "king-confined-own-pawns",
+   "fen": "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+   "detector": "locked",
+   "sentence": "Король на g8 заперт своими же пешками f7, g7, h7, а поле d8 никто не защищает.",
+   "why": "a king's net with its blockers named: not a locked piece",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  },
+  {
+   "id": "trapped-queen",
+   "fen": "1r4k1/3R1ppp/pq6/2r1p3/4Q3/1P2P1P1/5P1P/3R2K1 w - - 0 1",
+   "detector": "locked",
+   "sentence": "Чёрный ферзь оказывается заперт — любое его отступление наталкивается на твою ладью.",
+   "why": "«заперт» as trapped (it has moves, every way out loses): not a locked claim",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  },
+  {
+   "id": "square-pawn-blocked",
+   "fen": "8/8/8/P3k3/8/8/8/7K b - - 0 1",
+   "detector": "locked",
+   "sentence": "Kd6, затем a6 — Kc6, a7 — Kb7, и пешка заперта.",
+   "why": "a blocked pawn, not a locked piece",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  },
+  {
+   "id": "loss-not-told",
+   "moves": "d4 e5 dxe5 Nc6 Nf3 Nf6 exf6",
+   "detector": "cover_cause",
+   "sentence": "Поле f6 держала пешка e5, и твой конь там не потерялся бы, если бы не этот ход.",
+   "why": "a counterfactual loss: no cause claimed",
+   "stage": "sync",
+   "source": "P3A (plan 31.10): corpus sentences on their boards and constructed true cases"
+  }
+ ]
+}

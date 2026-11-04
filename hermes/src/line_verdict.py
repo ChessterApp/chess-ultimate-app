@@ -72,8 +72,11 @@ _STAKE = (r"(?:(?:сразу|ещ[её]|целого|целую|целый|ли�
           r"a\s+knight|a\s+bishop|the\s+exchange|material|the\s+game)")
 _END = r"(?=\s*(?:[.,;:!—–)]|$|\s(?:и|а|and)\s))"
 # Verbs of the outcome. (verb, favours its subject?)
-_GOOD = (r"(?:выигрыва(?:ет|ют|ешь)|выиграе(?:т|шь)|выиграют|забира(?:ет|ют|ешь)|забер(?:[её]т|[её]шь|ут)|"
-         r"wins?|picks?\s+up)\s+" + _STAKE
+# (fix1103, review-miss l16/l18/l24: the past tense told of the line's end, «белые выиграли коня», and winning back,
+# «отыгрывают фигуру», are its outcome too)
+_GOOD = (r"(?:выигрыва(?:ет|ют|ешь)|выиграе(?:т|шь)|выиграют|выиграл[аи]?|забира(?:ет|ют|ешь)|забер(?:[её]т|[её]шь|ут)|"
+         r"забрал[аи]?|отыгрыва(?:ет|ют|ешь)|отыграе(?:т|шь)|отыграют|отыграл[аи]?|"
+         r"wins?|won|picks?\s+up|wins?\s+back|won\s+back)\s+" + _STAKE
          + r"|(?:выигрыва(?:ет|ют|ешь)|выиграе(?:т|шь)|выиграют|побежда(?:ет|ют|ешь)|wins?|is\s+winning|are\s+winning)" + _END
          + r"|(?:оста[её]т(?:ся|есь)|оста[её]шься|останет(?:ся|есь)|останешься|останутся)\s+с\s+лишн\w+\s+(?:ферз\w+|ладь\w+|фигур\w+|кон\w+|слон\w+)"
          + r"|(?:ставит|ставят|ставишь|поставит|поставят|поставишь)\s+мат|матует|(?:mates|checkmates)" + _E
@@ -406,10 +409,15 @@ def line_claims(text: str, ctx) -> list:
             worse = m["dir"].lower() in ("хуже", "worse")
             claims.append({"kind": "swing", "board": board, "moves": moves, "side": board.turn,
                            "pawns": -pawns if worse else pawns, "words": converted[m.start():m.end()].strip()[:80]})
+    for c in claims:
+        if c["kind"] == "swing":
+            _name_trade(c, low, ctx)
+    if not tokens and not follows and previous is None:
+        claims.extend(_piece_claims(low, converted, ctx))
     # One verdict per line end is enough: the first claims of the sentence.
     out, seen = [], set()
     for c in claims:
-        key = (c["kind"], c["board"].fen(), tuple(c["moves"]), c["side"])
+        key = (c["kind"], c["board"].fen(), tuple(c["moves"]), c["side"], c.get("piece"))
         if key not in seen:
             seen.add(key)
             out.append(c)
@@ -481,6 +489,428 @@ def _stake(verb: str) -> Optional[tuple]:
     return None
 
 
+# ── an outcome tied to a piece: «решает ферзь» (plan 31.10, P4 C2, detector piece_decides) ──────────────────────
+#
+# «Нет, мата в два хода тут нет — но … король чёрных застрял в центре на e6, и решает ферзь.» (mate2-no, prod 29.10):
+# no line is written, yet the sentence promises an outcome for a piece on the board now — and no queen move wins
+# there (the queen's best, Qg3, is −3; the engine's move is the quiet 8.Nc3, +1). What the sentence promises is
+# that piece's best move: one search restricted to its legal moves (searchmoves) against the engine's best.
+#
+# Judged only when the board is not in doubt and the claim is the coach's own, about now: no written move in the
+# sentence and no line in the one before (that is the line's end, judged by _verify_line), no condition, no
+# general statement («в таких позициях обычно решает конь»), no future or past, no question, not denied, not a
+# belief, one piece type named (not «слон и ферзь решают»), no adjective but the owner's (not «лишний конь»), the
+# piece's side to move. A pawn or the king is never the subject: «лишняя пешка решает партию», «решает активный
+# король» tell material or activity, not a move.
+_PIECE_NOM = {"ферзь": chess.QUEEN, "ферзи": chess.QUEEN, "ладья": chess.ROOK, "ладьи": chess.ROOK,
+              "конь": chess.KNIGHT, "кони": chess.KNIGHT, "слон": chess.BISHOP, "слоны": chess.BISHOP,
+              "queen": chess.QUEEN, "rook": chess.ROOK, "knight": chess.KNIGHT, "bishop": chess.BISHOP}
+_PIECE_INS = {"ферзем": chess.QUEEN, "ладьей": chess.ROOK, "конем": chess.KNIGHT, "слоном": chess.BISHOP}
+_PIECE_WORD = r"(?P<piece>ферз[ьи]|ладь[яи]|кон[ьи]|слоны?|queen|rook|knight|bishop)"
+# The owner told next to the piece: «белый ферзь», «ферзь белых», «твой конь», «their queen».
+_OWNER_BEFORE = (r"(?:(?P<own>бел(?:ый|ая|ые)|ч[её]рн(?:ый|ая|ые)|тво(?:й|я|и)|сво(?:й|я|и)|мо(?:й|я|и)|его|ее|её|их|"
+                 r"white's|black's|your|my|their|his|her)\s+)?")
+_OWNER_AFTER = r"(?:\s+(?P<own2>белых|ч[её]рных|соперника|противника))?"
+_ON_SQUARE = r"(?:\s+(?:на\s+|on\s+)?(?P<sq>[a-h][1-8])(?![0-9a-z]))?"
+_DECIDES_OBJ = r"(?:\s+(?:вс[её]|дело|исход(?:\s+партии)?|партию|игру|the\s+game|it|matters))?"
+_PIECE_END = r"(?=\s*(?:[.,;:!—–)]|$))"
+_FILLER = r"(?:(?:и|а|но|тут|здесь|теперь|сейчас|уже|сразу|именно|вс[её]|просто|and|here|now)\s+)"
+_DECIDES_VERB = re.compile(r"реша|выигрывает|decide|decisive|wins", re.IGNORECASE)
+_DECIDES = [
+    # «… и решает ферзь», «всё решает белый ферзь на f3», «у белых решает ферзь», "here the queen decides"
+    re.compile(_W + rf"(?:у\s+(?P<at>белых|ч[её]рных|тебя|соперника|противника)\s+)?{_FILLER}{{0,3}}(?P<v>реша(?:ет|ют)|выигрывает)\s+"
+               rf"(?:(?:вс[её]|дело|исход(?:\s+партии)?|партию|игру|тут|здесь|сейчас|теперь|сразу)\s+){{0,2}}"
+               + _OWNER_BEFORE + _PIECE_WORD + _ON_SQUARE + _OWNER_AFTER + _PIECE_END, re.IGNORECASE),
+    # «ферзь решает», «конь на d5 решает исход партии», "the queen decides the game"
+    re.compile(_W + r"(?:the\s+)?" + _OWNER_BEFORE + _PIECE_WORD + _ON_SQUARE + _OWNER_AFTER + r"\s+" + _FILLER + r"{0,2}"
+               r"(?P<v>реша(?:ет|ют)|выигрывает|decides?|is\s+decisive|wins)" + _DECIDES_OBJ + _PIECE_END, re.IGNORECASE),
+    # «белые решают ферзём», «решаешь конём»
+    re.compile(_W + r"(?:(?P<subj>белые|ч[её]рные|ты)\s+)?" + _FILLER + r"{0,2}(?P<v>реша(?:ют|ешь|ет))\s+"
+               r"(?:(?:вс[её]|дело|исход|партию|игру|тут|здесь|сразу)\s+){0,2}(?P<ins>ферзем|ладьей|конем|слоном)"
+               + _ON_SQUARE + _PIECE_END, re.IGNORECASE),
+]
+# Not the board now, or not a claim: a condition, a general statement, an example offered, another time (a line's
+# end, the future, a famous game), a possibility («может решить»), a subjunctive.
+_NOT_NOW = re.compile(_W + r"(?:если|когда|коли|пока|где|куда|бы|б|может|могут|мог\w*|обычно|часто|нередко|чаще|редко|"
+                      r"как\s+правило|всегда|иногда|бывает|нередк\w+|в\s+(?:таких|подобных|этих|похожих|некоторых)|"
+                      r"в\s+(?:эндшпил\w*|миттельшпил\w*|дебют\w*|целом|принципе|теории|итоге|конце|результате)|вообще|"
+                      r"пример\w*|задач\w*|урок\w*|хочешь|давай|представь\w*|допустим|в\s+партии|в\s+той|в\s+игре|"
+                      r"после|потом|затем|дальше|далее|позже|скоро|будет|станет|in\s+such|usually|often|always|"
+                      r"sometimes|if|when|would|could|might|after|later|then|example)" + _E, re.IGNORECASE)
+_ADVERB_OR_FUNCTION = frozenset("и а но тут здесь теперь сейчас уже сразу именно всё все просто да же вот ведь and here now so "
+                                "the у".split())
+_COLOUR_TO_MOVE = {chess.WHITE: re.compile(_W + r"бел(?:ых|ым|ыми|ого|ой|ому|ом)" + _E + r"|white's|for\s+white", re.IGNORECASE),
+                   chess.BLACK: re.compile(_W + r"ч[её]рн(?:ых|ым|ыми|ого|ой|ому|ом)" + _E + r"|black's|for\s+black",
+                                           re.IGNORECASE)}
+# Two pieces joined («слон h6 и ферзь g5 решают», «решает ферзь вместе с ладьёй»): not one piece's move.
+_ANY_PIECE = r"(?:ферз\w*|ладь\w*|кон[ьяюеи]\w*|слон\w*|пешк\w*|корол\w*|queens?|rooks?|knights?|bishops?|pawns?|kings?)"
+_JOINED_BEFORE = re.compile(_W + _ANY_PIECE + r"(?:\s+(?:на\s+)?[a-h][1-8])?\s*(?:,|и|and|или|or|с|with)\s+(?:\w+\s+)?$", re.IGNORECASE)
+_JOINED_AFTER = re.compile(r"\s*(?:,\s*|\s)(?:и|and|или|or|а\s+также|вместе\s+с|с|with)\s+(?:\w+\s+)?" + _ANY_PIECE, re.IGNORECASE)
+_AT_SIDE = re.compile(_W + r"у\s+(белых|ч[её]рных|тебя|соперника|противника)" + _E, re.IGNORECASE)
+_SECOND_PERSON = re.compile(_W + r"(?:ты|тебя|тебе|тобой|тво\w+|сво\w+|you|your)" + _E, re.IGNORECASE)
+
+
+def _owner(word: str, ctx, sentence: str) -> Optional[bool]:
+    """The colour an owner word names, None when it names none («его» outside a game)."""
+    from src.answer_check import student_side
+
+    w = (word or "").lower().replace("ё", "е")
+    if w.startswith(("бел", "white")):
+        return chess.WHITE
+    if w.startswith(("черн", "black")):
+        return chess.BLACK
+    student = student_side(ctx, sentence)
+    if student is None:
+        return None
+    if w.startswith(("тво", "сво", "тебя", "ты", "your")):
+        return student
+    if w.startswith(("мо", "my", "его", "ее", "их", "соперн", "против", "their", "his", "her")):
+        return None if ctx.student_color is None else (not student)
+    return None
+
+
+def _scene_board(ctx) -> Optional[chess.Board]:
+    """The one board a claim about «now» may mean: the board on the screen, when the turn shows no other state
+    (the start position standing in for an unknown one aside) and no written line the sentence may be about."""
+    cur = getattr(ctx, "current", None)
+    if cur is None:
+        return None
+    if getattr(ctx, "scene", None) is not None and getattr(ctx, "scene_age", 0) < 2:
+        return None  # a move the answer just wrote: «Теперь решает ферзь» is about the board after it
+    if getattr(ctx, "quoted", None):
+        return None  # «А если b3?» — the answer may be about the board after the student's move
+    others = set()
+    for key in getattr(ctx, "state_keys", set()):
+        if key == ctx._key(cur) or key in getattr(ctx, "text_keys", set()):
+            continue
+        if key.split(" ")[0] == chess.STARTING_BOARD_FEN and cur.board_fen() != chess.STARTING_BOARD_FEN:
+            continue  # the start position stands in for an unknown one
+        others.add(key)
+    return None if others else cur
+
+
+# The claim read by its parts (review 01.11: «Всё решает ход ферзя», «Ферзём ты выигрываешь сразу», «Решающий удар
+# наносит ферзь», «Ферзь в одиночку решает всё», «Ферзь у белых решает» were missed — the patterns above take one word
+# order and one case). In one clause (split at «;:—()» and at «, и / а / но …»): an outcome predicate, one piece as
+# its actor in any case and order — the subject («решает ферзь»), the instrument («ферзём ты выигрываешь»), the
+# actor of an action noun («ход ферзя», «атака ферзём», «ферзевая атака») or «решающее слово за ферзём» —, and
+# nothing else but the owner, the piece's square, the game as the object («партию», «всё», «исход»), a place («в
+# центре», «на короля e6»: a target) and adverbs. Any other word, a denial, a hedge, a second piece or a pawn or king
+# as an actor leaves the clause unjudged: unjudged is fine, a false cut is not.
+# the outcome predicate as a lemma class (review-miss2 01.11): the present and the future of «решать / выигрывать /
+# побеждать / решить / выиграть / победить», «приносит / обеспечивает победу», «решающий удар / ход / фигура»,
+# «решение за X», «козырь», «(всё) кончается X-ом»
+_PV_DECIDE = re.compile(r"^(?:реша(?:ет|ют|ешь|ете)|выигрыва(?:ет|ют|ешь|ете)|побежда(?:ет|ют|ешь|ете)|"
+                        r"реш(?:ит|ат|ишь|ите)|выигра(?:ет|ют|ешь|ете)|побед(?:ит|ят|ишь|ите))$")
+_PV_DECIDE_INF = re.compile(r"^(?:выиграть|решить|победить)$")  # with «можно»: «выиграть здесь можно ферзём»
+_PV_BRING = re.compile(r"^(?:принос(?:ит|ят|ишь|ите)|принес(?:ет|ут)|обеспечива(?:ет|ют)|обеспечит|обеспечат)$")
+_PV_BRING_OBJ = frozenset("победу выигрыш успех".split())
+_PV_DECISIVE = re.compile(r"^решающ(?:ий|ее|ую|им|ая|его|ей)$")
+_PV_DECISIVE_NOUN = frozenset("удар слово ход".split())
+_PV_DECISIVE_PIECE = frozenset("фигура фигурой силой сила".split())  # «ферзь — решающая фигура»: no verb needed
+_PV_TRUMP = re.compile(r"^(?:козыр[ьяем]|козырем)$")
+_PV_END = re.compile(r"^(?:конча(?:ет|ют)ся|заканчива(?:ет|ют)ся|заверша(?:ет|ют)ся)$")
+_PV_DECISIVE_VERB = frozenset("наносит наносят делает делают принадлежит остается за у".split())
+_PV_NOM = {"ферзь": chess.QUEEN, "ферзи": chess.QUEEN, "ладья": chess.ROOK, "ладьи": chess.ROOK, "конь": chess.KNIGHT,
+           "кони": chess.KNIGHT, "слон": chess.BISHOP, "слоны": chess.BISHOP}
+_PV_INS = {"ферзем": chess.QUEEN, "ладьей": chess.ROOK, "конем": chess.KNIGHT, "слоном": chess.BISHOP,
+           "ферзями": chess.QUEEN, "ладьями": chess.ROOK, "конями": chess.KNIGHT, "слонами": chess.BISHOP}
+_PV_GEN = {"ферзя": chess.QUEEN, "ладьи": chess.ROOK, "коня": chess.KNIGHT, "слона": chess.BISHOP}
+_PV_ADJ = ((re.compile(r"^ферзев\w+$"), chess.QUEEN), (re.compile(r"^ладейн\w+$"), chess.ROOK))
+_PV_ACTION = re.compile(r"^(?:ход|хода|ходом|удар|удара|ударом|атак[аиуой]|атакой|вторжени[ея]|рейд|маневр|жертв[аы]|шах|шахи|"
+                        r"прорыв|нападени[ея]|налет)$")
+_PV_PIECE_FAMILY = re.compile(r"^(?:ферз\w*|ладь\w*|ладей|кон[ьяюеи]\w*|коней|слон\w*|пешк\w*|пешек|корол\w*|фигур\w*)$")
+_PV_PREP = frozenset("в во на у к ко по против за от без для с со под над перед из через при о об про около возле".split())
+_PV_OBJECT = frozenset("все дело исход исхода партии партию игру игры матч судьбу встречу".split())
+_PV_OWNER = re.compile(r"^(?:бел(?:ый|ая|ые|ых|ого|ым)|черн(?:ый|ая|ые|ых|ого|ым)|тво(?:й|я|и|его|им)|сво(?:й|я|и)|"
+                       r"мо(?:й|я|и)|его|ее|их|соперника|противника|ты|вы)$")
+_PV_FUNCTION = frozenset("и а же ведь вот да тут здесь теперь сейчас уже сразу именно просто один одна одни сам сама "
+                         "одиночку вмиг тотчас немедленно лично главный главная главное это он она позиции этой "
+                         "можно".split())
+_PV_HEDGE = frozenset("почти возможно наверное наверно вероятно пожалуй видимо кажется скорее может могут вряд едва "
+                      "иногда часто обычно потом позже скоро рано поздно когда-нибудь якобы будто ли бы".split())
+_PV_DENY = frozenset("не нет ни ничего никак никогда нельзя".split())
+_PV_CLAUSE = re.compile(r"[.;:!?()«»\"—–]|,\s*(?=(?:и|а|но|однако|зато|хотя|потому|так|поскольку|если|когда|пока|чтобы|что|"
+                        r"где|ведь|ибо)(?![а-яё]))|\s(?=(?:но|а|однако|зато)\s)")
+
+
+def _outcome_parts(clause: str):
+    """(piece type, owner word, square, actor's offset in *clause*) of the outcome claim *clause* makes, or None."""
+    toks = [(m.group(0), m.start()) for m in re.finditer(r"[a-h][1-8](?![0-9a-z])|[а-я]+(?:-[а-я]+)?|[a-z']+", clause)]
+    if not toks:
+        return None
+    words = [t for t, _ in toks]
+    if any(w in _PV_DENY or w in _PV_HEDGE for w in words):
+        return None
+    used = [False] * len(words)
+    # the predicate
+    preds = []
+    for i, w in enumerate(words):
+        if _PV_DECIDE.match(w):
+            preds.append((i, [i]))
+        elif _PV_DECIDE_INF.match(w) and "можно" in words:
+            preds.append((i, [i, words.index("можно")]))
+        elif _PV_TRUMP.match(w) or _PV_END.match(w):
+            preds.append((i, [i]))
+        elif w == "решение" and i + 1 < len(words) and words[i + 1] == "за":
+            preds.append((i, [i, i + 1]))
+        elif _PV_DECISIVE.match(w) and i + 1 < len(words) and words[i + 1] in _PV_DECISIVE_PIECE:
+            preds.append((i, [i, i + 1]))
+        elif _PV_DECISIVE.match(w) and (i + 1 == len(words) or words[i + 1] not in _PV_DECISIVE_NOUN) and \
+                any(_PV_ACTION.match(x) for x in words[:i]):
+            preds.append((i, [i]))  # «ферзевый удар здесь решающий»: the adjective as the predicate
+        elif _PV_BRING.match(w):
+            obj = [j for j, x in enumerate(words) if x in _PV_BRING_OBJ]
+            if obj:
+                preds.append((i, [i, obj[0]]))
+        elif _PV_DECISIVE.match(w) and i + 1 < len(words) and words[i + 1] in _PV_DECISIVE_NOUN:
+            span = [i, i + 1]
+            verb = [j for j, x in enumerate(words) if x in _PV_DECISIVE_VERB and j not in span]
+            if not verb:
+                continue
+            preds.append((i, span + verb[:1]))
+    if not preds:
+        return None
+    pi, pspan = preds[0]
+    for _, extra in preds[1:]:
+        pspan = pspan + extra  # «главный козырь — ферзь, он и решает»: one claim said twice
+    for j in pspan:
+        used[j] = True
+    second_person = words[pi].endswith(("ешь", "ете"))
+    # the actor
+    actors = []
+    for i, w in enumerate(words):
+        if used[i]:
+            continue
+        prev = words[i - 1] if i else ""
+        if w in _PV_NOM and prev not in _PV_PREP:
+            if w == "ладьи" and prev and _PV_ACTION.match(prev):
+                actors.append((i, chess.ROOK, [i - 1, i]))
+            else:
+                actors.append((i, _PV_NOM[w], [i]))
+        elif w in _PV_INS:
+            if prev and _PV_ACTION.match(prev):
+                actors.append((i, _PV_INS[w], [i - 1, i]))
+            elif prev == "за" and (words[pi].startswith("решающ") or words[pi] == "решение"):
+                actors.append((i, _PV_INS[w], [i - 1, i]))  # «решающее слово за ферзём», «решение за ферзём»
+            elif prev in _PV_PREP:
+                return None  # «вместе с ладьёй», «за конём»: another role
+            else:
+                actors.append((i, _PV_INS[w], [i]))  # «ферзём ты выигрываешь», «белые решают ладьёй»
+        elif w in _PV_GEN and prev and _PV_ACTION.match(prev):
+            actors.append((i, _PV_GEN[w], [i - 1, i]))  # «ход ферзя»
+        elif w in _PV_GEN and i >= 2 and words[i - 2] == "за" and prev == "счет":
+            actors.append((i, _PV_GEN[w], [i - 2, i - 1, i]))  # «выигрывают за счёт ферзя»
+        else:
+            for rx, pt in _PV_ADJ:
+                if rx.match(w) and i + 1 < len(words) and _PV_ACTION.match(words[i + 1]):
+                    actors.append((i, pt, [i, i + 1]))  # «ферзевая атака»
+    if len({pt for _, pt, _ in actors}) != 1:
+        return None
+    ai, ptype, _ = actors[0]
+    for _, _, span in actors:
+        for j in span:
+            used[j] = True
+    # the owner and the square, next to the actor
+    own, sq = "", None
+    a_last = max(j for _, _, span in actors for j in span)
+    k = a_last + 1
+    if k < len(words) and words[k] == "на" and k + 1 < len(words) and re.match(r"^[a-h][1-8]$", words[k + 1]):
+        sq, used[k], used[k + 1] = words[k + 1], True, True
+    elif k < len(words) and re.match(r"^[a-h][1-8]$", words[k]):
+        sq, used[k] = words[k], True
+    # a place: «в центре», «на королевском фланге», «на короля e6» (a target), «у белых» (the owner) — up to three
+    # words, no other actor among them; an owner word inside a target is the target's, not the actor's
+    i = 0
+    while i < len(words):
+        w = words[i]
+        if used[i] or w not in _PV_PREP:
+            i += 1
+            continue
+        j = i + 1
+        while j < len(words) and j <= i + 3 and not used[j] and not _PV_DECIDE.match(words[j]):
+            if _PV_PIECE_FAMILY.match(words[j]) and w not in ("на", "против", "по"):
+                return None  # «с ладьёй», «у ферзя»: another piece in another role
+            if w == "у" and j == i + 1 and _PV_OWNER.match(words[j]):
+                own = own or words[j]  # «ферзь у белых решает»
+            j += 1
+            if j < len(words) and (words[j] in _PV_PREP or words[j] in _PV_FUNCTION or (
+                    _PV_OWNER.match(words[j]) and not (re.match(r"^(?:\w+ых|соперника|противника)$", words[j])
+                                                       and _PV_PIECE_FAMILY.match(words[j - 1])))):
+                break  # «на короля чёрных»: the target's owner; «в центре белые решают»: the subject's
+        for x in range(i, j):
+            used[x] = True
+        i = j
+    for i, w in enumerate(words):
+        if used[i]:
+            continue
+        if _PV_OWNER.match(w):
+            if w in ("ты", "вы") and not second_person:
+                return None
+            own = own or w
+            used[i] = True
+    if second_person and not own:
+        own = "ты"
+    # every other word: the game as the object, an adverb, a function word
+    for i, w in enumerate(words):
+        if used[i]:
+            continue
+        if _PV_PIECE_FAMILY.match(w):
+            return None  # a second piece, a pawn or the king as a subject: not one piece's move
+        if w in _PV_OBJECT or w in _PV_FUNCTION or w in _ADVERB_OR_FUNCTION or re.match(r"^[a-h][1-8]$", w):
+            continue
+        if len(w) >= 5 and w.endswith(("о", "ски")) and w not in _PV_HEDGE:
+            continue  # an adverb of manner: «быстро», «мгновенно», «конечно»
+        return None  # a word the claim does not explain: «решает задачу», «выигрывает пешку», «лишний конь»
+    return ptype, own, sq, toks[ai][1]
+
+
+_OUTCOME_CUE = re.compile(r"реш|выигр|побед|принос|принес|обеспечи|козыр|конча|заканчива|заверша")
+
+
+def _piece_claims(low: str, converted: str, ctx) -> list:
+    """«решает ферзь»: the claims that a piece of the side to move decides the game on the board now."""
+    from src import config
+    from src.claim_scope import denied_before, denied_in
+
+    if "?" in low or not (_DECIDES_VERB.search(low) or _OUTCOME_CUE.search(low)):
+        return []  # the cheap test first: this runs on every sentence without a written move
+    mode = config.detector_mode("piece_decides", ctx)
+    if mode == "off":
+        return []
+    found = []  # (piece type, owner word, square, offset of the piece, offset of the claim, end, the rx or None)
+    for rx in _DECIDES:
+        for m in rx.finditer(low):
+            at = m.start("v")
+            start = m.start()
+            clause_from = max(low.rfind(c, 0, start) for c in ";:—–(")
+            clause = low[clause_from + 1: m.end()]
+            if denied_before(low, at, 30) or denied_in(clause) or _BELIEF.search(low[:at]) or "«" in converted[:at] \
+                    or '"' in converted[:at] or _NOT_NOW.search(low):
+                continue
+            gd = m.groupdict()
+            word = (gd.get("piece") or "").replace("ё", "е")
+            ptype = _PIECE_NOM.get(word) or _PIECE_INS.get((gd.get("ins") or "").replace("ё", "е"))
+            if ptype is None:
+                continue
+            # The words before the piece: an adjective other than the owner's («лишний конь», «второй ферзь») or
+            # another piece joined by «и» («слон h6 и ферзь g5 решают») — not one piece's move.
+            head = low[max(0, start - 40): start].split()
+            if rx is _DECIDES[1] and head and not gd.get("own"):
+                prev = re.sub(r"[^\wё]", "", head[-1])
+                if prev and prev not in _ADVERB_OR_FUNCTION and not head[-1].endswith((",", ":", ";", "—")):
+                    continue
+            at_piece = m.start("piece") if gd.get("piece") else m.start("ins")
+            if _JOINED_BEFORE.search(low[:at_piece]) or _JOINED_AFTER.match(low, m.end()):
+                continue
+            own = gd.get("own") or gd.get("own2") or gd.get("at") or gd.get("subj") or ""
+            if not own:
+                # «У чёрных в защите решает ферзь»: the owner told earlier in the clause.
+                at_side = _AT_SIDE.findall(low[clause_from + 1: at])
+                own = at_side[-1] if at_side else ""
+            found.append((ptype, own, gd.get("sq"), at_piece, m.start(), m.end()))
+    if not found and not _NOT_NOW.search(low) and "«" not in converted and '"' not in converted:
+        norm = low.replace("ё", "е")
+        for text_ in (norm, re.sub(r"\s[—–]\s", "   ", norm)):  # a dash may be the copula: «Ферзь — решающая фигура»
+            bounds = [0] + [m.end() for m in _PV_CLAUSE.finditer(text_)] + [len(text_)]
+            for a, b in zip(bounds, bounds[1:]):
+                parts = _outcome_parts(text_[a:b])
+                if parts is None or _BELIEF.search(text_[:a + parts[3]]):
+                    continue
+                ptype, own, sq, at_piece = parts
+                if not own:
+                    at_side = _AT_SIDE.findall(text_[a:b])
+                    own = at_side[-1] if at_side else ""
+                found.append((ptype, own, sq, a + at_piece, a, b))
+            if found:
+                break
+    out = []
+    for ptype, own, sq_name, _at_piece, start, end in found:
+        board = _scene_board(ctx)
+        if board is None:
+            continue
+        side = _owner(own, ctx, low) if own else board.turn
+        if side is None or side != board.turn:
+            continue  # the other side's piece is a threat, not a move now; an owner not known is not guessed
+        if not own:
+            # Unowned: the side to move's — unless the sentence names that side as the victim («король белых
+            # в опасности, решает ферзь») or speaks to a student who is not to move.
+            if _COLOUR_TO_MOVE[side].search(low):
+                continue
+            from src.answer_check import student_side
+
+            student = student_side(ctx, low)
+            if _SECOND_PERSON.search(low) and student is not None and student != side:
+                continue
+        square = chess.parse_square(sq_name) if sq_name else None
+        if square is not None:
+            p = board.piece_at(square)
+            if p is None or p.piece_type != ptype or p.color != side:
+                continue  # a piece not there is another check's error
+            squares = [square]
+        else:
+            squares = list(board.pieces(ptype, side))
+        if not squares or not any(mv.from_square in squares for mv in board.legal_moves):
+            continue  # no such piece, or it cannot move: what the sentence means is not a move of it
+        out.append({"kind": "piece_decides", "board": board, "moves": [], "side": side, "piece": ptype,
+                    "squares": tuple(squares), "words": converted[start:end].strip(" ,")[:80], "mode": mode})
+    return out[:1]
+
+
+# ── a named trade's swing: «отдают слона за пешку — это почти на четыре пешки хуже» (C8, trade_swing_named) ──────
+#
+# _verify_swing lets a figure pass when it lies between the material the line loses (along the engine's
+# continuation) and the engine's swing: a coach counting material is not contradicted. When the sentence names the
+# trade itself, the coach's count is that trade's (bishop for a pawn: 2), and a figure that is neither that count
+# nor the engine's swing (pawn-b3-bare: 4 against 2 and 6.5) is wrong. Off until Асан agrees to change the
+# tolerance he approved (COACH_TRADE_SWING_NAMED; plan 31.10 §7).
+_TRADE_VALUE = {"ферз": 9, "ладь": 5, "качеств": 2, "кон": 3, "слон": 3, "фигур": 3, "пешк": 1, "queen": 9, "rook": 5,
+                "exchange": 2, "knight": 3, "bishop": 3, "piece": 3, "pawn": 1}
+_COUNT = {"одну": 1, "одного": 1, "две": 2, "два": 2, "двух": 2, "три": 3, "трех": 3, "трёх": 3, "2": 2, "3": 3,
+          "two": 2, "three": 3, "a": 1, "an": 1}
+_UNIT = (r"(?:(?:одну|одного|две|два|двух|три|тр[её]х|[23]|two|three|a|an)\s+)?"
+         r"(?:ферз[яейи]\w*|ладь[юиейя]\w*|качеств\w*|кон[яейи]\w*|слон\w*|фигур\w*|пешк\w*|queens?|rooks?|"
+         r"the\s+exchange|knights?|bishops?|pieces?|pawns?)")
+_TRADE = re.compile(_W + r"(?:отда\w*|отдад\w*|разменива\w*|меня\w*|разменя\w*|теря\w*|потеря\w*|gives?|giving|gave|trades?|"
+                    r"swaps?|loses?|losing)\s+(?:(?:сво\w+|тво\w+|целого|целую|целый|сразу|за\s+бесценок|up|away)\s+)*"
+                    rf"(?P<given>{_UNIT}(?:\s+(?:и|and)\s+{_UNIT})?)\s+(?:за|на|for)\s+"
+                    rf"(?P<got>{_UNIT}(?:\s+(?:и|and)\s+{_UNIT})?)" + _E, re.IGNORECASE)
+
+
+def _units(words: str) -> Optional[int]:
+    """The material value of «слона», «две пешки», «пешку и слона» (P1 N3 B3 R5 Q9, the exchange 2)."""
+    total = 0
+    for part in re.split(r"\s+(?:и|and)\s+", words.strip()):
+        bits = part.split()
+        n = _COUNT.get(bits[0], None) if len(bits) > 1 else None
+        if n is not None:
+            bits = bits[1:]
+        name = " ".join(bits)
+        v = next((val for stem, val in _TRADE_VALUE.items() if name.startswith(stem) or name.startswith("the " + stem)),
+                 None)
+        if v is None:
+            return None
+        total += v * (n or 1)
+    return total
+
+
+def _name_trade(claim: dict, low: str, ctx) -> None:
+    """Keep on a swing claim the trade its sentence names before the figure (claim["named"], the pawns the giver
+    loses), when trade_swing_named is not off."""
+    from src import config
+
+    mode = config.detector_mode("trade_swing_named", ctx)
+    if mode == "off":
+        return
+    at = low.find((claim.get("words") or "").lower()[:20])
+    for m in _TRADE.finditer(low[: at if at > 0 else len(low)]):
+        given, got = _units(m["given"]), _units(m["got"])
+        if given is not None and got is not None and given > got:
+            claim["named"] = given - got
+            claim["named_words"] = m.group(0).strip()[:60]
+            claim["named_mode"] = mode
+
+
 # ── the engine ──────────────────────────────────────────────────────────────
 
 
@@ -493,8 +923,12 @@ def _eval(board: chess.Board, movetime_ms: int) -> Optional[tuple]:
         return (-MATE_PAWNS if board.turn == chess.WHITE else MATE_PAWNS), []
     if board.is_game_over():
         return 0.0, []
-    res = hypothetical.analyze_timed(board.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)  # the cache of the engine line
-    line = (res.get("lines") or [None])[0] if "error" not in res else None
+    # K3 02.11: at the engine stage's fixed depth (src/hypothetical.VERIFY_DEPTH, the exact store), not a timed look or
+    # whatever the analysis cache held — op-show-italian's «опасная для чёрных» was cut or shown by what earlier turns
+    # had searched (verify1102: caught in a full replay, missed alone, on the same tree)
+    import time
+
+    line = hypothetical._look(board.fen(), movetime_ms, time.monotonic() + hypothetical.VERIFY_MAX_MS / 1000.0)
     if not line:
         return None
     return _white_pawns(line, board.turn), _san_line(board, line.get("pv", ""), MAX_PLIES)
@@ -615,6 +1049,25 @@ def _verify_swing(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
         except ValueError:
             break
     material = _material(b, side) - _material(board, side)
+    named = claim.get("named")
+    if named:
+        # The trade the sentence names is the coach's own count (C8): the figure must be that count or the engine's
+        # swing — not «between» them (pawn-b3-bare: «слона за пешку — почти на четыре пешки хуже», 2 vs 4 vs 6.5).
+        count = -named if said < 0 else named
+        named_why = None
+        if abs(said - count) >= 1.0 and abs(said - material) >= 1.0:
+            cont = f" (it goes on {_numbered(end, got_after[1][:4])})" if reveal and got_after[1] else ""
+            named_why = (f"«{claim['words']}» is wrong: the trade the sentence names («{claim.get('named_words', '')}») "
+                         f"is {named} pawn{'s' if named != 1 else ''} of material, and after {line} the engine evaluates "
+                         f"the position at {_fmt(got_after[0])}{cont} against {_fmt(got_before[0])} before — about "
+                         f"{abs(swing):.1f} pawns {'worse' if swing < 0 else 'better'} for {_name(side)}; give the "
+                         f"trade's count or the engine's figure, not another")
+        if claim.get("named_mode") != "shadow":
+            return named_why
+        if named_why:
+            from src.answer_check import record_shadow
+
+            record_shadow(None, "trade_swing_named", [named_why])
     if abs(said - material) < 1.0 or min(material, swing) <= said <= max(material, swing):
         # The coach counts the material the line loses («почти на четыре пешки» for a bishop, −3), or tells a figure
         # between that count and the engine's: not clearly wrong. (The count follows the engine's continuation, which
@@ -626,15 +1079,114 @@ def _verify_swing(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
             f"for {_name(side)}, and in material {material:+d}; give the engine's figure or none")
 
 
+# «решает ферзь» holds when the piece's best move leaves its side at least DECIDES_PAWNS up and no more than
+# BEHIND_PAWNS below the engine's best (both capped at DECISIVE_PAWNS: a piece that wins a rook decides even where
+# another move mates), or when the piece moves among its side's first PV_OWN_MOVES moves of the engine's winning
+# line (it decides there after a check by another piece: «Nf6+, и решает ферзь»).
+DECIDES_PAWNS = 1.5
+BEHIND_PAWNS = 1.0
+DECISIVE_PAWNS = 5.0
+PV_OWN_MOVES = 3
+_PIECE_EN = {chess.QUEEN: "queen", chess.ROOK: "rook", chess.KNIGHT: "knight", chess.BISHOP: "bishop"}
+
+
+def _first_line(res: dict) -> Optional[dict]:
+    return (res.get("lines") or [None])[0] if isinstance(res, dict) and "error" not in res else None
+
+
+def _moves_in_pv(board: chess.Board, pv: str, squares: tuple, side: bool) -> bool:
+    """Does the piece on one of *squares* move among *side*'s first PV_OWN_MOVES moves of *pv* (UCI)?"""
+    b = board.copy(stack=False)
+    tracked, own = set(squares), 0
+    for uci in (pv or "").split():
+        try:
+            mv = chess.Move.from_uci(uci)
+        except ValueError:
+            return False
+        if mv not in b.legal_moves:
+            return False
+        if b.turn == side:
+            if mv.from_square in tracked:
+                return True
+            own += 1
+            if own >= PV_OWN_MOVES:
+                return False
+        else:
+            tracked.discard(mv.to_square)  # captured
+        b.push(mv)
+    return False
+
+
+def _verify_piece(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
+    from src import hypothetical
+    from src.hypothetical import MIN_DEPTH, _fmt, _numbered, _white_pawns
+
+    board, side, squares = claim["board"], claim["side"], tuple(claim["squares"])
+    if board.turn != side:
+        return None
+    mine_moves = [m for m in board.legal_moves if m.from_square in squares]
+    if not mine_moves:
+        return None
+    best = _first_line(hypothetical.analyze_timed(board.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH))
+    best_white = _white_pawns(best, board.turn)
+    if best is None or best_white is None or not best.get("pv"):
+        return None
+    best_move = chess.Move.from_uci(best["pv"].split()[0])
+    if best_move in mine_moves:
+        piece, piece_white = best, best_white
+    else:
+        piece = _first_line(hypothetical.analyze_timed(board.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH,
+                                                       searchmoves=[m.uci() for m in mine_moves]))
+        piece_white = _white_pawns(piece, board.turn)
+        if piece is None or piece_white is None or not piece.get("pv"):
+            return None
+    piece_move = chess.Move.from_uci(piece["pv"].split()[0])
+    if piece_move not in mine_moves:
+        return None  # the restricted search did not keep to the piece: no verdict
+    sign = 1 if side == chess.WHITE else -1
+    b_mine, p_mine = best_white * sign, piece_white * sign
+    capped_b, capped_p = min(b_mine, DECISIVE_PAWNS), min(p_mine, DECISIVE_PAWNS)
+    if capped_p >= DECIDES_PAWNS and capped_b - capped_p <= BEHIND_PAWNS:
+        return None
+    if b_mine >= DECIDES_PAWNS and _moves_in_pv(board, best["pv"], squares, side):
+        return None
+    name = _PIECE_EN.get(claim["piece"], "piece")
+    said = f"«{claim['words']}»"
+    if b_mine < DECIDES_PAWNS:
+        why = f"no move decides the game here: even the engine's best keeps it at {_fmt(best_white)}"
+    else:
+        why = f"the {name} does not decide it: another piece's move is clearly stronger"
+    if not reveal:
+        # A live game: no move named, the student is still to find it.
+        return (f"{said} is wrong: the {name}'s best move here leaves the position at {_fmt(piece_white)}, and "
+                f"{why.split(':')[0]}; do not promise that the {name} decides — say what the position really "
+                f"offers without naming the engine's move")
+    return (f"{said} is wrong: the {name}'s best move here is {_numbered(board, [board.san(piece_move)])} "
+            f"({_fmt(piece_white)}), and the engine's move is {_numbered(board, [board.san(best_move)])} "
+            f"({_fmt(best_white)}) — {why}; say what the engine says or leave the claim out")
+
+
+_VERIFY = {"swing": _verify_swing, "piece_decides": _verify_piece}
+_DETECTOR_OF = {"piece_decides": "piece_decides"}
+
+
 def verify_claims(claims: list, movetime_ms: int = 300, reveal: bool = True) -> Optional[str]:
     """Why the first of *claims* (src/line_verdict.line_claims) the engine clearly contradicts is wrong, or None.
-    *reveal* off (a live game) keeps the engine's continuation out. Never raises."""
+    *reveal* off (a live game) keeps the engine's continuation out. Never raises. A claim of a detector in shadow
+    (plan 31.10 §1.3) is judged and logged, never returned."""
     for claim in claims or []:
         try:
-            why = (_verify_swing if claim.get("kind") == "swing" else _verify_line)(claim, movetime_ms, reveal)
+            why = _VERIFY.get(claim.get("kind"), _verify_line)(claim, movetime_ms, reveal)
         except Exception:  # noqa: BLE001 — a failed check never blocks the answer
             logger.debug("line verdict failed", exc_info=True)
             why = None
+        if why and claim.get("mode") == "shadow":
+            # the turn's check (src/answer_check.shadow_into, set by the engine stage) gets the record: the
+            # detector_shadow event, as for the sync detectors
+            from src.answer_check import record_shadow
+
+            record_shadow(None, _DETECTOR_OF.get(claim.get("kind"), claim.get("kind")), [why])
+            continue
         if why:
             return why
     return None

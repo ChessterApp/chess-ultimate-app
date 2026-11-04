@@ -1706,6 +1706,7 @@
   "st2#5": "its sentence also holds the false «грозят взять ферзём на d8», so cutting it is correct"
  },
  "whitelist_quotes": {
-  "Она прикрыта пешкой d3": "its sentence also holds the false «менять на e4 чёрные могут в любой момент» (st1#11/exchange-e4: Nxe4 dxe4 is not an even exchange), so cutting it is correct — as st2#5"
+  "Она прикрыта пешкой d3": "its sentence also holds the false «менять на e4 чёрные могут в любой момент» (st1#11/exchange-e4: Nxe4 dxe4 is not an even exchange), so cutting it is correct — as st2#5",
+  "b3–c4 — белые сразу нападают на слона": "its sentence also holds the false «он вынужден уйти туда, откуда f1 уже не прикрывает» (castle-ru, plan 31.10 P3D retreat_cover: after 8.b3 Ba6 is safe and still covers f1), so cutting it is correct — as st2#5"
  }
 }

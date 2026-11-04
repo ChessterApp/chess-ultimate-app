@@ -1,0 +1,160 @@
+{
+ "id": "square-no",
+ "turn": {
+  "set": "out_71.json",
+  "id": "square-no",
+  "message": "Я чёрными, мой ход. Король успеет к пешке?",
+  "answer": "Нет, король не успевает — но не из-за гонки, а из-за того, что поле d6 под контролем. Играй Ke4, это самая упорная защита.\n\nСмотри: после Ke5 белые играют a6, и ты обязан идти Kd6 — иначе пешка просто идёт в ферзи. Теперь замри: пешка на a7, ты на d6. Своим королём ты прикрываешь поле c6 () — но это и есть ловушка. Дальше белый король идёт на g2 и просто гуляет к пешке — твой король уже не может одновременно держать поле c6 и догонять его. Поэтому не гонись за пешкой вслепую: сначала королём на e4, ближе к центру, и только потом решай, успеваешь ли ты к полю превращения.",
+  "live_game": false
+ },
+ "kind": "made_up_position_or_fact",
+ "quote": "Дальше белый король идёт на g2 и просто гуляет к пешке — твой король уже не может одновременно держать поле c6 и догонять его.",
+ "error": "This is made up. White wins by pushing the pawn, not with a king march to g2 toward the pawn. Holding c6 does not stop the a-pawn either.",
+ "owner": "P5",
+ "tier": "out",
+ "expect": "not_caught",
+ "stage": "sync",
+ "mechanism": "prevent: tablebase moves in the issue text",
+ "status": "missed",
+ "sentence": "Дальше белый король идёт на g2 и просто гуляет к пешке — твой король уже не может одновременно держать поле c6 и догонять его. ",
+ "sentence_index": 6,
+ "prefix": [
+  "Нет, король не успевает — но не из-за гонки, а из-за того, что поле d6 под контролем. ",
+  "Играй Ke4, это самая упорная защита.",
+  "\n\n",
+  "Смотри: после Ke5 белые играют a6, и ты обязан идти Kd6 — иначе пешка просто идёт в ферзи. ",
+  "Теперь замри: пешка на a7, ты на d6. ",
+  "Своим королём ты прикрываешь поле c6 () — но это и есть ловушка. "
+ ],
+ "replay_issues": [
+  [
+   "on the board now: no piece of either side reaches d6; what reaches it: nothing"
+  ],
+  [],
+  [],
+  [],
+  [
+   "after 1...Ke5 2. a6 Kd6 (the line written) there is no pawn on a7: the pawn stands on a6 — the line does not reach the position named; give the moves that lead there or describe the position it reaches"
+  ],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": true,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "8/8/8/P4k2/8/8/8/7K b - - 0 1",
+    "moves": [],
+    "fen": "8/8/8/P4k2/8/8/8/7K b - - 0 1"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "8/8/8/P4k2/8/8/8/7K b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 20.0,
+   "tablebase": "White wins",
+   "engine_mate": -12,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "я черными, мой ход. король успеет к пешке?",
+   "question_raw": "Я чёрными, мой ход. Король успеет к пешке?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "8/8/8/P4k2/8/8/8/7K b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "8/8/8/P4k2/8/8/8/7K b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

@@ -12,3 +12,17 @@ def _engine_steps_off(monkeypatch):
 
     monkeypatch.setattr(config, "COACH_HYPOTHETICAL_NOTE", False)
     monkeypatch.setattr(config, "COACH_MOVE_VERIFY", False)
+
+
+@pytest.fixture(autouse=True)
+def _engine_pool_off(monkeypatch):
+    """Persistent Stockfish processes (src/engine_pool.py) and the board-change precompute (src/engine_precompute.py,
+    plan 31.10 P7) are on in production; the unit tests mock the per-search process and its output, and a
+    background search must not race a test's own engine calls. The P7 tests switch them on themselves."""
+    import os
+
+    from src import config
+
+    if os.environ.get("HERMES_TEST_STOCKFISH_POOL") != "1":  # =1: the suite on the pool (a parity run)
+        monkeypatch.setattr(config, "STOCKFISH_POOL", False)
+    monkeypatch.setattr(config, "COACH_PRECOMPUTE", False)

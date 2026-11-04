@@ -1,0 +1,166 @@
+{
+ "package": "P4",
+ "doc": "True controls: no detector may flag them (plan 31.10 §5.2). Seeded by WP-0; the package appends its own.",
+ "controls": [
+  {
+   "id": "queen-decides-mate",
+   "moves": "e4 e5 Bc4 Nc6 Qh5 Nf6",
+   "stage": "engine",
+   "detector": "piece_decides",
+   "sentence": "Ход белых, и решает ферзь: Qxf7#.",
+   "why": "Qxf7# is mate (the control the prototype keeps true)",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "queen-decides-conditional",
+   "moves": "e4 e5 Nf3 Nc6",
+   "stage": "engine",
+   "detector": "piece_decides",
+   "sentence": "Если ферзь прорвётся на королевский фланг, он решает.",
+   "why": "conditional",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "knight-decides-general",
+   "moves": "e4 e5 Nf3 Nc6",
+   "stage": "engine",
+   "detector": "piece_decides",
+   "sentence": "В таких позициях обычно решает конь.",
+   "why": "a general statement",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "pawn-b3-bare-flag-off",
+   "fen": "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 6",
+   "question": "А если b3?",
+   "stage": "engine",
+   "detector": "trade_swing_named",
+   "sentence": "В лучшем случае белые отдают слона за пешку — это почти на четыре пешки хуже, чем было.",
+   "why": "with COACH_TRADE_SWING_NAMED off it passes as on main (Асан decides)",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "corpus-piece_decides-1",
+   "sentence": "Хочешь, покажу коротенький пример, где вторая фигура решает исход — ладья или конь вместо ферзя?",
+   "question": "Можно ли превратить пешку в короля или во второго ферзя?",
+   "detector": "piece_decides",
+   "stage": "engine",
+   "source": "out_30_1023.json:rule-promote",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  },
+  {
+   "id": "corpus-piece_decides-2",
+   "sentence": "Поэтому так важно думать прежде, чем толкать пешку — особенно в эндшпиле, где пешки часто решают партию.",
+   "question": "Может ли пешка ходить назад?",
+   "detector": "piece_decides",
+   "stage": "engine",
+   "source": "out_71_1023.json:r-pawn-back",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  },
+  {
+   "id": "corpus-piece_decides-3",
+   "sentence": "Хочешь, дам задачку, где превращение пешки решает исход?",
+   "question": "Можно ли превратить пешку во второго ферзя, если мой ферзь ещё на доске?",
+   "detector": "piece_decides",
+   "stage": "engine",
+   "source": "out_71_1028.json:r-two-queens",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  },
+  {
+   "id": "corpus-piece_decides-4",
+   "sentence": "Пешку h4 ты всё равно заберёшь слоном, а свою g5 сохранишь — именно лишняя пешка и решает партию.",
+   "question": "Задача из урока «Эндшпиль — Набор 7» (курс «Связки и Эндшпили»). Какой здесь пер",
+   "detector": "piece_decides",
+   "stage": "engine",
+   "source": "out_programme.json:puzzle:pins-endgames:endgame-set-7",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "8/8/4k3/6p1/1b5P/6K1/8/8 b - - 0 1"
+  },
+  {
+   "id": "corpus-piece_decides-5",
+   "sentence": "После gxf5 у чёрных g4 — и пешка h3 решает.",
+   "question": "Задача из урока «Эндшпиль — Набор 36» (курс «Связки и Эндшпили»). Какой здесь пе",
+   "detector": "piece_decides",
+   "stage": "engine",
+   "source": "out_programme.json:puzzle:pins-endgames:endgame-set-36",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "8/8/8/p1k2pp1/P5P1/2K2P1p/7P/8 b - - 0 1"
+  },
+  {
+   "id": "corpus-piece_decides-6",
+   "sentence": "А если король уходит на h8, ты продолжаешь атаку по той же идее: слон h6 и ферзь g5 решают.",
+   "question": "Задача из урока «Мат в 3 хода — Набор 28» (курс «Мат в 3 хода»). Какой здесь пер",
+   "detector": "piece_decides",
+   "stage": "engine",
+   "source": "out_programme_1023.json:puzzle:mate-in-3-moves:mate-in-3-set-28",
+   "why": "corpus hit reviewed by the eval triage (negated, idiomatic, general or true)",
+   "fen": "5rk1/n1p1R1bp/pr1p4/1qpP1QB1/7P/6PB/PPP2P2/6K1 w - - 0 1"
+  },
+  {
+   "id": "queen-decides-scholar",
+   "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+   "stage": "engine",
+   "detector": "piece_decides",
+   "sentence": "Здесь всё решает ферзь.",
+   "why": "the queen mates at once (Qxf7#): the claim is judged and holds",
+   "source": "P4 (true control, judged)"
+  },
+  {
+   "id": "queen-decides-in-line",
+   "fen": "2Q2qk1/1p4pp/p7/5P1B/2pP1r2/3b2K1/PP5P/8 w - - 0 1",
+   "stage": "engine",
+   "detector": "piece_decides",
+   "sentence": "Король чёрных раскрыт, и решает ферзь.",
+   "why": "1.Bf7+ Kxf7 2.Qe6#: the queen mates in the engine's line after a bishop check (corpus board out_local_1022 chess-tactics)",
+   "source": "P4 (true control, judged)"
+  },
+  {
+   "id": "queen-decides-english",
+   "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+   "stage": "engine",
+   "detector": "piece_decides",
+   "sentence": "Here the queen decides.",
+   "why": "Qxf7# (English form, judged and true)",
+   "source": "P4 (true control, judged)"
+  },
+  {
+   "id": "queen-decides-denied",
+   "fen": "r1bq1b1r/ppp3pp/2n1k3/3np3/2B5/5Q2/PPPP1PPP/RNB1K2R w KQ - 2 8",
+   "stage": "engine",
+   "detector": "piece_decides",
+   "sentence": "Ферзь тут один ничего не решает.",
+   "why": "denied (true on the mate2-no board)",
+   "source": "P4"
+  },
+  {
+   "id": "queen-decides-other-side",
+   "fen": "r1bq1b1r/ppp3pp/2n1k3/3np3/2B5/5Q2/PPPP1PPP/RNB1K2R w KQ - 2 8",
+   "stage": "engine",
+   "detector": "piece_decides",
+   "sentence": "У чёрных в защите решает ферзь.",
+   "why": "the side not to move: a statement about defence, not a move now",
+   "source": "P4"
+  },
+  {
+   "id": "extra-knight-decides",
+   "fen": "8/8/4k3/8/3N4/4K3/8/8 w - - 0 1",
+   "stage": "engine",
+   "detector": "piece_decides",
+   "sentence": "Лишний конь решает партию.",
+   "why": "material (an adjective other than the owner's), not a move",
+   "source": "P4"
+  },
+  {
+   "id": "two-pieces-decide",
+   "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+   "stage": "engine",
+   "detector": "piece_decides",
+   "sentence": "Слон c4 и ферзь h5 решают.",
+   "why": "two pieces together, not one piece's move",
+   "source": "P4"
+  }
+ ]
+}

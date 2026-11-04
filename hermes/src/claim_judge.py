@@ -40,6 +40,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
+import re
+
 import chess
 
 from src.claim_types import PIECE_TYPE, RULE_RELATIONS, UNDECIDED, BoardSet, Claim, Ref, Verdict
@@ -493,6 +495,20 @@ def _kind(ref: Ref) -> str:
     return NAME[PIECE_TYPE[ref.piece]] if ref and ref.piece else "piece"
 
 
+_STEM = {"Q": r"ферз|queen", "R": r"лад|rook", "B": r"слон|bishop", "N": r"кон[ьяеюё]|knight", "P": r"пешк|pawn",
+         "K": r"корол|king"}
+
+
+def _bare_twin(ref: Ref, ctx: Any) -> bool:
+    """The sentence names *ref*'s piece both with its square and without one («…и ферзь d8, а защищают ферзь, …»): the
+    bare word may have taken the square of the other — which piece it is, the words do not say (fix1103)."""
+    sent = (getattr(ctx, "sentence_now", "") or "").lower()
+    if not ref or not ref.piece or not ref.sq or ref.piece not in _STEM or not sent:
+        return False
+    found = re.findall(r"(?<![а-яёa-z])(?:" + _STEM[ref.piece] + r")[а-яёa-z]*(?:\s+(?:на\s+|с\s+|on\s+)?([a-h][1-8]))?", sent)
+    return ref.sq.lower() in found and "" in found
+
+
 def _judge_defend(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
     objs = [o for o in _targets(claim) if o.sq]
     if not objs:
@@ -538,7 +554,9 @@ def _judge_defend(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
                 a = subj[0]
                 ap = board.piece_at(a)
                 if tp is not None and ap is not None and ap.color != tp.color:
-                    if o.pronoun or s.pronoun:
+                    if o.pronoun or s.pronoun or _bare_twin(s, ctx):
+                        # (fix1103, review-fp g05: «…атакуют пешка c5 и ферзь d8, а защищают ферзь, конь f3…» — the bare
+                        # «ферзь» took the square of the queen named before it, the other side's: the same as a pronoun)
                         # «А защищают его только чёрная ладья с f7 и ферзь с d8» with «его» read as White's bishop: a
                         # defender of the other side says the pronoun means another piece — not a board fact.
                         raise _Undecided
@@ -586,10 +604,34 @@ def _judge_undefended(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
             att = board.attackers(not tp.color, t)
             if not att and dfs:
                 return False, f"nothing attacks {who(board, t)} and it is defended by {_names(board, dfs)}"
+            if att and dfs and not _wins_on(board, t, att):
+                raise _Undecided  # attacked and defended, no capture wins material: «висит» is not the attack map's
             continue
         if dfs:
             return False, f"{who(board, t)} is defended by {_names(board, dfs)}"
     return True, ""
+
+
+def _wins_on(board: chess.Board, t: int, attackers) -> bool:
+    """Some capture of the piece on *t* wins material by static exchange (board_math.see, the taker to move)."""
+    from src.board_math import see
+
+    tp = board.piece_at(t)
+    if tp is None:
+        return False
+    b = board
+    if board.turn == tp.color:
+        if board.is_check():
+            return False
+        b = board.copy(stack=False)
+        b.push(chess.Move.null())
+    for a in attackers:
+        mv = chess.Move(a, t)
+        if b.piece_type_at(a) == chess.PAWN and chess.square_rank(t) in (0, 7):
+            mv = chess.Move(a, t, promotion=chess.QUEEN)
+        if mv in b.legal_moves and see(b, mv) > 0:
+            return True
+    return False
 
 
 def _judge_attacked(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
@@ -734,6 +776,14 @@ def _judge_blocks(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
 
 def _judge_locked(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
     s = claim.subj
+    if s is not None and not s.sq and s.piece and claim.rel in ("locked", "trapped") and not claim.objs:
+        # «чёрный ферзь без ходов», «у белых ферзь заперт»: the one piece of that kind (and side) on the board (fix1101 F1)
+        col = _colour(s, ctx, board)
+        same = [q for q, p in board.piece_map().items() if p.piece_type == PIECE_TYPE[s.piece]
+                and (col is None or p.color == col)]
+        if len(same) != 1:
+            raise _Undecided
+        s = Ref(sq=chess.square_name(same[0]), piece=s.piece, side=s.side, owner=s.owner, text=s.text)
     if s is None or not s.sq:
         raise _Undecided
     a = chess.parse_square(s.sq)
@@ -746,9 +796,12 @@ def _judge_locked(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
     if moves is None:
         raise _Undecided
     if claim.rel == "locked":
-        if moves:
-            return False, f"{who(board, a)} can go to {_sqnames({m.to_square for m in moves})}"
-        return True, ""
+        # «слон c8 заперт», no blocker named (plan 31.10, P3B): shut in — at most one legal move, or a reach of one
+        # square (the French bishop c8 after 3.e5 has d7 alone: locked; the Caro-Kann's after 3.e5 has five: free)
+        to = {m.to_square for m in moves}
+        if len(to) <= 1 or len(board.attacks(a)) <= 1:
+            return True, ""
+        return False, f"{who(board, a)} is not locked in: it can go to {_sqnames(to, cap=6)} ({len(to)} moves)"
     safe = [m for m in moves if not board.is_attacked_by(not p.color, m.to_square)]
     if safe:
         return False, f"{who(board, a)} can go safely to {_sqnames({m.to_square for m in safe})}"
@@ -780,16 +833,138 @@ def _judge_check(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
     return False, f"{_side(board.turn)}'s king is not in check"
 
 
+def _judge_pin_exists(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
+    """«держать связку», «под связку» (presup exists): some pin by the piece or side the words name — of the piece
+    they name, when they name one. decide() reports it only when no board of the scene has one."""
+    s = claim.subj
+    objs = [o for o in _targets(claim) if o.sq]
+    if s is not None and (s.sq or s.piece):
+        if s.piece == "K":
+            raise _Undecided
+        pinners = _candidates(board, s, _colour(s, ctx, board))
+    else:
+        col = _colour(s, ctx, board)
+        pinners = [a for a, p in board.piece_map().items() if p.piece_type in SLIDERS and (col is None or p.color == col)]
+    if not pinners:
+        if s is not None and (s.sq or s.piece):
+            return False, f"there is no {_kind(s)} on the board to pin anything"
+        raise _Undecided
+    want = {_ref_square(board, o) for o in objs}
+    # a pinned piece named by its kind or side only («увести коня из-под связки», «чёрные снимают связку»): a pin of
+    # that kind / of that side's piece (fix1101 F1)
+    loose = [o for o in _targets(claim) if not o.sq and (o.piece or o.side is not None or o.owner in ("you", "their"))]
+
+    def fits(t):
+        if want:
+            return t in want
+        p = board.piece_at(t)
+        for o in loose:
+            col = _colour(o, ctx, board)
+            if (o.piece and p.piece_type != PIECE_TYPE[o.piece]) or (col is not None and p.color != col):
+                return False
+        return True
+
+    for a in pinners:
+        for t in board.attacks(a):
+            if board.piece_at(t) is not None and fits(t) and pin_behind(board, a, t) is not None:
+                return True, ""
+    if len(pinners) == 1:
+        a = pinners[0]
+        return False, f"{who(board, a)} pins nothing; it attacks {_hits(board, a)}"
+    col = _colour(s, ctx, board)
+    what = (f"{_side(col)} " if col is not None else "") + (_kind(s) if s is not None and s.piece else "piece")
+    seen = "; ".join(f"{who(board, a)} attacks {_hits(board, a)}" for a in pinners[:2])
+    return False, f"no {what} pins anything: {seen}" if seen else f"no {what} pins anything"
+
+
+def _lost_on(claim: Claim, board: chess.Board, ctx: Any, z: int) -> Optional[tuple]:
+    """The piece lost on *z* that a «cover_cause» claim explains: (its colour, its type, how it was lost), from the
+    claim's own ref (``to``: «твой конь»), the game's capture on *z* (src/game_record.last_capture), or the told move
+    that led to *board* when it captured on *z*; None when none says."""
+    to = claim.to
+    if to is not None and not to.sq:
+        # the lost piece not named on z («пешка g7 контролировала f6, и конь был потерян», «твой конь потерялся»):
+        # the game's last capture on z must be of that kind and side; with no capture there in the record, a side the
+        # words give still decides, a bare kind binds to nothing (fix1101 F1)
+        try:
+            from src.game_record import captures
+
+            caps = [c for c in captures(ctx) if c.square == z]
+        except Exception:  # noqa: BLE001
+            caps = []
+        col = _colour(to, ctx, board) if (to.side is not None or to.owner in ("you", "their")) else None
+        if caps:
+            cap = caps[-1]
+            if (to.piece and PIECE_TYPE.get(to.piece) != cap.captured) or (col is not None and col == cap.mover):
+                return None
+            return (not cap.mover), cap.captured, f"; it was taken by {_side(cap.mover)}'s {NAME[cap.piece]} ({cap.label})"
+        if col is None:
+            return None
+        return col, PIECE_TYPE.get(to.piece) if to.piece else None, ""
+    if to is not None and (to.side is not None or to.owner in ("you", "their")):
+        col = _colour(to, ctx, board)
+        if col is not None:
+            return col, PIECE_TYPE.get(to.piece) if to.piece else None, ""
+    try:
+        from src.claim_scene import TEXT_KEY
+        from src.game_record import last_capture
+
+        told = (getattr(ctx, "relation_state", None) or {}).get(TEXT_KEY)
+        cap = last_capture(ctx, told if isinstance(told, str) else None)
+    except Exception:  # noqa: BLE001
+        cap = None
+    if cap is not None and cap.square == z:
+        how = f"; it was taken by {_side(cap.mover)}'s {NAME[cap.piece]} ({cap.label})"
+        return (not cap.mover), cap.captured, how
+    from src.claim_scene import board_before, last_move
+
+    mv, prev = last_move(board), board_before(board)
+    if mv is not None and prev is not None and mv.to_square == z and prev.piece_at(z) is not None and \
+            not prev.is_en_passant(mv):
+        lost = prev.piece_at(z)
+        taker = prev.piece_at(mv.from_square)
+        how = f"; it was taken by {_side(taker.color)}'s {NAME[taker.piece_type]} ({prev.san(mv)})" if taker else ""
+        return lost.color, lost.piece_type, how
+    return None
+
+
+def _judge_cover_cause(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
+    """«поле f6 держала пешка g7, и конь там просто потерялся»: the hold named as the cause of the loss on that square
+    is the enemy's — a piece of the lost piece's own side covers the square for it. False when the holder and the
+    lost piece are of one side; true when of opposite sides; undecided when the holder is not there or the loss is
+    unknown."""
+    s = claim.subj
+    objs = [o for o in _targets(claim) if o.sq]
+    if s is None or not s.sq or not objs:
+        raise _Undecided
+    a = _ref_square(board, s)
+    p = board.piece_at(a)
+    if p is None or (s.piece and p.piece_type != PIECE_TYPE[s.piece]):
+        raise _Undecided  # the holder named is not there: the hold claim itself says so
+    z = chess.parse_square(objs[0].sq)
+    lost = _lost_on(claim, board, ctx, z)
+    if lost is None:
+        raise _Undecided
+    colour, ptype, how = lost
+    if p.color != colour:
+        return True, ""
+    what = f"{_side(colour)}'s {NAME[ptype]}" if ptype else f"{_side(colour)}'s piece"
+    return False, f"{who(board, a)} is {_side(p.color)}'s own {NAME[p.piece_type]}: it covers {chess.square_name(z)} " \
+                  f"for {_side(p.color)} — it cannot be why {what} on {chess.square_name(z)} was lost{how}"
+
+
 _JUDGES: dict = {
     "attack": _judge_attack, "chase": _judge_attack, "threat": _judge_attack, "aim": _judge_attack,
     "hold": _judge_attack, "defend": _judge_defend, "undefended": _judge_undefended, "hanging": _judge_undefended,
     "attacked": _judge_attacked, "pinned": _judge_pinned, "pins": _judge_pins, "pin_after": _judge_pins,
     "locked_by": _judge_locked_by, "blocks": _judge_blocks, "locked": _judge_locked, "trapped": _judge_locked,
     "capture_with": _judge_capture_with, "gives_check": _judge_check,
+    # plan 31.10 (P3A emits, P3B judges)
+    "pin_exists": _judge_pin_exists, "cover_cause": _judge_cover_cause,
 }
 # Relations whose named pieces must stand where the words put them (the board-rule and the "who can take" ones read
 # the board their own way).
-_GHOST_CHECKED = set(_JUDGES) - {"capture_with", "gives_check"}
+_GHOST_CHECKED = set(_JUDGES) - {"capture_with", "gives_check", "cover_cause"}
 
 
 def _just_took(claim: Claim, board: chess.Board) -> bool:
@@ -837,8 +1012,10 @@ def judge_on(claim: Claim, board: chess.Board, ctx: Any) -> tuple:
             g = ghost(board, ref) or _wrong_owner(board, ref, ctx)
             if g:
                 # «пешка b3 не защищает слона» with no pawn on b3: a denial about a piece that is not there denies
-                # nothing about this board.
-                return (None, "") if claim.neg else (False, g)
+                # nothing about this board. «Конь f6 защищён трижды» (not undefended, with a count) is no denial: it
+                # counts the defenders of a piece that must stand there (review-miss F5).
+                counted = claim.rel == "undefended" and claim.count is not None and ref is not claim.subj
+                return (None, "") if claim.neg and not counted else (False, g)
     if claim.rel == "undefended" and claim.neg and claim.count:
         # «защищён дважды», «защищена двумя фигурами»: at least that many defenders (a battery counts)
         r = next((o for o in claim.objs if o is not None and o.sq), None)
@@ -941,6 +1118,15 @@ def _rule_judge(claim: Claim) -> Optional[Callable]:
     return claim_rules.RULE_JUDGES.get(claim.rel)
 
 
+def _move_fits(claim: Claim, board: chess.Board, ctx: Any) -> bool:
+    try:
+        from src.claim_rules import move_fits
+
+        return move_fits(claim, board, ctx)
+    except Exception:  # noqa: BLE001
+        return True
+
+
 def _on(claim: Claim, board: chess.Board, ctx: Any, rule: Optional[Callable]) -> tuple:
     if rule is not None:
         try:
@@ -952,11 +1138,244 @@ def _on(claim: Claim, board: chess.Board, ctx: Any, rule: Optional[Callable]) ->
     return judge_on(claim, board, ctx)
 
 
+# The plan-31.10 detector each relation and presupposition belongs to (src/config.DETECTOR_DEFAULTS): its switch
+# gates the verdict — off: never false; shadow: a false verdict is logged (ctx.relation_shadow), not reported.
+_REL_DETECTOR = {"locked": "locked", "cover_cause": "cover_cause", "pin_exists": "pin_noun"}
+_PRESUP_DETECTOR = {"before_move": "pin_escape", "exists": "pin_noun", "no_longer": "loaded_line"}
+_KIND_DETECTORS = ("pin_escape", "pin_noun", "locked", "cover_cause")
+
+
+def _detectors(claim: Claim, boards: Optional[BoardSet]) -> list:
+    """The detectors *claim*'s verdict depends on: its relation's, its presupposition's, the idea scope's, and the one
+    that built its primary board (claim_scene.DETECTOR_ATTR) — [] for every claim of the relation checker before."""
+    names = []
+    own = claim.kind if claim.kind in _KIND_DETECTORS else None
+    # the detector that emitted the claim gates it (fix1101 F1: «снять связку», a proposal, the past of pin_escape are
+    # pin_escape's, not pin_noun's though their relation is pin_exists); the relation and presupposition maps serve
+    # the claims no detector emitted (the llm schema's)
+    for n in ((own,) if own else (_REL_DETECTOR.get(claim.rel), _PRESUP_DETECTOR.get(claim.presup))) + (
+            "idea_scope" if claim.kind == "idea_scope" else None,
+            getattr(boards.primary, "rel_detector", None) if boards is not None else None):
+        if n and n not in names:
+            names.append(n)
+    return names
+
+
+def _detector_mode(name: str, ctx: Any) -> str:
+    try:
+        from src.config import detector_mode
+
+        return detector_mode(name, ctx)
+    except Exception:  # noqa: BLE001
+        return "off"
+
+
+def _log_shadow(ctx: Any, name: str, claim: Claim, verdict: Verdict) -> None:
+    """A false verdict of a detector in shadow: kept with the turn's relation shadow records (and counted as a flag,
+    so the turn's relation_check event carries it), never shown."""
+    try:
+        from src.claim_scene import TEXT_KEY
+
+        text = (getattr(ctx, "relation_state", None) or {}).get(TEXT_KEY) or ""
+        # the line as the issue would read (answer_check_relations.issue_text): shadow and on record the same words
+        from src.answer_check_relations import issue_text
+
+        line = issue_text(claim, verdict)
+        ctx.relation_shadow.append((text, [line]))
+        from src.answer_check import record_shadow
+
+        record_shadow(ctx, name, [line], text or None)
+        stats = getattr(ctx, "relation_stats", None)
+        if isinstance(stats, dict):
+            stats["flags"] = stats.get("flags", 0) + 1
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def decide(claim: Claim, boards: BoardSet, ctx: Any) -> Verdict:
     """The verdict on *claim* over *boards*: false only when false on the primary board, true on no alternative and
-    judgeable on the board the coach showed."""
+    judgeable on the board the coach showed. A claim of a plan-31.10 mechanism obeys that detector's switch."""
+    names = _detectors(claim, boards) if boards is not None else []
+    modes = [(n, _detector_mode(n, ctx)) for n in names]
+    if any(m == "off" for _n, m in modes):
+        return UNDECIDED
+    v = _decide(claim, boards, ctx)
+    if v.status == "false":
+        shadow = [n for n, m in modes if m == "shadow"]
+        if shadow:
+            _log_shadow(ctx, shadow[0], claim, v)
+            return UNDECIDED
+    return v
+
+
+def _presupposed(claim: Claim, boards: BoardSet) -> tuple:
+    """(claim, boards) as judged under the claim's presupposition (plan 31.10): no_longer — the positive relation on the
+    board before the told move («ладья больше не защищала d8»: it defended d8 before). Else as they are. (before_move
+    is _decide_escape's: the board the told move is played on is found from the move itself, fix1101 F1.)"""
+    from dataclasses import replace
+
+    from src.claim_scene import board_before, detector_of, last_move
+
+    if claim.presup == "no_longer" and detector_of(boards.primary) != "loaded_line":
+        def back(b):
+            prev = board_before(b) if b is not None else None
+            return prev if prev is not None and last_move(b) is not None else b
+
+        primary = back(boards.primary)
+        where = boards.where
+        mv = last_move(boards.primary) if boards.primary is not None else None
+        if primary is not boards.primary and mv is not None:
+            from src.claim_scene import _san_where
+
+            where = f"before {_san_where(primary, mv)}"
+        elif claim.presup == "no_longer":
+            return replace(claim, presup=""), None  # no move told: what held before is unknown
+        boards = BoardSet(primary=primary, where=where, alternatives=tuple(back(b) for b in boards.alternatives),
+                          shown=None)
+    if claim.presup == "no_longer" or (claim.neg and detector_of(boards.primary) == "loaded_line"):
+        claim = replace(claim, neg=False, presup="")
+    return claim, boards
+
+
+def _escape_frames(claim: Claim, board: Optional[chess.Board], ctx: Any) -> list:
+    """The ways *board* can hold the told move M of a pin's end (presup before_move, fix1101 F1): (before, after, move,
+    pinned refs before, the same pieces after, own) for each reading where M is played by the side of the piece the
+    words name — the board's last move when it is M (the board after M), or a legal move of the side to move there (the
+    board before M, «Nxd5! — конь f6 уходит из-под связки» said to Black after 6.Nxd5). The piece named by its square
+    must stand there before M; named by its kind only, it is the piece that moved (M is its own move) or the one piece of
+    that kind and side (M is another piece's: an interposition, a capture of the pinner). A move numbered for a side
+    is that side's. [] when no reading fits (unbound: undecided)."""
+    from dataclasses import replace
+
+    from src.claim_scene import _after, _same_move, board_before, last_move, move_readings
+
+    # the told move; a claim built elsewhere (the llm schema, a fixture) may give it only as its position's last move
+    m = claim.move or (claim.pos.moves[-1] if claim.pos.moves else None)
+    if board is None or m is None or m.castle:
+        return []
+    cands = []
+    mv, prev = last_move(board), board_before(board)
+    if mv is not None and prev is not None:
+        try:
+            if _same_move(prev, m, mv):
+                cands.append((prev, board, mv))
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        for x in move_readings(board, m):
+            if not any(c[2] == x and c[0] is board for c in cands):
+                cands.append((board, _after(board, x), x))
+    except Exception:  # noqa: BLE001
+        pass
+    out = []
+    for before, after, x in cands:
+        mover = before.piece_at(x.from_square)
+        if mover is None or (m.side is not None and mover.color != m.side):
+            continue
+        refs, own = [], False
+        objs = [o for o in claim.objs if o is not None]
+        for r in objs:
+            if r.sq or r.piece:
+                if r.sq:
+                    sq = chess.parse_square(r.sq)
+                    p = before.piece_at(sq)
+                    if p is None or (r.piece and p.piece_type != PIECE_TYPE[r.piece]):
+                        refs = None
+                        break
+                elif x.from_square is not None and r.piece and PIECE_TYPE[r.piece] == mover.piece_type:
+                    sq, p = x.from_square, mover
+                else:
+                    same = [s for s, q in before.piece_map().items() if r.piece and q.piece_type == PIECE_TYPE[r.piece]
+                            and q.color == mover.color]
+                    if len(same) != 1:
+                        refs = None
+                        break
+                    sq, p = same[0], before.piece_at(same[0])
+                want = r.side if r.side is not None else _colour(r, ctx, before) if r.owner in ("you", "their") else None
+                if p.color != mover.color or (want is not None and want != p.color):
+                    refs = None
+                    break  # one does not unpin the other side's piece: M is not this pin's end
+                own = own or sq == x.from_square
+                refs.append((replace(r, sq=chess.square_name(sq), side=p.color),
+                             replace(r, sq=chess.square_name(x.to_square if sq == x.from_square else sq), side=p.color)))
+            else:  # a side only («чёрные снимают эту связку», «чтобы развязаться»): a pin of that side's piece; with
+                # no side named any pin («после Ba5 связка исчезает» — the pinner's own move ends it too)
+                want = r.side if r.side is not None else _colour(r, ctx, before) if r.owner in ("you", "their") else None
+                refs.append((Ref(side=want), Ref(side=want)))
+        if refs is None:
+            continue
+        if not objs:
+            refs = [(Ref(), Ref())]
+        if claim.to is not None and claim.to.piece == "K" and mover.piece_type != chess.KING:
+            continue  # «уйти королём из-под связки»: the king's move
+        out.append((before, after, x, tuple(a for a, _ in refs), tuple(b for _, b in refs), own))
+    return out
+
+
+def _decide_escape(claim: Claim, boards: BoardSet, ctx: Any) -> Verdict:
+    """«Bd2 развязывает коня c3», «Nd2: конь уходит из-под связки», «Ход 4...Bd7 снял связку с коня c6» (presup
+    before_move, fix1101 F1): the pin held on the board right before the told move M — and, for M another piece's
+    move told affirmatively (claim.escape), no longer holds right after it. Judged on every reading of M the boards
+    allow (the primary first, then the alternatives): true when one reading holds, false when every reading fails and
+    the primary has one, undecided when no board binds M to the piece the words name."""
+    from dataclasses import replace
+
+    from src.claim_scene import _san_where
+
+    readings = []
+    for b in (boards.primary,) + tuple(boards.alternatives):
+        for fr in _escape_frames(claim, b, ctx):
+            if not any(fr[0] is r[0] and fr[2] == r[2] for r in readings):
+                readings.append(fr)
+        if b is boards.primary and not readings:
+            pass
+    if not readings:
+        return UNDECIDED
+    first = None
+    for before, after, x, refs, after_refs, own in readings:
+        pre = replace(claim, objs=refs, presup="", neg=False, escape=False, move=None)
+        v, truth = judge_on(pre, before, ctx)
+        if v is None:
+            return UNDECIDED  # one reading cannot be judged: the words may mean it
+        if v is False:
+            if first is None:
+                first = Verdict("false", f"before {_san_where(before, x)}", truth)
+            continue
+        if not claim.escape or own or claim.rel != "pinned":
+            return Verdict("true", boards.where)
+        # the pin the words end is the one that held before M — the same pinner against the same piece behind; a new
+        # relative pin M makes («Qd2 развязывает коня c3»: the knight now shields the queen) is not that pin
+        t0, t1 = chess.parse_square(refs[0].sq), chess.parse_square(after_refs[0].sq)
+        held = [(a, pin_behind(before, a, t0)) for a in _pinners(before, t0)]
+        kept = [a for a, y in held if a != x.to_square and after.piece_at(a) == before.piece_at(a)
+                and y is not None and y != x.from_square and pin_behind(after, a, t1) == y]
+        if not kept:
+            return Verdict("true", boards.where)
+        if first is None:
+            first = Verdict("false", f"after {_san_where(before, x)}",
+                            f"{who(after, t1)} is still pinned by {_names(after, kept)}: {before.san(x)} does not take "
+                            f"it out of the pin")
+    if first is None:
+        return UNDECIDED
+    if not any(r[0] is boards.primary or r[1] is boards.primary for r in readings):
+        return UNDECIDED  # only another board of the sentence binds M: never false on its own
+    return first
+
+
+def _decide(claim: Claim, boards: BoardSet, ctx: Any) -> Verdict:
     if claim.question == "yesno" or boards is None:
         return UNDECIDED
+    if claim.presup == "before_move":
+        return _decide_escape(claim, boards, ctx)
+    if claim.kind == "pin_escape" and claim.presup == "exists" and claim.pos.tense == "past":
+        # «конь ушёл из-под связки», «король увёл ферзя из-под связки» with no move told: the pin held right before
+        # a move the words do not name, and the boards here are after it (fix1101 F1) — unjudged, never false
+        return UNDECIDED
+    if claim.presup == "no_longer" or (boards.primary is not None and claim.neg and
+                                                       getattr(boards.primary, "rel_detector", None) == "loaded_line"):
+        claim, boards = _presupposed(claim, boards)
+        if boards is None:
+            return UNDECIDED
     if claim.rel == "plan_reach" or claim.pos.at == "plan" or boards.primary is None:
         if boards.primary is not None and claim.rel != "plan_reach":
             return UNDECIDED
@@ -976,7 +1395,7 @@ def decide(claim: Claim, boards: BoardSet, ctx: Any) -> Verdict:
         return UNDECIDED
     if v:
         return Verdict("true", boards.where)
-    if boards.shown is not None and boards.shown is not boards.primary:
+    if boards.shown is not None and boards.shown is not boards.primary and _move_fits(claim, boards.shown, ctx):
         sv, _ = _on(claim, boards.shown, ctx, rule)
         if sv is None:
             return UNDECIDED  # the board the coach showed cannot judge it: the claim may be about something else

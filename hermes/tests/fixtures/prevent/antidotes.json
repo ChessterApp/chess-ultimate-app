@@ -1,0 +1,1253 @@
+{
+ "doc": "tests/fixtures/prevent/antidotes.json: per graded finding of 29.10 (89), the truth that contradicts it.\n  antidote — regexes over the turn's model message: the truth is in the prompt (coverage, eval_prevent §5.2-c)\n  poison   — regexes: a fact in the prompt that supports the error (eval_prevent §5.2-b; gate 0)\n  issue    — regexes the issue text must match when the finding is cut (eval_prevent §5.2-e; gate on new cuts)\nUsage: python build_antidotes.py <verify1031/replay_on_analysis.json> <out.json>",
+ "findings": [
+  {
+   "src": "sets",
+   "id": "name-caro-adv",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "План за чёрных прост: конь на f6 давит н",
+   "prevent_only": false,
+   "antidote": [
+    "e4.{0,40}(empty|no piece)|exf6|f6.{0,60}attacked by .{0,40}e5"
+   ],
+   "poison": [],
+   "issue": [
+    "e4|exf6|f6"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "name-winawer",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "e4-e5 с ударом по коню g8",
+   "prevent_only": false,
+   "antidote": [
+    "e5.{0,60}attacks? (d6 and f6|f6 and d6)|g8.{0,40}not attacked"
+   ],
+   "poison": [],
+   "issue": [
+    "d6|f6"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "name-scandi",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "Чёрные рано вывели ферзя на d5 после раз",
+   "prevent_only": false,
+   "antidote": [
+    "exd5.{0,20}Qxd5|captures? (were|was|on) .{0,20}d5"
+   ],
+   "poison": [],
+   "issue": [
+    "d5"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "name-slav",
+   "kind": "opening_name_or_theory",
+   "quote_start": "чёрные укрепляют пункт d5 пешкой, а не к",
+   "prevent_only": true,
+   "antidote": [
+    "Queen's Gambit Declined.{0,120}e6|e6.{0,60}(supports|defends) d5|Slav.{0,80}c6"
+   ],
+   "poison": [],
+   "issue": [
+    "e6|c6"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "move-najdorf",
+   "kind": "made_up_position_or_fact",
+   "quote_start": "конкретно система, где белые пошли 6.Сс4",
+   "prevent_only": false,
+   "antidote": [
+    "bishop.{0,30}f1|has not played 6\\.?Bc4|after 5\\.\\.\\.a6"
+   ],
+   "poison": [],
+   "issue": [
+    "f1|5\\.\\.\\.a6|Bc4"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "move-najdorf",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Белые готовят g4 и хотят избежать связки",
+   "prevent_only": false,
+   "antidote": [
+    "no (white )?knight on f3|knight.{0,20}on d4"
+   ],
+   "poison": [],
+   "issue": [
+    "f3|d4|pin"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "move-najdorf",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "На твоём уровне я бы советовал именно **",
+   "prevent_only": true,
+   "antidote": [
+    "\\bsharp|\\btactical\\b|opposite[- ]side castl|pawn storm"
+   ],
+   "poison": [],
+   "issue": [
+    "English Attack|sharp|tactic"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "name-kg",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "ақтар e5 сарбазын ұсынып, орталықты ашуғ",
+   "prevent_only": false,
+   "antidote": [
+    "f4.{0,40}(attacked|exf4)|e5 (pawn )?is Black's|gambit.{0,40}f4"
+   ],
+   "poison": [],
+   "issue": [
+    "f4|e5"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "move-sicilian-2",
+   "kind": "opening_name_or_theory",
+   "quote_start": "Открытый вариант сицилианской защиты",
+   "prevent_only": false,
+   "antidote": [
+    "Sicilian Defen[cs]e(?!: Open)|B20"
+   ],
+   "poison": [],
+   "issue": [
+    "B20|Sicilian"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "move-sicilian-2",
+   "kind": "opening_name_or_theory",
+   "quote_start": "**2. c3** (система с последующим d4, люб",
+   "prevent_only": false,
+   "antidote": [
+    "Alapin"
+   ],
+   "poison": [],
+   "issue": [
+    "Alapin"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "trap-legal",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "и тогда спокойно берёшь слоном: Qxg4",
+   "prevent_only": false,
+   "antidote": [
+    "Qxg4.{0,40}queen|queen (on )?d1.{0,40}g4"
+   ],
+   "poison": [],
+   "issue": [
+    "queen"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "trap-legal",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "после Nxe5 чёрные обязаны ответить dxe5",
+   "prevent_only": false,
+   "antidote": [
+    "Be6|not forced|other (good )?repl"
+   ],
+   "poison": [],
+   "issue": [
+    "Be6|not forced"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "trap-fried-liver",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Лучше b5 — отгоняешь коня g5 и забираешь",
+   "prevent_only": false,
+   "antidote": [
+    "b5.{0,40}(attacks|hits).{0,30}c4|Ulvestad|Bf1"
+   ],
+   "poison": [],
+   "issue": [
+    "c4"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "can-kg-accept",
+   "kind": "wrong_material",
+   "quote_start": "Материал пока равный — ты отдал пешку e5",
+   "prevent_only": false,
+   "antidote": [
+    "Black (is|has) (a )?pawn (up|more)|Black.{0,30}(one|1|a) (extra )?pawn|material.{0,40}Black.{0,20}\\+1"
+   ],
+   "poison": [],
+   "issue": [
+    "pawn"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "can-kg-accept",
+   "kind": "opening_name_or_theory",
+   "quote_start": "белый конь обычно идёт на c3, прикрывая ",
+   "prevent_only": false,
+   "antidote": [
+    "3\\.?Nf3|King's Knight's Gambit|Mason"
+   ],
+   "poison": [],
+   "issue": [
+    "Nf3|Bc4"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "can-scotch",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "А почему не Nxd4 сразу? Подумай, что слу",
+   "prevent_only": false,
+   "antidote": [
+    "knight (has )?(already )?left c6|c6 is empty|no knight on c6|Nxd4 exd4 .{0,10}Qxd4"
+   ],
+   "poison": [],
+   "issue": [
+    "c6"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "plan-caro-adv",
+   "kind": "made_up_position_or_fact",
+   "quote_start": "Играй Nd2: конь уходит из-под связки",
+   "prevent_only": false,
+   "antidote": [
+    "b1.{0,40}not pinned|no pin|c2 blocks|nothing is pinned"
+   ],
+   "poison": [],
+   "issue": [
+    "pin|b1"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "plan-caro-adv",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Почему не c3 сразу? Тогда слон с f5 спок",
+   "prevent_only": false,
+   "antidote": [
+    "c3 does not attack|bishop on f5 is not attacked|4\\.c3.{0,40}\\+0\\.2"
+   ],
+   "poison": [],
+   "issue": [
+    "f5|c3"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "plan-caro-adv",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "какой из ходов — Nc3 или Nd2 — по-твоему",
+   "prevent_only": false,
+   "antidote": [
+    "c2.{0,60}(defended|protected) (only )?by .{0,20}queen|queen on d1.{0,30}c2"
+   ],
+   "poison": [],
+   "issue": [
+    "c2"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "plan-kid",
+   "kind": "illegal_or_nonexistent_move",
+   "quote_start": "конь f6 уже на неё давит; как только чёр",
+   "prevent_only": false,
+   "antidote": [
+    "f5 is (not legal|illegal)|knight on f6.{0,40}(blocks|stands)|f7 pawn cannot"
+   ],
+   "poison": [],
+   "issue": [
+    "f5|f6"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "castle-ru",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Начни с b3 — b3–c4 — белые сразу нападаю",
+   "prevent_only": false,
+   "antidote": [
+    "Ba6.{0,60}(safe|still covers f1)|still covers f1"
+   ],
+   "poison": [],
+   "issue": [
+    "Ba6|a6.{0,60}f1"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "castle-00",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Пока же просто развивайся: Qe2, Be3",
+   "prevent_only": false,
+   "antidote": [
+    "Qe2.{0,40}(loses|Bxe2|hangs)|e2 is attacked by .{0,30}bishop|bishop on c4.{0,40}e2"
+   ],
+   "poison": [],
+   "issue": [
+    "Qe2|Bxe2|-9|−9"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "castle-00",
+   "kind": "illegal_or_nonexistent_move",
+   "quote_start": "а если он отступит на a6, то с боку гроз",
+   "prevent_only": false,
+   "antidote": [
+    "a6.{0,60}nothing (is )?(left )?on c4|c4 is empty"
+   ],
+   "poison": [],
+   "issue": [
+    "c4"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "pawn-b3-words",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Слон на a4 пока держится только потому, ",
+   "prevent_only": false,
+   "antidote": [
+    "a4.{0,60}(not defended|undefended)|nothing defends .{0,30}a4"
+   ],
+   "poison": [],
+   "issue": [
+    "a4"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "pawn-b3-bare",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "это почти на четыре пешки хуже, чем было",
+   "prevent_only": false,
+   "antidote": [
+    "(-|−)6\\.\\d|bishop for a pawn.{0,40}2 pawns|swing.{0,20}6"
+   ],
+   "poison": [],
+   "issue": [
+    "6\\.\\d|2 pawns|two pawns"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "mate2-no",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "Берёшь коня на d5 с шахом: Qxd5+. Король",
+   "prevent_only": false,
+   "antidote": [
+    "Qxd5\\+?.{0,80}(loses|Qxd5|−6|-6)|d-file.{0,30}open"
+   ],
+   "poison": [
+    "fork is available now: Qxd5\\+"
+   ],
+   "issue": [
+    "Qxd5|-6|−6"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "mate2-no",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "король чёрных застрял в центре на e6, и ",
+   "prevent_only": false,
+   "antidote": [
+    "Nc3.{0,40}(best|\\+1)|best (move )?is .{0,10}Nc3|no queen move wins"
+   ],
+   "poison": [
+    "fork is available now: Qxd5\\+"
+   ],
+   "issue": [
+    "Qg3|Nc3"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "stalemate-hyp",
+   "kind": "other",
+   "quote_start": "Запирать короля надо так, чтобы он был п",
+   "prevent_only": true,
+   "antidote": [
+    "stalemate.{0,120}(not in check|one legal move|check is not required)|Qb4.{0,60}not in check"
+   ],
+   "poison": [],
+   "issue": [
+    "stalemate|legal move"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "lucena",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "когда чёрная ладья начнёт шаховать по ве",
+   "prevent_only": false,
+   "antidote": [
+    "checks? along the (b|c)-file|king never stands on the d-file|Rc2\\+|Rb2\\+"
+   ],
+   "poison": [],
+   "issue": [
+    "d-file|d file|along d|c-file|b-file"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "opera",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Ферзь пожертвован, чтобы ладья чёрных бо",
+   "prevent_only": false,
+   "antidote": [
+    "rook on h8|bishop on f8 .{0,30}cuts|only the king.{0,20}covers d8|deflect"
+   ],
+   "poison": [],
+   "issue": [
+    "h8|d8|d7"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "two-knights",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "Мат случается только если чёрный король ",
+   "prevent_only": false,
+   "antidote": [
+    "mate (is )?possible on (the )?edge|not only in the corner|KNNK.{0,60}edge"
+   ],
+   "poison": [],
+   "issue": [
+    "edge|corner"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "kk-castle",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "Пілді қуып кету жеткіліксіз: ол a6, b5, ",
+   "prevent_only": false,
+   "antidote": [
+    "b3.{0,40}attacks the bishop|Bc4 is undefended"
+   ],
+   "poison": [],
+   "issue": [
+    "b3|c4"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "rule-promote",
+   "kind": "other",
+   "quote_start": "Покажу на доске.",
+   "prevent_only": false,
+   "antidote": [],
+   "poison": [],
+   "issue": [
+    "board"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "mate1-no",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Сначала отрежь короля по 7-й горизонтали",
+   "prevent_only": false,
+   "antidote": [
+    "f7 pawn blocks|Kh7|\\bh7\\b"
+   ],
+   "poison": [],
+   "issue": [
+    "h7|f7"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "material",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "посмотри, чей ход и как белые могут забр",
+   "prevent_only": false,
+   "antidote": [
+    "no White piece (attacks|can take) .{0,20}e5|e5.{0,40}not attacked"
+   ],
+   "poison": [],
+   "issue": [
+    "e5"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "square",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "Нет, не догонит. Твоя пешка проходит.",
+   "prevent_only": false,
+   "antidote": [
+    "Kd6|Kd5|\\bdraw"
+   ],
+   "poison": [],
+   "issue": [
+    "Kd5|Kd6|draw"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "square",
+   "kind": "made_up_position_or_fact",
+   "quote_start": "пешка a5 идёт вперёд с темпом, а белый к",
+   "prevent_only": false,
+   "antidote": [
+    "\\bdraw|Kd5|Kd6|inside the square"
+   ],
+   "poison": [],
+   "issue": [
+    "Kd5|Kd6|draw"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "square",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "Поэтому не гонись за ней по диагонали: в",
+   "prevent_only": true,
+   "antidote": [
+    "Kd5.{0,30}Kd6|Kd6.{0,30}Kd5|diagonal"
+   ],
+   "poison": [],
+   "issue": [
+    "Kd5|Kd6"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "square-no",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Нет, король не успевает — но не из-за го",
+   "prevent_only": false,
+   "antidote": [
+    "nothing (controls|reaches) d6|no piece .{0,40}d6"
+   ],
+   "poison": [],
+   "issue": [
+    "d6"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "square-no",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "после Ke5 белые играют a6, и ты обязан и",
+   "prevent_only": false,
+   "antidote": [
+    "\\ba6\\b|Kd6"
+   ],
+   "poison": [],
+   "issue": [
+    "a6|a7"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "square-no",
+   "kind": "made_up_position_or_fact",
+   "quote_start": "Дальше белый король идёт на g2 и просто ",
+   "prevent_only": false,
+   "antidote": [
+    "a7.{0,30}a8|pawn promotes|wins by pushing"
+   ],
+   "poison": [],
+   "issue": [
+    "a8|promot|push"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "black-best",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Ферзь бьёт пешку e4 с шахом и по пути со",
+   "prevent_only": false,
+   "antidote": [
+    "Qxe4\\+.{0,80}(attacks|e1)|queen on e4 attacks"
+   ],
+   "poison": [],
+   "issue": [
+    "h2|f1|e4"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "op-ruy",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "а что ты вообще хочешь получить от этого",
+   "prevent_only": false,
+   "antidote": [
+    "nothing is pinned|no pin|d7 (pawn )?(stands )?between"
+   ],
+   "poison": [],
+   "issue": [
+    "pin|d7"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "op-show-italian",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "Но помни про ловушку: если сыграть Nd4, ",
+   "prevent_only": false,
+   "antidote": [
+    "Qg5|4\\.Nxe5\\??.{0,40}mistake|Blackburne"
+   ],
+   "poison": [],
+   "issue": [
+    "Qg5|mistake"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "op-show-ck",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "Если чёрные всё же сыграют d5, ты можешь",
+   "prevent_only": false,
+   "antidote": [
+    "Bf5|bishop (on )?c8.{0,40}(5|five) (legal )?moves|not locked"
+   ],
+   "poison": [],
+   "issue": [
+    "Bf5|c8"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "op-show-ck",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "лучший план — d4, занимая центр и не дав",
+   "prevent_only": false,
+   "antidote": [
+    "2\\.\\.\\.d5|d5 is defended by .{0,20}c6|d5.{0,30}c6"
+   ],
+   "poison": [],
+   "issue": [
+    "d5"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "r-zugzwang",
+   "kind": "illegal_or_nonexistent_move",
+   "quote_start": "Чёрный король обязан отойти в сторону: K",
+   "prevent_only": false,
+   "antidote": [
+    "Kf5|Kd5 is illegal"
+   ],
+   "poison": [],
+   "issue": [
+    "Kd5|Kf5"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "r-pawn-back",
+   "kind": "made_up_position_or_fact",
+   "quote_start": "А вот ход e2-d1 невозможен, и пешка так ",
+   "prevent_only": true,
+   "antidote": [
+    "captures?.{0,60}(next|adjacent|neighbouring) file|captures one square diagonally"
+   ],
+   "poison": [],
+   "issue": [
+    "file|diagonal"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "r-notation",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "король на e5 попасть не может — поле сли",
+   "prevent_only": false,
+   "antidote": [
+    "e5 is empty|e5.{0,20}empty"
+   ],
+   "poison": [],
+   "issue": [
+    "e5"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "x-wc2021-g6",
+   "kind": "made_up_position_or_fact",
+   "quote_start": "там был красивый размен, где белые отдал",
+   "prevent_only": false,
+   "antidote": [
+    "26\\.Qxc8 Rxc8 27\\.Rxc8|queen for two rooks"
+   ],
+   "poison": [],
+   "issue": [
+    "two rooks|Rxc8"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "x-wc2021-g6",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Чёрные только что сыграли 135...Qg1, нап",
+   "prevent_only": false,
+   "antidote": [
+    "knight.{0,30}h5|136\\.Ng7"
+   ],
+   "poison": [],
+   "issue": [
+    "h5|Ng7"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "x-poem",
+   "kind": "made_up_position_or_fact",
+   "quote_start": "А хочешь — вернёмся к доске и разберём т",
+   "prevent_only": false,
+   "antidote": [
+    "starting position|initial position"
+   ],
+   "poison": [],
+   "issue": [
+    "start|initial"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "g1-resign",
+   "kind": "opening_name_or_theory",
+   "quote_start": "если играешь защиту Алехина, логичнее не",
+   "prevent_only": true,
+   "antidote": [
+    "Alekhine.{0,120}(1\\.e4 Nf6|2\\.e5 Nd5|Nd5)|invites? .{0,10}e5"
+   ],
+   "poison": [],
+   "issue": [
+    "Nf6|e5|Nd5"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "g1-resign",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "конь на f6 под боем пешки e5, и ты честн",
+   "prevent_only": true,
+   "antidote": [
+    "safe squares?.{0,40}d5|Nd5.{0,30}safe|not (lost|in danger)"
+   ],
+   "poison": [],
+   "issue": [
+    "d5|safe"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "g3-hint",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Посмотри на пешку чёрных на f5 — из-за н",
+   "prevent_only": false,
+   "antidote": [
+    "g2.{0,40}long diagonal|e6 is not on"
+   ],
+   "poison": [],
+   "issue": [
+    "e6|diagonal"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "g3-draw",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Помни про слабость на e6 после f5: фианк",
+   "prevent_only": false,
+   "antidote": [
+    "g2.{0,40}long diagonal|e6 is not on"
+   ],
+   "poison": [],
+   "issue": [
+    "e6|diagonal"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "d1-why",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "он спокойно отойдёт на a6, b5, d3 или e2",
+   "prevent_only": false,
+   "antidote": [
+    "d3.{0,40}(captured|cxd3)|Nxe2|only a6"
+   ],
+   "poison": [],
+   "issue": [
+    "d3|e2|a6"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "d2-solution",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "закрыться может только ферзь: 34.Qc1 — d",
+   "prevent_only": false,
+   "antidote": [
+    "Qd1|Qe1"
+   ],
+   "poison": [],
+   "issue": [
+    "Qd1|Qe1"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "d2-solution",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Как думаешь, почему белый ферзь просто о",
+   "prevent_only": false,
+   "antidote": [
+    "Qd1|Qe1"
+   ],
+   "poison": [],
+   "issue": [
+    "Qd1|Qe1"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "d2-solution",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Ферзь был единственной защитой, а теперь",
+   "prevent_only": false,
+   "antidote": [
+    "f1 and h1|rook along the first rank"
+   ],
+   "poison": [],
+   "issue": [
+    "f1|h1|rank"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "d3-example",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "если бы белая пешка стояла на h3, а не н",
+   "prevent_only": false,
+   "antidote": [
+    "h3.{0,40}(protects|defends) .{0,20}g4|Rxg4 hxg4"
+   ],
+   "poison": [],
+   "issue": [
+    "h3|g4"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "d3-which",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Конь на g4 атакует две фигуры: пешку h6 ",
+   "prevent_only": false,
+   "antidote": [
+    "g4 attacks .{0,60}h6|knight on g4.{0,40}(f2|h6)"
+   ],
+   "poison": [],
+   "issue": [
+    "h6|g4"
+   ]
+  },
+  {
+   "src": "sets",
+   "id": "d4-move5",
+   "kind": "wrong_attack_or_defence",
+   "quote_start": "Рокировка решает обе задачи: король уход",
+   "prevent_only": false,
+   "antidote": [
+    "rook.{0,20}f1.{0,40}not.{0,20}g2|king.{0,20}defends g2"
+   ],
+   "poison": [],
+   "issue": [
+    "g2|f1"
+   ]
+  },
+  {
+   "src": "st1",
+   "id": "st1#10",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "чёрные ответили Nc6: конь с b8 встал на ",
+   "prevent_only": false,
+   "antidote": [
+    "c6.{0,40}does not defend c5|c5.{0,40}defended by .{0,20}d6"
+   ],
+   "poison": [],
+   "issue": [
+    "c5|d6"
+   ]
+  },
+  {
+   "src": "st1",
+   "id": "st1#10",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "а у тебя на c1 всё ещё сидит слон, запер",
+   "prevent_only": false,
+   "antidote": [
+    "c1.{0,40}(Bd2|legal moves)|not locked"
+   ],
+   "poison": [],
+   "issue": [
+    "c1|d2"
+   ]
+  },
+  {
+   "src": "st1",
+   "id": "st1#10",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "Сейчас соперник закончил развитие и гото",
+   "prevent_only": false,
+   "antidote": [
+    "f8 bishop|bishops? on c8 and f8|cannot castle"
+   ],
+   "poison": [],
+   "issue": [
+    "f8|c8|castle"
+   ]
+  },
+  {
+   "src": "st1",
+   "id": "st1#1",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "Чёрные отдали центральную пешку, зато по",
+   "prevent_only": false,
+   "antidote": [
+    "no capture|nothing (has been )?(captured|given)|material.{0,20}(equal|level)"
+   ],
+   "poison": [],
+   "issue": [
+    "captur|lost no|no pawn"
+   ]
+  },
+  {
+   "src": "st1",
+   "id": "st1#2",
+   "kind": "opening_name",
+   "quote_start": "это классическая сицилианская, вариант «",
+   "prevent_only": false,
+   "antidote": [
+    "Modern Variations|B50"
+   ],
+   "poison": [],
+   "issue": [
+    "Modern|B50|Classical"
+   ]
+  },
+  {
+   "src": "st1",
+   "id": "st1#11",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "но менять на e4 чёрные могут в любой мом",
+   "prevent_only": false,
+   "antidote": [
+    "Nxe4.{0,40}dxe4|knight for a pawn"
+   ],
+   "poison": [],
+   "issue": [
+    "knight|e4"
+   ]
+  },
+  {
+   "src": "st2",
+   "id": "st2#7",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "Так что сейчас надо в первую очередь уве",
+   "prevent_only": false,
+   "antidote": [
+    "Qxe7|only legal move"
+   ],
+   "poison": [],
+   "issue": [
+    "Qxe7|c7"
+   ]
+  },
+  {
+   "src": "st2",
+   "id": "st2#4",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "Это была ошибка: поле f6 держала пешка g",
+   "prevent_only": false,
+   "antidote": [
+    "e5.{0,40}(attacked|attacks) f6|exf6|g7 is Black's"
+   ],
+   "poison": [],
+   "issue": [
+    "exf6|e5|g7"
+   ]
+  },
+  {
+   "src": "st2",
+   "id": "st2#4",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "белые забирают фигуру бесплатно",
+   "prevent_only": false,
+   "antidote": [
+    "gxf6|Qxf6|f6.{0,40}(taken back|recapture|attacked by)"
+   ],
+   "poison": [],
+   "issue": [
+    "gxf6|Qxf6|taken back|not free"
+   ]
+  },
+  {
+   "src": "st2",
+   "id": "st2#5",
+   "kind": "wrong_move_name",
+   "quote_start": "твоя пешка с f6 забрала слона на e7",
+   "prevent_only": false,
+   "antidote": [
+    "fxe7.{0,40}White|White's (pawn|f6)|engine's"
+   ],
+   "poison": [],
+   "issue": [
+    "White|engine"
+   ]
+  },
+  {
+   "src": "st2",
+   "id": "st2#5",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "но белые грозят взять ферзём на d8, и то",
+   "prevent_only": false,
+   "antidote": [
+    "exd8|d7 (pawn )?blocks"
+   ],
+   "poison": [],
+   "issue": [
+    "exd8|d7"
+   ]
+  },
+  {
+   "src": "st2",
+   "id": "st2#6",
+   "kind": "wrong_number",
+   "quote_start": "и после твоих ошибок белые впереди на це",
+   "prevent_only": false,
+   "antidote": [
+    "two pieces|White.{0,30}\\+7|knight and (a )?bishop"
+   ],
+   "poison": [],
+   "issue": [
+    "knight.{0,30}bishop|two pieces|\\+7"
+   ]
+  },
+  {
+   "src": "st2",
+   "id": "st2#2",
+   "kind": "wrong_eval_or_line",
+   "quote_start": "так что второй раз на неё нападать смысл",
+   "prevent_only": true,
+   "antidote": [
+    "Qe7.{0,60}(e5|wins|attack)|one more attacker|attacked (once|1).{0,30}defended (once|1)"
+   ],
+   "poison": [],
+   "issue": [
+    "Qe7|attacker"
+   ]
+  },
+  {
+   "src": "st2",
+   "id": "st2#1",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "Как думаешь, какая фигура белых держит э",
+   "prevent_only": false,
+   "antidote": [
+    "e5.{0,40}(not defended|undefended)|nothing defends e5"
+   ],
+   "poison": [],
+   "issue": [
+    "e5"
+   ]
+  },
+  {
+   "src": "st2",
+   "id": "st2#7",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "Рокировка невозможна — поле f8 простреле",
+   "prevent_only": false,
+   "antidote": [
+    "e7 pawn|White's pawn on e7"
+   ],
+   "poison": [],
+   "issue": [
+    "e7"
+   ]
+  },
+  {
+   "src": "st2",
+   "id": "st2#8",
+   "kind": "wrong_number",
+   "quote_start": "Ты потерял ферзя, и теперь белые впереди",
+   "prevent_only": false,
+   "antidote": [
+    "\\+20|queen, (a )?knight and (a )?bishop|rook.{0,30}queen"
+   ],
+   "poison": [],
+   "issue": [
+    "queen|\\+2\\d|knight.{0,30}bishop"
+   ]
+  },
+  {
+   "src": "st2",
+   "id": "st2#8",
+   "kind": "wrong_move_name",
+   "quote_start": "на e7 или закрыться конём — Nxd8",
+   "prevent_only": false,
+   "antidote": [
+    "Nxd8.{0,40}(captures|takes)|replies to the check"
+   ],
+   "poison": [],
+   "issue": [
+    "takes the checking|captures|checker"
+   ]
+  },
+  {
+   "src": "st2",
+   "id": "st2#9",
+   "kind": "wrong_number",
+   "quote_start": "ты под шахом, и партия фактически решена",
+   "prevent_only": false,
+   "antidote": [
+    "\\+20|queen.{0,40}(knight|bishop)"
+   ],
+   "poison": [],
+   "issue": [
+    "queen|knight|bishop|\\+"
+   ]
+  },
+  {
+   "src": "st3",
+   "id": "st3#9",
+   "kind": "wrong_number",
+   "quote_start": "Так что теперь у чёрных на пешку больше,",
+   "prevent_only": false,
+   "antidote": [
+    "two pawns|\\+2\\b"
+   ],
+   "poison": [],
+   "issue": [
+    "two pawns|2 pawns|\\+2"
+   ]
+  },
+  {
+   "src": "st3",
+   "id": "st3#9",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "И не забудь про их пешку d4: она под бое",
+   "prevent_only": false,
+   "antidote": [
+    "d4.{0,40}(no black defender|hanging|undefended|not defended)"
+   ],
+   "poison": [],
+   "issue": [
+    "d4"
+   ]
+  },
+  {
+   "src": "st3",
+   "id": "st3#10",
+   "kind": "wrong_number",
+   "quote_start": "у чёрных чуть лучше — у них на пешку бол",
+   "prevent_only": false,
+   "antidote": [
+    "two (extra )?pawns|\\+2\\b"
+   ],
+   "poison": [],
+   "issue": [
+    "two pawns|2 pawns|\\+2"
+   ]
+  },
+  {
+   "src": "st4",
+   "id": "st4#4",
+   "kind": "wrong_move_name",
+   "quote_start": "Мой последний ход — Bc4 от белых: слон с",
+   "prevent_only": false,
+   "antidote": [
+    "3\\.d3|last move.{0,20}d3"
+   ],
+   "poison": [],
+   "issue": [
+    "d3"
+   ]
+  },
+  {
+   "src": "st4",
+   "id": "st4#7",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "d4 — и чёрные ответили Nf6: конь с g8 на",
+   "prevent_only": false,
+   "antidote": [
+    "f6.{0,40}(attacks|reaches) (e4|d5)|not .{0,10}d4"
+   ],
+   "poison": [],
+   "issue": [
+    "d4|e4|d5"
+   ]
+  },
+  {
+   "src": "st4",
+   "id": "st4#7",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "Смотри на их коня: он на f6 ничем не при",
+   "prevent_only": false,
+   "antidote": [
+    "f6.{0,40}defended by .{0,30}(e7|g7)"
+   ],
+   "poison": [],
+   "issue": [
+    "e7|g7"
+   ]
+  },
+  {
+   "src": "st4",
+   "id": "st4#8",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "Мой последний ход — Nf6: конь с g8 встал",
+   "prevent_only": false,
+   "antidote": [
+    "f6.{0,40}(attacks|reaches) (e4|d5)|not .{0,10}d4"
+   ],
+   "poison": [],
+   "issue": [
+    "d4|e4|d5"
+   ]
+  },
+  {
+   "src": "st4",
+   "id": "st4#8",
+   "kind": "wrong_attack_or_threat",
+   "quote_start": "Конь на f6 ничем не прикрыт, так что за ",
+   "prevent_only": false,
+   "antidote": [
+    "f6.{0,40}defended by .{0,30}(e7|g7)"
+   ],
+   "poison": [],
+   "issue": [
+    "e7|g7"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,390 @@
+{
+ "id": "op-show-ck-attack",
+ "turn": {
+  "set": "out_71.json",
+  "id": "op-show-ck",
+  "message": "Покажи на доске защиту Каро-Канн",
+  "answer": "Защита Каро-Канн — 1. e4 c6. Это ход чёрных: они готовят ...d5, но, в отличие от французской защиты, не запирают своего слона на c8 — он выйдет на f5 или g4 до того, как пешка встанет на e6.\n\nПосмотри на доску: чёрные сыграли c6, и их главная идея — d5 в один-два хода. На доске сейчас ход твой, за белых: лучший план — d4, занимая центр и не давая чёрным спокойно поставить пешку на d5. Если чёрные всё же сыграют d5, ты можешь ответить e5 и выиграть темп, а их слон на c8 останется запертым.",
+  "live_game": false
+ },
+ "kind": "wrong_attack_or_defence",
+ "quote": "лучший план — d4, занимая центр и не давая чёрным спокойно поставить пешку на d5",
+ "error": "2.d4 does not stop ...d5. Black plays 2...d5 straight away in the main line, and the pawn on d5 is defended by c6.",
+ "owner": "P3D",
+ "tier": "must",
+ "expect": "caught",
+ "stage": "sync",
+ "mechanism": "C6 prevents",
+ "status": "caught",
+ "sentence": "На доске сейчас ход твой, за белых: лучший план — d4, занимая центр и не давая чёрным спокойно поставить пешку на d5. ",
+ "sentence_index": 4,
+ "prefix": [
+  "Защита Каро-Канн — 1. e4 c6. ",
+  "Это ход чёрных: они готовят ...d5, но, в отличие от французской защиты, не запирают своего слона на c8 — он выйдет на f5 или g4 до того, как пешка встанет на e6.",
+  "\n\n",
+  "Посмотри на доску: чёрные сыграли c6, и их главная идея — d5 в один-два хода. "
+ ],
+ "replay_issues": [
+  [],
+  [],
+  [],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": false,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+    "moves": [],
+    "fen": "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+   },
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkbnr/pp1ppppp/2p5/8/2P1P3/8/PP1P1PPP/RNBQKBNR b KQkq - 0 2",
+    "moves": [],
+    "fen": "rnbqkbnr/pp1ppppp/2p5/8/2P1P3/8/PP1P1PPP/RNBQKBNR b KQkq - 0 2"
+   },
+   {
+    "root": "rnbqkbnr/pp1ppppp/2p5/8/4P3/3P4/PPP2PPP/RNBQKBNR b KQkq - 0 2",
+    "moves": [],
+    "fen": "rnbqkbnr/pp1ppppp/2p5/8/4P3/3P4/PPP2PPP/RNBQKBNR b KQkq - 0 2"
+   },
+   {
+    "root": "rnbqkbnr/pp1ppppp/2p5/8/4P3/1P6/P1PP1PPP/RNBQKBNR b KQkq - 0 2",
+    "moves": [],
+    "fen": "rnbqkbnr/pp1ppppp/2p5/8/4P3/1P6/P1PP1PPP/RNBQKBNR b KQkq - 0 2"
+   },
+   {
+    "root": "rnbqkbnr/pp1ppppp/2p5/8/2B1P3/8/PPPP1PPP/RNBQK1NR b KQkq - 1 2",
+    "moves": [],
+    "fen": "rnbqkbnr/pp1ppppp/2p5/8/2B1P3/8/PPPP1PPP/RNBQK1NR b KQkq - 1 2"
+   },
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    },
+    {
+     "$b": 2
+    },
+    {
+     "$b": 3
+    },
+    {
+     "$b": 4
+    },
+    {
+     "$b": 5
+    },
+    {
+     "$b": 6
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/2p5/8/2B1P3/8/PPPP1PPP/RNBQK1NR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/2P1P3/8/PP1P1PPP/RNBQKBNR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/1P6/P1PP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/3P4/PPP2PPP/RNBQKBNR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 0.28,
+   "tablebase": null,
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "покажи на доске защиту каро-канн",
+   "question_raw": "Покажи на доске защиту Каро-Канн",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/2p5/8/2B1P3/8/PPPP1PPP/RNBQK1NR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/2P1P3/8/PP1P1PPP/RNBQKBNR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/1P6/P1PP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/3P4/PPP2PPP/RNBQKBNR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/2p5/8/2B1P3/8/PPPP1PPP/RNBQK1NR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/2P1P3/8/PP1P1PPP/RNBQKBNR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/1P6/P1PP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/3P4/PPP2PPP/RNBQKBNR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+     "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_ends": {
+    "$s": [
+     "rnbqkbnr/pp1ppppp/2p5/8/2B1P3/8/PPPP1PPP/RNBQK1NR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/2P1P3/8/PP1P1PPP/RNBQKBNR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/1P6/P1PP1PPP/RNBQKBNR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/3P4/PPP2PPP/RNBQKBNR b",
+     "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w"
+    ]
+   },
+   "line_captures": {
+    "$d": [
+     [
+      "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+      {
+       "$s": []
+      }
+     ],
+     [
+      "rnbqkbnr/pp1ppppp/2p5/8/2P1P3/8/PP1P1PPP/RNBQKBNR b",
+      {
+       "$s": []
+      }
+     ],
+     [
+      "rnbqkbnr/pp1ppppp/2p5/8/4P3/3P4/PPP2PPP/RNBQKBNR b",
+      {
+       "$s": []
+      }
+     ],
+     [
+      "rnbqkbnr/pp1ppppp/2p5/8/4P3/1P6/P1PP1PPP/RNBQKBNR b",
+      {
+       "$s": []
+      }
+     ],
+     [
+      "rnbqkbnr/pp1ppppp/2p5/8/2B1P3/8/PPPP1PPP/RNBQK1NR b",
+      {
+       "$s": []
+      }
+     ]
+    ]
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": [
+     {
+      "$t": [
+       "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+       "b2b3"
+      ]
+     },
+     {
+      "$t": [
+       "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+       "c2c4"
+      ]
+     },
+     {
+      "$t": [
+       "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+       "d2d3"
+      ]
+     },
+     {
+      "$t": [
+       "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w",
+       "f1c4"
+      ]
+     },
+     {
+      "$t": [
+       "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b",
+       "c7c6"
+      ]
+     },
+     {
+      "$t": [
+       "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w",
+       "e2e4"
+      ]
+     }
+    ]
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [
+    {
+     "$t": [
+      {
+       "$b": 7
+      },
+      [
+       "e4",
+       "c6"
+      ]
+     ]
+    },
+    {
+     "$t": [
+      {
+       "$b": 8
+      },
+      [
+       "e4",
+       "c6"
+      ]
+     ]
+    },
+    {
+     "$t": [
+      {
+       "$b": 9
+      },
+      [
+       "e4",
+       "c6",
+       "c4"
+      ]
+     ]
+    },
+    {
+     "$t": [
+      {
+       "$b": 10
+      },
+      [
+       "e4",
+       "c6",
+       "d3"
+      ]
+     ]
+    },
+    {
+     "$t": [
+      {
+       "$b": 11
+      },
+      [
+       "e4",
+       "c6",
+       "b3"
+      ]
+     ]
+    },
+    {
+     "$t": [
+      {
+       "$b": 12
+      },
+      [
+       "e4",
+       "c6",
+       "Bc4"
+      ]
+     ]
+    }
+   ],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": [],
+   "game_lines": 6
+  }
+ },
+ "fidelity": true
+}

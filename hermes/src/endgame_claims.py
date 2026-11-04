@@ -31,16 +31,36 @@ claim only with its denial or «можно» («Удержать ничью зд
 A claim after a line written in the sentence («после Kd5 a6 Kc6 — ничья») is judged at the line's end when the
 line is legal from the board in front of the student: from the tablebase cache at once, else in the answer's
 engine stage (pop_pending / judge_pending — a network lookup never runs inside check_sentence).
+
+Plan 31.10 (P5), three more detectors, each with its own switch (src/config.detector_mode):
+
+  * ``race_distance`` — the race said in words of distance: «твой король слишком далеко», «далеко от пешки», «не
+    дотянется», «опаздывает», «вне квадрата» say the king does not catch the pawn («не слишком далеко»: it does).
+    A king word must stand in the clause: «Пешка слишком далеко» is not the race (judge [J]). The tablebase result
+    in ctx decides, and the issue names the moves that keep the result when the turn has the tablebase's answer.
+  * ``mate_squares`` — «мат возможен / случается / бывает только в углу», «ладьёй мат ставится только на краю»: a
+    claim about where a bare king can be mated in KQK, KRK, KBBK, KBNK or KNNK, judged against
+    src/data/mate_squares.json (scripts/build_mate_squares.py): a verb of possibility against the squares where a
+    mate exists, a verb of forcing («ставится», «можно поставить», «форсированно») against where it can be forced.
+  * ``king_direction`` (shadow) — a king move advised or forbidden by its direction in a tablebase position («не
+    гонись по диагонали», «вставай на одну вертикаль с пешкой»): forbidding a direction every keeping move takes,
+    or advising one no keeping move takes, is wrong. Logged, never cut, until graded in production.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import re
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 import chess
 
 from src.claim_scope import CONDITIONAL, NOW, YES_NO, denied_before
+
+logger = logging.getLogger(__name__)
 
 _W = r"(?<![а-яёa-zәғқңөұүһі])"
 _E = r"(?![а-яёa-zәғқңөұүһі])"
@@ -50,7 +70,7 @@ _E = r"(?![а-яёa-zәғқңөұүһі])"
 # does not lose; «win» — the side wins. Polarity None: «не» before the verb decides; False: the form denies.
 _CHASE_RU = (r"догон(?:ит|ишь|ят|ите|яет|яешь|яют)|догонит|догнать|поймает|поймаешь|поймают|поймать|лов(?:ит|ишь|ят)|"
              r"перехват(?:ит|ишь|ят|ить)|"
-             r"успе(?:ет|ешь|ют|ете|вает|ваешь|вают|ть)")
+             r"успе(?:ет|ешь|ют|ете|вает|ваешь|вают|ть)|поспе(?:ет|ешь|ют|ете|вает|ваешь|вают|ть)")
 # «задержит пешку на пару ходов» is a delay, not the pawn stopped (review 30.10: a KPK lesson the defender loses
 # on the opposition was cut): only «остановит» says the pawn does not get through.
 _STOP_RU = r"останов(?:ит|ишь|ят|ить)"
@@ -66,6 +86,22 @@ _HOLD_EN = r"holds?\s+(?:the\s+)?draw|hold\s+(?:the\s+)?draw|save\s+the\s+game|s
 _WIN_RU = (r"выиграешь|выиграет|выиграют|выиграете|выигрыша\s+нет|выигрыша\s+не\s+будет|"
            r"(?:не\s+)?выиграть(?=\s+(?:здесь\s+|тут\s+)?(?:нельзя|не\s+получится|невозможно|можно|получится))|не\s+выиграть")
 _WIN_EN = r"can'?t\s+win|cannot\s+win|will\s+win|can\s+win|wins\s+by\s+force"
+# The race in words of distance (plan 31.10, race_distance): «слишком далеко», «далеко от пешки», «не дотянется»,
+# «опаздывает», «вне квадрата» — the king does not catch the pawn; «не слишком далеко» — it does. Only with a king
+# word in the clause (_claim): «Пешка слишком далеко» is not the race.
+_FAR_RU = (r"слишком\s+далеко|далеко\s+от\s+(?:пешк\w*|не[её])|не\s+дотян(?:ется|ешься|утся|уться)|"
+           r"опаздыва(?:ет|ешь|ют)|опозда(?:ет|ешь|ют)|вне\s+квадрат\w*|за\s+пределами\s+квадрат\w*|"
+           # review 01.11: the same verdict in other words — falling behind, a tempo short, not reaching the pawn (any
+           # person, the dative subject «королю не дойти» too)
+           r"отста(?:[её]т|[её]шь|ют|нет|нешь|нут)|"
+           r"не\s+хват(?:ает|ит)\s+(?:(?:одного|ещ[её]|всего|буквально|лишь|только|даже)\s+)*(?:темп\w*|ход\w*|времени)|"
+           r"не\s+(?:дойти|дойд[её]т|дойд[её]шь|дойдут|добраться|добер[её]тся|добер[её]шься|доберутся|"
+           r"доход(?:ит|ишь|ят)|добега(?:ет|ешь|ют))|"
+           # «квадрат пешки королю недоступен», «в квадрат не попасть»
+           r"квадрат\w*\s+(?:[а-я0-9]+\s+){0,3}?недоступ\w+|недоступ\w+\s+(?:[а-я]+\s+){0,2}?квадрат\w*")
+_FAR_EN = (r"too\s+far(?:\s+away)?|outside\s+(?:the\s+|its\s+)?square|falls?\s+behind|(?:a|one)\s+tempo\s+short|"
+           r"too\s+late")
+_FAR = re.compile(r"^(?:" + _FAR_RU + "|" + _FAR_EN + r")$")
 
 # Kazakh: the denial is a suffix, so each polarity is its own form.
 _KK = [
@@ -84,6 +120,29 @@ _CLAIMS = [
     (re.compile(_W + r"(?P<v>" + _WIN_RU + r")" + _E), "win", None),
     (re.compile(r"(?<![a-z])(?P<v>" + _WIN_EN + r")(?![a-z])"), "win", None),
 ]
+# polarity "far": the form says the king does not catch the pawn unless a denial stands before it.
+_FAR_CLAIMS = [
+    (re.compile(_W + r"(?P<v>" + _FAR_RU + r")" + _E), "chase", "far"),
+    (re.compile(r"(?<![a-z])(?P<v>" + _FAR_EN + r")(?![a-z])"), "chase", "far"),
+]
+# The same race in other words (review 01.11), under the race_distance switch too: the rule of the square («попадает
+# / входит / войдёт в квадрат» — the king catches the pawn; a denial before it decides), the queening said as
+# «становится ферзём», «выходит в ферзи», «прорывается».
+_SQUARE_RU = (r"попада(?:ет|ешь|ют|ете)\s+в\s+квадрат|попад(?:[её]т|[её]шь|ут|[её]те)\s+в\s+квадрат|попасть\s+в\s+квадрат|"
+              r"вход(?:ит|ишь|ят|ите)\s+в\s+квадрат|войд(?:[её]т|[её]шь|ут|[её]те)\s+в\s+квадрат|войти\s+в\s+квадрат|"
+              r"вступа(?:ет|ешь|ют)\s+в\s+квадрат|вступит\s+в\s+квадрат")
+_SQUARE_EN = r"(?:enters?|entering|gets?\s+into|steps?\s+into)\s+the\s+(?:pawn'?s\s+)?square"
+_QUEENS_RU = (r"станов(?:ится|ятся)\s+ферз[её]м|выход(?:ит|ят)\s+в\s+ферзи|прорыва(?:ется|ются)|неудержим\w*|"
+              # «пешка быстрее короля»: the pawn wins the race (review-miss2 01.11)
+              r"быстрее\s+(?:(?:тво\w+|ваш\w+|ч[её]рн\w+|бел\w+|чужо\w+|этого)\s+)?корол\w+")
+_QUEENS_EN = r"becomes\s+a\s+queen"
+_RACE_CLAIMS = [
+    (re.compile(_W + r"(?P<v>" + _SQUARE_RU + r")" + _E), "chase", None),
+    (re.compile(r"(?<![a-z])(?P<v>" + _SQUARE_EN + r")(?![a-z])"), "chase", None),
+    (re.compile(_W + r"(?P<v>" + _QUEENS_RU + r")" + _E), "run", None),
+    (re.compile(r"(?<![a-z])(?P<v>" + _QUEENS_EN + r")(?![a-z])"), "run", None),
+]
+_GATED = frozenset(id(rx) for rx, _r, _p in _FAR_CLAIMS + _RACE_CLAIMS)
 # The result named after a written line: «после Kd5 a6 Kc6 — ничья». Without a line, «это ничья» is
 # _result_issues' (answer_check_rules.py).
 _RESULT_AFTER_LINE = re.compile(_W + r"(?P<v>ничь[яюе]|ничейн\w+|выигрыш\w*|draw|win\s+for\s+(?:white|black))" + _E)
@@ -245,6 +304,36 @@ def _side_word(words: str, ctx, coach_speaks: bool = True) -> Optional[chess.Col
     return not student
 
 
+# The pawn's own king helps it; the race is the other king's (review 01.11: «…слишком далеко, чтобы поддержать пешку»).
+_SUPPORT = re.compile(_W + r"(?:поддерж\w*|помо(?:чь|жет|жешь|гут|гает|гаешь|гают)|помощ\w*|сопровожд\w*|сопроводит\w*|"
+                      r"прикр(?:ыть|оет|оешь|ывает|ывать)|защи(?:тить|тит|щает|щать)|"
+                      r"support\w*|escort\w*|help\w*|protect\w*)" + _E)
+_KING_SQUARE = re.compile(r"\s*(?:\(|,)?\s*(?:на|с|on|at|from)?\s*(?P<sq>[a-h][1-8])(?![0-9a-z])")
+_KING_GENITIVE = re.compile(r"\s+(?P<w>белых|ч[её]рных|соперника|противника)" + _E)
+_KING_PRONOUN = re.compile(r"(?<![а-яa-z])(?P<w>их|его|ее|её|their|his)\s+(?:[а-яa-z]+\s+)?$")
+
+
+def _king_owner(text: str, km, board: chess.Board, ctx):
+    """Whose king the king word at *km* is, from what stands right next to it: its square («король на h1», «королю на
+    e5», «король h1» — the king that stands there; 'elsewhere' when no king does), a genitive («король чёрных»,
+    «король соперника»), or «их» — the student's opponent, when the student's colour is named. None otherwise."""
+    m = _KING_SQUARE.match(text, km.end())
+    if m:
+        piece = board.piece_at(chess.parse_square(m["sq"]))
+        if piece is None or piece.piece_type != chess.KING:
+            return "elsewhere"
+        return piece.color
+    m = _KING_GENITIVE.match(text, km.end())
+    if m:
+        return _side_word(m["w"], ctx)
+    m = _KING_PRONOUN.search(text[max(0, km.start() - 30):km.start()])
+    if m:
+        if m["w"] in ("их", "their") and _student_named(ctx):
+            return not _student(ctx)
+        return "elsewhere"  # «его король»: whose is not known
+    return None
+
+
 def _material_only(board: chess.Board, color: chess.Color, pawns: int) -> bool:
     """*color* has its king and exactly *pawns* pawns, nothing else."""
     pieces = [p for p in board.piece_map().values() if p.color == color and p.piece_type != chess.KING]
@@ -286,6 +375,8 @@ def _claim(text: str, m, role: str, positive: bool, board: chess.Board, ctx, que
 
     if role in ("chase", "run"):
         after = text[m.end():right]
+        if _FAR.match(verb) and not _KING_WORD.search(clause):
+            return None  # «Пешка слишком далеко»: no king named, not the race (plan 31.10 [J])
         # The race is the subject: a pawn in the clause («король догонит пешку», «пешка проходит»), «её», or the
         # question this answers («Догонит ли мой король пешку?» — «Нет, не догонит.»). «Диагональ проходит через
         # центр», «остановить атаку» are not the race.
@@ -314,10 +405,18 @@ def _claim(text: str, m, role: str, positive: bool, board: chess.Board, ctx, que
         if sq is not None:
             runner = board.color_at(sq)
         if role == "chase":
-            king_m = list(_KING_WORD.finditer(before))
+            if _SUPPORT.search(clause):
+                return None  # «Король h1 слишком далеко, чтобы поддержать пешку»: the pawn's own king, not the race
+            king_m = list(_KING_WORD.finditer(before)) or list(_KING_WORD.finditer(clause))
             chaser = None
             if king_m:
-                chaser = _side_word(before[max(0, king_m[-1].start() - 20):king_m[-1].end()], ctx)
+                km = king_m[-1]
+                own = _king_owner(text, km, board, ctx)
+                if own == "elsewhere":
+                    return None  # «король на e4» where no king stands: another position
+                chaser = own
+                if chaser is None:
+                    chaser = _side_word(before[max(0, km.start() - 20):km.end()], ctx)
             if chaser is None:
                 subj = _side_word(before, ctx)
                 if subj is not None:
@@ -417,11 +516,17 @@ _NOUN_KING = re.compile(_W + r"(?:король|корол\w*|kings?)" + _E)
 _NOUN_PERSON = re.compile(_W + r"(?:ты|вы|я|you|i|white|black|бел\w+|ч[её]рн\w+)" + _E)
 
 
+# A noun right after a preposition is not the subject: «Король b6 далеко от пешки f2 и не успеет её остановить» — the
+# king does not catch it; «от пешки» is not who «успеет» (review 01.11: read as «пешка не успеет пройти»).
+_GOVERNED = re.compile(r"(?<![а-яa-z])(?:от|до|к|ко|у|за|перед|около|возле|для|без|из|с|со|в|во|на|против|вокруг|позади|"
+                       r"впереди|мимо|через|под|над|при|о|об|про|from|to|of|at|behind|near|with|for|the)\s+$")
+
+
 def _race_subject(before: str, question_words: str) -> Optional[str]:
     """Who «успеет»: 'pawn' («пешка успевает первой»; «Да, успеет» to «Моя пешка успеет?»), 'king', or None when
     the answer's subject cannot be told from a pawn-only question."""
-    nouns = [(mm.start(), "pawn") for mm in _NOUN_PAWN.finditer(before)] + \
-            [(mm.start(), "king") for mm in _NOUN_KING.finditer(before)]
+    nouns = [(mm.start(), "pawn") for mm in _NOUN_PAWN.finditer(before) if not _GOVERNED.search(before[:mm.start()])] + \
+            [(mm.start(), "king") for mm in _NOUN_KING.finditer(before) if not _GOVERNED.search(before[:mm.start()])]
     if nouns:
         return max(nouns)[1]
     pawn_question = bool(question_words and _PAWN_WORD.search(question_words) and not _KING_WORD.search(question_words)
@@ -543,14 +648,59 @@ _ELLIPTIC_Q = re.compile(_W + r"(?:догон\w*|догнат\w*|успе\w*|п�
                          r"удерж\w*|спас\w*|выигр\w*|ничь\w*|catch\w*|queen\w*|hold|save|win|қуып|үлгер\w*|өте\w*)" + _E)
 
 
+def _mode(name: str, ctx) -> str:
+    """The detector's switch (src/config.detector_mode): 'on', 'shadow' or 'off'; 'off' when it cannot be read."""
+    try:
+        from src.config import detector_mode
+
+        return detector_mode(name, ctx)
+    except Exception:  # noqa: BLE001
+        return "off"
+
+
+def _shadow(name: str, text: str, issues: list, ctx) -> None:
+    """A shadow detector's issue: logged and kept on ctx.detector_shadow, never shown or cut."""
+    from src.answer_check import record_shadow
+
+    record_shadow(ctx, name, issues, text)
+
+
+def _gated(name: str, text: str, issues: list, ctx) -> list:
+    """*issues* as the detector's switch lets them through."""
+    if not issues:
+        return []
+    mode = _mode(name, ctx)
+    if mode == "on":
+        return issues
+    if mode == "shadow":
+        _shadow(name, text, issues, ctx)
+    return []
+
+
 def outcome_issues(text: str, ctx) -> list[str]:
-    """The outcome claims of *text* (lower case, ё → е) that the tablebase contradicts. A claim at the end of a
-    line whose position is not in the tablebase cache yet is left in ctx for pop_pending."""
+    """The outcome claims of *text* (lower case, ё → е) that the tablebase contradicts, then where a mate can stand
+    (mate_square_issues) and the king's direction (king_direction_issues, shadow). A claim at the end of a line
+    whose position is not in the tablebase cache yet is left in ctx for pop_pending."""
+    out = []
+    try:
+        out += _gated("mate_squares", text, mate_square_issues(text, ctx), ctx)
+    except Exception:  # noqa: BLE001 — a broken table must never block an answer
+        logger.debug("mate_squares failed", exc_info=True)
+    out += _race_issues(text, ctx)
+    try:
+        out += _gated("king_direction", text, king_direction_issues(text, ctx), ctx)
+    except Exception:  # noqa: BLE001
+        logger.debug("king_direction failed", exc_info=True)
+    return out
+
+
+def _race_issues(text: str, ctx) -> list[str]:
     board = getattr(ctx, "current", None)
     if board is None or len(board.piece_map()) > 7 or not board.is_valid() or board.is_game_over():
         return []
+    far_mode = _mode("race_distance", ctx)
     claims = []
-    for rx, role, polarity in _CLAIMS + _KK:
+    for rx, role, polarity in _CLAIMS + _KK + (_FAR_CLAIMS + _RACE_CLAIMS if far_mode != "off" else []):
         for m in rx.finditer(text):
             claims.append((m.start(), m, role, polarity))
     for m in _RESULT_AFTER_LINE.finditer(text):
@@ -601,9 +751,13 @@ def outcome_issues(text: str, ctx) -> list[str]:
             denied_here = denied_here or denied_after
         if denied_here and (_MANNER.match(text[m.end():]) or re.match(r"[^.;:!?()\n—–]*,\s*а\s", text[m.end():])):
             continue  # «не догонишь в лоб, а встанешь на дороге»: the denial is of the manner, «а» says what is
-        positive = polarity if polarity is not None else not (
-            denied_here or re.search(r"(?:^|\s)(?:не|not)\s", m.group(0))  # «ничью не удержать»
-            or re.search(r"no\s+longer\s+$", text[max(0, start - 12):start]))
+        if polarity == "far":
+            # «слишком далеко» — the king does not catch the pawn; «не слишком далеко» — it does.
+            positive = bool(denied_here)
+        else:
+            positive = polarity if polarity is not None else not (
+                denied_here or re.search(r"(?:^|\s)(?:не|not)\s", m.group(0))  # «ничью не удержать»
+                or re.search(r"no\s+longer\s+$", text[max(0, start - 12):start]))
         if role == "result":
             v = m.group("v")
             if v.startswith(("ничь", "ничейн", "draw")):
@@ -614,6 +768,8 @@ def outcome_issues(text: str, ctx) -> list[str]:
                 continue  # «выигрыш» after a line: whose is not said
         else:
             c = _claim(text, m, role, bool(positive), target, ctx, question if elliptic else "")
+            if c and id(m.re) in _GATED and far_mode != "on":
+                c["shadow"] = "race_distance"  # logged, never cut (COACH_DETECTORS_SHADOW)
             parsed = [c] if c else []
         for claim in parsed:
             if not target.is_valid() or len(target.piece_map()) > 7:
@@ -637,6 +793,9 @@ def outcome_issues(text: str, ctx) -> list[str]:
                     break
                 found = _cached(target)
                 issue = _wrong(claim, target, result, found[1] if found else None)
+            if issue and claim.get("shadow"):
+                _shadow(claim["shadow"], text, [issue], ctx)
+                break
             if issue:
                 issues.append(issue)
                 break
@@ -696,6 +855,11 @@ def judge_pending(items: list) -> Optional[str]:
             if not raw:
                 continue
             issue = _wrong(claim, board, tablebase_white_result(board, raw), raw, f" after {line}")
+            if issue and claim.get("shadow"):
+                from src.answer_check import record_shadow
+
+                record_shadow(None, claim["shadow"], [issue])  # the turn's check (answer_check.shadow_into)
+                continue
             if issue:
                 return issue
     except Exception:  # noqa: BLE001 — a lookup that fails leaves the sentence as it is
@@ -721,3 +885,414 @@ def tablebase_from_cache(ctx) -> None:
         ctx.engine_eval = 0.0 if ctx.tablebase == "draw" else (20.0 if ctx.tablebase.startswith("White") else -20.0)
     except Exception:  # noqa: BLE001
         return
+
+
+# ── Where a mate can stand (plan 31.10, mate_squares) ───────────────────────
+# «Мат случается только если чёрный король сам забредёт в угол» (two knights, prod 29.10): mate with K+N+N is
+# possible on the edge far from any corner too. A claim «mate only <in the corner | on the edge>» about one of the
+# five basic endings is judged against src/data/mate_squares.json (scripts/build_mate_squares.py).
+_MATE_DATA = Path(__file__).resolve().parent / "data" / "mate_squares.json"
+_MATE_WORD = re.compile(_W + r"(?:мат|мата|мату|матом|мате|маты|матов|матовая|матовую|матовой|заматова\w*|замату\w*|"
+                        r"мату(?:ет|ют|ешь|ем)|матова(?:ть|ли|л)|checkmate[sd]?|checkmating|mate[sd]?|mating)" + _E)
+_ONLY = re.compile(_W + r"(?:только|лишь|исключительно|only)" + _E)
+_CORNER_WORD = r"угол|угл[аеуы]|углах|углам|углов\w*|corners?"
+_EDGE_WORD = r"кра(?:й|я|ю|е|ях|ям|ями)|бортик\w*|edges?|side\s+of\s+the\s+board"
+# «только» + up to 8 words + a preposition + up to 2 words + the place: «только если король сам забредёт в угол»,
+# «только прижатого к краю короля», «только у самого края доски, в углу».
+_ONLY_PLACE = re.compile(r"\s*(?:[^\s.;!?—–:]+\s+){0,8}?(?:в|во|на|у|к|по|in|on|at|to|into|near|along)\s+"
+                         r"(?:[^\s.;!?—–:]+\s+){0,2}?(?P<place>" + _CORNER_WORD + "|" + _EDGE_WORD + r")" + _E)
+_MORE_PLACE = re.compile(r"(?:\s+[^\s.;!?—–:,]+){0,2}?\s*(?:,|или|и|либо|or|and)\s*(?:[^\s.;!?—–:]+\s+){0,3}?"
+                         r"(?P<place>" + _CORNER_WORD + "|" + _EDGE_WORD + r")" + _E)
+_MATE_DENIAL = re.compile(_W + r"(?:не|нет|нельзя|невозможн\w*|никогда|ни\s+в\s+коем|not|never|cannot|can'?t|impossible)" + _E)
+# The verb says which mate the sentence means (review 01.11: «можно поставить», «могут дать» were read as forced):
+#   possibility — «случается», «бывает», «возможен», «получается», «существует», «есть», «мата нет»: where a mate exists;
+#   a modal — «можно», «может», «могут», «удаётся»: either reading, so judged only when both are false;
+#   anything else («ставится», «форсированно», «матует», no verb) — the mate forced.
+# In an ending where mate can never be forced (KNNK), «ставится только в углу» cannot mean the forced mate: every
+# reading is the possibility one.
+_POSSIBLE_VERB = re.compile(_W + r"(?:случа\w+|бывает|бывают|бывать|возмож\w+|невозмож\w+|получа\w+|получит(?:ся|сь)|получил\w*|"
+                            r"происходит|встречается|возника\w+|существу\w+|есть|"
+                            r"может\s+(?:быть|случиться|получиться|возникнуть|произойти)|"
+                            r"happens?|possible|can\s+(?:happen|occur|arise)|occurs?|exists?)" + _E)
+_MODAL_VERB = re.compile(_W + r"(?:можно|может|могут|можешь|можете|сможет|смогут|сможешь|удает\w*|удаёт\w*|удастся|"
+                         r"can|could|able\s+to)" + _E)
+_EXIST_DENIED = re.compile(_W + r"(?:мата?|матов)\s+(?:[а-яё]+\s+){0,3}?(?:нет|не\s+бывает|не\s+будет|не\s+случается)" + _E + "|"
+                           + _W + r"(?:нет|не\s+бывает)\s+(?:[а-яё]+\s+){0,2}?мата" + _E)
+# «только» + the place: a preposition («только в углу», «лишь когда король в углу доски»), the place word itself
+# («только угловое поле»), squares («только если король встанет на a8, h8, a1 или h1»), or «там» for the place said
+# before («…пришёл в угол — только там он получает мат»).
+_PLACE_SQUARES = re.compile(r"\s*(?:[^\s.;!?—–:]+\s+){0,8}?(?:в|во|на|on|at|to|into)\s+"
+                            r"(?P<sqs>[a-h][1-8](?:\s*(?:,|или|и|либо|or|and)\s*[a-h][1-8])*)(?![0-9a-z])")
+_PLACE_BARE = re.compile(r"\s*(?:[^\s.;!?—–:,]+\s+){0,1}?(?P<place>" + _CORNER_WORD + "|" + _EDGE_WORD + r")" + _E)
+_PLACE_THERE = re.compile(r"\s*(?P<there>там|тут|there)" + _E)
+_PLACE_ANY = re.compile(r"(?:в|во|на|у|к|in|on|at|to|into|near|along)\s+(?:[^\s.;!?—–:]+\s+){0,2}?(?P<place>"
+                        + _CORNER_WORD + "|" + _EDGE_WORD + r")" + _E)
+# «без угла два коня заматовать не могут», «король должен оказаться в углу — иначе мата нет»: the same claim as
+# «только в углу», with the mate denied away from the place.
+_WITHOUT_PLACE = re.compile(_W + r"(?:без|кроме\s+как\s+(?:в|на|у))\s+(?:[^\s.;!?—–:]+\s+){0,1}?(?P<place>"
+                            + _CORNER_WORD + "|" + _EDGE_WORD + r")" + _E)
+_OTHERWISE = re.compile(_W + r"(?:иначе|а\s+то|в\s+противном\s+случае|otherwise)" + _E)
+# «на краю мат не бывает»: the mate denied on a place — away from the corners, the place it means.
+_PLACE_DENIED = re.compile(_W + r"(?:на|у|посередине|в\s+середине|посреди)\s+(?:[^\s.;!?—–:,]+\s+){0,1}?(?P<place>"
+                           + _EDGE_WORD + r")" + _E)
+# Necessity (review-miss2 01.11): «король должен стоять в углу», «мат требует, чтобы король был в углу», «двум коням
+# нужен угол» — the same claim as «только в углу», about where a mate exists.
+_NEED = re.compile(_W + r"(?:должен|должна|должно|должны|обязан\w*|нужен|нужна|нужно|нужны|необходим\w*|требует\w*|"
+                   r"требуется|надо|must|needs?|requires?)" + _E)
+_NEED_PLACE = re.compile(r"[,\s]*(?:[^\s.;!?—–:]+\s+){0,6}?(?:(?:в|во|на|у|к|in|on|at|to|into)\s+(?:[^\s.;!?—–:]+\s+){0,1}?)?"
+                         r"(?P<place>" + _CORNER_WORD + "|" + _EDGE_WORD + r")" + _E)
+# A concrete line or a mate in N is about one position, not the ending: «мат в два хода возможен только …»,
+# «после Kc2 мат только в углу» — not judged.
+_SPECIFIC = re.compile(r"(?<![a-zа-я])(?:[kqrbnкфлсн]р?[a-h]?x?[a-h][1-8]|\d+\.|o-o)|"
+                       + _W + r"(?:ход\w*|move[sd]?|mate\s+in\s+\d|после|after)" + _E)
+_ENDING_WORDS = [
+    ("KBNK", re.compile(_W + r"(?:слон\w*\s+и\s+кон[еёя]\w*|кон[еёя]\w*\s+и\s+слон\w*|слон\w*\s+с\s+кон\w*|"
+                        r"bishop\s+and\s+(?:a\s+)?knight|knight\s+and\s+(?:a\s+)?bishop)" + _E)),
+    ("KBBK", re.compile(_W + r"(?:двумя\s+слонами|два\s+слона|двух\s+слонов|двух\s+слона|слоновой\s+пар\w*|"
+                        r"пар\w*\s+слонов|two\s+bishops|bishop\s+pair)" + _E)),
+    ("KNNK", re.compile(_W + r"(?:двумя\s+конями|два\s+коня|двух\s+коней|двух\s+коня|пар\w*\s+коней|"
+                        r"two\s+knights)" + _E)),
+    ("KQK", re.compile(_W + r"(?:ферз\w*|queen)" + _E)),
+    ("KRK", re.compile(_W + r"(?:ладь\w*|ладей|rook)" + _E)),
+]
+
+
+@lru_cache(maxsize=1)
+def _mate_table() -> dict:
+    try:
+        return json.loads(_MATE_DATA.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — no table, no judgement
+        logger.warning("mate_squares: %s not readable", _MATE_DATA)
+        return {}
+
+
+def _board_ending(board) -> Optional[str]:
+    """'KQK', 'KRK', 'KBBK' (bishops on both colours), 'KBNK' or 'KNNK' when the board is that ending."""
+    if board is None:
+        return None
+    sides = []
+    for color in (chess.WHITE, chess.BLACK):
+        sides.append(sorted(p.piece_type for p in board.piece_map().values() if p.color == color
+                            and p.piece_type != chess.KING))
+    if sum(1 for s in sides if s) != 1:
+        return None
+    pieces = sides[0] or sides[1]
+    color = chess.WHITE if sides[0] else chess.BLACK
+    name = {(chess.QUEEN,): "KQK", (chess.ROOK,): "KRK", (chess.KNIGHT, chess.BISHOP): "KBNK",
+            (chess.KNIGHT, chess.KNIGHT): "KNNK"}.get(tuple(pieces))
+    if tuple(pieces) == (chess.BISHOP, chess.BISHOP):
+        squares = list(board.pieces(chess.BISHOP, color))
+        name = "KBBK" if len({(chess.square_file(q) + chess.square_rank(q)) % 2 for q in squares}) == 2 else None
+    return name
+
+
+def _sentence_ending(text: str) -> tuple[Optional[str], bool]:
+    """(the ending the sentence names, whether it names more than one)."""
+    found = []
+    taken = []
+    for name, rx in _ENDING_WORDS:
+        for m in rx.finditer(text):
+            if any(a <= m.start() < b for a, b in taken):
+                continue  # «слоном и конём» is not also «конём»
+            taken.append((m.start(), m.end()))
+            found.append(name)
+    found = list(dict.fromkeys(found))
+    return (found[0] if len(found) == 1 else None), len(found) > 1
+
+
+def _place_set(word: str, regions: dict) -> set:
+    return set(regions["corner" if re.match(_CORNER_WORD, word) else "edge"])
+
+
+def _place_label(word: str) -> str:
+    return "corner" if re.match(_CORNER_WORD, word) else "edge"
+
+
+def _mate_place_claims(text: str, regions: dict) -> list:
+    """[(mate word match, allowed squares, where said, kind, span end)] of the sentence: kind 'only' — mate stands only
+    on the allowed squares; 'not' — no mate on them."""
+    out = []
+    segments = [(m.start(), m.end()) for m in re.finditer(r"[^.;!?]+", text)]
+    for a, b in segments:
+        seg_mates = list(_MATE_WORD.finditer(text, a, b))
+        if not seg_mates:
+            continue
+        # «только …»
+        for only in _ONLY.finditer(text, a, b):
+            if re.search(r"(?:^|\s)(?:не|not)\s*$", text[max(0, only.start() - 5):only.start()]):
+                continue  # «не только в углу»
+            if _in_quotes(text, only.start()):
+                continue
+            allowed, labels, end, there_said = None, set(), None, False
+            pm = _ONLY_PLACE.match(text, only.end())
+            sq = _PLACE_SQUARES.match(text, only.end())
+            if sq and (not pm or sq.end() <= pm.end()):
+                names = re.findall(r"[a-h][1-8]", sq["sqs"])
+                allowed, labels, end = set(names), {", ".join(names)}, sq.end()
+            elif pm:
+                allowed, labels, end = _place_set(pm["place"], regions), {_place_label(pm["place"])}, pm.end()
+                pos = pm.end()
+                while True:
+                    more = _MORE_PLACE.match(text, pos)
+                    if not more:
+                        break
+                    allowed |= _place_set(more["place"], regions)
+                    labels.add(_place_label(more["place"]))
+                    pos = more.end()
+            else:
+                bare = _PLACE_BARE.match(text, only.end())
+                there = _PLACE_THERE.match(text, only.end())
+                if bare:
+                    allowed, labels, end = _place_set(bare["place"], regions), {_place_label(bare["place"])}, bare.end()
+                elif there:
+                    said = list(_PLACE_ANY.finditer(text, a, only.start()))
+                    if not said:
+                        continue
+                    w = said[-1]["place"]
+                    allowed, labels, end = _place_set(w, regions), {_place_label(w)}, there.end()
+                    there_said = True  # «В углу — и только там — возможен мат»: the clause goes on past the dash
+            if allowed is None:
+                continue
+            # The mate word: before «только» in this part of the sentence, or after it in the same clause.
+            mate = next((mm for mm in seg_mates if mm.start() < only.start()), None)
+            if mate is None:
+                clause_end = None if there_said else re.search(r"[,—–:]", text[end:b])
+                limit = end + clause_end.start() if clause_end else b
+                mate = next((mm for mm in seg_mates if only.start() < mm.start() < limit), None)
+                if mate is None:
+                    continue
+                span = text[only.start():mate.end()]
+            else:
+                span = text[mate.start():end]
+                # «на краю два коня мат не дают, только в углу»: a denial before the comma that opens «только» is the
+                # other place's — the same claim.
+                cut = max(span.rfind(","), span.rfind(" а "), span.rfind("—"))
+                if cut >= 0 and text[mate.start() + cut:only.start()].strip(" ,—а") == "":
+                    if _PLACE_DENIED.search(text[a:mate.start() + cut]):
+                        span = span[cut:]
+            if _MATE_DENIAL.search(span):
+                continue  # «мат не ставится только …», «мата нет …»: a denial is not the claim
+            out.append((mate, allowed, labels, "only", end))
+        if not _ONLY.search(text, a, b) and not _MATE_DENIAL.search(text, a, b):
+            for nm in _NEED.finditer(text, a, b):
+                pm = _NEED_PLACE.match(text, nm.end())
+                if pm is None or _in_quotes(text, nm.start()):
+                    continue
+                mate = next((mm for mm in seg_mates), None)
+                out.append((mate, _place_set(pm["place"], regions), {_place_label(pm["place"])}, "only-exists", pm.end()))
+                break
+        # «без угла … не могут», «… в углу — иначе мата нет»
+        for wp in _WITHOUT_PLACE.finditer(text, a, b):
+            rest = text[wp.end():b]
+            if seg_mates and (_MATE_DENIAL.search(rest) or _MATE_DENIAL.search(text[a:wp.start()])):
+                mate = seg_mates[0]
+                out.append((mate, _place_set(wp["place"], regions), {_place_label(wp["place"])}, "only", b))
+        for ow in _OTHERWISE.finditer(text, a, b):
+            places = list(_PLACE_ANY.finditer(text, a, ow.start()))
+            after = text[ow.end():b]
+            mm = next((x for x in seg_mates if x.start() > ow.start()), None)
+            if places and mm is not None and (_MATE_DENIAL.search(after) or _EXIST_DENIED.search(after)):
+                w = places[-1]["place"]
+                out.append((mm, _place_set(w, regions), {_place_label(w)}, "only-exists", b))
+        # «мата на краю не бывает», «на краю доски два коня мат не дают»
+        if not _ONLY.search(text, a, b):
+            for pd in _PLACE_DENIED.finditer(text, a, b):
+                clause_a = max([a] + [x.end() for x in re.finditer(r"[,—–:]", text[:pd.start()]) if x.end() > a])
+                m2 = re.search(r"[,—–:]", text[pd.end():b])
+                clause_b = pd.end() + m2.start() if m2 else b
+                mm = next((x for x in seg_mates if clause_a <= x.start() < clause_b), None)
+                if mm is None:
+                    continue
+                clause = text[clause_a:clause_b]
+                if _EXIST_DENIED.search(clause) or re.search(_W + r"(?:не\s+(?:[а-яё]+\s+)?(?:бывает|бывают|случается|"
+                                                             r"получается|дают|дает|ставят|ставится|возможен)|"
+                                                             r"невозмож\w+|исключ[её]н\w*)" + _E, clause):
+                    edge = set(regions["edge"]) - set(regions["corner"])
+                    out.append((mm, edge, {"edge"}, "not", clause_b))
+    return out
+
+
+# The verb of a claim is read in its own clause (review fp2 01.11: «мат возможен на любом поле края, но форсировать его
+# можно только в углу» took «возможен» from the clause before «, но»): a contrast or a concession starts another claim.
+_CLAIM_BREAK = re.compile(r",\s*(?:но|хотя|а|однако|зато|тогда\s+как|в\s+то\s+время\s+как|but|though|although|while|whereas)"
+                          + _E + r"|[;—–]|\.\s", re.IGNORECASE)
+# forcing the mate: «форсировать», «заставить», «загнать», «вынудить», "force" — the forced reading, not a possibility
+_FORCE_VERB = re.compile(_W + r"(?:форсир\w*|форсирова\w*|заставить|заставля\w*|загнать|загоня\w*|вынудить|вынужда\w*|"
+                         r"forc(?:e|es|ed|ing))" + _E, re.IGNORECASE)
+
+
+def _claim_clause(text: str, lo: int, hi: int, place_end: int) -> str:
+    """The clause of the claim's place (where «только» and the place stand), widened to the mate word when no break
+    stands between them; no wider than ±40 characters around the claim, as before."""
+    breaks = [(m.start(), m.end()) for m in _CLAIM_BREAK.finditer(text)]
+    a = max([0] + [e for s_, e in breaks if e <= place_end - 1])
+    b = min([len(text)] + [s_ for s_, e in breaks if s_ >= place_end])
+    if lo >= a:
+        a = max(a, lo - 40)
+    return text[a: min(b, hi + 40)]
+
+
+def mate_square_issues(text: str, ctx) -> list[str]:
+    """«Мат (случается | ставится | можно поставить) только в углу / на краю» that src/data/mate_squares.json
+    contradicts; «без угла мата нет», «на краю мата не бывает» are the same claims (review 01.11)."""
+    if not _MATE_WORD.search(text):
+        return []
+    if text.rstrip().endswith("?") or _HYPO.search(text) or _REPORTED.search(text) or _REJECTED.search(text):
+        return []
+    if _SPECIFIC.search(text):
+        return []
+    table = (_mate_table() or {}).get("endings") or {}
+    regions = {k: set(v) for k, v in ((_mate_table() or {}).get("regions") or {}).items()}
+    if not table or not regions:
+        return []
+    for mate, allowed, labels, kind, end in _mate_place_claims(text, regions):
+        if kind == "only" and any(re.match(r"[a-h][1-8]", x) for x in labels) and re.search(
+                _W + r"(?:здесь|тут|сейчас|в\s+этой\s+позиции|here|now)" + _E, text):
+            continue  # squares of this position («здесь мат только на h8»), not of the ending
+        name, several = _sentence_ending(text)
+        if several:
+            return []
+        if name is None:
+            name = _board_ending(getattr(ctx, "current", None))
+        entry = table.get(name or "")
+        if not entry:
+            continue
+        possible = set(entry.get("possible") or [])
+        forced = entry.get("forced_outside") or {}
+        never = bool(forced.get("never_forced"))
+        lo, hi = min(mate.start(), end), max(mate.end(), end)
+        window = _claim_clause(text, lo, hi, end)
+        if kind != "only-exists" and _FORCE_VERB.search(window):
+            reading = "forced"  # «форсировать его можно только в углу»: the forced mate, whatever the other clause says
+        elif _POSSIBLE_VERB.search(window) or kind == "only-exists":
+            reading = "possible"
+        elif _MODAL_VERB.search(window):
+            reading = "modal"
+        else:
+            reading = "forced"
+        what = entry.get("name") or name
+        if kind == "not":
+            if reading != "possible" or not (possible & allowed):
+                continue  # «на краю мат не ставится» may mean the forced mate (never forced in KNNK): not judged
+            outside = sorted(possible & allowed, key=_middle_first)
+            example = (entry.get("example") or {}).get(outside[0])
+            shown = f" — e.g. the bare king mated on {outside[0]}: {example}" if example else ""
+            return [f"the sentence says that in {what} ({name}) there is no mate on the edge, but mate is possible "
+                    f"on the edge away from the corners: on {', '.join(outside[:8])}{shown}"]
+        if possible <= allowed:
+            continue  # «ладьёй мат ставится только на краю»: true
+        outside = sorted(possible - allowed, key=_middle_first)
+        place_said = sorted(labels)
+        where_said = " or ".join("in the corner" if p == "corner" else ("on the edge" if p == "edge" else f"on {p}")
+                                 for p in place_said)
+        example = (entry.get("example") or {}).get(outside[0])
+        shown = f" — e.g. the bare king mated on {outside[0]}: {example}" if example else ""
+        if never:
+            reading = "possible"  # mate is never forced here: «ставится только в углу» can only mean where it exists
+        single = place_said[0] if len(place_said) == 1 else None
+        forced_false = never or (single in ("corner", "edge") and forced.get(single) is True)
+        if reading == "modal" and not forced_false:
+            continue  # «можно поставить только в углу»: false only if both readings are
+        if reading in ("possible", "modal"):
+            never_s = " (it can never be forced)" if never else ""
+            return [f"the sentence says that in {what} ({name}) mate happens only {where_said}, but mate is possible "
+                    f"on the edge, not only in the corner: on {', '.join(outside[:8])} too{shown}{never_s}"]
+        if not forced_false:
+            continue  # forced: judged only where the table has solved it
+        return [f"the sentence says that in {what} ({name}) mate is forced only {where_said}, but the stronger side "
+                f"can force the mate on the edge away from the corner as well: on {', '.join(outside[:8])}{shown}"]
+    return []
+
+
+def _middle_first(name: str) -> tuple:
+    """Squares nearest the middle of an edge first (d8 before b8): the clearest example of «not in the corner»."""
+    sq = chess.parse_square(name)
+    f, r = chess.square_file(sq), chess.square_rank(sq)
+    return (min(abs(f - 3.5), abs(r - 3.5)), name)
+
+
+# ── The king's direction (plan 31.10, king_direction; shadow) ───────────────
+# «Поэтому не гонись за ней по диагонали: вставай на одну вертикаль с пешкой» (prod 29.10, square: Kd5 and Kd6
+# draw). Each king move of the side to move is sorted by the direction the sentence names; the tablebase's keeping
+# moves decide: forbidding a direction every keeping move takes, or advising one no keeping move takes, is wrong.
+_DIRECTIONS = [
+    ("diagonal", re.compile(_W + r"(?:по\s+диагонал\w*|наискос\w*|diagonally|along\s+the\s+diagonal)" + _E)),
+    ("pawn_file", re.compile(_W + r"(?:на\s+(?:одну\s+)?(?:вертикаль|линию)\s+(?:с\s+)?(?:е[её]|пешк\w*)|"
+                             r"на\s+вертикаль\s+пешк\w*|onto\s+the\s+pawn'?s\s+file|on\s+the\s+same\s+file\s+as\s+the\s+pawn)" + _E)),
+    ("file", re.compile(_W + r"(?:по\s+вертикал\w*|vertically|along\s+the\s+file)" + _E)),
+    ("rank", re.compile(_W + r"(?:по\s+горизонтал\w*|horizontally|along\s+the\s+rank)" + _E)),
+    ("toward_pawn", re.compile(_W + r"(?:прямо\s+к\s+(?:пешк\w*|не[йеё])|напрямую\s+к\s+(?:пешк\w*|не[йеё])|"
+                               r"straight\s+(?:at|to|towards?)\s+the\s+pawn)" + _E)),
+]
+_KING_GO = re.compile(_W + r"(?:гонись|гоняйся|иди|идите|ходи|двигайся|двигай|вставай|встань|подходи|приближайся|"
+                      r"веди|направляй|отступай|бег[иа]|go|move|walk|run|chase|head|step|approach)" + _E)
+
+
+def _move_class(kind: str, board, move, pawn: int) -> bool:
+    df = chess.square_file(move.to_square) - chess.square_file(move.from_square)
+    dr = chess.square_rank(move.to_square) - chess.square_rank(move.from_square)
+    if kind == "diagonal":
+        return df != 0 and dr != 0
+    if kind == "file":
+        return df == 0
+    if kind == "rank":
+        return dr == 0
+    if kind == "pawn_file":
+        return chess.square_file(move.to_square) == chess.square_file(pawn)
+    if kind == "toward_pawn":
+        return chess.square_distance(move.to_square, pawn) < chess.square_distance(move.from_square, pawn)
+    return False
+
+
+def king_direction_issues(text: str, ctx) -> list[str]:
+    """The direction advice of *text* that the tablebase's keeping moves contradict (one pawn against a bare king,
+    the bare king's side to move)."""
+    board = getattr(ctx, "current", None)
+    if board is None or len(board.piece_map()) > 7 or not board.is_valid() or board.is_game_over():
+        return []
+    if not getattr(ctx, "tablebase", None) or not any(rx.search(text) for _k, rx in _DIRECTIONS):
+        return []
+    if text.rstrip().endswith("?") or _HYPO.search(text) or _GENERAL.search(text) or CONDITIONAL.search(text):
+        return []
+    mover = board.turn
+    pawns = list(board.pieces(chess.PAWN, not mover))
+    if len(pawns) != 1 or not _material_only(board, mover, 0) or not _material_only(board, not mover, 1):
+        return []
+    found = _cached(board)
+    raw = found[1] if found else None
+    if not raw:
+        return []
+    keeping = set()
+    for san in raw.get("keeping") or []:
+        try:
+            keeping.add(board.parse_san(san))
+        except ValueError:
+            return []
+    legal = list(board.legal_moves)
+    if not keeping or len(keeping) >= len(legal):
+        return []
+    names = ", ".join(sorted(board.san(m) for m in keeping))
+    result = getattr(ctx, "tablebase", "")
+    keeps = "hold the draw" if result == "draw" else "keep the result"
+    for kind, rx in _DIRECTIONS:
+        for m in rx.finditer(text):
+            left = max([0] + [x.end() for x in re.finditer(r"[.;:!?—–]", text[:m.start()])])
+            right_m = re.search(r"[.;:!?—–]", text[m.end():])
+            clause = text[left:m.end() + (right_m.start() if right_m else len(text))]
+            go = list(_KING_GO.finditer(clause))
+            if not go:
+                continue
+            named = _side_word(clause, ctx)
+            if named is not None and named != mover:
+                continue  # «белый король идёт по диагонали» with Black to move: not the chase
+            forbidden = any(re.search(r"(?:^|\s)(?:не|never|don'?t|do\s+not)\s+(?:\w+\s+)?$", clause[:g.start()]) for g in go)
+            cls = {mv for mv in legal if _move_class(kind, board, mv, pawns[0])}
+            label = {"diagonal": "diagonally", "file": "along the file", "rank": "along the rank",
+                     "pawn_file": "onto the pawn's file", "toward_pawn": "straight toward the pawn"}[kind]
+            if forbidden and keeping <= cls:
+                return [f"the sentence forbids the king to go {label}, but every move that keeps the result goes "
+                        f"{label}: only {names} {keeps} (endgame tablebase)"]
+            if not forbidden and not (cls & keeping):
+                return [f"the sentence advises the king to go {label}, but no such move keeps the result: only "
+                        f"{names} {keeps} (endgame tablebase)"]
+    return []

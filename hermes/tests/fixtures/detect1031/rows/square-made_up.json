@@ -1,0 +1,154 @@
+{
+ "id": "square-made_up",
+ "turn": {
+  "set": "out_71.json",
+  "id": "square",
+  "message": "Я чёрными, мой ход. Догонит ли мой король пешку?",
+  "answer": "Нет, не догонит. Твоя пешка проходит.\n\nТвой король на e5 слишком далеко: пешка a5 идёт вперёд с темпом, а белый король успевает вернуться и встать на путь. Чтобы удержать ничью, тебе нужно догонять пешку по кратчайшему пути — Kd5 или Kd6.\n\nОбе эти дороги ведут к пешке напрямую: после Kd5 a6 ты идёшь Kc6, и король встаёт перед пешкой — ничья. А вот если король пойдёт в другую сторону — на e4 или f5 — он только удаляется от пешки, и тогда белые спокойно проводят её в ферзи. Поэтому не гонись за ней по диагонали: вставай на одну вертикаль с пешкой и двигайся прямо к ней.",
+  "live_game": false
+ },
+ "kind": "made_up_position_or_fact",
+ "quote": "пешка a5 идёт вперёд с темпом, а белый король успевает вернуться и встать на путь",
+ "error": "This is made up. The white king on h1 plays no part in stopping or escorting the pawn. The pawn is caught by Black's king entering the square.",
+ "owner": "P5",
+ "tier": "must",
+ "expect": "caught",
+ "stage": "sync",
+ "mechanism": "B race_distance",
+ "status": "caught",
+ "sentence": "Твой король на e5 слишком далеко: пешка a5 идёт вперёд с темпом, а белый король успевает вернуться и встать на путь. ",
+ "sentence_index": 3,
+ "prefix": [
+  "Нет, не догонит. ",
+  "Твоя пешка проходит.",
+  "\n\n"
+ ],
+ "replay_issues": [
+  [
+   "the sentence says the black king does not catch the white pawn on a5, so White wins, but the endgame tablebase (exact) says it is a draw with best play"
+  ],
+  [
+   "the sentence says the white pawn on a5 queens, so White wins, but the endgame tablebase (exact) says it is a draw with best play; the pawn is White's, not the student's (the student plays Black)"
+  ],
+  [],
+  []
+ ],
+ "hidden_by_rewrite": true,
+ "ctx": {
+  "format": 1,
+  "boards": [
+   {
+    "root": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "moves": [],
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   },
+   {
+    "root": "8/8/8/P3k3/8/8/8/7K b - - 0 1",
+    "moves": [],
+    "fen": "8/8/8/P3k3/8/8/8/7K b - - 0 1"
+   }
+  ],
+  "attrs": {
+   "boards": [
+    {
+     "$b": 0
+    },
+    {
+     "$b": 1
+    }
+   ],
+   "quoted": {
+    "$s": []
+   },
+   "given": {
+    "$s": [
+     "8/8/8/P3k3/8/8/8/7K b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "current": {
+    "$b": 1
+   },
+   "student_color": null,
+   "language": "ru",
+   "engine_eval": 0.0,
+   "tablebase": "draw",
+   "engine_mate": null,
+   "game_engine_moves": null,
+   "game_moves": null,
+   "question": "я черными, мой ход. догонит ли мой король пешку?",
+   "question_raw": "Я чёрными, мой ход. Догонит ли мой король пешку?",
+   "topic": null,
+   "_object": null,
+   "_subject": null,
+   "scene": null,
+   "scene_san": "",
+   "scene_age": 0,
+   "scene_before": null,
+   "scene_trail": [],
+   "line_scene": null,
+   "passed_keys": {
+    "$s": []
+   },
+   "text_keys": {
+    "$s": []
+   },
+   "shown_keys": {
+    "$s": [
+     "8/8/8/P3k3/8/8/8/7K b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "state_keys": {
+    "$s": [
+     "8/8/8/P3k3/8/8/8/7K b",
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"
+    ]
+   },
+   "line_keys": {
+    "$s": []
+   },
+   "line_ends": {
+    "$s": []
+   },
+   "line_captures": {
+    "$d": []
+   },
+   "puzzle_solution": null,
+   "line_claims": {
+    "$d": []
+   },
+   "_line_end": null,
+   "_line_advice": false,
+   "line_next": {
+    "$s": []
+   },
+   "outcome_pending": {
+    "$d": []
+   },
+   "text_codes": {
+    "$s": []
+   },
+   "line_records": [],
+   "board_moved": false,
+   "other_board_keys": {
+    "$s": []
+   },
+   "forced_claims": {
+    "$d": []
+   },
+   "forced_line": null,
+   "relation_state": {
+    "$d": []
+   },
+   "relation_shadow": [],
+   "relation_stats": {
+    "$d": []
+   },
+   "solution_lines": [],
+   "relation_surface": "text",
+   "facts": []
+  }
+ },
+ "fidelity": true
+}

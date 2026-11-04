@@ -1,0 +1,96 @@
+{
+ "package": "P3D",
+ "doc": "True controls: no detector may flag them (plan 31.10 §5.2). Seeded by WP-0; the package appends its own.",
+ "controls": [
+  {
+   "id": "checks-along-d-real",
+   "fen": "8/3K4/8/8/8/8/5R2/3r2k1 w - - 0 1",
+   "detector": "checks_geometry",
+   "sentence": "Чёрная ладья шахует по вертикали d, и наша ладья может перекрыть линию на d2.",
+   "why": "the king is on d7, the rook on d1 checks along d; Rd2 blocks",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "e4-prevents-d5",
+   "moves": "c4 e5 Nc3 Nf6 Nf3 Nc6",
+   "detector": "prevents",
+   "sentence": "Лучший план — e4, не давая чёрным спокойно сыграть d5.",
+   "why": "after 4.e4 …d5 loses a pawn (c4, e4, Nc3 against Nf6, Qd8)",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "only-move-kf8",
+   "fen": "4k3/R7/8/1B6/8/8/8/3RK3 b - - 0 1",
+   "detector": "only_move_orders",
+   "sentence": "Ход Kf8 единственный.",
+   "why": "Bb5+ — d7 and d8 covered, e7 and the 7th rank by Ra7: Kf8 is the only legal move",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "retreat-knight-loses-cover",
+   "fen": "r1bqkb1r/pppp1ppp/2n3n1/4p3/4P2P/5N2/PPPP1PP1/RNBQKB1R w KQkq - 0 5",
+   "detector": "retreat_cover",
+   "sentence": "Белые играют h5, и конь вынужден уйти на e7, откуда f8 уже не прикрывает.",
+   "why": "after h5 the knight on g6 (which covers f8) has no retreat that still covers f8: e7, h8, f4, e5, h4 do not reach it",
+   "stage": "sync",
+   "source": "P3D (design-detect §2: the control WP-0 could not seed)"
+  },
+  {
+   "id": "retreat-knight-loses-cover-unnamed",
+   "fen": "r1bqkb1r/pppp1ppp/2n3n1/4p3/4P2P/5N2/PPPP1PP1/RNBQKB1R w KQkq - 0 5",
+   "detector": "retreat_cover",
+   "sentence": "Белые играют h5, и конь вынужден уйти туда, откуда f8 уже не прикрывает.",
+   "why": "every retreat of the knight on g6 after h5 gives up f8",
+   "stage": "sync",
+   "source": "P3D"
+  },
+  {
+   "id": "prevents-e5-loses-a-pawn",
+   "moves": "e4 c6",
+   "detector": "prevents",
+   "sentence": "Лучший план — d4, не давая чёрным спокойно сыграть e5.",
+   "why": "after 2.d4 …e5 loses a pawn to dxe5 (e5 attacked by d4, defended by nothing)",
+   "stage": "sync",
+   "source": "P3D"
+  },
+  {
+   "id": "prevents-object-square",
+   "moves": "e4 c6",
+   "detector": "prevents",
+   "sentence": "Лучший план — d4, атакуя c5 и не давая чёрным спокойно сыграть d5.",
+   "why": "the square before the participle is an object («атакуя c5»), not the move: no claim is read",
+   "stage": "sync",
+   "source": "P3D"
+  },
+  {
+   "id": "only-move-one-legal",
+   "fen": "4k3/R7/8/1B6/8/8/8/3RK3 b - - 0 1",
+   "detector": "only_move_orders",
+   "sentence": "Есть только один ход: Kf8.",
+   "why": "Bb5+ — Kf8 is the only legal move",
+   "stage": "sync",
+   "source": "P3D (F13 word order)"
+  },
+  {
+   "id": "only-good-move-not-read",
+   "fen": "4k3/8/8/8/8/8/8/4R1K1 b - - 0 1",
+   "detector": "only_move_orders",
+   "sentence": "Kf8 — единственный ход, который держит ничью.",
+   "why": "«единственный ход, который …» is the only good move, not a rule of the board: not read",
+   "stage": "sync",
+   "source": "P3D"
+  },
+  {
+   "id": "checks-along-king-on-the-line",
+   "fen": "1K1k4/1P6/8/8/3R4/8/r7/8 w - - 0 1",
+   "detector": "checks_geometry",
+   "sentence": "Затем белый король идёт на c7 (Kc7), и когда чёрная ладья начнёт шаховать по вертикали c, наша ладья перекроет линию.",
+   "why": "the king told lands on c7, on the c-file: checks along c can reach it — no geometric verdict",
+   "stage": "sync",
+   "source": "P3D"
+  }
+ ]
+}

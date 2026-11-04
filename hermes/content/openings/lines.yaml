@@ -1,0 +1,276 @@
+# Opening lines Hermes knows beyond the names of the ECO book (plan 31.10, package P2; owner: P2).
+#
+# Read by src/answer_check_openings.py (the checks open_defining and open_character) and by package P8
+# (content/openings/ideas.yaml: one opening idea per opening next to the book's name in the prompt).
+# Every move and every name below is checked against the book Hermes ships (backend/data/openings/*.tsv) by
+# tests/unit/test_p2_1031.py: each line is legal, its position is in the book under `book`, and every sharp line
+# is a name the book has. Edit here, then run that test.
+#
+# openings — what makes an opening that opening:
+#   book      the book's name of the opening: a family («Alekhine Defense»), or a named line when the book files
+#             the opening under another family («Queen's Pawn Game: London System»)
+#   ru        the Russian name, for logs and for P8
+#   side      the side whose moves make the opening (white | black)
+#   defining  the moves that make it: an answer that tells the student playing the opening NOT to make one of
+#             `side`'s moves here contradicts the opening itself (open_defining)
+#   main      the main line the book continues with (for the issue text and for P8)
+#   idea      one sentence of the opening's idea, in English, as every standard reference gives it (P8 may quote it)
+#
+# sharp — named lines every main opening reference calls sharp and tactical (castling on opposite sides, pawn
+# storms, gambits, piece sacrifices): «спокойная игра», «без осложнений», «тихая игра» said of a move whose position
+# the book names as one of them is false (open_character). A sub-line of a listed line («…, English Attack,
+# Anti-English») counts as the line. Only lines no reference calls quiet are listed; when in doubt, leave it out.
+#   name      the book's exact name
+#   why       what makes it sharp, in English (goes into the issue text)
+
+openings:
+  - book: "Alekhine Defense"
+    ru: "защита Алехина"
+    side: black
+    defining: "1. e4 Nf6"
+    main: "1. e4 Nf6 2. e5 Nd5"
+    idea: "Black develops the knight to f6 at once and invites e4-e5; after 2.e5 the knight goes to d5, and Black attacks the advanced white centre later."
+  - book: "Sicilian Defense"
+    ru: "сицилианская защита"
+    side: black
+    defining: "1. e4 c5"
+    main: "1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3"
+    idea: "Black fights for d4 with the c-pawn instead of answering e4 with e5; after d4 cxd4 Black has a half-open c-file and a central pawn majority."
+  - book: "French Defense"
+    ru: "французская защита"
+    side: black
+    defining: "1. e4 e6 2. d4 d5"
+    main: "1. e4 e6 2. d4 d5 3. Nc3"
+    idea: "Black supports ...d5 with ...e6 and attacks White's centre; the price is the light-squared bishop on c8, shut in behind e6."
+  - book: "Caro-Kann Defense"
+    ru: "защита Каро-Канн"
+    side: black
+    defining: "1. e4 c6 2. d4 d5"
+    main: "1. e4 c6 2. d4 d5 3. Nc3 dxe4 4. Nxe4"
+    idea: "Black supports ...d5 with ...c6, which keeps the diagonal of the c8 bishop open."
+  - book: "Scandinavian Defense"
+    ru: "скандинавская защита"
+    side: black
+    defining: "1. e4 d5"
+    main: "1. e4 d5 2. exd5 Qxd5"
+    idea: "Black attacks e4 with the d-pawn at once and usually takes back on d5 with the queen."
+  - book: "Pirc Defense"
+    ru: "защита Пирца–Уфимцева"
+    side: black
+    defining: "1. e4 d6 2. d4 Nf6 3. Nc3 g6"
+    main: "1. e4 d6 2. d4 Nf6 3. Nc3 g6"
+    idea: "Black lets White build a pawn centre, fianchettoes the bishop on g7 and attacks the centre later."
+  - book: "Modern Defense"
+    ru: "современная защита"
+    side: black
+    defining: "1. e4 g6"
+    main: "1. e4 g6 2. d4 Bg7"
+    idea: "Black fianchettoes the bishop on g7 at once and lets White build a pawn centre to attack it later."
+  - book: "Petrov's Defense"
+    ru: "русская партия (защита Петрова)"
+    side: black
+    defining: "1. e4 e5 2. Nf3 Nf6"
+    main: "1. e4 e5 2. Nf3 Nf6 3. Nxe5 d6"
+    idea: "Black answers the attack on e5 with a counterattack on e4."
+  - book: "Philidor Defense"
+    ru: "защита Филидора"
+    side: black
+    defining: "1. e4 e5 2. Nf3 d6"
+    main: "1. e4 e5 2. Nf3 d6 3. d4"
+    idea: "Black defends e5 with the d-pawn, a solid but passive set-up."
+  - book: "Ruy Lopez"
+    ru: "испанская партия"
+    side: white
+    defining: "1. e4 e5 2. Nf3 Nc6 3. Bb5"
+    main: "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6"
+    idea: "The bishop on b5 attacks the knight on c6, the defender of e5."
+  - book: "Italian Game"
+    ru: "итальянская партия"
+    side: white
+    defining: "1. e4 e5 2. Nf3 Nc6 3. Bc4"
+    main: "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5"
+    idea: "The bishop on c4 aims at f7, the weakest point near Black's king."
+  - book: "Scotch Game"
+    ru: "шотландская партия"
+    side: white
+    defining: "1. e4 e5 2. Nf3 Nc6 3. d4"
+    main: "1. e4 e5 2. Nf3 Nc6 3. d4 exd4 4. Nxd4"
+    idea: "White opens the centre at once with d4."
+  - book: "Vienna Game"
+    ru: "венская партия"
+    side: white
+    defining: "1. e4 e5 2. Nc3"
+    main: "1. e4 e5 2. Nc3 Nf6"
+    idea: "White develops the queen's knight first and keeps the f-pawn free for f2-f4."
+  - book: "King's Gambit"
+    ru: "королевский гамбит"
+    side: white
+    defining: "1. e4 e5 2. f4"
+    main: "1. e4 e5 2. f4 exf4"
+    idea: "White offers the f-pawn to open the f-file and take the centre with d4."
+  - book: "Queen's Gambit"
+    ru: "ферзевый гамбит"
+    side: white
+    defining: "1. d4 d5 2. c4"
+    main: "1. d4 d5 2. c4 e6"
+    idea: "White offers the c-pawn to draw Black's d-pawn away from the centre."
+  - book: "Queen's Gambit Declined"
+    ru: "отказанный ферзевый гамбит"
+    side: black
+    defining: "1. d4 d5 2. c4 e6"
+    main: "1. d4 d5 2. c4 e6 3. Nc3 Nf6"
+    idea: "Black keeps the pawn on d5 and supports it with ...e6."
+  - book: "Queen's Gambit Accepted"
+    ru: "принятый ферзевый гамбит"
+    side: black
+    defining: "1. d4 d5 2. c4 dxc4"
+    main: "1. d4 d5 2. c4 dxc4 3. Nf3"
+    idea: "Black takes the c4 pawn, gives up the centre for a while and hits back with ...c5 or ...e5."
+  - book: "Slav Defense"
+    ru: "славянская защита"
+    side: black
+    defining: "1. d4 d5 2. c4 c6"
+    main: "1. d4 d5 2. c4 c6 3. Nf3 Nf6"
+    idea: "Black supports d5 with ...c6 and keeps the c8 bishop's diagonal open."
+  - book: "Semi-Slav Defense"
+    ru: "полуславянская защита"
+    side: black
+    defining: "1. d4 d5 2. c4 c6 3. Nf3 Nf6 4. Nc3 e6"
+    main: "1. d4 d5 2. c4 c6 3. Nf3 Nf6 4. Nc3 e6"
+    idea: "Black supports d5 with both ...c6 and ...e6."
+  - book: "King's Indian Defense"
+    ru: "староиндийская защита"
+    side: black
+    defining: "1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6"
+    main: "1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Nf3 O-O"
+    idea: "Black lets White build a big centre, fianchettoes the bishop on g7 and strikes back with ...e5 or ...c5."
+  - book: "Grünfeld Defense"
+    ru: "защита Грюнфельда"
+    side: black
+    defining: "1. d4 Nf6 2. c4 g6 3. Nc3 d5"
+    main: "1. d4 Nf6 2. c4 g6 3. Nc3 d5 4. cxd5 Nxd5"
+    idea: "Black challenges the centre with ...d5 at once and attacks it with the g7 bishop and ...c5."
+  - book: "Nimzo-Indian Defense"
+    ru: "защита Нимцовича"
+    side: black
+    defining: "1. d4 Nf6 2. c4 e6 3. Nc3 Bb4"
+    main: "1. d4 Nf6 2. c4 e6 3. Nc3 Bb4"
+    idea: "The bishop on b4 pins the c3 knight and fights for e4."
+  - book: "Queen's Indian Defense"
+    ru: "новоиндийская защита"
+    side: black
+    defining: "1. d4 Nf6 2. c4 e6 3. Nf3 b6"
+    main: "1. d4 Nf6 2. c4 e6 3. Nf3 b6"
+    idea: "Black fianchettoes the bishop on b7 to control e4."
+  - book: "Dutch Defense"
+    ru: "голландская защита"
+    side: black
+    defining: "1. d4 f5"
+    main: "1. d4 f5 2. c4 Nf6"
+    idea: "Black controls e4 with the f-pawn, at the cost of weakening the king's side."
+  - book: "Benko Gambit"
+    ru: "волжский гамбит"
+    side: black
+    defining: "1. d4 Nf6 2. c4 c5 3. d5 b5"
+    main: "1. d4 Nf6 2. c4 c5 3. d5 b5 4. cxb5 a6"
+    idea: "Black gives a queen's side pawn for open a- and b-files."
+  - book: "Indian Defense: Budapest Gambit"
+    ru: "будапештская защита"
+    side: black
+    defining: "1. d4 Nf6 2. c4 e5"
+    main: "1. d4 Nf6 2. c4 e5 3. dxe5 Ng4"
+    idea: "Black gives the e-pawn and wins it back with ...Ng4."
+  - book: "Catalan Opening"
+    ru: "каталонское начало"
+    side: white
+    defining: "1. d4 Nf6 2. c4 e6 3. g3"
+    main: "1. d4 Nf6 2. c4 e6 3. g3 d5 4. Bg2"
+    idea: "White fianchettoes the bishop on g2 against Black's queen's side."
+  - book: "English Opening"
+    ru: "английское начало"
+    side: white
+    defining: "1. c4"
+    main: "1. c4 e5"
+    idea: "White controls d5 with the c-pawn from the side."
+  - book: "Réti Opening"
+    ru: "дебют Рети"
+    side: white
+    defining: "1. Nf3 d5 2. c4"
+    main: "1. Nf3 d5 2. c4"
+    idea: "White attacks Black's centre from the side instead of occupying it."
+  - book: "Trompowsky Attack"
+    ru: "атака Тромповского"
+    side: white
+    defining: "1. d4 Nf6 2. Bg5"
+    main: "1. d4 Nf6 2. Bg5"
+    idea: "The bishop on g5 attacks the f6 knight at once."
+  - book: "London System"
+    ru: "лондонская система"
+    side: white
+    defining: "1. d4 Nf6 2. Nf3 g6 3. Bf4"
+    main: "1. d4 Nf6 2. Nf3 g6 3. Bf4 Bg7 4. e3"
+    idea: "White develops the bishop to f4 before playing e3."
+
+sharp:
+  # Sicilian
+  - name: "Sicilian Defense: Najdorf Variation, English Attack"
+    why: "Be3, f3, Qd2 and O-O-O, then g4-g5: castling on opposite sides and pawn storms"
+  - name: "Sicilian Defense: Najdorf Variation, Poisoned Pawn Variation"
+    why: "the queen takes the b2 pawn and White gives up material for an attack"
+  - name: "Sicilian Defense: Najdorf Variation, Poisoned Pawn Accepted"
+    why: "the queen takes the b2 pawn and White gives up material for an attack"
+  - name: "Sicilian Defense: Najdorf Variation, Polugaevsky Variation"
+    why: "...b5 against f4 and e5: forcing tactics from move 8"
+  - name: "Sicilian Defense: Dragon Variation, Yugoslav Attack"
+    why: "Be3, f3, Qd2, O-O-O and h4-h5 against the fianchettoed king: castling on opposite sides, a race of attacks"
+  - name: "Sicilian Defense: Scheveningen Variation, Keres Attack"
+    why: "g4-g5 at once against the knight on f6: a pawn storm"
+  - name: "Sicilian Defense: Scheveningen Variation, Delayed Keres Attack"
+    why: "g4-g5 against the knight on f6: a pawn storm"
+  - name: "Sicilian Defense: Scheveningen Variation, English Attack, with Qd2"
+    why: "Be3, Qd2, f3, O-O-O and g4: castling on opposite sides and pawn storms"
+  - name: "Sicilian Defense: Scheveningen Variation, English Attack, with f3"
+    why: "Be3, f3, Qd2, O-O-O and g4: castling on opposite sides and pawn storms"
+  - name: "Sicilian Defense: Velimirovic Attack"
+    why: "Qe2 and O-O-O with a piece sacrifice on d5 or f5 in the air"
+  - name: "Sicilian Defense: Smith-Morra Gambit"
+    why: "White gives a pawn for development and open lines"
+  # French
+  - name: "French Defense: Winawer Variation, Poisoned Pawn Variation"
+    why: "the queen takes on g7 and h7 while Black attacks White's centre: both kings unsafe"
+  - name: "French Defense: Alekhine-Chatard Attack"
+    why: "White gives the g5 bishop's pawn for an attack (h4)"
+  # Open games
+  - name: "Ruy Lopez: Marshall Attack"
+    why: "Black gives a pawn for a direct attack on White's king"
+  - name: "Italian Game: Two Knights Defense, Fried Liver Attack"
+    why: "White sacrifices the knight on f7 against the king"
+  - name: "Italian Game: Two Knights Defense, Traxler Counterattack"
+    why: "Black ignores the attack on f7 and sacrifices for a counterattack on f2"
+  - name: "Italian Game: Evans Gambit"
+    why: "White gives the b-pawn for development and an attack"
+  - name: "Italian Game: Scotch Gambit, Max Lange Attack"
+    why: "forcing tactics in the centre with pieces hanging on both sides"
+  - name: "Vienna Game: Frankenstein-Dracula Variation"
+    why: "Black takes on e4 and both sides sacrifice material"
+  - name: "King's Gambit Accepted"
+    why: "White gives the f-pawn for an attack on f7 along the opened f-file"
+  - name: "Danish Gambit"
+    why: "White gives two pawns for development and attacking lines"
+  # Closed games
+  - name: "Semi-Slav Defense: Botvinnik Variation"
+    why: "forcing play with pieces en prise and material sacrificed on both wings"
+  - name: "Semi-Slav Defense: Anti-Moscow Gambit"
+    why: "White gives the c4 pawn for an attack"
+  - name: "Semi-Slav Defense: Marshall Gambit"
+    why: "White gives the e4 pawn for an attack on the dark squares"
+  - name: "Queen's Gambit Declined: Albin Countergambit"
+    why: "Black gives the e-pawn for a cramping pawn on d4 and open lines"
+  - name: "Benoni Defense: Four Pawns Attack"
+    why: "White's f4-e5 break against Black's queen's side play"
+  - name: "Benoni Defense: Taimanov Variation"
+    why: "Bb5+ and f4-e5 against Black's king"
+  - name: "King's Indian Defense: Four Pawns Attack"
+    why: "White's big pawn centre against Black's counterblows"
+  - name: "Dutch Defense: Staunton Gambit"
+    why: "White gives the e-pawn for development and an attack"

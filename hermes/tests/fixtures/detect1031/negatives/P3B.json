@@ -1,0 +1,128 @@
+{
+ "package": "P3B",
+ "doc": "True controls: no detector may flag them (plan 31.10 §5.2). Seeded by WP-0; the package appends its own.",
+ "controls": [
+  {
+   "id": "why-not-d5-reachable",
+   "moves": "e4 e6 d4",
+   "detector": "idea_scope",
+   "sentence": "Почему не d5? После d5 размен на d5 ведёт к симметричной позиции.",
+   "why": "no piece named on d5's from-square: no ghost (exd5 exd5 is reachable)",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "start-c1-locked",
+   "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "detector": "start_cue",
+   "sentence": "В начале партии слон c1 заперт пешками b2 и d2.",
+   "why": "true in the initial position",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "french-bc8-locked",
+   "moves": "e4 e6 d4 d5 e5",
+   "detector": "locked",
+   "sentence": "Слон c8 заперт.",
+   "why": "the French Bc8 has 1 legal move (d7): locked (judge [J])",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "if-e5-knight-moves",
+   "moves": "e4 Nf6",
+   "detector": "bare_pawn_line",
+   "sentence": "Если белые сыграют e5, конь f6 уйдёт.",
+   "why": "after 2.e5 the knight must move",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "cover-opposite-colours",
+   "moves": "d4 e5 dxe5 Nc6 Nf3 Nf6 exf6",
+   "student": "b",
+   "detector": "cover_cause",
+   "sentence": "Поле f6 держала пешка e5, и твой конь там потерялся.",
+   "why": "the holder (White's e5 pawn) and the lost knight are of opposite colours: true",
+   "stage": "sync",
+   "source": "design-detect §2 / triage reports"
+  },
+  {
+   "id": "start-cue-c1-locked-now",
+   "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "detector": "start_cue",
+   "sentence": "Сейчас, в самом начале партии, слон c1 заперт пешками b2 и d2.",
+   "why": "true in the initial position, now judged there",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
+  },
+  {
+   "id": "board-cue-lesson-pieces-absent",
+   "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "detector": "start_cue",
+   "sentence": "На доске сейчас первая задача урока: ферзь на d3 защищает пешку e4.",
+   "why": "the words point at the lesson's board, which the turn does not have: the pieces named are not on this one",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
+  },
+  {
+   "id": "idea-old-square-named-plainly",
+   "moves": "e4 e5 Nf3 Nc6 d4",
+   "detector": "idea_scope",
+   "before": [
+    "А почему не Nxd4 сразу?"
+   ],
+   "sentence": "Тогда белые разменяют коней, и твой конь c6 исчезнет с доски.",
+   "why": "the moved knight named by the square it left, nothing said about that square: the usual naming (cf. «твою пешку b6» after bxa7)",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
+  },
+  {
+   "id": "idea-from-square-form",
+   "moves": "e4 e5 Nf3 Nc6 d4",
+   "detector": "idea_scope",
+   "before": [
+    "А почему не Nxd4 сразу?"
+   ],
+   "sentence": "Конь с c6 уходит в центр, и после d5 ему ничего не грозит.",
+   "why": "«конь с c6» is the piece that came from c6",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
+  },
+  {
+   "id": "idea-lasts-one-sentence",
+   "moves": "e4 e5 Nf3 Nc6 d4",
+   "detector": "idea_scope",
+   "before": [
+    "А почему не Nxd4 сразу?",
+    "Хороший вопрос."
+   ],
+   "sentence": "Подумай, что случится с твоим конём c6 после d5.",
+   "why": "two sentences after the question the board is the one now again, where the knight stands on c6",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
+  },
+  {
+   "id": "bare-line-attacked-true",
+   "moves": "e4 Nf6",
+   "detector": "bare_pawn_line",
+   "sentence": "Если белые сыграют e5, конь f6 окажется под ударом.",
+   "why": "after 2.e5 the knight on f6 is attacked",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
+  },
+  {
+   "id": "opera-no-longer-true",
+   "moves": "e4 e5 Nf3 d6 d4 Bg4 dxe5 Bxf3 Qxf3 dxe5 Bc4 Nf6 Qb3 Qe7 Nc3 c6 Bg5 b5 Nxb5 cxb5 Bxb5+ Nbd7 O-O-O Rd8 Rxd7 Rxd7 Rd1 Qe6 Bxd7+ Nxd7 Qb8+ Nxb8 Rd8#",
+   "detector": "loaded_line",
+   "before": [
+    "Посмотри на конец: ферзь идёт на b8, конь вынужден её взять, и тогда ладья врывается на d8 с матом."
+   ],
+   "sentence": "Ферзь пожертвован, чтобы конь чёрных больше не защищал поле f6.",
+   "why": "before 16.Qb8+ the knight on d7 covers f6: the relation «больше не» presupposes held",
+   "stage": "sync",
+   "source": "P3B (plan 31.10)"
+  }
+ ]
+}
