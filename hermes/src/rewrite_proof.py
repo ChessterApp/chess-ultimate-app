@@ -504,6 +504,12 @@ def _prove(sentence: str, ctx: Any) -> Proof:
     elif played is None and _TOLD.search(text):
         # moves told as made: the game's own record proves them (and what they moved, took, gave)
         played = record_moves(moves, ctx)
+    if played is None and getattr(ctx, "loaded_game", None):
+        # moves told of the database game on the board («на 4-м ходу чёрный конь взял пешку e4»): its record proves
+        # them, as the game played on the board does (src/answer_check_db.told_game_plies; integration 04.11)
+        from src.answer_check_db import told_game_plies
+
+        played = told_game_plies(sentence, ctx)
     after = _after_boards(played) if played else []
     true_claims = []
     for claim, status in verdicts or ():

@@ -642,8 +642,9 @@ def _theory(board: chess.Board, start: Optional[int] = None, theory_words: bool 
         return False
 
 
-def loaded_game_issues(original: str, ctx) -> list[str]:
-    """The moves told of the database game on the board, against its main line."""
+def loaded_game_issues(original: str, ctx, hits: Optional[list] = None) -> list[str]:
+    """The moves told of the database game on the board, against its main line. *hits*, when given, receives the
+    plies (board, move) a clause told and the game has — what src/rewrite_proof takes as the game's record."""
     line = getattr(ctx, "loaded_game", None) if ctx is not None else None
     if not line:
         return []
@@ -695,6 +696,8 @@ def loaded_game_issues(original: str, ctx) -> list[str]:
         mine = [(b, mv) for b, mv in at if side is None or b.turn == side]
         hit = next(((b, mv) for b, mv in mine if _fits(b, mv, want)), None)
         if hit is not None:
+            if hits is not None:
+                hits.append(hit)
             if not reply:
                 continue
             answered = _want(reply, orig_reply, game)
@@ -762,6 +765,31 @@ def _walk_issues(low: str, text: str, line: list) -> list:
 
 _NAMES_EN = {chess.PAWN: "pawn", chess.KNIGHT: "knight", chess.BISHOP: "bishop", chess.ROOK: "rook",
              chess.QUEEN: "queen", chess.KING: "king"}
+
+
+def told_game_plies(original: str, ctx) -> Optional[list]:
+    """[(board before, move, san)] of the moves *original* tells of the database game on the board in words («на 4-м
+    ходу чёрный конь взял пешку e4») when every one it tells is in the game, else None — the game's own record, as
+    src/rewrite_proof.record_moves reads the game played on the board. Never raises."""
+    try:
+        if not getattr(ctx, "loaded_game", None):
+            return None
+        hits: list = []
+        if loaded_game_issues(original, ctx, hits) or not hits:
+            return None
+        return [(b, mv, b.san(mv)) for b, mv in hits]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def only_db_issues(issues, ctx) -> bool:
+    """Every one of *issues* is one the database checks (switched on) cut with — the sentence was cut for what it said
+    of the database or of the game loaded from it, nothing on the board."""
+    from src.rewrite_proof import clean_issue
+
+    cut = getattr(ctx, "db_cut", None) or []
+    known = set(cut) | {clean_issue(i) for i in cut}
+    return bool(issues) and all(i in known for i in issues)
 
 
 def _want(window: str, orig_window: str, game: dict) -> Optional[tuple]:
@@ -886,6 +914,9 @@ def game_db_issues(lowered: str, original: str, ctx) -> list[str]:
                 continue
             if current == "on":
                 out += issues
+                cut = getattr(ctx, "db_cut", None)
+                if isinstance(cut, list):
+                    cut.extend(issues)
                 continue
             shadow = getattr(ctx, "db_shadow", None)
             if isinstance(shadow, list):

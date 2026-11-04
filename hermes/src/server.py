@@ -3347,7 +3347,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         # first move or piece): the rewrite must not say it again.
                         fix.update(running=True, pending=True, sentence=sentence, issues=issues, started=time.monotonic(),
                                    shown_prefix=sentence[: len(sentence) - len(text)] if sentence.endswith(text) else "",
-                                   ctx=snapshot(check_ctx), gen=fix["gen"] + 1)
+                                   ctx=snapshot(check_ctx), gen=fix["gen"] + 1, db_only=_db_only(issues))
                         loop.run_in_executor(None, _run_fix, "".join(answer_parts), sentence, issues, fix["gen"])
                     elif source == "fix" and fix["mode"] is None:
                         fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
@@ -3370,9 +3370,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         fix["after_drop"] = True
                         continue
                     if fix["mode"] is None:
-                        if proof.status == "neutral":
+                        if proof.status == "neutral" and not fix.get("db_only"):
                             fix["held_fix"].append(text)  # goes out with the first proven sentence, or never
                             continue
+                        # (a rewrite of a sentence cut only for what it said of the games database — «нет доступа к
+                        # базе» — is about the database: its first sentence the check passes decides it, board words
+                        # still proven; integration 04.11)
                         fix["mode"] = "rewrite"
                         for held in fix.pop("held_fix", []):
                             frames.extend(_answer_frames(held))
@@ -3395,6 +3398,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                                          + [u["sentence"] for u in fix["unproven"]], board=check_ctx.current)
                 frames.extend(_answer_frames(text))
             return frames
+
+        def _db_only(issues) -> bool:
+            try:
+                from src.answer_check_db import only_db_issues
+
+                return only_db_issues(issues, check_ctx)
+            except Exception:  # noqa: BLE001
+                return False
 
         def _call_off_held_fix():
             """The draft after the tools goes on instead of the held rewrite: the wrong sentence alone is left out

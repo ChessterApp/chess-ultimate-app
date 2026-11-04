@@ -387,14 +387,31 @@ class TestHeldRewrite:
         frames = [json.loads(line[6:]) for line in resp.text.splitlines() if line.startswith("data: ")]
         return "".join(f.get("delta", "") for f in frames), frames
 
-    def test_a_draft_that_ends_at_the_tool_gets_the_rewrite(self):
+    # The held rewrite is played like any rewrite: through src/rewrite_proof (next-1031, fix1102 K6), which keeps it only
+    # when its board words are proven. These two test the hold, so the rewrite is taken as proven here (as next-1031 did
+    # for main's earlier rewrite tests); the last one is the same turn under the real proof (integration 04.11).
+    def test_a_draft_that_ends_at_the_tool_gets_the_rewrite(self, monkeypatch):
+        from src.rewrite_proof import Proof
+
+        monkeypatch.setattr("src.rewrite_proof._prove", lambda sentence, ctx: Proof("proven"))
         shown, frames = self._turn_with([CUT, ARROWS])
         assert shown == FIX  # was '' (an empty answer)
         assert any("tool_call" in f for f in frames)
 
-    def test_text_before_the_cut_and_a_tool_after_it_keep_the_rewrite(self):
+    def test_text_before_the_cut_and_a_tool_after_it_keep_the_rewrite(self, monkeypatch):
+        from src.rewrite_proof import Proof
+
+        monkeypatch.setattr("src.rewrite_proof._prove", lambda sentence, ctx: Proof("proven"))
         shown, _ = self._turn_with([OK, CUT, ARROWS])
         assert shown == OK + FIX  # was only «Позиция примерно равная.»
+
+    def test_an_unproven_held_rewrite_is_dropped_and_the_answer_is_never_empty(self):
+        # «Материал равный…» — nothing this turn proves it (no engine line, the relation check off): the rewrite is
+        # abandoned like any unproven one, and with no draft left the student gets the plain line, not ''
+        shown, _ = self._turn_with([CUT, ARROWS])
+        assert FIX not in shown and "лишний ферзь" not in shown and "провер" in shown
+        shown, _ = self._turn_with([OK, CUT, ARROWS])
+        assert shown == OK
 
     def test_the_draft_after_the_tool_still_stands_in_for_the_rewrite(self):
         after = "После проверки: план тот же, развивай фигуры. "

@@ -454,6 +454,9 @@ class CheckContext:
     # The games-database checks in shadow (src/answer_check_db.game_db_issues): (part, sentence, issues) they would
     # have cut, for the turn's db_check event.
     db_shadow: list = field(default_factory=list)
+    # …and the issues of those checks switched on that cut a sentence: a rewrite written for them alone has no board
+    # word for src/rewrite_proof to prove (src/answer_check_db.only_db_issues; integration 04.11).
+    db_cut: list = field(default_factory=list)
     # The facts the model was given this turn (src/turn_facts.Fact; plan 31.10, filled by P8's providers): a detector
     # may quote the one it relied on («(you were given: …)»). Empty until a provider fills it.
     facts: list = field(default_factory=list)
@@ -7898,7 +7901,11 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None, *, spoken:
     issues = _check_sentence(sentence, ctx)
     if issues and snapshot is not None and _switch_mode("after_told_move", ctx) == "on":
         try:
-            issues = _after_told_move(sentence, snapshot, issues, told + [m for m in snapshot.told_before if m not in told])
+            # a move of the sentence before is no scene for a sentence that names its piece where it stood («Ng5 —
+            # …» then «Конь f3 бьёт e5 и защищает пешку d4»: the knight on f3 is the board before Ng5; integration
+            # 04.11, test_fix1103 subj-new-ru)
+            prior = [m for m in snapshot.told_before if m not in told and not _names_left_square(sentence, m)]
+            issues = _after_told_move(sentence, snapshot, issues, told + prior)
         except Exception:  # noqa: BLE001
             logger.debug("after-told-move judging failed", exc_info=True)
     if ctx.current is not None and sentence.strip() and not _lesson(ctx):
@@ -7981,6 +7988,11 @@ def _told_moves(sentence: str, ctx: CheckContext) -> list:
                 # other knight)
                 add(resolve(board, ptype, to, from_sq=frm)[1] or resolve(board, ptype, to)[1])
     return out[:3]
+
+
+def _names_left_square(sentence: str, move: chess.Move) -> bool:
+    """*sentence* names the square *move* leaves («Конь f3 …» after Ng5 from f3): it speaks of the board before it."""
+    return bool(re.search(r"(?<![A-Za-z0-9])" + chess.square_name(move.from_square) + r"(?![0-9])", sentence))
 
 
 def _after_told_move(sentence: str, snapshot: CheckContext, issues: list, told: list) -> list:
