@@ -221,6 +221,8 @@ def _translit_options(word: str, anchored: bool = False) -> list:
         elif ch == "ю" and prev and prev not in _VOWELS + "ьъ":
             # «Хюбнер» is Hübner (Hubner, Huebner), «Матюшин» Matyushin: one letter for ü/u, or yu / ue / iu
             options.append(("yu", "_", "ue", "iu"))
+        elif ch == "я" and prev == "и":
+            options.append(("ya", "a", "ja"))  # «Севиян» is Sevian (live run 04.11: the list's item matched no game)
         elif ch == "с" and prev == "е" and i + 1 == len(word):
             options.append(("s", "z"))  # «Мартинес» is Martinez, «Перес» Perez
         elif ch == "к":

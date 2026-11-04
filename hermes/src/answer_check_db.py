@@ -16,6 +16,13 @@ Two classes the live run of 03.11 caught after the coach could load any database
     sentence tells that game (its players, «в партии», told as played) or the line it writes follows the game
     first; an opening's moves, a puzzle, a what-if, the student's game are other lines (verification 04.11).
 
+The check of 04.11 (fresh sentences and a live run): an opening told from move 1, or theory said as such, that leaves
+the game where the book goes on is the opening's line; the student's games and games named by other players
+(«против petr77», «Иванов – Петров») are other games; an empty position search answers a claim that names no one
+game; «как я уже говорил», «ту партию», «я проверял» refer to an earlier empty search; a move told in words is read
+with the piece in the instrumental, castling, more verbs, the reply («…, а чёрные в ответ…»), a walk («король прошёл с
+g1 на g5») and Kazakh.
+
 The server records the turn's database results and the game it loaded (``note_tool_result``,
 ``note_board_game``); with nothing recorded nothing is judged (the voice check, the lesson tutor). Conditions,
 alternatives, negations and other games are never read as claims: a right sentence cut is worse than a wrong one
@@ -158,7 +165,7 @@ _NOTHING = re.compile(
     r"ничего\s+не\s+(?:дал|дала|дало|вернул\w*|наш\w*|наход\w*|выда\w*|показ\w*)|не\s+(?:отдал\w*|отда[её]т|вернул\w*|"
     r"нашл\w*|наш[её]л|нашлось|наход\w*|выдал\w*|выда[её]т|содерж\w*|хран\w*|смог\w*\s+найти|удалось\s+найти)|"
     r"(?:пуст\w*|пусто)" + _E + r"|нет\s+(?:такой\s+|этой\s+|нужной\s+)?(?:парти\w*|игр\w*|ход\w*|данных|доступа)|"
-    r"(?:такой|этой|нужной)\s+парти\w*\s+(?:у\s+меня\s+)?(?:в\s+базе\s+)?нет|отсутству\w*|"
+    r"(?:такой|этой|нужной|той)\s+парти\w*\s+(?:[\w«»-]+\s+){0,3}?нет(?![\w-])|отсутству\w*|"
     r"в\s+базе\s+(?:[\w«»-]+\s+){0,3}?нет(?![\w-])|нет\s+в\s+базе|"
     r"returned\s+nothing|found\s+nothing|(?:couldn'?t|could\s+not|can'?t|cannot|didn'?t|did\s+not)\s+(?:find|get|load|"
     r"access|open)|(?:is|was)\s+not\s+in|isn'?t\s+in|wasn'?t\s+in|no\s+(?:such\s+)?(?:game|games|results?|moves|"
@@ -167,7 +174,9 @@ _NOTHING = re.compile(
 # «нет доступа к базе», «не могу загрузить конкретную партию … из базы» — said of the database, in the same clause
 # (verification 04.11: «нет доступа к рейтинг-листу», «не могу открыть эту партию — ссылка…» were cut).
 _NO_ACCESS = re.compile(
-    r"нет\s+доступа|не\s+(?:могу|можу|получится|удастся)\s+(?:её\s+|ее\s+|эту\s+)?(?:загрузить|открыть|показать|найти|"
+    r"нет\s+доступа|не\s+имею\s+доступа|доступа\s+(?:к\s+\w+\s+)?нет|қол\w*\s+жетпей\w*|қолжетімді\s+емес|"
+    r"рұқсат\w*\s+жоқ|(?:don'?t|do\s+not|doesn'?t|does\s+not)\s+have\s+"
+    r"(?:any\s+)?access|не\s+(?:могу|можу|получится|удастся)\s+(?:её\s+|ее\s+|эту\s+)?(?:загрузить|открыть|показать|найти|"
     r"достать|поставить)\s+(?:\w+\s+){0,2}?(?:парти\w*|игр\w*)|no\s+access|(?:can'?t|cannot)\s+(?:load|open|show|"
     r"access)\s+(?:\w+\s+){0,2}?(?:game|database)",
     re.IGNORECASE)
@@ -189,6 +198,21 @@ _NOT_A_REPORT = re.compile(_B + r"(?:если|ли|может|возможно|�
 _EARLIER = re.compile(_B + r"(?:в\s+прошлый\s+раз|раньше|ранее|до\s+этого|прежде|в\s+прошл\w+\s+(?:ход\w*|"
                       r"сообщени\w*|ответ\w*)|тот\s+(?:поиск|раз)|прошл\w+\s+поиск\w*|earlier|last\s+time|"
                       r"previously|before)" + _E, re.IGNORECASE)
+# …or the coach says it told this before, of an earlier search: «Как я уже говорил, этой партии в базе нет», «Ту партию
+# база не нашла», «я проверял», «повторю» (check 04.11: 7 of 7 such true sentences cut). Allowed when an earlier search
+# of the conversation came back empty; otherwise judged as said of this turn.
+_EARLIER_SAID = re.compile(
+    _B + r"(?:как\s+я\s+(?:уже\s+|и\s+)?(?:говорил|сказал|писал|упоминал)\w*|(?:я\s+)?уже\s+(?:\w+\s+)?(?:говорил|"
+    r"сказал|проверял|искал|смотрел|убедил)\w*|я\s+(?:\w+\s+)?(?:проверял|искал|смотрел)\w*|повтор(?:ю|яю|юсь)|"
+    r"убедились|(?:ту|той|та|тех|те)\s+(?:\w+\s+)?парти\w*|as\s+I\s+(?:said|mentioned|told)|(?:I\s+)?already\s+"
+    r"(?:checked|searched|looked|said|told)|that\s+game)" + _E, re.IGNORECASE)
+# A clause that names one game — its players, its year, «эта партия», "this game": an empty position search says
+# nothing about it. Without one («В базе таких партий нет», «база не вернула ни одной партии») the position search
+# answers it (check 04.11: 5 of 6 true sentences after an empty position search cut).
+_ONE_GAME = re.compile(_B + r"(?:эт(?:а|у|ой|ою)\s+(?:\w+\s+)?парти\w*|(?:ту|той|та)\s+(?:\w+\s+)?парти\w*|"
+                       r"(?:this|that)\s+game)" + _E, re.IGNORECASE)
+# A search of the database reported in one clause, its outcome in the next: «Я поискал в базе, но ничего не нашёл».
+_SEARCHED = re.compile(_B + r"(?:по)?(?:иск|провер|смотр|заглян|search|check|look)\w*" + _E, re.IGNORECASE)
 # The asked game is missing, but the search found others: «Именно этой партии в базе нет, но есть три других».
 _FOUND_OTHER = re.compile(
     _B + r"(?:(?:но|зато|однако|but|though|although)\s+(?:\w+\s+){0,3}?(?:есть|нашл\w*|наш[её]л\w*|наход\w*|"
@@ -211,13 +235,21 @@ DB_EARLIER_FOUND_ISSUE = ("the earlier database searches of this conversation fo
 def _claims(text: str) -> list:
     """The clauses of *text* that state something about the games database: (kind set, clause)."""
     out = []
+    searched = None  # the previous clause reported a search of the games database
     for clause in _CLAUSE.split(text or ""):
         low = clause.lower().replace("ё", "е")
+        prev, searched = searched, None
+        other = (_OTHER_BASE.search(low) and not _GAMES_BASE.search(low)) or _OTHER_SOURCE.search(low) \
+            or _NOT_A_REPORT.search(low) or _OWN_GAMES.search(low)
         if not _DB_WORD.search(low):
+            if prev is None or other:
+                continue
+            # «Я поискал в базе, | но ничего не нашёл»: the outcome of the search the clause before reported
+            clause, low = prev + ", " + clause, prev.lower().replace("ё", "е") + ", " + low
+        elif other:
             continue
-        if (_OTHER_BASE.search(low) and not _GAMES_BASE.search(low)) or _OTHER_SOURCE.search(low) \
-                or _NOT_A_REPORT.search(low) or _OWN_GAMES.search(low):
-            continue
+        elif _SEARCHED.search(low):
+            searched = clause
         kinds = {k for k, rx in (("access", _NO_ACCESS), ("moves", _NO_MOVES), ("nothing", _NOTHING)) if rx.search(low)}
         if kinds:
             out.append((kinds, clause))
@@ -237,17 +269,27 @@ def _asked_not_returned(clause: str, ctx) -> bool:
     years = {str(g.get("date") or "")[:4] for g in games}
     if any(y not in years for y in re.findall(r"(?<!\d)(?:1[5-9]\d\d|20\d\d)(?!\d)", clause)):
         return True
-    from src.player_names import _NAME_TOKEN, known_player, name_patterns
+    from src.player_names import _NAME_TOKEN, _named_words, known_player, name_patterns
 
     names = [f"{g.get('white_name') or g.get('White') or ''}|{g.get('black_name') or g.get('Black') or ''}".lower()
              for g in games]
-    for i, tok in enumerate(_NAME_TOKEN.findall(clause)):
-        if len(tok) < 4 or not (known_player(tok) or (i and tok[0].isupper())):
+    # a name: a known player, or a capitalised word that reads as one — not "I'll", not the sentence's first word
+    # (check 04.11: "so I'll tell the game from memory" let a false claim through after a search that found it)
+    named = set(_named_words(clause))
+    for tok in _NAME_TOKEN.findall(clause):
+        if len(tok) < 4 or "'" in tok or "’" in tok or not (known_player(tok) or tok in named):
             continue
         pats = [_like(p) for p in name_patterns(tok)]
         if pats and not any(p.search(n) for p in pats for n in names):
             return True
     return False
+
+
+def _names_one_game(clause: str) -> bool:
+    """The clause is about one game: «эта партия», a year, a player — not what a position search answers."""
+    from src.player_names import mentions_player
+
+    return bool(_ONE_GAME.search(clause) or _YEAR.search(clause) or mentions_player(clause))
 
 
 def db_claim_issues(lowered: str, ctx, original: Optional[str] = None) -> list[str]:
@@ -259,8 +301,11 @@ def db_claim_issues(lowered: str, ctx, original: Optional[str] = None) -> list[s
         return []
     results = getattr(ctx, "db_results", None) or []
     whole = (original if original is not None else lowered) or ""
+    earlier_empty = any(s != "found" for t, s in getattr(ctx, "db_results_earlier", None) or [])
     for kinds, clause in claims:
-        about_position = bool(_POSITION_WORD.search(clause))
+        about_position = bool(_POSITION_WORD.search(clause)) or not _names_one_game(clause)
+        if earlier_empty and _EARLIER_SAID.search(whole):
+            continue  # «как я уже говорил, этой партии в базе нет» after an earlier search that came back empty
         if _EARLIER.search(clause):
             # «в прошлый раз поиск ничего не нашёл»: what the database said on the conversation's earlier turns
             earlier = getattr(ctx, "db_results_earlier", None) or []
@@ -299,18 +344,30 @@ _YEAR = re.compile(r"(?<!\d)(?:1[5-9]\d\d|20\d\d)(?!\d)")
 _IN_THE_GAME = re.compile(
     _B + r"(?:(?:в|из)\s+(?:(?:этой|той|их|самой|всей|данной)\s+)?(?:парти[ия]|игре)|в\s+ней|всю\s+партию|"
     r"парти[яю]\s+(?:пошла|продолжил\w*|началась|закончил\w*|шла)|in\s+(?:the|this|that)\s+game|the\s+game\s+"
-    r"(?:went|continued|began|ended))" + _E, re.IGNORECASE)
+    r"(?:went|continued|began|ended)|(?:бұл\s+|осы\s+)?партия(?:да|сында)|(?:начало|дебют|старт|концовк\w*|финал|"
+    r"окончани\w*|развязк\w*)\s+(?:(?:этой|той|самой)\s+)?партии|the\s+game'?s\s+(?:opening|start|ending|finish)|"
+    r"(?:opening|start|ending|finish)\s+of\s+(?:the|this|that)\s+game)" + _E, re.IGNORECASE)
+# Told as played, in Russian, English and Kazakh («пілді шегерді», «матымен аяқталды» — check 04.11).
 _PLAYED = re.compile(
     _B + r"(?:взял\w*|взяли|забрал\w*|побил\w*|съел\w*|сбил\w*|пош[её]л|пошла|пошли|сыграл\w*|сходил\w*|ответил\w*|"
     r"двинул\w*|перев[её]л\w*|провел\w*|провёл\w*|отош[её]л\w*|отступил\w*|встал\w*|последовал\w*|был\w*\s+сыгран\w*|"
-    r"начал(?:и|а|ось)?|жертвовал\w*|пожертвовал\w*|took|captured|played|went|moved|answered|replied|followed|"
-    r"sacrificed|pushed|promoted)" + _E, re.IGNORECASE)
+    r"начал(?:и|а|ось)?|жертвовал\w*|пожертвовал\w*|вторгл\w*|ворвал\w*|отв[её]л|отвела|отвели|рокировал\w*|"
+    r"поставил\w*\s+(?:\w+\s+)?(?:ферзя|ладью|коня|слона|короля|пешку|мат)|дал\w*\s+(?:мат|шах)|"
+    r"took|captured|played|went|moved|answered|replied|followed|sacrificed|pushed|promoted|castled|invaded|"
+    r"retreated|аяқталды|ойнады|жүрді|шегерді|жүрісімен|жүрісінен|ұтты)" + _E, re.IGNORECASE)
 # …and not the student's own game, a puzzle, an exercise: «В твоей прошлой партии на 12-м ходу ты взял…».
 _NOT_THIS_GAME = re.compile(
     _B + r"(?:тво(?:ей|ю|я|ем|их|и)\s+(?:\w+\s+)?(?:парти\w*|игр\w*)|сво(?:ей|ю)\s+(?:\w+\s+)?парти\w*|"
-    r"(?:прошл|предыдущ|друг|следующ)\w+\s+парти\w*|ты\s+(?:\w+\s+){0,2}?(?:взял|сыграл|пош[её]л|ходил|сходил|"
-    r"двинул|побил|забрал|ответил|отдал|пожертвовал)\w*|your\s+(?:\w+\s+)?game|you\s+(?:\w+\s+)?(?:played|took|"
-    r"moved|captured)|задач\w*|этюд\w*|упражнени\w*|puzzle\w*|exercise\w*|study)" + _E, re.IGNORECASE)
+    r"(?:прошл|предыдущ|друг|следующ)\w+\s+парти\w*|ты\s+(?:\w+\s+){0,2}?(?:взял|сыграл|играл|пош[её]л|ходил|сходил|"
+    r"двинул|побил|забрал|ответил|отдал|пожертвовал|прислал|загрузил|скинул|показывал|импортировал)\w*|"
+    r"your\s+(?:\w+\s+)?game|you\s+(?:\w+\s+)?(?:played|took|moved|captured|sent|uploaded)|задач\w*|этюд\w*|"
+    r"упражнени\w*|puzzle\w*|exercise\w*|study)" + _E, re.IGNORECASE)
+# A game named by its players or the opponent, none a side of the game on the board: «в партии против petr77», «в
+# партии Иванов – Петров», "in the game against bob_99" (check 04.11: 5 of 5 such true sentences cut).
+_GAME_WITH = re.compile(r"(?:парти\w*|игр[еуы]|game)\s+(?:против|с|со|against|vs\.?|versus|with)\s+(?P<a>[\w.-]+)",
+                        re.IGNORECASE)
+_GAME_PAIR = re.compile(r"(?:парти\w*|game)\s+(?P<a>[A-ZА-ЯЁ][\w.-]+)\s*(?:[–—-]|vs\.?|против)\s*(?P<b>[A-ZА-ЯЁ][\w.-]+)")
+_HANDLE = re.compile(r"[a-z0-9_.-]*(?:\d|_)[a-z0-9_.-]*", re.IGNORECASE)
 _ORDINAL = re.compile(
     r"(?:на|в|с)\s+(?P<a>\d{1,3})(?:-?(?:м|ом|ем|й|ом))?\s+ход\w*|(?P<b>\d{1,3})-?(?:й|ой|ый|ом|м|ым)\s+ход\w*|"
     r"ход\w*\s+(?:номер\s+)?(?P<c>\d{1,3})(?![\d.])|(?:on|at|by)\s+move\s+(?P<d>\d{1,3})|move\s+(?P<e>\d{1,3})(?![\d.])",
@@ -322,12 +379,27 @@ _PIECE_ACC = {"пешку": chess.PAWN, "коня": chess.KNIGHT, "слона": 
               "ферзя": chess.QUEEN, "короля": chess.KING}
 _PIECE_EN = {"pawn": chess.PAWN, "knight": chess.KNIGHT, "bishop": chess.BISHOP, "rook": chess.ROOK,
              "queen": chess.QUEEN, "king": chess.KING}
-_ADJ_SIDE = re.compile(_B + r"(?P<s>бел(?:ая|ый)|ч[её]рн(?:ая|ый))\s+(?P<p>пешка|конь|слон|ладья|ферзь|король)" + _E,
-                       re.IGNORECASE)
+_ADJ_SIDE = re.compile(_B + r"(?:(?P<s>бел(?:ая|ый)|ч[её]рн(?:ая|ый))\s+(?P<p>пешка|конь|слон|ладья|ферзь|король)|"
+                       r"(?P<p2>пешка|конь|слон|ладья|ферзь|король)\s+(?P<s2>белых|ч[её]рных))" + _E, re.IGNORECASE)
+# The piece that moved, in the instrumental: «взял пешку на d4 конём», «взяли коня пешкой» (check 04.11).
+_PIECE_INS = {"пешкой": chess.PAWN, "конем": chess.KNIGHT, "слоном": chess.BISHOP, "ладьей": chess.ROOK,
+              "ладьею": chess.ROOK, "ферзем": chess.QUEEN, "королем": chess.KING}
 _CAPTURE = re.compile(_B + r"(?:взял\w*|взяли|взять|забрал\w*|забира\w*|побил\w*|съел\w*|сбил\w*|бь[её]т|бьют|"
                       r"took|takes|captur\w*)" + _E, re.IGNORECASE)
 _MOVED = re.compile(_B + r"(?:пош[её]л|пошла|пошли|сыграл\w*|сходил\w*|ответил\w*|двинул\w*|перев[её]л\w*|"
-                    r"отош[её]л\w*|отступил\w*|встал\w*|play\w*|went|moved|answered|replied)" + _E, re.IGNORECASE)
+                    r"отош[её]л\w*|отступил\w*|встал\w*|вторгл\w*|ворвал\w*|поставил\w*|отв[её]л|отвела|отвели|"
+                    r"вывел\w*|переставил\w*|продвинул\w*|дал\w*\s+(?:мат|шах)|play\w*|went|moved|answered|replied|"
+                    r"invaded|retreated|put|placed|mated|checked)" + _E, re.IGNORECASE)
+_CASTLE = re.compile(_B + r"(?:рокиров\w*|castl\w*)" + _E, re.IGNORECASE)
+_CASTLE_LONG = re.compile(_B + r"(?:длинн\w*|queenside|long|o-o-o|0-0-0)" + _E, re.IGNORECASE)
+_CASTLE_SHORT = re.compile(_B + r"(?:коротк\w*|kingside|short)" + _E, re.IGNORECASE)
+# «…, а Синдаров в ответ съел слона на e2»: the reply, a ply after the move the clause before told (live run 04.11).
+# …or the other side named right after «, а»: «на 23-м ходу белый конь берёт на e6, а чёрные бьют ферзя на d8 конём»
+# (live rerun 04.11) — unless a later moment is said («а чёрные потом / позже / в итоге…»).
+_REPLY = re.compile(r",\s*(?:а|и|and|but)\s+(?=(?:[\w-]+\s+){0,3}?(?:в\s+ответ|ответил\w*|in\s+reply|replied|"
+                    r"responded|answered)" + _E + r"|(?:ч[её]рные|белые|black|white)\s)", re.IGNORECASE)
+_LATER = re.compile(_B + r"(?:потом|позже|затем|в\s+итоге|после\w*|через|в\s+конце|далее|дальше|later|then|after\w*|"
+                    r"eventually|finally)" + _E, re.IGNORECASE)
 _SQUARE = re.compile(r"(?<![a-z0-9])[a-h][1-8](?![0-9])")
 # Two plies of the game written in a row before the wrong one tie a line to the game («20.Qa2 Bxg2 21.Kxg1»).
 _TIED_PLIES = 2
@@ -349,6 +421,14 @@ def _plies(line: list, num: int) -> list:
 
 
 def _fits(board: chess.Board, move: chess.Move, want: dict) -> bool:
+    if want.get("castle"):
+        if not board.is_castling(move):
+            return False
+        if want["castle"] == "K" and not board.is_kingside_castling(move):
+            return False
+        if want["castle"] == "Q" and not board.is_queenside_castling(move):
+            return False
+        return True
     if want.get("sq") is not None and move.to_square != want["sq"]:
         return False
     piece = board.piece_at(move.from_square)
@@ -392,21 +472,46 @@ def _names_other_player(text: str, game: dict) -> bool:
     return False
 
 
-def _names_a_side(text: str, game: dict) -> bool:
-    """*text* names White or Black of the game on the board, in any script («Абдусатторов», «Nakamura»)."""
+def _sides_named(text: str, game: dict) -> set:
+    """The sides of the game on the board *text* names by their players, in any script («Абдусатторов», «Nakamura»):
+    a subset of {chess.WHITE, chess.BLACK}."""
     from src.player_names import _NAME_TOKEN, name_patterns
 
-    sides = _side_names(game)
-    if not sides.strip("|"):
-        return False
-    surnames = [s.split(",")[0].strip() for s in sides.split("|") if s.strip()]
-    for i, tok in enumerate(_NAME_TOKEN.findall(text or "")):
-        if len(tok) < 4 or not tok[0].isupper():
+    out: set = set()
+    for color, name in ((chess.WHITE, game.get("White")), (chess.BLACK, game.get("Black"))):
+        side = (name or "").lower()
+        surname = side.split(",")[0].strip()
+        if not side.strip():
             continue
-        low = tok.lower().replace("ё", "е")
-        if any(len(s) >= 4 and (low.startswith(s) or s.startswith(low)) for s in surnames):
-            return True
-        if any(_like(p).search(sides) for p in name_patterns(tok)):
+        for tok in _NAME_TOKEN.findall(text or ""):
+            if len(tok) < 4 or not tok[0].isupper():
+                continue
+            low = tok.lower().replace("ё", "е")
+            if (len(surname) >= 4 and (low.startswith(surname) or surname.startswith(low))) \
+                    or any(_like(p).search(side) for p in name_patterns(tok)):
+                out.add(color)
+                break
+    return out
+
+
+def _names_a_side(text: str, game: dict) -> bool:
+    """*text* names White or Black of the game on the board."""
+    return bool(_sides_named(text, game))
+
+
+def _names_another_game(text: str, game: dict) -> bool:
+    """«в партии против petr77», «в партии Иванов – Петров»: a game named by players none of whom is a side of the
+    game on the board, known players or not (``_names_other_player`` knows only the known ones)."""
+    from src.player_names import _named_words
+
+    named = set(_named_words(text))
+    for m in _GAME_WITH.finditer(text or ""):
+        tok = m["a"].strip(".-")
+        if _HANDLE.fullmatch(tok) or tok in named or tok.lower() in ("тобой", "мной", "you", "me"):
+            if not _names_a_side(tok[:1].upper() + tok[1:], game):
+                return True
+    for m in _GAME_PAIR.finditer(text or ""):
+        if not _names_a_side(m["a"], game) and not _names_a_side(m["b"], game):
             return True
     return False
 
@@ -447,19 +552,20 @@ def _about_the_game(original: str, low: str, game: dict, line: list) -> Optional
     student's game; None: it does not say (a numbered move alone is then a line of its own)."""
     if _names_a_side(original, game):
         return True
-    if _NOT_THIS_GAME.search(low) or _other_opening(original, line):
+    if _NOT_THIS_GAME.search(low) or _names_another_game(original, game) or _other_opening(original, line):
         return False
     if _IN_THE_GAME.search(low) or _PLAYED.search(low):
         return True
     return None
 
 
-def _numbered_issue(text: str, line: list, about: Optional[bool]) -> Optional[str]:
+def _numbered_issue(text: str, line: list, about: Optional[bool], theory_words: bool = False) -> Optional[str]:
     """(a) «33.d8=Q+» for 33.d8=R+: the first move of a written line that leaves the game, judged when the sentence
     tells the game or two plies of the game came right before it. Otherwise the line that leaves the game is another
     line («1.d4 d5 2.c4» beside 1.d4 Nf6: a Queen's Gambit, not the game) and so is the rest of the sentence."""
     at = None  # index into *line* of the next ply the written line reaches
     tied = 0
+    start = None  # index into *line* where the written line joined the game
     last_end = -1
     for m in _LINE_MOVE.finditer(text):
         contiguous = last_end >= 0 and not text[last_end:m.start()].strip(" ,")
@@ -476,7 +582,8 @@ def _numbered_issue(text: str, line: list, about: Optional[bool]) -> Optional[st
             if same is True:
                 at, tied = at + 1, tied + 1
                 continue
-            if same is False and (about is True or (about is None and tied >= _TIED_PLIES)):
+            if same is False and (about is True or (about is None and tied >= _TIED_PLIES
+                                                    and not _theory(board, start, theory_words))):
                 return (f"{_label(board, board.parse_san(m['san']))} was not played in the game on the board: at "
                         f"that move it went {_label(board, move)} (tell the game's moves only from its move list)")
             return None  # the line left the game at a move without a number: another line
@@ -487,19 +594,49 @@ def _numbered_issue(text: str, line: list, about: Optional[bool]) -> Optional[st
             at = None
             continue
         if not (contiguous and at == idx):
-            tied = 0  # a new line starts here
+            tied, start = 0, idx  # a new line starts here
         board, move = line[idx]
         same = _same(board, m["san"], move)
         if same is True:
             at, tied = idx + 1, tied + 1
             continue
         if same is None:
+            if about is True:  # «13...O-O» told of the game where it could not be played: it was not played
+                return (f"{num}{m['dots']}{m['san']} was not played in the game on the board (it is not even "
+                        f"possible there): at that move it went {_label(board, move)} (tell the game's moves only "
+                        "from its move list)")
             return None  # not a move of the game's position there: src/answer_check.py judges it
-        if about is True or (about is None and tied >= _TIED_PLIES):
+        if about is True or (about is None and tied >= _TIED_PLIES and not _theory(board, start, theory_words)):
             return (f"{num}{m['dots']}{m['san']} was not played in the game on the board: at that move it went "
                     f"{_label(board, move)} (tell the game's moves only from its move list)")
         return None  # another line: theory, a what-if, a puzzle — and the rest of the sentence goes on with it
     return None
+
+
+_THEORY_WORDS = re.compile(_B + r"(?:теори\w*|книг\w*|главн\w+\s+(?:лини\w*|пут\w*)|систем\w*|атак\w*|защит\w*|"
+                           r"гамбит\w*|дебют\w*|начал\w+|схем\w*|theory|book|main\s+line|system|attack|defen[cs]e|"
+                           r"gambit|opening)" + _E, re.IGNORECASE)
+
+
+def _theory(board: chess.Board, start: Optional[int] = None, theory_words: bool = False) -> bool:
+    """The written line is an opening's, not the game told wrong: told from the first move, it leaves the game in the
+    first twelve moves or where the opening book goes on; told from later, the sentence speaks of theory («система»,
+    «атака», «главная линия») and leaves the game where the book goes on. «1.e4 d6 2.d4 Nf6 3.Nc3 g6 4.f4» beside a
+    Pirc that went 4.Be3 is the Austrian Attack (check 04.11: 8 of 10 such lines cut); «После 5.d4 Nd6 6.Bxc6 dxc6
+    7.dxe5 Ne4 белые давят» beside the Berlin that went 7...Nf5 is the game told wrong. A line that names the game
+    is judged all the same."""
+    if board.ply() > 40:
+        return False
+    if start == 0 and board.ply() < 24:
+        return True
+    if start != 0 and not theory_words:
+        return False
+    try:
+        from src.openings_book import get_book
+
+        return get_book().by_position(board.fen()) is not None
+    except Exception:  # noqa: BLE001 — without the book the tie by plies stands
+        return False
 
 
 def loaded_game_issues(original: str, ctx) -> list[str]:
@@ -522,12 +659,14 @@ def loaded_game_issues(original: str, ctx) -> list[str]:
     about = _about_the_game(original or "", low, game, line)
     if about is False:
         return []
-    issue = _numbered_issue(text, line, about)
+    issue = _numbered_issue(text, line, about, bool(_THEORY_WORDS.search(low)))
     if issue:
         return [issue]
     if about is not True:
         return []  # «На 12-м ходу белые берут пешку» with nothing tying it to the game: not judged
-    out: list[str] = []
+    out: list[str] = _walk_issues(low, text, line)
+    if out:
+        return out
     # (b) «на 4-м ходу белые взяли пешку на e4», «25-й ход: чёрная пешка пошла на f5», «на 11-м ходу пошли Nd3+»
     for m in _ORDINAL.finditer(low):
         num = int(next(g for g in m.groups() if g))
@@ -535,47 +674,35 @@ def loaded_game_issues(original: str, ctx) -> list[str]:
         if _NOT.search(window):
             continue
         orig_window = _window(text, m.start(), m.end())
-        want: dict = {}
-        side = None
-        adj = _ADJ_SIDE.search(window)
-        if adj:
-            side = chess.WHITE if adj["s"].startswith("бел") else chess.BLACK
-            want["mover"] = _PIECE_NOM[adj["p"]]
-        s = _SIDE_NOM.search(window)
-        if s and side is None:
-            side = chess.WHITE if s["s"].startswith(("бел", "white")) else chess.BLACK
-        verb = _CAPTURE.search(window) or _MOVED.search(window)
-        if not verb:
+        reply = orig_reply = None
+        split = _REPLY.search(window)
+        if split and len(orig_window) == len(window):
+            # «…забрал пешку h4, а Синдаров в ответ съел слона на e2»: the reply is the next ply; «…, а чёрные потом…»
+            # a later move, judged by nothing here — and neither is a part of the first clause's claim
+            if not _LATER.search(window[split.end():]):
+                reply, orig_reply = window[split.end():], orig_window[split.end():]
+            window, orig_window = window[:split.start()], orig_window[:split.start()]
+        told = _want(window, orig_window, game)
+        if told is None:
             continue
-        want["capture"] = bool(_CAPTURE.search(window))
-        before, after = window[:verb.start()], window[verb.end():]
-        if "mover" not in want:
-            nom = re.search(_B + r"(пешка|конь|слон|ладья|ферзь|король)" + _E, window)
-            if nom:
-                want["mover"] = _PIECE_NOM[nom.group(1)]
-            else:
-                en = re.search(_B + r"(pawn|knight|bishop|rook|queen|king)" + _E, before)
-                if en:
-                    want["mover"] = _PIECE_EN[en.group(1)]
-        if want["capture"]:
-            acc = re.search(_B + r"(пешку|коня|слона|ладью|ферзя|короля|pawn|knight|bishop|rook|queen|king)" + _E, after)
-            if acc:
-                want["victim"] = _PIECE_ACC.get(acc.group(1)) or _PIECE_EN.get(acc.group(1))
-        sq = _SQUARE.search(after)
-        if sq:
-            want["sq"] = chess.parse_square(sq.group(0))
-        san = re.search(r"(?<![\w])" + _SAN + r"(?![\w])", orig_window[orig_window.lower().find(verb.group(0)):]
-                        if verb.group(0) in orig_window.lower() else "")
-        if san and san.group(0)[0] in "KQRBN" or (san and "x" in san.group(0)):
-            want["san"] = san.group(0)
-        if not any(want.get(k) is not None for k in ("sq", "mover", "victim", "san")) and not want["capture"]:
-            continue
+        side, want = told
         at = _plies(line, num)
         if not at:
             continue
         mine = [(b, mv) for b, mv in at if side is None or b.turn == side]
-        if any(_fits(b, mv, want) for b, mv in mine):
-            continue
+        hit = next(((b, mv) for b, mv in mine if _fits(b, mv, want)), None)
+        if hit is not None:
+            if not reply:
+                continue
+            answered = _want(reply, orig_reply, game)
+            idx = next(i for i, (b, _) in enumerate(line) if b is hit[0])
+            if answered is None or idx + 1 >= len(line) or _fits(*line[idx + 1], answered[1]) \
+                    or answered[0] == hit[0].turn:
+                continue  # the reply told right, not checkably, or not a reply (the same side again)
+            nb, nmv = line[idx + 1]
+            out.append(f"«{orig_reply.strip()}» does not match the game on the board: after "
+                       f"{_label(*hit)} the reply was {_label(nb, nmv)}")
+            break
         played = " ".join(_label(b, mv) for b, mv in at)
         other = [(b, mv) for b, mv in at if side is not None and b.turn != side and _fits(b, mv, want)]
         claim = orig_window.strip()
@@ -586,6 +713,123 @@ def loaded_game_issues(original: str, ctx) -> list[str]:
             out.append(f"«{claim}» does not match the game on the board: at move {num} it went {played}")
         break
     return out
+
+
+_WALK = re.compile(
+    _B + r"(?P<p>король|ферзь|ладья|слон|конь|пешка|king|queen|rook|bishop|knight|pawn)\s+(?:(?P<s>белых|черных|"
+    r"white|black)\s+)?(?:[\w-]+\s+){0,3}?(?:прош[её]л|прошла|прошагал\w*|дош[её]л|дошла|добрал\w*|добежал\w*|"
+    r"пробрал\w*|walked|marched|travel\w*|made\s+(?:its|his)\s+way)\s+(?:(?:весь\s+)?путь\s+)?(?:с|из|from)\s+"
+    r"(?P<a>[a-h][1-8])\s+(?:на|до|в|to)\s+(?P<b>[a-h][1-8])" + _E, re.IGNORECASE)
+_SIDE_ADJ = re.compile(_B + r"(?:(?P<w>белый|белая|white)|(?P<b>черный|черная|black))\s+$", re.IGNORECASE)
+
+
+def _walk_issues(low: str, text: str, line: list) -> list:
+    """«Король белых прошёл с g1 на g5»: a piece of that kind and side stood on the first square in the game and,
+    later, on the last — not one move (``src/answer_check._move_issues`` leaves such a walk alone)."""
+    out = []
+    for m in _WALK.finditer(low):
+        ptype = _PIECE_NOM.get(m["p"]) or _PIECE_EN.get(m["p"])
+        side = None
+        word = m["s"] or ""
+        adj = _SIDE_ADJ.search(low[:m.start()])
+        if word.startswith(("бел", "white")) or (adj and adj["w"]):
+            side = chess.WHITE
+        elif word.startswith(("чер", "black")) or (adj and adj["b"]):
+            side = chess.BLACK
+        a, b = chess.parse_square(m["a"]), chess.parse_square(m["b"])
+        boards = [bd for bd, _ in line]
+        last, move = line[-1]
+        final = last.copy(stack=False)
+        final.push(move)
+        boards.append(final)
+
+        def holds(bd, sq):
+            pc = bd.piece_at(sq)
+            return pc is not None and pc.piece_type == ptype and (side is None or pc.color == side)
+
+        first = next((i for i, bd in enumerate(boards) if holds(bd, a)), None)
+        if first is not None and any(holds(bd, b) for bd in boards[first + 1:]):
+            continue
+        claim = text[m.start():m.end()]
+        out.append(f"«{claim}» does not match the game on the board: no such {_NAMES_EN[ptype]} went from "
+                   f"{m['a']} to {m['b']} in it (tell the game's moves only from its move list)")
+        break
+    return out
+
+
+_NAMES_EN = {chess.PAWN: "pawn", chess.KNIGHT: "knight", chess.BISHOP: "bishop", chess.ROOK: "rook",
+             chess.QUEEN: "queen", chess.KING: "king"}
+
+
+def _want(window: str, orig_window: str, game: dict) -> Optional[tuple]:
+    """What a clause of the sentence says was played: (side or None, {mover, capture, victim, sq, san, castle}), or
+    None when it tells nothing checkable. *window* is the lowered clause, *orig_window* the same span as written."""
+    want: dict = {}
+    side = None
+    adj = _ADJ_SIDE.search(window)
+    if adj:
+        word = adj["s"] or adj["s2"]
+        side = chess.WHITE if word.startswith("бел") else chess.BLACK
+        want["mover"] = _PIECE_NOM[adj["p"] or adj["p2"]]
+    s = _SIDE_NOM.search(window)
+    if s and side is None:
+        side = chess.WHITE if s["s"].startswith(("бел", "white")) else chess.BLACK
+    castle = _CASTLE.search(window)
+    verb = castle or _CAPTURE.search(window) or _MOVED.search(window)
+    if not verb:
+        return None
+    if side is None:  # «Карлсен забрал…», «Синдаров в ответ съел…»: the side by its player, named before the verb
+        named = _sides_named(orig_window[:verb.start()], game)
+        if len(named) == 1:
+            side = next(iter(named))
+    if castle:
+        long_, short = _CASTLE_LONG.search(window), _CASTLE_SHORT.search(window)
+        want = {"castle": "Q" if long_ and not short else "K" if short and not long_ else "any"}
+        return side, want
+    want["capture"] = bool(_CAPTURE.search(window))
+    before, after = window[:verb.start()], window[verb.end():]
+    if "mover" not in want:
+        nom = re.search(_B + r"(пешка|конь|слон|ладья|ферзь|король)" + _E, window)
+        ins = re.search(_B + r"(" + "|".join(_PIECE_INS) + r")" + _E, window)
+        if nom:
+            want["mover"] = _PIECE_NOM[nom.group(1)]
+        elif ins:
+            want["mover"] = _PIECE_INS[ins.group(1)]
+        else:
+            en = re.search(_B + r"(pawn|knight|bishop|rook|queen|king)" + _E, before)
+            if en:
+                want["mover"] = _PIECE_EN[en.group(1)]
+    acc = re.search(_B + r"(пешку|коня|слона|ладью|ферзя|короля|pawn|knight|bishop|rook|queen|king)" + _E, after)
+    if acc:
+        piece = _PIECE_ACC.get(acc.group(1)) or _PIECE_EN.get(acc.group(1))
+        if want["capture"]:
+            want["victim"] = piece
+        elif "mover" not in want:  # «отвели слона на a6», «поставили ферзя на f6»: the piece moved
+            want["mover"] = piece
+    # where it went: the first square not told as where it came from («дали шах ферзём с a2», "from a2")
+    sq = next((s for s in _SQUARE.finditer(after) if not re.search(r"(?:^|\s)(?:с|со|from)\s+$", after[:s.start()])),
+              None)
+    if sq:
+        want["sq"] = chess.parse_square(sq.group(0))
+    san = re.search(r"(?<![\w])" + _SAN + r"(?![\w])", orig_window[orig_window.lower().find(verb.group(0)):]
+                    if verb.group(0) in orig_window.lower() else "")
+    if san and san.group(0)[0] in "KQRBN" or (san and "x" in san.group(0)):
+        want["san"] = san.group(0)
+    if not any(want.get(k) is not None for k in ("sq", "mover", "victim", "san")) and not want["capture"]:
+        return None
+    return side, want
+
+
+def tells_another_game(text: str, ctx) -> bool:
+    """*text* is about a game other than the one on the board: the student's («в твоей партии», «ты играл»), a game
+    named by other players («в партии против petr77», «Карлсен – Каруана»), a puzzle — its numbered moves are not
+    that game's (src/answer_check «not possible at move N of the game»; check 04.11)."""
+    game = getattr(ctx, "master_game", None) or {}
+    low = (text or "").lower().replace("ё", "е")
+    if game and _names_a_side(text, game):
+        return False
+    return bool(_NOT_THIS_GAME.search(low) or _names_another_game(text, game)
+                or (game and _names_other_player(text, game)))
 
 
 def forget_board_game(ctx) -> None:

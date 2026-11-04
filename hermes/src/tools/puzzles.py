@@ -261,6 +261,39 @@ def site_next_puzzles(user_id: Optional[str], locale: Optional[str] = "ru",
         return out
 
 
+def made_by(puzzle: dict, slug: Optional[str], piece: int) -> bool:
+    """The puzzle's solution makes the motif with *piece*: a move of the solver by that piece — for a fork, one after
+    which that piece forks. «Задачку на вилку конём» put up a fork by the queen (live run 04.11)."""
+    import chess
+
+    from src.motifs import _forks
+
+    try:
+        board = chess.Board(puzzle["fen"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    for i, san in enumerate(puzzle.get("solution") or []):
+        try:
+            move = board.parse_san(str(san))
+        except ValueError:
+            try:
+                move = chess.Move.from_uci(str(san))
+            except ValueError:
+                return False
+            if move not in board.legal_moves:
+                return False
+        if i % 2 == 0 and board.piece_type_at(move.from_square) == piece:
+            after = board.copy(stack=False)
+            after.push(move)
+            if slug != "fork" or _forks(after, move.to_square):
+                return True
+        board.push(move)
+    return False
+
+
+_PIECE_NAMES = {1: "pawn", 2: "knight", 3: "bishop", 4: "rook", 5: "queen", 6: "king"}
+
+
 def get_puzzle(
     theme: str = None,
     rating: int = None,
@@ -272,7 +305,10 @@ def get_puzzle(
     user_id: str = None,
     locale: str = "ru",
     any: bool = False,  # noqa: A002 — the tool argument's name
+    piece: Optional[int] = None,
 ) -> dict:
+    """*piece*: the motif made by that piece only («задачу на вилку конём»): tasks whose solution does not make it
+    with that piece are passed over; when none is found, the result says so (``piece_note``)."""
     from src import config
 
     resolved_early = resolve_theme(theme) if theme else None
@@ -282,7 +318,10 @@ def get_puzzle(
         count = 1
     sites: list = []
     if config.COACH_PUZZLES_FROM_SITE and theme and not opening:
-        sites = site_puzzles(theme, resolved_early, user_id=user_id, locale=locale, exclude_ids=exclude_ids, count=count)
+        sites = site_puzzles(theme, resolved_early, user_id=user_id, locale=locale, exclude_ids=exclude_ids,
+                             count=count if not piece else max(count, 10))
+        if piece:
+            sites = [s for s in sites if made_by(s, resolved_early, piece)][:count]
     elif config.COACH_PUZZLES_FROM_SITE and not theme and not opening and not rating and not any and user_id:
         sites = site_next_puzzles(user_id, locale=locale, exclude_ids=exclude_ids, count=count)
     if sites:
@@ -339,10 +378,30 @@ def get_puzzle(
         rating=rating_int,
         opening=opening,
         exclude_ids=exclude_ids,
-        count=count,
+        count=count if not piece else 10,
         db_path=db_path,
         rng=rng,
     )
+    piece_note = ""
+    if piece and puzzles:
+        seen = set(exclude_ids or [])
+        fit, tries = [p for p in puzzles if made_by(p, resolved, piece)], 0
+        while len(fit) < count and tries < 5:
+            tries += 1
+            seen |= {p.get("puzzle_id") for p in puzzles}
+            more = find_puzzles(theme=resolved, rating=rating_int, opening=opening, exclude_ids=sorted(seen), count=10,
+                                db_path=db_path, rng=rng)
+            if not more:
+                break
+            puzzles += more
+            fit += [p for p in more if made_by(p, resolved, piece)]
+        if fit:
+            puzzles = fit[:count]
+        else:
+            puzzles = puzzles[:count]
+            piece_note = (f"No {resolved or theme} made by the {_PIECE_NAMES.get(piece, 'piece')} was found: this "
+                          f"puzzle's {resolved or theme} is made by another piece — tell the student so, never call "
+                          f"it a {_PIECE_NAMES.get(piece, '')} {resolved or theme}.")
     if not puzzles:
         return {
             "error": "No puzzle matched.",
@@ -361,7 +420,7 @@ def get_puzzle(
         "how_to_show": (
             "The first puzzle is already on the student's board — do not call board_control "
             "for it. Say whose move it is and what to look for, never the solution. Another "
-            "puzzle from this list: board_control set_puzzle with its puzzle_id."
+            "puzzle from this list: board_control set_puzzle with its puzzle_id." + (" " + piece_note if piece_note else "")
         ),
         "board_actions": [shown.model_dump(by_alias=True)],
     }
@@ -410,6 +469,16 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
             return json.dumps(queued_puzzle_result(nxt, len(session.puzzle_queue)), indent=2, ensure_ascii=False)
     if not theme and session is not None and session.last_puzzle_theme and _MORE.search(words):
         theme = session.last_puzzle_theme  # «ещё задачу» after «задачу на вилку»: the same theme
+    piece = None
+    try:  # «задачку на вилку конём»: the fork by the knight, not any fork (live run 04.11)
+        from src.motifs import motif_piece
+
+        asked = motif_piece(words) or motif_piece(str(theme or ""))
+        if asked and (resolve_theme(theme) if theme else asked[0]) == asked[0]:
+            piece = asked[1]
+            theme = theme or asked[0]
+    except Exception:  # noqa: BLE001
+        piece = None
     result = get_puzzle(
         theme=theme,
         rating=args.get("rating"),
@@ -419,6 +488,7 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
         any=bool(args.get("any")),
         user_id=user_id,
         locale=args.get("locale") or "ru",
+        piece=piece,
     )
     if session is not None and isinstance(result, dict):
         puzzles = result.get("puzzles") or []

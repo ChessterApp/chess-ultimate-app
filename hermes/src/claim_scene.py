@@ -1040,6 +1040,11 @@ def boards_for(claim: Claim, ctx: Any, state: dict) -> Optional[BoardSet]:
     if pos.at == "now" and not pos.moves:
         if pos.tense == "past":
             past = _past_boards(ctx, primary)
+            game = getattr(ctx, "loaded_game", None)
+            if game:
+                # A master game on the board told in the past tense: any moment of it («Ферзь на b6 был под боем, и
+                # Фишер сознательно его оставил» — 17...Be6 — was judged on the final position; check 04.11).
+                past = (past or []) + [b.copy(stack=False) for b, _ in game]
             if past is None:
                 # «конь f6 держал поле g6»: a past we have no record of — only what no position can make true.
                 return ANY_POSITION

@@ -97,6 +97,11 @@ class Session(BaseModel):
     # What the database tools said on the recent turns, as (turn, tool, found / empty / error): «в прошлый раз поиск
     # ничего не нашёл» is judged against it (src/answer_check_db.py, verification 04.11). Not serialized either.
     _db_history: list = PrivateAttr(default_factory=list)
+    # The games of the last search that found several (in the tool's order), the turn it ran and the game loaded
+    # last: «загрузи третью из списка» / «а следующую?» (src/game_list_ref.py, live run 04.11). Not serialized.
+    _db_list: list = PrivateAttr(default_factory=list)
+    _db_list_at: Optional[int] = PrivateAttr(default=None)
+    _db_loaded_id: Optional[object] = PrivateAttr(default=None)
 
     def user_turns(self) -> int:
         return sum(1 for m in self.messages if m.role == "user")
@@ -108,6 +113,37 @@ class Session(BaseModel):
     def note_db_result(self, tool: str, status: str) -> None:
         """A database tool of this turn came back *status*."""
         self._db_history = (self._db_history + [(self.user_turns(), tool, status)])[-20:]
+
+    def note_db_tool(self, tool: str, args, result) -> None:
+        """The games a search found, in the order it returned them, and the game get_game_pgn loaded: «загрузи
+        третью из списка», «а следующую?» on a later turn (src/game_list_ref.py, live run 04.11)."""
+        import json as _json
+
+        try:
+            data = _json.loads(result) if isinstance(result, str) else result
+        except (TypeError, ValueError):
+            return
+        if tool == "search_master_games":
+            games = data.get("games") if isinstance(data, dict) else data
+            games = [g for g in (games or []) if isinstance(g, dict) and g.get("id") is not None]
+            if len(games) >= 2:
+                keep = ("id", "white_name", "black_name", "date", "event", "result")
+                self._db_list = [{k: g.get(k) for k in keep} for g in games[:50]]
+                self._db_list_at = self.user_turns()
+                self._db_loaded_id = None
+        elif tool == "get_game_pgn" and isinstance(data, dict) and data.get("pgn"):
+            gid = data.get("id") if data.get("id") is not None else (args or {}).get("game_id")
+            try:
+                self._db_loaded_id = int(gid)
+            except (TypeError, ValueError):
+                self._db_loaded_id = gid
+
+    def recent_db_list(self, turns: int = 6) -> tuple:
+        """(the games of the last search that listed several, the id loaded last) when the search ran within the last
+        *turns* of the student's messages; ([], None) otherwise."""
+        if not self._db_list or self._db_list_at is None or self.user_turns() - self._db_list_at > turns:
+            return [], None
+        return list(self._db_list), self._db_loaded_id
 
     def earlier_db_results(self, turns: int = 6) -> list:
         """(tool, status) of the database tools of the last *turns* turns before this one."""

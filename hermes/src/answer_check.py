@@ -182,6 +182,10 @@ _DENIES = re.compile(
     r"нельзя|невозможн|не\s+може|не\s+могу|не\s+ход[иья]|не\s+получит|не\s+проходит|не\s+проход[яи]т|не\s+работает|"
     r"не\s+годится|нелегальн|не\s+по\s+правилам|хода\s+нет|нет\s+хода|нет\s+такого\s+хода|no\s+such\s+move|not\s+a\s+(?:legal\s+)?move|"
     r"illegal|not\s+legal|can'?t|cannot|impossible|isn'?t\s+possible|doesn'?t\s+work|does\s+not\s+work", re.IGNORECASE)
+# A move held out as the bait, not advised: «Соблазнительно сыграть Nxf7 — так все и попадаются: …мат» (live run
+# 04.11: the warning was read as advice and cut by the engine's verdict on Nxf7).
+_LURE = re.compile(r"(?<![а-яa-z])(?:соблазнительн\w*|заманчив\w*|приманк\w*|tempting|the\s+bait|"
+                   r"(?:так\s+)?(?:все|многие)\s+(?:и\s+)?попада\w*)(?![а-яa-z])", re.IGNORECASE)
 # «Ke3–e5», «Nb1–d2–f1–g3», «...d7-d5»: a move written from-to (a chain of hops).
 _LONG = re.compile(
     r"(?<![A-Za-z0-9])(?:(?P<num>\d{1,3})\s?(?P<dots>\.\.\.|…|\.)\s?|(?P<bdots>\.\.\.|…))?"
@@ -503,6 +507,13 @@ _GROUP = re.compile(r"(?:пешки|пешек|пешкам|пешками|пе�
                     r"ладьи|ладей|ладьями|ферзи|ферзей|pawns|knights|bishops|rooks)(?![а-яa-z])")
 
 
+# A walk of several moves told from its first square to its last: «король белых прошёл с g1 на g5» (Short – Timman,
+# check 04.11). Not one move — the loaded game's check follows such a walk through the game (src/answer_check_db.py).
+_JOURNEY = re.compile(r"(?<![а-яa-z])(?:прош[её]л|прошла|прошагал\w*|дош[её]л|дошла|добрал\w*|добежал\w*|"
+                      r"пробрал\w*|прогулял\w*|марш\w*|поход\w*|путешеств\w*|walked|marched|travel\w*|journey\w*|"
+                      r"made\s+(?:its|his)\s+way|all\s+the\s+way)(?![а-яa-z])", re.IGNORECASE)
+
+
 def _move_issues(text: str) -> list[str]:
     if _DENIES.search(text):
         return []
@@ -511,6 +522,8 @@ def _move_issues(text: str) -> list[str]:
         for m in rx.finditer(text):
             if _GROUP.match(m.group(0)):
                 continue  # «пешки f7–g7–h7» names a group of pawns
+            if _JOURNEY.search(text[max(0, m.start() - 30):m.end()]):
+                continue  # «король прошёл с g1 на g5»: a walk, not one move
             if ptype == chess.PAWN and m["a"][1] == m["b"][1]:
                 continue  # pawns never move sideways: «пешкой e5–b5» is a chain
             between = (m.groupdict().get("mid1") or "") + (m.groupdict().get("mid2") or "")
@@ -636,6 +649,10 @@ def _own_targets(ptype: int, a: int, targets: list, m, boards: list) -> Optional
     return None
 
 
+_SIDE_SUBJECT = re.compile(r"(?<![а-яёa-z])(?:ч[её]рные|белые|black|white|соперник|противник|ты|вы|you|они|they)"
+                           r"(?![а-яёa-z])", re.IGNORECASE)
+
+
 def _attack_issue(ptype: int, m, text: str, ctx: Optional["CheckContext"] = None,
                   original: Optional[str] = None, about_now: bool = False) -> Optional[str]:
     """*about_now*: the subject's square is the position the claim is about
@@ -644,6 +661,8 @@ def _attack_issue(ptype: int, m, text: str, ctx: Optional["CheckContext"] = None
     mid = m["mid"] or ""
     if _PIECE_WORD.search(mid) or _SQ_RE.search(mid):
         return None  # «конь на d5 и слон на c4 бьют f7»: whose attack?
+    if _SIDE_SUBJECT.search(mid):
+        return None  # «после Nxf7 чёрные бьют на g2»: the side is the subject, not the knight (live run 04.11)
     if _NEGATION.search(text[: m.start("verb")]):
         return None  # «ладью он не достаёт», «does not attack»
     if m["targets"].lstrip().startswith(","):
@@ -1100,6 +1119,15 @@ def _san_issues(text: str, ctx: CheckContext) -> list[str]:
     return issues
 
 
+def _another_game(text: str, ctx) -> bool:
+    try:
+        from src.answer_check_db import tells_another_game
+
+        return tells_another_game(text, ctx)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _parses(board: chess.Board, san: str) -> bool:
     try:
         board.parse_san(san)
@@ -1123,8 +1151,13 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
     # start position. A chain begun on the start position standing in for an
     # unknown one («…13.Qe4 Rxf2 14.dxe5 Bg5+»), or re-begun mid-line, is not.
     prev_trusted = False
+    last_end = -1  # where the sentence's previous written move ended
     for m in _MOVE.finditer(converted):
         san, num, dots = m["san"], m["num"], m["dots"] or m["bdots"]
+        # right after another written move: the middle of a line («1.e4 d5 2.exd5» — a Scandinavian beside the Pirc
+        # on the board; check 04.11), never the start of one at move N of the game
+        mid_line = last_end >= 0 and not converted[last_end:m.start()].strip(" ,")
+        last_end = m.end()
         numbered = bool(num or m["bdots"])
         is_piece = san[0] in "KQRBN"
         continues_line = in_line_until >= 0 and not converted[in_line_until:m.start()].strip()
@@ -1151,7 +1184,8 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         # «Правильно было 5. Nxd4» about the game on the board: the move numbered N starts a line at move N of
         # that game, not wherever such a move happens to be legal (4.Nxd4 was, 5.Nxd4 was not — stand,
         # 2026-10-13). Only for a line's first move, with the game's position at that move given to the turn.
-        if num and prev is None and not list_item and dots in (".", "...", "…") and getattr(ctx, "game_lines", 0):
+        if num and prev is None and not mid_line and not list_item and dots in (".", "...", "…") \
+                and getattr(ctx, "game_lines", 0) and not _another_game(text, ctx):
             want = chess.WHITE if dots == "." else chess.BLACK
             at_n = [b for b in ctx.boards if b.fullmove_number == int(num) and b.turn == want and ctx.is_given(b)]
             if at_n and not any(_parses(b, full) for b in at_n):
@@ -3219,7 +3253,7 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
     if ctx is None or ctx.current is None or not sentence:
         return None
     text = sentence.replace("ё", "е")
-    if _DENIES.search(text):
+    if _DENIES.search(text) or _LURE.search(text):
         return None
     # «Первый ход — **Bxh4**», «Здесь решает Nf6+!»: the answer to a task is advice too — the engine never
     # saw these (production 07.10: Bxh4?? and Nf6+?? given as lesson solutions went out unchecked).
@@ -4182,6 +4216,20 @@ def strip_leaning_start(text: str) -> str:
     return m.group(1) + mark + rest[:1].upper() + rest[1:]
 
 
+class Sentence(str):
+    """A whole sentence the gate judged, with ``end``: where it ends in the text fed to the gate. A board mark
+    written before that point and after the sentence before it is the sentence's own (src/server.py holds it until
+    the sentence is shown, and drops it with a cut sentence — live run 04.11)."""
+
+    end: int = -1
+
+
+def _ending_at(text: str, end: int) -> "Sentence":
+    out = Sentence(text)
+    out.end = end
+    return out
+
+
 class SentenceGate:
     """Holds streamed text until its sentence is complete and checked.
 
@@ -4207,6 +4255,7 @@ class SentenceGate:
         self.hold_promises = hold_promises
         self._board_changed = False
         self._held: list = []
+        self._fed = 0  # characters fed so far: where the judged sentences end (``Sentence.end``)
         self._buf = ""
         self._released = ""  # the start of the current sentence, already out
         # The last sentence shown: DeepSeek sometimes writes a sentence twice in a
@@ -4243,14 +4292,17 @@ class SentenceGate:
         if not self.enabled:
             return [(text, [], text)] if text else []
         self._buf += text
+        self._fed += len(text)
+        pos = self._fed - len(self._buf)
         out: list[tuple[str, list[str], str]] = []
         sentences, self._buf = _split_sentences(self._buf)
         if len(self._buf) > self.MAX_HOLD:
             sentences.append(self._buf)
             self._buf = ""
         for sentence in sentences:
+            pos += len(sentence)
             sentence = chess_terms(normalize_notation(sentence), self.ctx.language, self.ctx.question_raw)  # «рыцарь» → «конь»
-            full = self._released + sentence
+            full = _ending_at(self._released + sentence, pos)
             self._released = ""
             if len(full.strip()) >= 12 and self._same(full, self._prev):
                 continue  # the model repeated its last sentence word for word
@@ -4271,7 +4323,7 @@ class SentenceGate:
             pending = self._released + self._buf
             wrong = language_issue(pending, self.ctx.language)
             if wrong:
-                out.append((self._buf, [wrong], pending))
+                out.append((self._buf, [wrong], _ending_at(pending, self._fed)))
                 self._buf = ""
                 self._released = ""
                 return out
@@ -4312,7 +4364,7 @@ class SentenceGate:
 
     def flush(self) -> list[tuple[str, list[str], str]]:
         rest, self._buf = chess_terms(normalize_notation(self._buf), self.ctx.language, self.ctx.question_raw), ""
-        full, self._released = self._released + rest, ""
+        full, self._released = _ending_at(self._released + rest, self._fed), ""
         pairs = self._hold([(rest, check_sentence(full, self.ctx) if self.enabled else [], full)] if rest else [])
         held, self._held = self._held, []
         # The turn is over: a promise still held was not kept — it is marked, the rest goes out in order.
