@@ -42,6 +42,13 @@
   `cd /root/hermes-chess && .venv/bin/python -c "from src import config; from src.tools.twic_search import get_game_pgn; r=get_game_pgn(3622931); p=r.get('pgn',''); print('ОК' if '1.' in p and len(p)>100 else 'ПРОВЕРЬ: '+str(r)[:300])"`
   → `ОК` (до обновления — пустые ходы или ошибка чтения). Если `Game ID 3622931 not found` — база на сервере старее
   02.11; тогда возьми любой id из `search_master_games` и повтори.
+- Проверка 62 — диагностика поиска партий по имени (без модели, только чтение базы; есть в коде с ветки fix/games-db-1103):
+  `cd /root/hermes-chess && .venv/bin/python -c "from src import config; from src.tools.twic_search import search_check; r=search_check(); print('ОК' if r['indexed'] and 'USING INDEX' in r['plan'] and 'timeout' not in str(r) else 'ПРОВЕРЬ', r)"`
+  → `ОК {… 'indexed': True, 'indexes': {'white_name_normalized': …, 'black_name_normalized': …}, 'plan': 'SEARCH games USING INDEX …', 'Carlsen': '5 games, newest …, 0.0x s', 'Синдаров — Накамура 2026': '… s'}`.
+  `indexed: True` — поиск идёт по индексу имён, как страница базы на сайте (префикс фамилии, доли секунды);
+  `indexed: False` или `plan` со `SCAN` — в базе нет индексов на `white_name_normalized` / `black_name_normalized`, и поиск
+  читает все 4,35 млн строк (упирается в бюджет 3 с: в ответе `timeout`). Тогда пришли вывод человеку целиком — сами индексы
+  не создавай, база общая с сайтом. Время в строках `Carlsen` и `Синдаров — Накамура 2026` — это и есть время поиска на этой базе.
 
 Новое в версии 31.10 (те же ответы прода 29.10 — 173 ответа наборов, теории и четырёх партий — прогнаны через настоящий
 путь сервера: из 89 настоящих ошибок тренера до ученика не доходит 47, в версии 30.10 — 22, на сервере сейчас (29.10) — 5;
@@ -1798,6 +1805,7 @@ COACH_BESTOFN=<значение или «не задана»>, COACH_TWO_STAGE=<
   59 30.10 — проверка ответа: вариант, дебют по книге <ОК/ПРОВЕРЬ>
   60 31.10 — проверка «бьёт/защищает» <ОК/ПРОВЕРЬ>
   61 03.11 — ходы партии из базы <ОК/ПРОВЕРЬ>
+  62 — поиск по индексу имён <ОК / ПРОВЕРЬ + вывод целиком: indexed, plan, два времени>
 Бэкенд (фото доски): <обновлён, коммит …, grep PHOTO_FEN_ATTEMPTS = … / не обновлён — почему>
 Что нужно от людей: <список или «ничего»>
 ```

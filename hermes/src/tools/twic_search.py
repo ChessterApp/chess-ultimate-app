@@ -67,6 +67,122 @@ def _name_columns(conn: sqlite3.Connection) -> tuple[str, str, bool]:
     return "white_name", "black_name", False
 
 
+# --- The name index (the site's search, backend/api/openings.py games_by_position) ---------------------------
+#
+# ``LIKE '%carlsen%'`` reads every row: 1.1–1.6 s on a million rows, past the 3 s budget on the 4.35 M of
+# production. The site asks the index instead: the normalized name («carlsen magnus», see
+# backend/scripts/incremental_index.normalize_name) starts with the surname, so ``… LIKE 'carlsen%'`` is a range
+# of an index on white_name_normalized / black_name_normalized, one UNION branch per column (an OR of the two
+# columns is a scan). The coach does the same with each spelling of the name (src/player_names.py), as GLOB:
+# GLOB is case-sensitive by itself, so the index range needs no ``PRAGMA case_sensitive_like`` — which would also
+# make the event and opening LIKEs of the same query case-sensitive. The names are lower case in the index.
+
+_NAME_COLUMNS = ("white_name_normalized", "black_name_normalized")
+_RESULT_COLUMNS = "id, white_name, black_name, result, date, eco, opening, event, white_elo, black_elo"
+_layouts: dict = {}
+
+
+def _db_file(conn: sqlite3.Connection) -> str:
+    try:
+        for row in conn.execute("PRAGMA database_list"):
+            if row[1] == "main":
+                return row[2] or ""
+    except sqlite3.Error:
+        pass
+    return ""
+
+
+def name_index_layout(conn: sqlite3.Connection) -> dict:
+    """How the database can be searched by name: ``{"normalized": bool, "indexes": {column: index name}}``.
+
+    The indexes are those whose first column is a normalized name column in the binary collation (the one a
+    GLOB prefix range uses); ``indexed`` is True when both columns have one. Read with PRAGMAs, cached per file
+    (and its modification time: a rebuilt index is seen without a restart)."""
+    path = _db_file(conn)
+    key = None
+    if path:
+        try:
+            st = os.stat(path)
+            key = (path, st.st_mtime_ns, st.st_size)
+        except OSError:
+            key = None
+        if key in _layouts:
+            return _layouts[key]
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(games)")}
+        indexes = {}
+        if set(_NAME_COLUMNS) <= cols:
+            for idx in conn.execute("PRAGMA index_list(games)").fetchall():
+                name, partial = idx[1], (idx[4] if len(idx) > 4 else 0)
+                if partial:
+                    continue
+                first = next((r for r in conn.execute(f'PRAGMA index_xinfo("{name}")') if r[0] == 0), None)
+                if first and first[2] in _NAME_COLUMNS and (first[4] or "BINARY").upper() == "BINARY":
+                    indexes.setdefault(first[2], name)
+    except sqlite3.Error:
+        cols, indexes = set(), {}
+    layout = {"normalized": set(_NAME_COLUMNS) <= cols, "indexes": indexes,
+              "indexed": set(_NAME_COLUMNS) <= set(indexes)}
+    if key:
+        _layouts[key] = layout
+    return layout
+
+
+def _glob(like: str) -> str:
+    """A LIKE pattern as GLOB: ``%`` → ``*``, ``_`` → ``?``, GLOB's own ``*?[`` taken literally."""
+    out = []
+    for ch in like:
+        out.append({"%": "*", "_": "?", "*": "[*]", "?": "[?]", "[": "[[]"}.get(ch, ch))
+    return "".join(out)
+
+
+def _glob_prefix(pattern: str) -> str:
+    """The literal start of a GLOB *pattern* — the index range it reads (empty: no range, a full pass)."""
+    for i, ch in enumerate(pattern):
+        if ch in "*?[":
+            return pattern[:i]
+    return pattern
+
+
+def _anchored_patterns(name: str, strict: bool) -> list:
+    """GLOB prefixes of the normalized name column for one player, in all its spellings."""
+    return list(dict.fromkeys(_glob(normalized_pattern(p)) for p in name_patterns(name, strict=strict, anchored=True)))
+
+
+def _people(player: str, opponent: str = None) -> list:
+    people = split_players(player) if player else []
+    if opponent and len(people) < 2:
+        people = (people or [])[:1] + [opponent]
+    return people[:2]
+
+
+def _indexed_branches(player: str, opponent: str, strict: bool) -> "list | None":
+    """The UNION branches of an indexed name search: ``[(where, params)]``, or None when no player of the
+    query has a spelling with a literal start (only a pass over every row would find it).
+
+    One branch per colour × spelling of the driving player — the first player with a spelling that has a
+    literal start; that player's spellings without one are left out (a loose «?v?n?v» skeleton next to
+    «ivanov»). The other player is a filter of the branch, on the other colour, in all their spellings."""
+    pats = [p for p in (_anchored_patterns(x, strict) for x in _people(player, opponent)) if p]
+    if not pats:
+        return []
+    ranged = [[g for g in p if _glob_prefix(g)] for p in pats]
+    driver = next((i for i, r in enumerate(ranged) if r), None)
+    if driver is None:
+        return None
+    other = [p for i, p in enumerate(pats) if i != driver][:1]
+    white, black = _NAME_COLUMNS
+    branches = []
+    for col, opp_col in ((white, black), (black, white)):
+        for g in ranged[driver]:
+            where, params = [f"{col} GLOB ?"], [g]
+            if other:
+                where.append("(" + " OR ".join([f"{opp_col} GLOB ?"] * len(other[0])) + ")")
+                params.extend(other[0])
+            branches.append((" AND ".join(where), params))
+    return branches
+
+
 def _player_condition(player: str, opponent: str = None,
                       columns: tuple = ("white_name", "black_name", False), strict: bool = True) -> tuple[str, list]:
     """The WHERE part for one player (either colour) or two players against each other.
@@ -74,10 +190,7 @@ def _player_condition(player: str, opponent: str = None,
     Names are matched in any spelling (src/player_names.py): «Карлсена» → Carlsen, «Javohir» →
     Javokhir; a ``player`` like «Синдаров — Накамура» is read as both players."""
     white_col, black_col, normalized = columns
-    people = split_players(player) if player else []
-    if opponent and len(people) < 2:
-        people = (people or [])[:1] + [opponent]
-    pats = [name_patterns(p, strict=strict) for p in people[:2]]
+    pats = [name_patterns(p, strict=strict) for p in _people(player, opponent)]
     if normalized:
         pats = [list(dict.fromkeys(normalized_pattern(x) for x in p)) for p in pats]
     pats = [p for p in pats if p]
@@ -133,20 +246,32 @@ def _year(value) -> "int | None":
 
 def _search(conn, player, opponent, event, eco, opening, result, year_min, year_max, limit) -> list[dict]:
     rows = _search_once(conn, player, opponent, event, eco, opening, result, year_min, year_max, limit, True)
-    if not rows and (player or opponent) and _player_condition(player or "", opponent, strict=False) != \
-            _player_condition(player or "", opponent, strict=True):
+    if not rows and (player or opponent) and _loosens(player or "", opponent):
         # «Robert Hübner» asks for both words; a database that has only «Hubner,R» gets the surname alone. A plain
         # «Stahlberg» finds the row stored as «St\ufffdhlberg» by its consonants (src/player_names._skeleton).
         rows = _search_once(conn, player, opponent, event, eco, opening, result, year_min, year_max, limit, False)
     return rows
 
 
+def _loosens(player: str, opponent: str) -> bool:
+    """The second try (``strict=False``) asks something the first did not."""
+    return any(name_patterns(p, strict=False) != name_patterns(p, strict=True) for p in _people(player, opponent))
+
+
 def _search_once(conn, player, opponent, event, eco, opening, result, year_min, year_max, limit,
                  strict: bool) -> list[dict]:
     conditions = []
     params = []
+    branches = None
+    if (player or opponent) and name_index_layout(conn)["indexed"]:
+        # [] — no name in the argument at all: no name condition, as on the path without the index
+        branches = _indexed_branches(player or "", opponent, strict) or None
+    indexed = branches is not None
+    # On the indexed path the other filters must not pick an index of their own (``+column``): with idx_date
+    # SQLite may walk every game of the years asked for instead of the player's range of the name index.
+    plain = "+" if indexed else ""
 
-    if player or opponent:
+    if (player or opponent) and not indexed:
         # A known player by any word of the name, else its words in their database spellings — a Russian
         # name transliterated, kh/h and umlauts varied (src/player_names.py). Two names: a game between
         # them, either colour.
@@ -167,7 +292,7 @@ def _search_once(conn, player, opponent, event, eco, opening, result, year_min, 
             params.append(f"%{part}%")
 
     if eco:
-        conditions.append("eco = ?")
+        conditions.append(f"{plain}eco = ?")
         params.append(eco.upper())
 
     if opening:
@@ -175,7 +300,7 @@ def _search_once(conn, player, opponent, event, eco, opening, result, year_min, 
         params.append(f"%{opening}%")
 
     if result:
-        conditions.append("result = ?")
+        conditions.append(f"{plain}result = ?")
         params.append(result)
 
     # TWIC dates are the PGN's «2026.03.10» (backend/scripts/incremental_index.py): ``date <=
@@ -183,24 +308,66 @@ def _search_once(conn, player, opponent, event, eco, opening, result, year_min, 
     # the year's prefix, which holds for either separator.
     year_min, year_max = _year(year_min), _year(year_max)
     if year_min is not None:
-        conditions.append("date >= ?")
+        conditions.append(f"{plain}date >= ?")
         params.append(f"{year_min:04d}")
 
     if year_max is not None:
-        conditions.append("date < ?")
+        conditions.append(f"{plain}date < ?")
         params.append(f"{year_max + 1:04d}")
 
-    where = " AND ".join(conditions) if conditions else "1=1"
-    query = f"SELECT id, white_name, black_name, result, date, eco, opening, event, white_elo, black_elo FROM games WHERE {where} ORDER BY date DESC LIMIT ?"
+    if indexed:
+        # One branch per colour × spelling, each a range of the name index; UNION drops a game two branches found.
+        parts, query_params = [], []
+        for where, branch_params in branches:
+            parts.append(f"SELECT {_RESULT_COLUMNS} FROM games WHERE " + " AND ".join([where] + conditions))
+            query_params.extend(branch_params + params)
+        query = f"SELECT * FROM ({' UNION '.join(parts)}) ORDER BY date DESC, id DESC LIMIT ?"
+        params = query_params
+    else:
+        where = " AND ".join(conditions) if conditions else "1=1"
+        query = f"SELECT {_RESULT_COLUMNS} FROM games WHERE {where} ORDER BY date DESC, id DESC LIMIT ?"
     params.append(limit)
 
     conn.row_factory = sqlite3.Row
-    # Player/opening/event filters are LIKE '%…%' — a full scan of the games
+    # Without the name index the player/opening/event filters are LIKE '%…%' — a full scan of the games
     # table; the budget turns a stuck search into an error the model skips.
     install_timeout(conn)
     cur = conn.execute(query, params)
     rows = cur.fetchall()
     return [dict(row) for row in rows]
+
+
+def search_check(db_path: str = None) -> dict:
+    """For the runbook: does the search use the name index on this database, and how long does it take.
+
+    ``indexed`` — both normalized name columns have an index (name_index_layout); ``plan`` — what SQLite does
+    for one branch of the indexed search («SEARCH … USING INDEX», never «SCAN»); then two searches the coach
+    makes, with their time against the budget (src/tools/_sqlite_budget.py)."""
+    import time
+
+    path = db_path or TWIC_DB_PATH
+    conn = sqlite3.connect(path)
+    try:
+        layout = name_index_layout(conn)
+        plan = ""
+        if layout["normalized"]:
+            plan = "; ".join(r[3] for r in conn.execute(
+                "EXPLAIN QUERY PLAN SELECT id FROM games WHERE white_name_normalized GLOB ? AND +date >= ?",
+                ("carlsen*", "2026")))
+    finally:
+        conn.close()
+    out = {"db": path, "indexed": layout["indexed"], "indexes": layout["indexes"], "plan": plan}
+    for label, kwargs in (("Carlsen", {"player": "Carlsen"}),
+                          ("Синдаров — Накамура 2026", {"player": "Синдаров", "opponent": "Накамура",
+                                                        "year_min": 2026, "year_max": 2026})):
+        start = time.monotonic()
+        try:
+            rows = search_master_games(db_path=path, limit=5, **kwargs)
+            found = f"{len(rows)} games" + (f", newest {rows[0]['date']} id {rows[0]['id']}" if rows else "")
+        except sqlite3.OperationalError as exc:
+            found = "timeout" if is_timeout(exc) else f"error: {exc}"
+        out[label] = f"{found}, {time.monotonic() - start:.2f} s"
+    return out
 
 
 def _handle_search_master_games(args: dict, **kwargs) -> str:

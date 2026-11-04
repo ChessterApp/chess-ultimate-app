@@ -192,8 +192,11 @@ def _strip_name_ending(word: str) -> str:
     return word
 
 
-def _translit_options(word: str) -> list:
-    """Per-letter Latin options for a lowercased Cyrillic *word*."""
+def _translit_options(word: str, anchored: bool = False) -> list:
+    """Per-letter Latin options for a lowercased Cyrillic *word*.
+
+    ``anchored``: the spellings become prefixes of the name (the indexed search, src/tools/twic_search.py), not
+    substrings — so a first letter is spelled out: «х» is h or kh, «к» is k or c (a leading wildcard has no index)."""
     options = []
     i = 0
     while i < len(word):
@@ -211,7 +214,10 @@ def _translit_options(word: str) -> list:
         if ch == "е" and (not prev or prev in _VOWELS + "ьъ"):  # «Есипенко», «Андреев»: e / ye
             options.append(("e", "ye"))
         elif ch == "х" and not prev:
-            options.append(("h",))  # «%h…%» holds «Kh…» and «H…» alike: the pattern is a substring
+            # «%h…%» holds «Kh…» and «H…» alike when the pattern is a substring; a prefix needs both
+            options.append(("h", "kh") if anchored else ("h",))
+        elif ch == "к" and not prev and anchored:
+            options.append(("k", "c"))
         elif ch == "ю" and prev and prev not in _VOWELS + "ьъ":
             # «Хюбнер» is Hübner (Hubner, Huebner), «Матюшин» Matyushin: one letter for ü/u, or yu / ue / iu
             options.append(("yu", "_", "ue", "iu"))
@@ -244,14 +250,15 @@ def _combine(options: list, cap: int) -> list:
     return out
 
 
-def _latin_variants(word: str, cap: int) -> list:
+def _latin_variants(word: str, cap: int, anchored: bool = False) -> list:
     """A Latin name as given plus its umlaut and kh/h spellings (nothing more for a plain name)."""
     out = [word]
     low = word.lower()
     if re.search(r"[^\x00-\x7f]", word):
         # «Hübner», «Ståhlberg»: the index decoded TWIC's Latin-1 bytes with replacement («H\ufffdbner»), so the
-        # letter is one ``_`` — which also matches the plain «Hubner» (review 03.11).
-        out.append(re.sub(r"[^\x00-\x7f]", "_", word))
+        # letter is one ``_`` — which also matches the plain «Hubner» (review 03.11). A prefix spells the
+        # replacement character itself: «H\ufffdbner» is a range of the name index, «H_bner» every «H…».
+        out.append(re.sub(r"[^\x00-\x7f]", "\ufffd" if anchored else "_", word))
     for src, dsts in _LATIN_SWAPS:
         if src in low:
             for dst in dsts:
@@ -293,28 +300,38 @@ def _skeleton(word: str) -> Optional[str]:
     return re.sub(r"[aeiouyAEIOUY]", "_", word)
 
 
-def _spellings(word: str, cap: int, loose: bool = False) -> list:
+def _spellings(word: str, cap: int, loose: bool = False, anchored: bool = False) -> list:
     """One word of a name in its database spellings (transliterated when Cyrillic), the usual one first."""
     if not is_cyrillic(word):
-        out = _latin_variants(word, cap)
+        out = _latin_variants(word, cap, anchored)
         skeleton = _skeleton(word) if loose else None
         return (out[: cap - 1] + [skeleton]) if skeleton else out
     base = _strip_name_ending(word.lower().replace("ё", "е"))
-    out = _combine(_translit_options(base), cap)
+    out = _combine(_translit_options(base, anchored), cap)
     if loose:  # «Мартинес» → «m_rt_n_z» finds «Mart\ufffdnez»
         skeletons = [k for k in (_skeleton(v) for v in out[:2]) if k]
         out = out[: max(cap - len(skeletons), 1)] + skeletons
     return list(dict.fromkeys(out))
 
 
-def name_patterns(name: str, cap: int = MAX_VARIANTS, strict: bool = True) -> list:
+def name_patterns(name: str, cap: int = MAX_VARIANTS, strict: bool = True, anchored: bool = False) -> list:
     """LIKE patterns (``%…%``) that find the player *name* in white_name / black_name.
 
     A known player by any word of it, in any script («Карлсен», «Magnus Carlsen», «Daniil Dubov»). One other
     word: its spellings. Two or more («Robert Hübner», «Жансая Абдумалик», «казыбека ногербека»): both words in
     TWIC's order «Surname,First…» either way round (``%Hübner%Rob%`` / ``%Robert%Hüb%``) — the longest word alone
     found «Robert» in Fischer,Robert James and, on the 4.35M production rows, would bury Hübner under the
-    newest Roberts (review 03.11). ``strict=False``: the longest word alone (the search's second try)."""
+    newest Roberts (review 03.11). ``strict=False``: the longest word alone (the search's second try).
+
+    ``anchored=True``: the same patterns as prefixes of the name (no leading ``%``) — what the site's name index
+    answers (``white_name_normalized LIKE 'tok%'``, backend/api/openings.py); TWIC writes the surname first."""
+    if anchored:
+        return list(dict.fromkeys(p[1:] if p.startswith("%") else p
+                                  for p in _name_patterns(name, cap, strict, True)))
+    return _name_patterns(name, cap, strict, False)
+
+
+def _name_patterns(name: str, cap: int, strict: bool, anchored: bool) -> list:
     tokens = _NAME_TOKEN.findall(name or "")
     if not tokens:
         return []
@@ -331,14 +348,14 @@ def name_patterns(name: str, cap: int = MAX_VARIANTS, strict: bool = True) -> li
         else:
             surname, other = words[-1], words[0]  # «Robert Hübner»
         if not strict:  # the surname alone, never the first name: «%Robert%» is every Robert
-            return [f"%{v}%" for v in _spellings(surname, cap, loose=True)]
-        first = _spellings(surname, cap)
-        second = _spellings(other, cap)
+            return [f"%{v}%" for v in _spellings(surname, cap, loose=True, anchored=anchored)]
+        first = _spellings(surname, cap, anchored=anchored)
+        second = _spellings(other, cap, anchored=anchored)
         out = [f"%{first[0]}%{second[0][:3]}%", f"%{second[0]}%{first[0][:3]}%"]
         out += [f"%{v}%{second[0][:3]}%" for v in first[1:]]
         return list(dict.fromkeys(out))[:cap]
     word = max(tokens, key=len)
-    return [f"%{v}%" for v in _spellings(word, cap, loose=not strict)]
+    return [f"%{v}%" for v in _spellings(word, cap, loose=not strict, anchored=anchored)]
 
 
 def is_multiword(name: str) -> bool:
