@@ -354,9 +354,11 @@ def _game_ctx(pgn=BERLIN):
 @pytest.mark.parametrize("sentence", [
     "Испанская партия, и уже на 4-м ходу белые взяли пешку на e4.",
     "Посмотрите на 7-й ход, как чёрная пешка пошла на e5.",
-    "Дальше 7...Ne4 и белые давят.",
+    "Дальше в партии 7...Ne4 и белые давят.",
     "На 8-м ходу чёрные забрали ладью.",
-    "После 5.d3 у белых тихая игра.",
+    "В этой партии после 5.d3 у белых тихая игра.",
+    "Накамура сыграл 5.d3, и у белых тихая игра.",  # a side of the game named
+    "После 5.d4 Nd6 6.Bxc6 dxc6 7.dxe5 Ne4 белые давят.",  # four plies of the game, then a move it did not have
 ])
 def test_wrong_moves_of_the_loaded_game_are_caught(sentence):
     assert acd.game_db_issues(sentence.lower(), sentence, _game_ctx())

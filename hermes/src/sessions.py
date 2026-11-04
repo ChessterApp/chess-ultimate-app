@@ -94,6 +94,9 @@ class Session(BaseModel):
     # (src/tool_selector.game_context_tools, review 03.11). Not serialized: after a restart the messages and the
     # board's twic_game_id carry it.
     _game_tools_at: Optional[int] = PrivateAttr(default=None)
+    # What the database tools said on the recent turns, as (turn, tool, found / empty / error): «в прошлый раз поиск
+    # ничего не нашёл» is judged against it (src/answer_check_db.py, verification 04.11). Not serialized either.
+    _db_history: list = PrivateAttr(default_factory=list)
 
     def user_turns(self) -> int:
         return sum(1 for m in self.messages if m.role == "user")
@@ -101,6 +104,15 @@ class Session(BaseModel):
     def note_game_tools(self) -> None:
         """A database tool ran in this turn."""
         self._game_tools_at = self.user_turns()
+
+    def note_db_result(self, tool: str, status: str) -> None:
+        """A database tool of this turn came back *status*."""
+        self._db_history = (self._db_history + [(self.user_turns(), tool, status)])[-20:]
+
+    def earlier_db_results(self, turns: int = 6) -> list:
+        """(tool, status) of the database tools of the last *turns* turns before this one."""
+        now = self.user_turns()
+        return [(tool, status) for at, tool, status in self._db_history if now - turns <= at < now]
 
     def game_tools_turns_ago(self) -> Optional[int]:
         """How many of the student's messages ago a database tool last ran (1: in the previous turn)."""

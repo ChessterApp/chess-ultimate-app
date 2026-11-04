@@ -25,6 +25,7 @@ These add at most ``MAX_EXTRA_TOOLS`` tools after the ranked ones; core tools ar
 
 import logging
 import re
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -210,8 +211,11 @@ _WORD_FORM_END = frozenset("аяоеёыиуюьй")
 _FLEETING = re.compile(r"([^аеиоуыэюя])[ое]к$")
 
 
+@lru_cache(maxsize=8192)
 def _root(word: str) -> str:
-    """*word* without its inflection ending (at least three letters stay) and its fleeting vowel."""
+    """*word* without its inflection ending (at least three letters stay) and its fleeting vowel. Cached, as is
+    ``_word_matches``: every keyword of every tool meets every word of the query (verification 04.11 — 185k calls
+    for 175 questions made the selection ten times slower)."""
     if not _CYRILLIC.search(word):
         return word
     for end in _ENDINGS:
@@ -221,6 +225,7 @@ def _root(word: str) -> str:
     return _FLEETING.sub(r"\1к", word)
 
 
+@lru_cache(maxsize=65536)
 def _word_matches(token: str, stem: str) -> bool:
     """A query word matches a keyword: it starts with it (``парти`` → «партию»), its root does
     (``ошибк`` → «ошибок»), or the keyword is a whole word form and the query word is another form
@@ -455,14 +460,36 @@ def asks_for_own_games(query: str) -> bool:
 GAME_TRAIL_TOOLS = frozenset({"search_master_games", "get_game_pgn", "find_games_by_position"})
 # How many turns after such a tool the game tools stay: «загрузи вторую», «а предыдущую?» come right after.
 GAME_TRAIL_TURNS = 2
-# A turn that goes on with the games found: an ordinal, a pronoun, «ещё», «предыдущую», «против Гукеша», moves.
+# A turn that goes on with a game of the database: «загрузи вторую», «а предыдущую?», «покажи её», «эту партию»,
+# «ещё одну», «а против Гукеша?», «а с Каруаной?», «номер 3» — not any «с», «это» or digit (a square's «5» in «d5»
+# carried the game tools on 90 of 175 questions while a database game stayed on the board; verification 04.11).
+_ORDINAL_WORD = (r"(?:перв|втор|трет|четв[её]рт|пят|шест|седьм|восьм|девят|десят|предыдущ|следующ|последн|прошл|"
+                 r"друг)")
 _FOLLOW_UP_GAME = re.compile(
-    r"(?<![\w-])(?:перв\w*|втор\w*|трет\w*|четв[её]рт\w*|пят\w*|шест\w*|седьм\w*|восьм\w*|девят\w*|десят\w*|"
-    r"предыдущ\w*|следующ\w*|прошл\w*|друг\w*|ещ[её]|е[её]|эт\w+|тот|ту|та|номер\w*|№|"
-    r"против|с|со|vs|ходы|ходам|пролист\w*|"
-    r"first|second|third|fourth|fifth|previous|next|another|other|that|this|it|one|against|"
-    r"(?:бірінші|екінші|үшінші|төртінші|алдыңғы|келесі|қарсы|басқа|осы|сол)\w*)(?![\w-])|(?<!\d)\d{1,2}(?:-?(?:ю|й|я|ую|ая))?(?!\d)",
+    r"(?<![\w-])(?:" + _ORDINAL_WORD + r"\w*|эт\w+|т(?:у|от|ой|а)|его|е[её]|их)\s+(?:[\w-]+\s+)?(?:парти\w*|игр\w*|"
+    r"ойын\w*|game)(?![\w-])|"
+    r"(?<![\w-])" + _ORDINAL_WORD + r"(?:ую|юю|ью)(?![\w-])|"
+    r"(?<![\w-])(?:загруз|покаж|откр|постав|давай|включ|вывед)\w*\s+(?:[\w-]+\s+)?(?:(?:е[её]|его|их)(?![\w-])|"
+    r"(?:эту|ту)\s*(?:$|[?.!,]))|"
+    r"(?<![\w-])ещ[её]\s+(?:одн\w+|парти\w*|игр\w*)|(?:номер|№|#)\s*\d|(?<![\w-])\d{1,2}-?(?:ю|ую)(?=\s*(?:$|[?.!,]|парти|игр|из\s))|"
+    r"(?<![\w-])(?:(?:the\s+)?(?:first|second|third|fourth|fifth|previous|next|last|other)\s+(?:one|game)|"
+    r"another\s+(?:one|game)|(?:load|show|open)\s+(?:me\s+)?(?:it|that|this)(?:\s+game)?)(?![\w-])|"
+    r"(?<![\w-])(?:бірінші|екінші|үшінші|төртінші|алдыңғы|келесі|басқа)\w*",
     re.IGNORECASE)
+# «а против Гукеша?», «а с Каруаной?»: a player's name (capitalized, letters only — not «с Nf3»).
+_AGAINST_PLAYER = re.compile(r"(?<![\w-])(?:[Пп]ротив|[Vv][Ss]\.?|[Aa]gainst|қарсы|[Сс]о?)\s+[A-ZА-ЯЁ][a-zа-яё]{2,}(?![\w-])")
+
+
+def _another_object(text: str) -> bool:
+    """The message is about something else than a database game: a lesson or a puzzle, an opening named (no
+    particular game asked), the student's own game."""
+    if _OWN_GAME.search(text) and not re.search(r"(?<![\w-])(?:эт\w+|this|that)(?![\w-])", text, re.IGNORECASE):
+        return True  # the student turns to their own games
+    if _OTHER_OBJECT.search(text):
+        return True
+    from src.opening_knowledge import mentions_opening
+
+    return mentions_opening(text) and not asks_for_game(text)
 
 
 def game_context_tools(query: str, history: tuple = (), game_tools_turns_ago: "int | None" = None,
@@ -473,16 +500,18 @@ def game_context_tools(query: str, history: tuple = (), game_tools_turns_ago: "i
     search of the database got neither search_master_games nor get_game_pgn, and the coach said the database gave
     nothing (review 03.11). They stay when one of them (or find_games_by_position) ran in the last
     ``GAME_TRAIL_TURNS`` turns, when one of the last two messages asked for a game, or when the board holds a
-    database game and this message goes on with it (an ordinal, a pronoun, «против …», «ещё»)."""
+    database game and this message goes on with a game (an ordinal, «эту партию», «покажи её», «ещё одну», «против
+    Гукеша») — never for a message about something else: a lesson, a puzzle, an opening, the student's game
+    (verification 04.11: the board's game carried them on every turn with «с», «это» or a digit)."""
     text = query or ""
-    if _OWN_GAME.search(text) and not re.search(r"(?<![\w-])(?:эт\w+|this|that)(?![\w-])", text, re.IGNORECASE):
-        return ()  # the student turns to their own games
+    if _another_object(text):
+        return ()
     if game_tools_turns_ago is not None and 0 < game_tools_turns_ago <= GAME_TRAIL_TURNS:
         return GAME_TOOLS
     if any(asks_for_game(q) for q in list(history)[-2:]):
         return GAME_TOOLS
     if board_source and board_source.get("twic_game_id") and (
-            _FOLLOW_UP_GAME.search(text) or _GAME_NOUN.search(text)):
+            _FOLLOW_UP_GAME.search(text) or _AGAINST_PLAYER.search(text)):
         return GAME_TOOLS
     return ()
 

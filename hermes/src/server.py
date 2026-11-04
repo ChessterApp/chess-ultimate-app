@@ -2593,6 +2593,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # What the turn's database tools return, and a database game already on the board, are what the answer may
         # say of them (src/answer_check_db.py, review 03.11).
         check_ctx.db_tracked = True
+        # What the database said on the conversation's earlier turns: «в прошлый раз поиск ничего не нашёл» is judged
+        # against it (verification 04.11).
+        check_ctx.db_results_earlier = session.earlier_db_results()
         try:
             if (active_board.source or {}).get("twic_game_id") and active_board.pgn:
                 from src.answer_check_db import note_board_game
@@ -2649,7 +2652,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         tb_line_state = {"left": config.COACH_TABLEBASE_LINE_CHECKS if config.COACH_ANSWER_CHECK else 0}
         fix = {"running": False, "done": False, "sentence": None, "issues": [], "dropped": [],
                "reply": None, "started": None, "first_ms": None, "emitted": False,
-               "shown_prefix": "", "head": "", "gen": 0}
+               "shown_prefix": "", "head": "", "gen": 0,
+               # A tool call came after the wrong sentence while its rewrite was still unseen: the rewrite goes on
+               # but is held — the draft written after the tools stands in for it once a sentence of it passes the
+               # check; a draft that ends at the tool gets the rewrite (verification 04.11: an empty answer).
+               "superseded": False, "held": [], "held_done": None, "tools_after": []}
         turn_msg = {"message": None}
 
         # ── Two-stage answer ──────────────────────────────────────────────
@@ -2750,7 +2757,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if tool_name in GAME_TRAIL_TOOLS:
                     session.note_game_tools()
                 # What the database said this turn: «база ничего не вернула» is told only after an empty search.
+                noted = len(getattr(check_ctx, "db_results", None) or [])
                 note_tool_result(check_ctx, tool_name, result, shown=not session.board_lock_strict)
+                for db_tool, status in (getattr(check_ctx, "db_results", None) or [])[noted:]:
+                    session.note_db_result(db_tool, status)
             except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
                 logger.debug("database tool bookkeeping failed", exc_info=True)
             # The board changes go out the moment the tool finishes: the arrows
@@ -2991,6 +3001,17 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 session.apply_board_actions(actions, board_id=active_board.id)
             except Exception:
                 logger.debug("applying board actions to the session board failed", exc_info=True)
+            try:
+                # A puzzle, a position or another game replaced the database game: the answer is no longer judged
+                # against its moves, nor is its side «nobody's» (verification 04.11; src/boards.Board._forget_db_game).
+                if getattr(check_ctx, "loaded_game", None):
+                    shown_board = session.get_board(active_board.id)
+                    if not (shown_board and (shown_board.source or {}).get("twic_game_id")):
+                        from src.answer_check_db import forget_board_game
+
+                        forget_board_game(check_ctx)
+            except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
+                logger.debug("board game bookkeeping failed", exc_info=True)
             return _sse({"board_actions": actions})
 
         def _finish_quick():
@@ -3044,7 +3065,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             a wrong sentence of the rewrite is left out."""
             frames = []
             for text, issues, sentence in pairs:
-                if source == "agent" and (fix["running"] or fix["done"]):
+                if source == "agent" and (fix["running"] or fix["done"]) and not fix["superseded"]:
                     continue  # the rewrite stands in for the rest of the draft
                 if issues == [PROMISE_ISSUE]:
                     # «Покажу на доске.» and the turn ended with the board untouched: the promise alone is left
@@ -3056,6 +3077,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if issues:
                     logger.info("answer check: %s | %s", "; ".join(issues), sentence.strip()[:200])
                     if source == "agent" and config.COACH_ANSWER_FIX:
+                        if fix["superseded"]:
+                            _call_off_held_fix()  # a new wrong sentence after the tools: its own rewrite
                         # The start of the sentence that already went out (before its
                         # first move or piece): the rewrite must not say it again.
                         fix.update(running=True, sentence=sentence, issues=issues, started=time.monotonic(),
@@ -3066,11 +3089,25 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
                         fix["after_drop"] = True
                     continue
+                if source == "agent" and fix["superseded"]:
+                    _call_off_held_fix()  # the draft after the tools passed the check: it is the answer
                 if fix.pop("after_drop", False) or not "".join(answer_parts).strip():
                     # «Затем…» after the sentence left out — or the answer's very first words
                     text = strip_leaning_start(text)
                 frames.extend(_answer_frames(text))
             return frames
+
+        def _call_off_held_fix():
+            """The draft after the tools goes on instead of the held rewrite: the wrong sentence alone is left out
+            (review 03.11, t12 — the rewrite, which saw no tool result, wrote «нет доступа к базе» while the game
+            went on the board)."""
+            logger.info("answer check: rewrite called off by the draft after a tool call | %s",
+                        (fix["sentence"] or "").strip()[:200])
+            fix["dropped"].append({"sentence": (fix["sentence"] or "").strip()[:300], "issues": fix["issues"],
+                                   "before_tool": True})
+            fix.update(running=False, sentence=None, issues=[], started=None, head="", shown_prefix="",
+                       gen=fix["gen"] + 1, after_drop=True, superseded=False, held=[], held_done=None,
+                       tools_after=[])
 
         async def _line_outcomes(pairs):
             """«после Kd5 a6 Kc6 — ничья»: an outcome claim at the end of a written line, whose position the
@@ -3172,6 +3209,69 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 return [issue]
             return issues
 
+        async def _fix_frames(payload: str):
+            """A chunk of the rewrite → frames (held back until the shown start of the wrong sentence can be
+            compared)."""
+            if not fix["emitted"]:
+                # Hold the first characters until the shown start of the
+                # sentence can be compared: a model told to continue after
+                # «Take on» sometimes writes «Take on d5 …» again (2026-09-30).
+                prefix = fix["shown_prefix"].strip()
+                fix["head"] += payload
+                if prefix and len(fix["head"].strip()) < len(prefix) + 2:
+                    return
+                payload, fix["head"] = fix["head"], ""
+                if prefix and payload.lstrip().lower().startswith(prefix.lower()):
+                    payload = payload.lstrip()[len(prefix):]
+                    if not payload:
+                        return
+                elif prefix:
+                    # «Самое упорное здесь — отвести» shown, the rewrite opens
+                    # «Самое упорное здесь — увести ладью…» (stand, 2026-10-04):
+                    # the same start with the last word changed is dropped whole.
+                    pw, hw = prefix.split(), payload.lstrip().split()
+                    common = 0
+                    for a, b in zip(pw, hw):
+                        if a.lower().strip(",.;:—–-«»\"") != b.lower().strip(",.;:—–-«»\""):
+                            break
+                        common += 1
+                    if common >= max(2, (len(pw) * 3 + 4) // 5):
+                        payload = " ".join(hw[len(pw):])
+                        if not payload:
+                            return
+                fix["emitted"] = True
+                fix["first_ms"] = int((time.monotonic() - fix["started"]) * 1000)
+                shown = "".join(answer_parts)
+                if shown and shown[-1].isspace():
+                    payload = payload.lstrip(" ")
+                elif shown and not payload[0].isspace():
+                    payload = " " + payload
+                if not payload:
+                    return
+            payload, mark_actions = fix_markup.feed(payload)
+            for action in mark_actions:
+                yield _board_frame([action])
+            for frame in _sentence_frames(await _verified(fix_gate.feed(payload)), "fix"):
+                yield frame
+
+        async def _fix_done_frames(reply):
+            """The rewrite finished: what it held back, the end of its last sentence."""
+            fix["reply"] = reply
+            if fix["head"] and not fix["emitted"]:
+                # A rewrite shorter than the held prefix: send it as it is.
+                head, fix["head"] = fix["head"], ""
+                fix["emitted"] = True
+                head, mark_actions = fix_markup.feed(head)
+                for action in mark_actions:
+                    yield _board_frame([action])
+                for frame in _sentence_frames(await _verified(fix_gate.feed(head)), "fix"):
+                    yield frame
+            tail = fix_markup.flush()
+            for frame in _sentence_frames(await _verified((fix_gate.feed(tail) if tail else []) + fix_gate.flush()), "fix"):
+                yield frame
+            fix["running"] = False
+            fix["done"] = True
+
         if review_pgn and review_future is not None:
             # The game goes on the board at once, before any word of the review.
             yield _board_frame([{"type": "load_pgn", "pgn": review_pgn}])
@@ -3218,6 +3318,27 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     tail = markup.flush()
                     for frame in _sentence_frames(await _verified((gate.feed(tail) if tail else []) + gate.flush()), "agent"):
                         yield frame
+                    if fix["superseded"]:
+                        # The draft ended at its tools with nothing after them that passed: the held rewrite is the
+                        # answer — written again when a database tool ran after it (it did not see what came back).
+                        from src.tool_selector import GAME_TRAIL_TOOLS
+
+                        held, held_done = fix["held"], fix["held_done"]
+                        rerun = any(t in GAME_TRAIL_TOOLS for t in fix["tools_after"])
+                        fix.update(superseded=False, held=[], held_done=None, tools_after=[])
+                        if rerun:
+                            logger.info("answer check: rewrite written again after the database tools | %s",
+                                        (fix["sentence"] or "").strip()[:200])
+                            fix.update(gen=fix["gen"] + 1, started=time.monotonic(), head="", emitted=False)
+                            loop.run_in_executor(None, _run_fix, "".join(answer_parts), fix["sentence"], fix["issues"],
+                                                 fix["gen"])
+                        else:
+                            for payload in held:
+                                async for frame in _fix_frames(payload):
+                                    yield frame
+                            if held_done is not None:
+                                async for frame in _fix_done_frames(held_done[0]):
+                                    yield frame
                     if not quick["finished"] and not quick["shown"]:
                         # Answer complete, reaction never started: drop it.
                         quick["abort"] = True
@@ -3247,7 +3368,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if not streamed_any:
                         _mark("answer_first")
                     streamed_any = True
-                    if fix["running"] or fix["done"]:
+                    if (fix["running"] or fix["done"]) and not fix["superseded"]:
                         continue  # the draft after a wrong sentence is replaced
                     # Inline [[arrows: …]] / [[squares: …]] marks become board
                     # actions now and never reach the text (src/board_markup.py).
@@ -3263,78 +3384,27 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     fix_gen, payload = payload
                     if fix_gen != fix["gen"] or not fix["running"] or not payload:
                         continue
-                    if not fix["emitted"]:
-                        # Hold the first characters until the shown start of the
-                        # sentence can be compared: a model told to continue after
-                        # «Take on» sometimes writes «Take on d5 …» again (2026-09-30).
-                        prefix = fix["shown_prefix"].strip()
-                        fix["head"] += payload
-                        if prefix and len(fix["head"].strip()) < len(prefix) + 2:
-                            continue
-                        payload, fix["head"] = fix["head"], ""
-                        if prefix and payload.lstrip().lower().startswith(prefix.lower()):
-                            payload = payload.lstrip()[len(prefix):]
-                            if not payload:
-                                continue
-                        elif prefix:
-                            # «Самое упорное здесь — отвести» shown, the rewrite opens
-                            # «Самое упорное здесь — увести ладью…» (stand, 2026-10-04):
-                            # the same start with the last word changed is dropped whole.
-                            pw, hw = prefix.split(), payload.lstrip().split()
-                            common = 0
-                            for a, b in zip(pw, hw):
-                                if a.lower().strip(",.;:—–-«»\"") != b.lower().strip(",.;:—–-«»\""):
-                                    break
-                                common += 1
-                            if common >= max(2, (len(pw) * 3 + 4) // 5):
-                                payload = " ".join(hw[len(pw):])
-                                if not payload:
-                                    continue
-                        fix["emitted"] = True
-                        fix["first_ms"] = int((time.monotonic() - fix["started"]) * 1000)
-                        shown = "".join(answer_parts)
-                        if shown and shown[-1].isspace():
-                            payload = payload.lstrip(" ")
-                        elif shown and not payload[0].isspace():
-                            payload = " " + payload
-                        if not payload:
-                            continue
-                    payload, mark_actions = fix_markup.feed(payload)
-                    for action in mark_actions:
-                        yield _board_frame([action])
-                    for frame in _sentence_frames(await _verified(fix_gate.feed(payload)), "fix"):
+                    if fix["superseded"]:
+                        fix["held"].append(payload)  # the draft after the tools may still stand in for it
+                        continue
+                    async for frame in _fix_frames(payload):
                         yield frame
                 elif kind == "fix_done":
                     fix_gen, payload = payload
                     if fix_gen != fix["gen"]:
                         continue  # a rewrite called off: the draft after its tools went on instead
-                    fix["reply"] = payload
-                    if fix["head"] and not fix["emitted"]:
-                        # A rewrite shorter than the held prefix: send it as it is.
-                        head, fix["head"] = fix["head"], ""
-                        fix["emitted"] = True
-                        head, mark_actions = fix_markup.feed(head)
-                        for action in mark_actions:
-                            yield _board_frame([action])
-                        for frame in _sentence_frames(await _verified(fix_gate.feed(head)), "fix"):
-                            yield frame
-                    tail = fix_markup.flush()
-                    for frame in _sentence_frames(await _verified((fix_gate.feed(tail) if tail else []) + fix_gate.flush()), "fix"):
+                    if fix["superseded"]:
+                        fix["held_done"] = (payload,)
+                        continue
+                    async for frame in _fix_done_frames(payload):
                         yield frame
-                    fix["running"] = False
-                    fix["done"] = True
                 elif kind == "tool_call":
                     if fix["running"] and not fix["emitted"]:
-                        # The wrong sentence came before a tool call («I'll search the…»): the answer is still to be
-                        # written, after the tools. The sentence alone is left out and the rewrite — which sees no tool
-                        # result and wrote «нет доступа к базе» while the game went on the board — is called off
-                        # (review 03.11, t12).
-                        logger.info("answer check: rewrite called off by a tool call | %s",
-                                    (fix["sentence"] or "").strip()[:200])
-                        fix["dropped"].append({"sentence": (fix["sentence"] or "").strip()[:300],
-                                               "issues": fix["issues"], "before_tool": True})
-                        fix.update(running=False, sentence=None, issues=[], started=None, head="", shown_prefix="",
-                                   gen=fix["gen"] + 1, after_drop=True)
+                        # The wrong sentence came before a tool call («I'll search the…»): the answer may go on after
+                        # the tools. The rewrite is held, not dropped — the draft's next sentence that passes the check
+                        # calls it off (``_call_off_held_fix``); a draft that ends here gets it (the sentinel).
+                        fix["superseded"] = True
+                        fix["tools_after"].append(payload)
                     yield _sse({"tool_call": payload})
                 elif kind == "tool_result":
                     yield _sse({"tool_result": payload})
