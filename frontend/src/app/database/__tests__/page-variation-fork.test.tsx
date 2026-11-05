@@ -100,7 +100,7 @@ vi.mock('@/components/openings/MyGamesPanel', () => ({
     </div>
   ),
 }));
-// Renders the fork picker slot and lets the test click a notation move by SAN path.
+// Lets the test click a notation move by SAN path.
 vi.mock('@/components/openings/GameViewerPanel', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/components/openings/GameViewerPanel')>();
   return {
@@ -111,7 +111,6 @@ vi.mock('@/components/openings/GameViewerPanel', async (importOriginal) => {
       if (p.editTree) walk(p.editTree);
       return (
         <div data-testid="game-viewer">
-          {p.forkPicker}
           {nodes.map(n => <button key={n.id} onClick={() => p.onEditNodeSelect?.(n)}>{`notation ${n.move_number}${n.is_white_move ? '.' : '…'}${n.move_san}`}</button>)}
         </div>
       );
@@ -234,6 +233,20 @@ describe('Database page — variation forks', () => {
     await click('board prev');
     expect((await press('3')).defaultPrevented).toBe(false);
     expect(boardFen()).toBe(fenOf(FORK_PGN, ['e4']));
+  });
+
+  it('renders the picker once, under the board and above Stockfish, not in the notation', async () => {
+    await openGame('open fork game');
+    expect(screen.queryByTestId('board-fork-picker')).toBeNull();
+    await click('board next');
+    const slot = screen.getByTestId('board-fork-picker');
+    expect(pickers()).toHaveLength(1);
+    expect(slot.contains(pickers()[0])).toBe(true);
+    for (const viewer of screen.getAllByTestId('game-viewer')) expect(viewer.contains(pickers()[0])).toBe(false);
+    const board = screen.getByTestId('board');
+    const engine = screen.getByRole('switch', { hidden: true });
+    expect(board.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(slot.compareDocumentPosition(engine) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('a game without forks navigates exactly as before', async () => {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Database page: every opened game with moves shows Review (master, own,
-// analysis line, shared); the Stockfish toggle,
+// shared) except custom Variations; the Stockfish toggle,
 // eval bar and engine lines work on every tab (master games, own games, analysis
 // lines, shared read-only databases, the empty My Games board) and analyse the
 // shown position; the on/off state survives tab switches but is never written
@@ -183,18 +183,23 @@ describe('Database page — Review button', () => {
     expect(btn.getAttribute('data-label')).toBe('');
   });
 
-  it('is shown for opened own games, analysis lines and shared games', async () => {
+  it('is shown for opened own games and shared games', async () => {
     await renderPage();
     await click('pick own db');
-    for (const name of ['open own game', 'open variation']) {
-      await click(name);
-      expect(screen.getAllByTestId('game-viewer').length).toBeGreaterThan(0);
-      expect(reviewButton()).toBeTruthy();
-      await click('pick own db');
-    }
+    await click('open own game');
+    expect(screen.getAllByTestId('game-viewer').length).toBeGreaterThan(0);
+    expect(reviewButton()).toBeTruthy();
     await click('pick shared db');
     await click('open shared game');
     expect(reviewButton()?.getAttribute('data-pgn')).toBe(SHARED_GAME.pgn);
+  });
+
+  it('is hidden on a saved custom Variation', async () => {
+    await renderPage();
+    await click('pick own db');
+    await click('open variation');
+    expect(screen.getAllByTestId('game-viewer').length).toBeGreaterThan(0);
+    expect(reviewButton()).toBeNull();
   });
 
   it('is hidden on an empty variation draft and on the explorer tab', async () => {

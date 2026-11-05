@@ -1576,8 +1576,8 @@ export default function DebutPage() {
             />
           )}
 
-          {/* Every opened game with moves is reviewable, whatever its source. */}
-          {activeTab !== 'debut' && activeGame && reviewPgn && (
+          {/* Every opened game with moves is reviewable, whatever its source — except Variations. */}
+          {activeTab !== 'debut' && activeGame && reviewPgn && !isVariationGame(activeGame) && (
             <Box sx={{
               width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 24px)', lg: 520 },
               maxWidth: 520,
@@ -1592,6 +1592,18 @@ export default function DebutPage() {
                 variant="primary"
                 style={{ width: '100%' }}
               />
+            </Box>
+          )}
+
+          {/* Fork picker — right under the board (and Review), above Stockfish, only at a fork */}
+          {activeTab !== 'debut' && activeGame && forkPicker && (
+            <Box data-testid="board-fork-picker" sx={{
+              width: { xs: 'calc(100% - 16px)', lg: 520 },
+              maxWidth: { lg: 520 },
+              mx: 'auto',
+              mt: 1,
+            }}>
+              {forkPicker}
             </Box>
           )}
 
@@ -1699,7 +1711,6 @@ export default function DebutPage() {
                 onTreeNext={isActiveGameTree ? handleEditTreeNext : undefined}
                 onTreeGoToStart={isActiveGameTree ? handleEditTreeGoToStart : undefined}
                 onTreeGoToEnd={isActiveGameTree ? handleEditTreeGoToEnd : undefined}
-                forkPicker={forkPicker}
               />
             </Box>
           )}
@@ -1800,7 +1811,6 @@ export default function DebutPage() {
                 onRetrySave={isActiveGameEditable ? handleRetrySave : undefined}
                 editContextMenuActions={editContextMenuActions}
                 voiceNotes={voicePlayback}
-                forkPicker={forkPicker}
               />
             </Box>
           ) : null}
