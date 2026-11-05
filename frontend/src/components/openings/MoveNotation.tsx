@@ -7,6 +7,7 @@ import type { OpeningNode } from '@/types/openingNode';
 import type { VoiceRecording } from '@/hooks/useVoiceRecorder';
 import { MOVE_QUALITY_COLORS, getNag, suffixToNag } from '@/lib/nags';
 import { nodePathMap } from '@/lib/voiceNotes';
+import { FORK_ALT_COLOR } from '@/lib/variationFork';
 import NagPalette, { type NagPaletteLabels } from './NagPalette';
 import MoveActionSheet, { type MoveAction, type MoveSheetView } from './MoveActionSheet';
 import VoiceNoteRecorder, { type VoiceNoteRecorderLabels } from './VoiceNoteRecorder';
@@ -260,6 +261,30 @@ function MoveSpan({
   );
 }
 
+/** "⑂N" after a move that has N ≥ 2 recorded continuations. */
+function ForkBadge({ count }: { count: number }) {
+  return (
+    <Box
+      component="span"
+      data-testid="fork-badge"
+      sx={{
+        fontSize: '9.5px',
+        fontWeight: 700,
+        lineHeight: 1.4,
+        color: FORK_ALT_COLOR,
+        bgcolor: `${FORK_ALT_COLOR}26`,
+        borderRadius: '6px',
+        px: '4px',
+        mr: '2px',
+        alignSelf: 'center',
+        userSelect: 'none',
+      }}
+    >
+      ⑂{count}
+    </Box>
+  );
+}
+
 function MoveNumber({ text }: { text: string }) {
   return (
     <Typography
@@ -311,13 +336,15 @@ function renderNode(
     />
   );
 
+  const children = node.children || [];
+  if (children.length >= 2) elements.push(<ForkBadge key={`f-${key}`} count={children.length} />);
+
   const voice = renderVoice?.(node);
   if (voice) elements.push(<React.Fragment key={`v-${key}`}>{voice}</React.Fragment>);
 
   const comment = renderComment?.(node);
   if (comment) elements.push(<React.Fragment key={`c-${key}`}>{comment}</React.Fragment>);
 
-  const children = node.children || [];
   if (children.length === 0) return elements;
 
   elements.push(

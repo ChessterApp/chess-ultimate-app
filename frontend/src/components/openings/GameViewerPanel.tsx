@@ -76,6 +76,8 @@ interface GameViewerPanelProps {
   /** Rename a variation; receives the trimmed title, or null when cleared. */
   onTitleChange?: (title: string | null) => void;
   voiceNotes?: VoiceNotePlayback;
+  /** Shown above the tree notation (the variation fork picker). */
+  forkPicker?: React.ReactNode;
 }
 
 export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; startingFen: string } {
@@ -120,7 +122,7 @@ export default function GameViewerPanel({
   onSaveToMyGames, isSaved = false, onEditGame,
   onToggleFavorite, onDeleteGame, isFavorite = false,
   isEditable, editTree, editSelectedNodeId, onEditNodeSelect, onEditSave, editIsDirty, saveStatus = 'idle', onRetrySave, editContextMenuActions,
-  onTreePrev, onTreeNext, onTreeGoToStart, onTreeGoToEnd, onTitleChange, voiceNotes,
+  onTreePrev, onTreeNext, onTreeGoToStart, onTreeGoToEnd, onTitleChange, voiceNotes, forkPicker,
 }: GameViewerPanelProps) {
   const t = useTranslations('debut');
   const [saving, setSaving] = useState(false);
@@ -348,6 +350,7 @@ export default function GameViewerPanel({
         ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }
         : { flex: 1, overflow: 'auto', p: 1, maxHeight: { xs: 150, lg: 'none' } }}
       >
+        {useTreeMode && forkPicker && <Box sx={{ flex: 'none', px: 1, pt: 1 }}>{forkPicker}</Box>}
         {useTreeMode && MoveNotation ? (
           <MoveNotation
             tree={editTree}

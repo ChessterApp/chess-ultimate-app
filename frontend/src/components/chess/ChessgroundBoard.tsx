@@ -5,6 +5,7 @@ import { Chessground as ChessgroundApi } from 'chessground';
 import { Api } from 'chessground/api';
 import { Config } from 'chessground/config';
 import { Key, Color } from 'chessground/types';
+import type { DrawBrushes, DrawShape } from 'chessground/draw';
 import { Chess } from 'chess.js';
 import 'chessground/assets/chessground.base.css';
 import 'chessground/assets/chessground.brown.css';
@@ -12,6 +13,7 @@ import '@/styles/chessground-theme.css';
 import { DEFAULT_BOARD_ANIMATION_DURATION } from '@/lib/setting/helper';
 import { isPromotionMove, type PromotionRole } from '@/lib/chess/promotion';
 import PromotionOverlay from './PromotionOverlay';
+import { FORK_BRUSHES } from '@/lib/variationFork';
 
 interface ChessgroundBoardProps {
   fen: string;
@@ -34,6 +36,8 @@ interface ChessgroundBoardProps {
   hintMove?: [Key, Key] | null;
   /** Optional hint circle on a square (green auto-shape); can coexist with `hintMove`. */
   hintSquare?: Key | null;
+  /** Extra presentational auto-shapes (e.g. variation-fork arrows), drawn after the hints. */
+  extraAutoShapes?: DrawShape[];
   check?: boolean; // Auto-highlight king in check based on FEN
   boardSize?: number;
   animationDuration?: number;
@@ -57,11 +61,13 @@ interface ChessgroundBoardProps {
 // useLayoutEffect warns during SSR; fall back to useEffect on the server.
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
-function hintShapes(hintMove: [Key, Key] | null, hintSquare: Key | null) {
-  const shapes: { orig: Key; dest?: Key; brush: string }[] = [];
+const NO_SHAPES: DrawShape[] = [];
+
+function hintShapes(hintMove: [Key, Key] | null, hintSquare: Key | null, extra: DrawShape[] = NO_SHAPES) {
+  const shapes: DrawShape[] = [];
   if (hintMove) shapes.push({ orig: hintMove[0], dest: hintMove[1], brush: 'green' });
   if (hintSquare) shapes.push({ orig: hintSquare, brush: 'green' });
-  return shapes;
+  return extra.length ? [...shapes, ...extra] : shapes;
 }
 
 /**
@@ -79,6 +85,7 @@ export default function ChessgroundBoard({
   lastMove = null,
   hintMove = null,
   hintSquare = null,
+  extraAutoShapes = NO_SHAPES,
   check = true, // Enable check highlighting by default
   boardSize,
   animationDuration = DEFAULT_BOARD_ANIMATION_DURATION,
@@ -402,7 +409,9 @@ export default function ChessgroundBoard({
           dest: arrow.to,
           brush: arrow.brush,
         })),
-        autoShapes: hintShapes(hintMove, hintSquare),
+        autoShapes: hintShapes(hintMove, hintSquare, extraAutoShapes),
+        // Deep-merged into chessground's default brushes, so a partial set is fine.
+        brushes: FORK_BRUSHES as unknown as DrawBrushes,
       },
 
       highlight: {
@@ -506,12 +515,12 @@ export default function ChessgroundBoard({
     })));
   }, [arrows]);
 
-  // Update the hint auto-shapes (green from→to arrow, green square circle)
-  // independently of any user-drawn shapes. setAutoShapes leaves user shapes untouched.
+  // Update the hint auto-shapes (green from→to arrow, green square circle, extra
+  // shapes) independently of any user-drawn shapes. setAutoShapes leaves user shapes untouched.
   useEffect(() => {
     if (!cgRef.current) return;
-    cgRef.current.setAutoShapes?.(hintShapes(hintMove, hintSquare));
-  }, [hintMove, hintSquare]);
+    cgRef.current.setAutoShapes?.(hintShapes(hintMove, hintSquare, extraAutoShapes));
+  }, [hintMove, hintSquare, extraAutoShapes]);
 
   // Update square highlights. An empty list must clear them too — otherwise a
   // highlight set by the coach survives set_fen / clear_board.

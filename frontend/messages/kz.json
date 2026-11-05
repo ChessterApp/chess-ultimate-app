@@ -1185,6 +1185,15 @@
       "showLess": "Жасыру",
       "noAnalysis": "Әзірге талдау жоқ",
       "plyCount": "{count} жартылай жүріс",
+      "fork": {
+        "whiteContinuations": "Ақтарда {count} жалғас бар",
+        "blackContinuations": "Қараларда {count} жалғас бар",
+        "keysHint": "1–{count} пернелері",
+        "main": "Негізгі",
+        "moves": "{count} жүріс",
+        "more": "тағы {count}",
+        "option": "{index}-жалғас: {move}"
+      },
       "editTitle": "Атауын өзгерту",
       "titlePlaceholder": "Нұсқа атауы",
       "titleSaveError": "Атауын сақтау мүмкін болмады",

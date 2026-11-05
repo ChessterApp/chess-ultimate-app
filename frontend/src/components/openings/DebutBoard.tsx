@@ -14,7 +14,9 @@ import {
 import { Chess, Square } from 'chess.js';
 import { useLocalStorage } from 'usehooks-ts';
 import type { Key } from 'chessground/types';
+import type { DrawShape } from 'chessground/draw';
 import { debutBoardSize } from '@/lib/debutBoardSize';
+import { FORK_ALT_COLOR } from '@/lib/variationFork';
 import {
   BOARD_THEMES,
   getCurrentThemeColors,
@@ -39,6 +41,10 @@ interface DebutBoardProps {
   squareBadge?: SquareBadge | null;
   /** Width (px) taken beside the board, e.g. by the eval bar; shrinks it on phones. */
   reservedWidth?: number;
+  /** Presentational auto-shapes drawn on the board (e.g. variation-fork arrows). */
+  extraAutoShapes?: DrawShape[];
+  /** Small count badge on the Next button (continuations at a variation fork). */
+  nextBadgeCount?: number;
 }
 
 export interface SquareBadge {
@@ -89,6 +95,7 @@ function SquareBadgeOverlay({ badge, orientation, boardSize }: { badge: SquareBa
 export default function DebutBoard({
   fen, orientation, onMove, customArrows = [],
   onReset, onGoToStart, onPrev, onNext, onGoToEnd, onFlip, squareBadge, reservedWidth = 0,
+  extraAutoShapes, nextBadgeCount,
 }: DebutBoardProps) {
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
 
@@ -133,6 +140,7 @@ export default function DebutBoard({
           boardSize={boardSize}
           onMove={handleMove}
           arrows={customArrows}
+          extraAutoShapes={extraAutoShapes}
           showCoordinates={showCoordinates}
           animationDuration={animationDuration}
           movable={true}
@@ -157,10 +165,10 @@ export default function DebutBoard({
           { icon: <CBResetIcon sx={{ width: 22, height: 22 }} />, onClick: onReset, title: 'Reset board', flex: 1 },
           { icon: <CBGoToStartIcon sx={{ width: 18, height: 14 }} />, onClick: onGoToStart, title: 'Go to start', flex: 1 },
           { icon: <CBPreviousMoveIcon sx={{ width: 14, height: 15 }} />, onClick: onPrev, title: 'Previous move', flex: 1.42 },
-          { icon: <CBNextMoveIcon sx={{ width: 14, height: 15 }} />, onClick: onNext, title: 'Next move', flex: 1.42 },
+          { icon: <CBNextMoveIcon sx={{ width: 14, height: 15 }} />, onClick: onNext, title: 'Next move', flex: 1.42, badge: nextBadgeCount },
           { icon: <CBGoToEndIcon sx={{ width: 18, height: 14 }} />, onClick: onGoToEnd, title: 'Go to end', flex: 1 },
           { icon: <CBFlipBoardIcon sx={{ width: 26, height: 22 }} />, onClick: onFlip, title: 'Flip board', flex: 1 },
-        ].map((btn, i) => (
+        ].map((btn: { icon: React.ReactNode; onClick: () => void; title: string; flex: number; badge?: number }, i) => (
           <Box
             key={i}
             onClick={btn.onClick}
@@ -171,6 +179,7 @@ export default function DebutBoard({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              position: 'relative',
               cursor: 'pointer',
               userSelect: 'none',
               color: 'text.secondary',
@@ -183,6 +192,31 @@ export default function DebutBoard({
             }}
           >
             {btn.icon}
+            {btn.badge ? (
+              <Box
+                component="span"
+                data-testid="next-badge"
+                aria-hidden
+                sx={{
+                  position: 'absolute',
+                  top: 4,
+                  left: 'calc(50% + 6px)',
+                  minWidth: 14,
+                  height: 14,
+                  px: '3px',
+                  borderRadius: '7px',
+                  bgcolor: FORK_ALT_COLOR,
+                  color: '#fff',
+                  fontSize: 9,
+                  fontWeight: 700,
+                  lineHeight: '14px',
+                  textAlign: 'center',
+                  boxSizing: 'border-box',
+                }}
+              >
+                {btn.badge}
+              </Box>
+            ) : null}
           </Box>
         ))}
       </Box>

@@ -1185,6 +1185,15 @@
       "showLess": "Свернуть",
       "noAnalysis": "Анализов пока нет",
       "plyCount": "{count, plural, one {# полуход} few {# полухода} other {# полуходов}}",
+      "fork": {
+        "whiteContinuations": "{count, plural, one {У белых # продолжение} few {У белых # продолжения} other {У белых # продолжений}}",
+        "blackContinuations": "{count, plural, one {У чёрных # продолжение} few {У чёрных # продолжения} other {У чёрных # продолжений}}",
+        "keysHint": "клавиши 1–{count}",
+        "main": "Основной",
+        "moves": "{count, plural, one {# ход} few {# хода} other {# ходов}}",
+        "more": "ещё {count}",
+        "option": "Продолжение {index}: {move}"
+      },
       "editTitle": "Изменить название",
       "titlePlaceholder": "Название варианта",
       "titleSaveError": "Не удалось сохранить название",

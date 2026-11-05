@@ -88,6 +88,8 @@ import { useGameMoveTree, findNodeById as findGameTreeNode, findParentOf as find
 import type { MoveContextMenuActions, VoiceNotePlayback } from '@/components/openings/MoveNotation';
 import type { SquareBadge } from '@/components/openings/DebutBoard';
 import { NAGS, moveQualityNag, nagBadgeColor } from '@/lib/nags';
+import { getForkOptions, rememberPath, followRememberedLine, forkArrowShapes, type ForkMemory } from '@/lib/variationFork';
+import VariationForkPicker from '@/components/openings/VariationForkPicker';
 import { Close } from '@mui/icons-material';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -281,6 +283,9 @@ export default function DebutPage() {
   const gameMoveTree = useGameMoveTree();
   const [editTreeSelectedNodeId, setEditTreeSelectedNodeId] = useState<string | null>(null);
   const [editTreeGameId, setEditTreeGameId] = useState<string | null>(null);
+  // Which child the user last entered at each fork, and the ↑/↓ highlight at the current one.
+  const [forkMemory, setForkMemory] = useState<ForkMemory>({});
+  const [forkHighlight, setForkHighlight] = useState<{ nodeId: string; index: number } | null>(null);
 
   const handleSaveToMyGames = useCallback(async (game: OpenedGame): Promise<boolean> => {
     try {
@@ -401,6 +406,8 @@ export default function DebutPage() {
       gameMoveTree.initFromPgn(activeGameForTree.pgn);
       setEditTreeGameId(activeGameForTree.id);
       setEditTreeSelectedNodeId(null);
+      setForkMemory({});
+      setForkHighlight(null);
     }
   }, [isActiveGameTree, activeGameForTree?.id, activeGameForTree?.pgn, editTreeGameId, gameMoveTree]);
 
@@ -623,6 +630,24 @@ export default function DebutPage() {
     return { square: node.move_uci.slice(2, 4), symbol: quality.symbol, color: nagBadgeColor(quality) };
   }, [isActiveGameTree, gameMoveTree.tree, editTreeSelectedNodeId]);
 
+  // ─── Variation forks: picker rows, board arrows, fork-aware Next / Go-to-end ───
+  const editTreeCurrentId = editTreeSelectedNodeId ?? gameMoveTree.tree?.id ?? null;
+  const forkOptions = useMemo(
+    () => (isActiveGameTree ? getForkOptions(gameMoveTree.tree, editTreeCurrentId) : []),
+    [isActiveGameTree, gameMoveTree.tree, editTreeCurrentId],
+  );
+  // Defaults to the remembered branch, else the main line.
+  const forkHighlightIndex = !forkOptions.length ? 0
+    : forkHighlight?.nodeId === editTreeCurrentId ? forkHighlight.index
+    : forkOptions.find(o => o.nodeId === forkMemory[editTreeCurrentId!])?.index ?? 1;
+  const forkShapes = useMemo(() => forkArrowShapes(forkOptions, forkHighlightIndex), [forkOptions, forkHighlightIndex]);
+
+  // Entering a node by any means (picker, notation, board move, Next) remembers every fork on its path.
+  useEffect(() => {
+    if (!isActiveGameTree || !gameMoveTree.tree || !editTreeSelectedNodeId) return;
+    setForkMemory(m => rememberPath(gameMoveTree.tree!, editTreeSelectedNodeId, m));
+  }, [isActiveGameTree, gameMoveTree.tree, editTreeSelectedNodeId]);
+
   // ─── Tree navigation callbacks (for DebutBoard arrows + keyboard in tree mode) ───
   const handleEditTreePrev = useCallback(() => {
     if (!gameMoveTree.tree || !editTreeSelectedNodeId) return;
@@ -633,8 +658,9 @@ export default function DebutPage() {
   const handleEditTreeNext = useCallback(() => {
     if (!gameMoveTree.tree) return;
     const node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId ?? gameMoveTree.tree.id);
-    if (node?.children?.length) setEditTreeSelectedNodeId(node.children[0].id);
-  }, [gameMoveTree.tree, editTreeSelectedNodeId]);
+    if (!node?.children?.length) return;
+    setEditTreeSelectedNodeId(forkOptions[forkHighlightIndex - 1]?.nodeId ?? node.children[0].id);
+  }, [gameMoveTree.tree, editTreeSelectedNodeId, forkOptions, forkHighlightIndex]);
 
   const handleEditTreeGoToStart = useCallback(() => {
     if (!gameMoveTree.tree) return;
@@ -643,11 +669,21 @@ export default function DebutPage() {
 
   const handleEditTreeGoToEnd = useCallback(() => {
     if (!gameMoveTree.tree) return;
-    let node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId ?? gameMoveTree.tree.id);
+    const node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId ?? gameMoveTree.tree.id);
     if (!node) return;
-    while (node.children?.length) node = node.children[0];
-    setEditTreeSelectedNodeId(node.id);
-  }, [gameMoveTree.tree, editTreeSelectedNodeId]);
+    const picked = forkOptions[forkHighlightIndex - 1]?.nodeId;
+    setEditTreeSelectedNodeId(followRememberedLine(node, picked ? { ...forkMemory, [node.id]: picked } : forkMemory).id);
+  }, [gameMoveTree.tree, editTreeSelectedNodeId, forkOptions, forkHighlightIndex, forkMemory]);
+
+  const forkPicker = forkOptions.length ? (
+    <VariationForkPicker
+      key={editTreeCurrentId}
+      options={forkOptions}
+      highlightedIndex={forkHighlightIndex}
+      turn={editTreeFen?.split(' ')[1] === 'b' ? 'black' : 'white'}
+      onSelect={setEditTreeSelectedNodeId}
+    />
+  ) : null;
 
   // ─── My Games tab board interaction handlers ───
   const myGamesFen = myGamesMoveHistory[myGamesMoveIndex];
@@ -1382,6 +1418,22 @@ export default function DebutPage() {
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      // At a fork: ↑/↓ move the highlight, 1–9 enter that continuation.
+      if (forkOptions.length && editTreeCurrentId && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          const step = e.key === 'ArrowUp' ? -1 : 1;
+          const index = Math.min(forkOptions.length, Math.max(1, forkHighlightIndex + step));
+          setForkHighlight({ nodeId: editTreeCurrentId, index });
+          return;
+        }
+        const pick = /^[1-9]$/.test(e.key) ? forkOptions[Number(e.key) - 1] : undefined;
+        if (pick) {
+          e.preventDefault();
+          setEditTreeSelectedNodeId(pick.nodeId);
+          return;
+        }
+      }
       switch (e.key) {
         case 'ArrowLeft': e.preventDefault(); handlePrev(); break;
         case 'ArrowRight': e.preventDefault(); handleNext(); break;
@@ -1391,7 +1443,7 @@ export default function DebutPage() {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [handlePrev, handleNext, handleGoToStart, handleGoToEnd]);
+  }, [handlePrev, handleNext, handleGoToStart, handleGoToEnd, forkOptions, forkHighlightIndex, editTreeCurrentId]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: { xs: 'auto', lg: '100vh' }, bgcolor: 'var(--surface-page)' }}>
@@ -1507,6 +1559,8 @@ export default function DebutPage() {
             onGoToEnd={activeTab === 'debut' ? handleGoToEnd : (isActiveGameTree ? handleEditTreeGoToEnd : (activeTab === 'my-games' && !activeGame ? handleMyGamesGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)))}
             onFlip={handleFlip}
             squareBadge={activeTab !== 'debut' && activeGame ? editTreeBadge : null}
+            extraAutoShapes={forkShapes}
+            nextBadgeCount={forkOptions.length || undefined}
           />
           </Box>
 
@@ -1645,6 +1699,7 @@ export default function DebutPage() {
                 onTreeNext={isActiveGameTree ? handleEditTreeNext : undefined}
                 onTreeGoToStart={isActiveGameTree ? handleEditTreeGoToStart : undefined}
                 onTreeGoToEnd={isActiveGameTree ? handleEditTreeGoToEnd : undefined}
+                forkPicker={forkPicker}
               />
             </Box>
           )}
@@ -1745,6 +1800,7 @@ export default function DebutPage() {
                 onRetrySave={isActiveGameEditable ? handleRetrySave : undefined}
                 editContextMenuActions={editContextMenuActions}
                 voiceNotes={voicePlayback}
+                forkPicker={forkPicker}
               />
             </Box>
           ) : null}

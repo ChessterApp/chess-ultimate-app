@@ -1185,6 +1185,15 @@
       "showLess": "Show less",
       "noAnalysis": "No analysis yet",
       "plyCount": "{count, plural, one {# ply} other {# plies}}",
+      "fork": {
+        "whiteContinuations": "{count, plural, one {White has # continuation} other {White has # continuations}}",
+        "blackContinuations": "{count, plural, one {Black has # continuation} other {Black has # continuations}}",
+        "keysHint": "1–{count} keys",
+        "main": "Main",
+        "moves": "{count, plural, one {# move} other {# moves}}",
+        "more": "+{count} more",
+        "option": "Continuation {index}: {move}"
+      },
       "editTitle": "Edit title",
       "titlePlaceholder": "Variation title",
       "titleSaveError": "Couldn't save the title",

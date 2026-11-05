@@ -45,3 +45,17 @@ describe('DebutBoard square badge', () => {
     expect(screen.queryByTestId('square-badge')).toBeNull();
   });
 });
+
+describe('DebutBoard Next badge', () => {
+  it('shows the continuation count on the Next button at a fork', () => {
+    renderBoard({ nextBadgeCount: 3 });
+    const badge = screen.getByTestId('next-badge');
+    expect(badge.textContent).toBe('3');
+    expect(screen.getByTitle('Next move').contains(badge)).toBe(true);
+  });
+
+  it('shows no badge otherwise', () => {
+    renderBoard({});
+    expect(screen.queryByTestId('next-badge')).toBeNull();
+  });
+});

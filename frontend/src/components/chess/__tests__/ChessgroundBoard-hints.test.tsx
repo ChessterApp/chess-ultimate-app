@@ -44,4 +44,17 @@ describe('ChessgroundBoard hint shapes', () => {
     rerender(<ChessgroundBoard fen={START} />);
     expect(setAutoShapes).toHaveBeenLastCalledWith([]);
   });
+
+  it('appends extra auto-shapes (fork arrows) after the hints and registers the fork brushes', () => {
+    const fork = [{ orig: 'g1', dest: 'f3', brush: 'forkMain', modifiers: { lineWidth: 9 }, label: { text: '1' } }] as any;
+    const { rerender } = render(<ChessgroundBoard fen={START} extraAutoShapes={fork} />);
+    expect(capturedConfig.drawable.autoShapes).toEqual(fork);
+    expect(Object.keys(capturedConfig.drawable.brushes)).toEqual(['forkMain', 'forkAlt', 'forkAltActive']);
+
+    rerender(<ChessgroundBoard fen={START} hintSquare="e2" extraAutoShapes={fork} />);
+    expect(setAutoShapes).toHaveBeenLastCalledWith([{ orig: 'e2', brush: 'green' }, ...fork]);
+
+    rerender(<ChessgroundBoard fen={START} hintSquare="e2" />);
+    expect(setAutoShapes).toHaveBeenLastCalledWith([{ orig: 'e2', brush: 'green' }]);
+  });
 });
