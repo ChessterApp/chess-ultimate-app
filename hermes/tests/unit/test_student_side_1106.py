@@ -323,3 +323,144 @@ def test_a_square_taken_on_is_the_capture_not_the_pawn_move(question, pgn):
     assert (side.color, side.source) == (W, "their_move"), side
     ctx = _ctx(question, VIENNA, pgn)
     assert check_sentence("Пешка f4 не защищена, её атакует твой слон c1.", ctx) == []
+
+
+# ── review 06.11: subjects that play no move, colours that are objects, the dropped «я», the shadow switch ─────────
+
+E4E5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+ITALIAN = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"
+RUY = "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4"
+RUY_BA4 = "r1bqkbnr/1ppp1ppp/p1n5/4p3/B3P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 1 4"  # after 4.Ba4: the bishop stands there
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("question,fen", [
+    # the engine recommends, it is not the opponent; an object is not a subject; an unplayed move told as done
+    ("Движок советует Nf3. Почему?", E4E5),
+    ("The engine suggests Nf3 here, why?", E4E5),
+    ("Что угрожает сопернику после Nf3?", E4E5),
+    ("Почему здесь они сыграли Nf3?", E4E5),
+    # a side named, not the student's: the opponent's reply, an object, a possessive, a square colour
+    ("What's the best move for Black here?", E4E5),
+    ("I have black's knight pinned", E4E5),
+    ("Как атаковать чёрных?", E4E5),
+    ("Как лучше атаковать чёрных на ферзевом фланге?", E4E5),
+    ("У меня белые поля слабые", E4E5),
+    ("I have the white-squared bishop", E4E5),
+    # «я» with no move verb: stopping the opponent's threat
+    ("Я боюсь Ng5, как защититься?", ITALIAN),
+    ("Как я могу помешать Ng5?", ITALIAN),
+    ("How can I stop Ng5?", ITALIAN),
+    ("I am worried about Ng5. What now?", ITALIAN),
+    # a colour subject nearer the move than «я»; Russian instrumentals are no Kazakh verb
+    ("Я думаю, белые сыграли Ba4 зря", RUY_BA4),
+    ("Я разбираю партию Карлсена: почему белые сыграли Ba4?", RUY_BA4),
+    ("Почему белые сыграли Ba4 четвёртым ходом?", RUY_BA4),
+    ("Почему белые сыграли Bb5 простым развитием?", RUY),
+    ("Можно сыграть Nc3 простым ходом?", E4E5),
+])
+def test_review_1106_no_exact_side(question, fen):
+    side = decide(question, fen)
+    assert not side.exact and check_color(side) is None, (question, side)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("question,fen,color,source", [
+    # the dropped «я» (2026-10-08 covered it through «already played»)
+    ("Сыграл Qb6. Это мат?", QB6, W, "own_move"),
+    ("Пошёл ферзём на b6, мат?", QB6, W, "own_move"),
+    ("А потом сыграл Qb6, мат?", QB6, W, "own_move"),
+    ("Мой последний ход Qb6, мат?", QB6, W, "own_move"),
+    # the student playing, with a play verb
+    ("Если я сыграю Nf3, что будет?", E4E5, W, "own_move"),
+    ("I want to play Nf3", E4E5, W, "own_move"),
+    ("Что если соперник сыграет Ng5?", ITALIAN, B, "their_move"),
+    # the side said, the phrase ending at the colour or in the instrumental / «за»
+    ("У меня белые фигуры, что делать?", E4E5, W, "said"),
+    ("Что делать за белых?", E4E5, W, "said"),
+    ("How do I defend as Black?", E4E5, B, "said"),
+    ("I have the white pieces", E4E5, W, "said"),
+])
+def test_review_1106_still_decided(question, fen, color, source):
+    side = decide(question, fen)
+    assert (side.color, side.source) == (color, source), (question, side)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("question", ["Он сыграл Qb6, это мат?", "Сыграл бы Qb6?", "Карлсен сыграл Qb6"])
+def test_the_dropped_i_needs_a_clause_of_its_own(question):
+    assert not decide(question, QB6).exact
+
+
+@pytest.mark.unit
+def test_they_about_the_database_game_is_no_opponent():
+    assert decide("Почему они сыграли Qb6?", QB6).source == "their_move"
+    assert not decide("Почему они сыграли Qb6?", QB6, master_game=True).exact
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("question,fen,sentence", [
+    ("Движок советует Nf3. Почему?", E4E5, "После Nf3 твой конь нападает на пешку e5."),
+    ("Что угрожает сопернику после Nf3?", E4E5, "После Nf3 твой конь нападает на пешку e5."),
+    ("Как я могу помешать Ng5?", ITALIAN, "Твой конь c6 защищает пешку e5."),
+    ("How can I stop Ng5?", ITALIAN, "Твой конь c6 защищает пешку e5."),
+    ("Как атаковать чёрных?", E4E5, "Твой конь g1 может пойти на f3."),
+    ("Я думаю, белые сыграли Ba4 зря", RUY_BA4, "Твоя пешка b7 может пойти на b5."),
+    ("Почему белые сыграли Ba4 четвёртым ходом?", RUY_BA4, "Твой конь c6 защищает пешку e5."),
+])
+def test_review_1106_true_sentences_kept_with_the_switch_on(monkeypatch, question, fen, sentence):
+    from src import config
+
+    monkeypatch.setattr(config, "COACH_STUDENT_SIDE", "on", raising=False)
+    assert check_sentence(sentence, _ctx(question, fen)) == [], question
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("question,fen,answer", [
+    ("Движок советует Nf3. Почему?", E4E5, "После Nf3 твой конь нападает на пешку e5."),
+    ("The engine suggests Nf3 here, why?", E4E5, "После Nf3 твой конь нападает на пешку e5."),
+    ("Что угрожает сопернику после Nf3?", E4E5, "После Nf3 твой конь нападает на пешку e5."),
+    ("Сыграл Qb6. Это мат?", QB6, "Твой ферзь на b6 стоит рядом с королём."),
+    ("Пошёл ферзём на b6, мат?", QB6, "Твой ферзь на b6 стоит рядом с королём."),
+])
+@pytest.mark.parametrize("how", ["shadow", "on"])
+def test_review_1106_through_the_server(monkeypatch, question, fen, answer, how):
+    from src import config
+
+    monkeypatch.setattr(config, "COACH_STUDENT_SIDE", how, raising=False)
+    shown, model_saw = _turn(monkeypatch, f"side-r-{how}", question, fen, answer)
+    assert answer in shown, (question, how, shown)
+    if fen == E4E5:
+        assert "## The student's side" not in model_saw
+
+
+@pytest.mark.unit
+def test_shadow_applies_only_where_the_server_pinned_before():
+    from src.student_side import applied, legacy_color
+
+    said = decide("Я играю чёрными. Что сделают белые?", P25)
+    assert said.exact
+    assert check_color(applied(said, None, "shadow")) is None  # 04.11 pinned nothing here: logged only
+    assert check_color(applied(said, None, "on")) == B
+    told = decide("Они сыграли f5. Брать?", P25, pgn=P25_PGN)
+    legacy = legacy_color([{"verdict": "already played (16...f5)"}], P25)
+    assert legacy == B  # the 04.11 pin: the side that just moved
+    assert check_color(applied(told, legacy, "shadow")) == W  # corrected
+    assert check_color(applied(told, legacy, "off")) == B  # 04.11 as it was
+    assert applied(told, legacy, "off").note(chess.Board(P25)) == ""
+    guess = decide("Белые поставили коня на d5. Брать?", P46)
+    assert check_color(applied(guess, True, "shadow")) is None  # the wrong pin dropped
+    game = decide("x", P25, game_state={"student_color": "black"})
+    assert check_color(applied(game, None, "shadow")) == B
+
+
+@pytest.mark.unit
+def test_shadow_tells_the_model_no_side_the_old_server_did_not_pin(monkeypatch):
+    from src import config
+
+    monkeypatch.setattr(config, "COACH_STUDENT_SIDE", "shadow", raising=False)
+    _shown, model_saw = _turn(monkeypatch, "side-sh", "Я играю чёрными. Что сделают белые?", P25, "Подумай.")
+    assert "## The student's side" not in model_saw
+    monkeypatch.setattr(config, "COACH_STUDENT_SIDE", "on", raising=False)
+    _shown, model_saw = _turn(monkeypatch, "side-on", "Я играю чёрными. Что сделают белые?", P25, "Подумай.")
+    assert "The student plays Black" in model_saw

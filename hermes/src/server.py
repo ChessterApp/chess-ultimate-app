@@ -2498,14 +2498,21 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # Whose side the student plays: decided once, from the game, the student's words and who the question says made a
     # move (src/student_side.py, 06.11) — the same decision goes to the model (the block below) and to every check
     # (check_ctx.student_color). «Они сыграли f5» made the student the side that had just moved (shipped1104 t25, t46).
-    from src.student_side import StudentSide, decide as decide_student_side
+    # COACH_STUDENT_SIDE=shadow (default): applied only where the 04.11 server pinned a side; logged every turn.
+    from src import student_side as _side
 
     try:
-        student_side = decide_student_side(body.message, session.board_state, pgn=active_board.pgn,
-                                           game_state=active_board.game_state if live_game else None)
+        side_decided = _side.decide(body.message, session.board_state, pgn=active_board.pgn,
+                                    game_state=active_board.game_state if live_game else None,
+                                    master_game=bool((active_board.source or {}).get("twic_game_id")))
+        side_legacy = _side.legacy_color(named_moves, session.board_state)
+        student_side = _side.applied(side_decided, side_legacy)
+        if side_decided.exact or side_legacy is not None:
+            log_event("student_side", surface="text", user_id=user_id, session_id=session.id, turn_id=turn_id,
+                      payload=_side.log_payload(side_decided, student_side, side_legacy))
     except Exception:  # noqa: BLE001 — the checks fall back to the side to move
         logger.debug("student side failed", exc_info=True)
-        student_side = StudentSide(None, "none")
+        student_side = _side.StudentSide(None, "none")
 
     # The agent does not depend on the prompt (it only stores it), so it is
     # built while the profile arrives and the prompt is assembled.
@@ -2786,9 +2793,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # The student's colour is the turn's one decision (src/student_side.py): the game's, the colour the student
         # said, or the one the move they told shows («Я сыграл Qb6. Это мат?» — White, 2026-10-08; «Они сыграли f5» —
         # the other side, 06.11). Guessed (the side to move), it stays None: the checks read «ты» on their own then.
-        from src.student_side import check_color
-
-        student_color = check_color(student_side)
+        student_color = _side.check_color(student_side)
         if live_game and student_color is None:
             student_color = chess.WHITE if active_board.game_state.get("student_color") == "white" else chess.BLACK
         check_ctx = CheckContext.from_fens(
@@ -5025,12 +5030,17 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         ctx = CheckContext.from_fens([body.fen] + ideas, [body.pgn] if body.pgn else [], question=heard.question)
         # The student's side as the text turn decides it (src/student_side.py): «они сыграли f5» said aloud makes the
         # student the other side, «я играю чёрными» Black; a game on the board decides it below.
+        # COACH_STUDENT_SIDE=shadow (default): the 04.11 voice check pinned no side, so it is only logged.
         try:
-            from src.student_side import check_color, decide as decide_student_side
+            from src import student_side as _side
 
-            side = decide_student_side(heard.question or "", body.fen, pgn=body.pgn)
-            ctx.student_color = check_color(side)
+            decided = _side.decide(heard.question or "", body.fen, pgn=body.pgn)
+            side = _side.applied(decided, None)
+            ctx.student_color = _side.check_color(side)
             ctx.student_side_why = side.why() if ctx.student_color is not None else ""
+            if decided.exact:
+                log_event("student_side", surface="voice", user_id=user_id,
+                          payload=_side.log_payload(decided, side, None))
         except Exception:  # noqa: BLE001 — the check reads «ты» as the side to move then
             logger.debug("voice student side failed", exc_info=True)
         # The moves the student asked about are quoted, not advised, however the question names them: a question said
