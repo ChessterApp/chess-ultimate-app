@@ -43,6 +43,9 @@ NAME = {chess.PAWN: "pawn", chess.KNIGHT: "knight", chess.BISHOP: "bishop", ches
 PIECES = (chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT)
 # Captures this many plies apart (or closer) are one exchange: 20...Bxd5 21.Nxd8 Bxf3 22.Ne6 Bd5 23.Nxf8 Kxf8.
 GROUP_GAP = 3
+# A trade said in one breath may span captures this many plies apart (five moves): a sacrifice paid back a few moves
+# later («отдали ферзя за ладью и слона»: 1.Qxd8 Rxd8 … 4.Nxe4) is one trade, though two exchanges of the facts.
+TRADE_HORIZON = 10
 # A lead «kept» («остались с лишней пешкой», «долго играли с лишней пешкой») held for at least this many positions
 # (two moves); 18.Qxd5 … 19...Nxf2 held three.
 STABLE_PLIES = 4
@@ -432,6 +435,15 @@ _FINAL = re.compile(_B + r"(?:в\s+итоге|в\s+конце|к\s+концу|в
 _KEPT = re.compile(_B + r"(?:остал\w*|сохранил\w*|сохраня\w*|удерж\w*|долго|долгое|весь|всю|вс[её]\s+время|до\s+конца|"
                    r"играл\w*\s+с|игра\w*\s+с|реализ\w*|kept|keep|remained|stayed|held|for\s+a\s+long|the\s+rest|"
                    r"played\s+(?:on\s+)?with|convert\w*)" + _E, re.IGNORECASE)
+# The sentence limits the lead it tells: «ненадолго», «лишь на полтора хода», «до 19...Nxf2», «, но на 19-м ходу чёрные
+# её вернули», "briefly", "only for a move", "but Black won it back".
+_BRIEF = re.compile(
+    _B + r"(?:ненадолго|недолго|ненадолг\w*|лишь|всего|только|на\s+(?:один|одну|пару|полтора|два|две|три|[1-9])\s+"
+    r"(?:ход\w*|полуход\w*|мгновени\w*)|на\s+мгновени\w*|до\s+\d+(?:-\w+)?|briefly|only|for\s+(?:a|one|two|a\s+couple\s+of)\s+"
+    r"(?:moves?|plies|ply|moment)|until\s+(?:move\s+)?\d+)" + _E
+    + r"|" + _B + r"(?:но|однако|but|until)" + _E + r"[^.;!?]*?" + _B
+    + r"(?:верн\w*|отыгр\w*|отдал\w*|потерял\w*|отобрал\w*|won\s+it\s+back|regain\w*|gave\s+it\s+back|returned|lost\s+it)"
+    + _E, re.IGNORECASE)
 
 
 # A lead said as one: «лишняя пешка», «впереди на ладью», «на пешку больше», «перевес в качество», "a pawn up" — not
@@ -475,7 +487,9 @@ def ending_issues(low: str, story: GameStory, about: Optional[bool]) -> list:
                 continue  # «это не ладейный эндшпиль», «в ладейном эндшпиле обычно…»
             if about is not True and not _HAPPENED.search(clause):
                 continue  # «ладейный эндшпиль — это…», a rule; the board now is the board check's
-            final = bool(_FINAL.search(clause))
+            # «в итоге» / «закончилась» of the ending's own sub-clause only: «был ладейный эндшпиль, и в итоге белые
+            # провели ферзя» says the rook ending happened, and the game ended with a queen promoted from it.
+            final = bool(_FINAL.search(part))
             positions = [len(story.boards) - 1] if final else list(range(len(story.boards)))
             if _ending_matches(story, kind, positions):
                 continue
@@ -515,54 +529,71 @@ _SIDE_WORD = re.compile(_B + r"(?:(?P<w>белые|белым|белых|white)|
                         re.IGNORECASE)
 
 
-def _items(text: str) -> list:
-    out = []
+# A plural said with no number: «отдали ферзя за ладьи», «за коней», "for rooks" — two or more, not one.
+_PLURAL = frozenset({"ферзей", "ладьи", "ладей", "коней", "слонов", "пешки", "пешек", "фигуры", "фигур", "queens",
+                     "rooks", "knights", "bishops", "pawns", "pieces"})
+
+
+def _items(text: str) -> tuple:
+    """(the pieces named, the kinds whose count is only a lower bound): «ферзя и ладью» → ([Q, R], set()); «ладьи»
+    with no number → ([R, R], {R}) — two or more."""
+    out, open_kinds = [], set()
     for m in re.finditer(_ITEM, text, re.IGNORECASE):
         words = m.group(0).lower().split()
-        n = _COUNT.get(words[0], 1) if len(words) > 1 else 1
         piece = _ACC.get(words[-1])
         if piece is None:
-            return []
-        if words[-1] in ("пешки", "ладьи", "фигуры") and len(words) == 1:
-            n = 1  # the accusative singular is «пешку»; «пешки» alone is the genitive of one
+            return [], set()
+        counted = words[0] in _COUNT and len(words) > 1
+        n = _COUNT[words[0]] if counted else 1
+        if not counted and words[-1] in _PLURAL:
+            n = 2
+            open_kinds.add(piece)
         out += [piece] * n
-    return out
+    return out, open_kinds
 
 
-def _fits(want: list, got: list) -> bool:
-    """The pieces *want* (pawns aside; «фигура» a knight or a bishop) are exactly the pieces *got*."""
+def _fits(want: list, got: list, open_kinds: frozenset = frozenset()) -> bool:
+    """The pieces *want* (pawns aside; «фигура» a knight or a bishop) are exactly the pieces *got* — at least as many
+    for the kinds in *open_kinds* (a plural said with no number)."""
     w = Counter(t for t in want if t != chess.PAWN)
     g = Counter(t for t in got if t != chess.PAWN)
     minors = w.pop("minor", 0)
     for t in list(w):
         if g.get(t, 0) < w[t]:
             return False
-        g[t] -= w[t]
+        g[t] = 0 if t in open_kinds else g[t] - w[t]
     rest = +g
-    return sum(rest.values()) == minors and all(t in (chess.KNIGHT, chess.BISHOP) for t in rest)
+    n = sum(rest.values())
+    if not all(t in (chess.KNIGHT, chess.BISHOP) for t in rest):
+        return False
+    return n >= minors if "minor" in open_kinds else n == minors
 
 
 def _windows(story: GameStory):
-    """The runs of captures a sentence may mean by one trade: any run inside an exchange that does not split a capture
-    from its recapture (16.Nxc6 Qxc6 17.Bxb6 Qxb6 has no «knight for bishop» in 16...Qxc6 17.Bxb6)."""
+    """The runs of captures a sentence may mean by one trade: any run of consecutive captures within
+    ``TRADE_HORIZON`` plies — across exchanges, since a sacrifice is often paid back a few moves later (1.Qxd8 Rxd8
+    … 4.Nxe4: the queen for a rook and a bishop) — that does not split a capture from its recapture (16.Nxc6 Qxc6
+    17.Bxb6 Qxb6 has no «knight for bishop» in 16...Qxc6 17.Bxb6)."""
     def recaptures(k, prev):
         return k == prev + 1 and story.moves[k].to_square == story.moves[prev].to_square
 
-    for plies in story.groups():
-        for i in range(len(plies)):
-            if i and recaptures(plies[i], plies[i - 1]):
+    plies = story.captures()
+    for i in range(len(plies)):
+        if i and recaptures(plies[i], plies[i - 1]):
+            continue
+        for j in range(i, len(plies)):
+            if plies[j] - plies[i] > TRADE_HORIZON:
+                break
+            if j + 1 < len(plies) and recaptures(plies[j + 1], plies[j]):
                 continue
-            for j in range(i, len(plies)):
-                if j + 1 < len(plies) and recaptures(plies[j + 1], plies[j]):
-                    continue
-                yield plies[i:j + 1]
+            yield plies[i:j + 1]
 
 
 def trade_issues(original: str, low: str, story: GameStory, sides: callable) -> list:
     """«Белые выиграли ферзя и ладью за ферзя и слона» where no exchange of the game was that."""
     for pattern, took_key, gave_key in _TRADE:
         for m in pattern.finditer(low):
-            took, gave = _items(m[took_key]), _items(m[gave_key])
+            (took, took_open), (gave, gave_open) = _items(m[took_key]), _items(m[gave_key])
             if not [t for t in took if t != chess.PAWN] and not [t for t in gave if t != chess.PAWN]:
                 continue  # pawns only: not judged
             if not took or not gave:
@@ -581,7 +612,7 @@ def trade_issues(original: str, low: str, story: GameStory, sides: callable) -> 
                 white, black = story.took(window)
                 for color in colors:
                     mine, theirs = (white, black) if color == chess.WHITE else (black, white)
-                    if _fits(took, mine) and _fits(gave, theirs):
+                    if _fits(took, mine, took_open) and _fits(gave, theirs, gave_open):
                         ok = True
                         break
                 if ok:
@@ -638,7 +669,9 @@ def lead_issues(original: str, low: str, story: GameStory, sides: callable, abou
         clause = text[claim.at:claim.end]
         sentence = _clause(text, claim.at, claim.end)
         final = bool(_FINAL.search(clause))
-        kept = bool(_KEPT.search(clause))
+        # a lead the sentence itself says was short is no lead kept: «ненадолго остались с лишней пешкой», «…, но на
+        # 19-м ходу чёрные её вернули» — the facts' own «held one move», said back
+        kept = bool(_KEPT.search(clause)) and not _BRIEF.search(sentence)
         if not (final or kept or _HAPPENED.search(clause)):
             continue  # the board now (present tense, even of a sentence naming the players): src/answer_check judges it
         if not _LEAD_WORD.search(claim.span or clause):
@@ -648,11 +681,14 @@ def lead_issues(original: str, low: str, story: GameStory, sides: callable, abou
         color = chess.WHITE if claim.who == "W" else chess.BLACK
         sign = 1 if claim.more else -1
 
-        def holds(i):
-            lead = sign * story.lead(color, i)
+        def holds_balance(balance):
+            lead = sign * (balance if color == chess.WHITE else -balance)
             if claim.hedged:
                 return lead > 0
             return lead >= claim.points if claim.atleast else lead == claim.points
+
+        def holds(i):
+            return holds_balance(story.balance[i])
 
         side = "White" if color == chess.WHITE else "Black"
         span_text = (low[claim.at:claim.end] if len(low) == len(text) else claim.span or clause).strip()
@@ -671,8 +707,19 @@ def lead_issues(original: str, low: str, story: GameStory, sides: callable, abou
                 else:
                     runs.append((first, last))
         if kept:
-            if any(last - first + 1 >= STABLE_PLIES for first, last in runs):
+            # how long a lead held is read on the spans the facts tell (story.steady): a capture the opponent starts and
+            # gets straight back (+1 → -2 → +1) does not end it — «White up 1 after 3.exd5, for 7 plies»
+            held = []
+            steady = story.steady(story.spans())
+            for j, (first, last, balance) in enumerate(steady):
+                if holds_balance(balance):
+                    if held and held[-1][2] == j - 1:
+                        held[-1] = (held[-1][0], last, j)
+                    else:
+                        held.append((first, last, j))
+            if any(last - first + 1 >= STABLE_PLIES for first, last, _ in held):
                 continue
+            runs = [(first, last) for first, last, _ in held] or runs
             if runs:
                 first, last = max(runs, key=lambda r: r[1] - r[0])
                 out.append(f"«{span_text}» does not match the game on the board: {side}'s lead of "

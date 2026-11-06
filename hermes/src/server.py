@@ -675,6 +675,18 @@ def _forget_old_board(agent, moved: dict, old_blocks: list) -> None:
     agent._build_api_kwargs = _build_api_kwargs
 
 
+# The turn context's blocks about the position on the board: its state and analysis, and the database game it shows
+# (its facts and the shown ply, src/game_story.py — 06.11: they stayed after get_game_pgn put another game up).
+BOARD_BLOCK_HEADERS = ("## Current Board State", "## The database game on the board")
+
+
+def turn_board_blocks_of(turn_context: Optional[str]) -> list:
+    """The blocks of *turn_context* under BOARD_BLOCK_HEADERS — what _forget_old_board leaves out once a tool puts a
+    different position up."""
+    heads = "|".join(re.escape(h) for h in BOARD_BLOCK_HEADERS)
+    return re.findall(rf"(?:{heads})\n.*?(?=\n\n## |\Z)", turn_context or "", re.S)
+
+
 def forget_old_board_text(text: str, old_blocks: list) -> str:
     """*text* with every block about the old board replaced by OLD_BOARD_NOTE (once)."""
     noted = False
@@ -2661,7 +2673,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     current_message = attach_turn_context(current_message, turn_context)
     # The blocks about the board the student sent — its state and analysis, the moves they named —
     # leave the model's later calls once a tool puts a different position up (_forget_old_board).
-    turn_board_blocks = re.findall(r"## Current Board State\n.*?(?=\n\n## |\Z)", turn_context or "", re.S)
+    turn_board_blocks = turn_board_blocks_of(turn_context)
     if moves_note:
         turn_board_blocks.append(moves_note)
     if history_messages:

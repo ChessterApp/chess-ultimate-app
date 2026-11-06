@@ -376,7 +376,13 @@ def _game_at(pgn: str, ply: Optional[int], board: chess.Board) -> Optional[tuple
 
 
 def _move_of_another_position(game: tuple, a: int, b: int) -> str:
-    """Why the arrow a→b is a move of the game made on another position than the shown one ('' when it is not)."""
+    """Why the arrow a→b is a move of the game made on another position than the shown one ('' when it is not).
+
+    Called only for an arrow from an empty square that no earlier arrow of the drawing leads to. Past and coming moves
+    alike: on a board browsed back to ply 2 of 1.e4 d5 2.Nf3 Bg4 3.exd5 Nf6 4.Be2 Bxf3 5.Bxf3 a lone e2→f3 for 5.Bxf3
+    points from a square the bishop has not reached — the next move of the game starts from a piece on the board
+    (never judged here), and a line of play is drawn as a chain (f1→e2, e2→f3: the second starts where the first
+    ended). The reason names the nearest such move and whether it was played before or after the shown position."""
     boards, moves, shown = game
     made = [k for k, m in enumerate(moves) if m.from_square == a and m.to_square == b]
     if not made:
@@ -389,12 +395,15 @@ def _move_of_another_position(game: tuple, a: int, b: int) -> str:
         if piece is not None and boards[shown].piece_at(b) == piece \
                 and not any(m.from_square == b or m.to_square == b for m in later):
             return ""  # the piece that made the move still stands there: the arrow traces it
-    k = max((x for x in made if x < shown), default=made[0])
+    k = max((x for x in made if x < shown), default=None)
+    if k is None:
+        k = min(x for x in made if x >= shown)
     label = boards[k].fullmove_number
     san = boards[k].san(moves[k])
     told = f"{label}{'.' if boards[k].turn == chess.WHITE else '...'}{san}"
     where = "the final position" if shown == len(moves) else f"the position after ply {shown}"
-    return f"it is the game's move {told}, made on another position — the board shows {where}"
+    when = "," if k < shown else ", played later in the game,"
+    return f"it is the game's move {told}{when} made on another position — the board shows {where}"
 
 
 def prune_board_actions(actions: list, fen: Optional[str], pgn: Optional[str] = None,

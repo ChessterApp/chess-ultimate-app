@@ -323,3 +323,122 @@ def test_the_text_turn_judges_arrows_against_the_game_the_board_shows():
     assert _shown_game(_Session(), board.id) == (SINDAROV_NAKAMURA, 68)
     _Session.board_state = chess.STARTING_FEN  # the session moved on: no game to judge against
     assert _shown_game(_Session(), board.id) == (None, None)
+
+
+# ── review 06.11: true sentences the first version cut, and the board notes it left behind ──────────────────────────
+
+def _pgn(moves, fen=None, result="*", white=None, black=None):
+    head = f'[Result "{result}"]\n'
+    if white:
+        head += f'[White "{white}"]\n[Black "{black}"]\n'
+    if fen:
+        head += f'[SetUp "1"]\n[FEN "{fen}"]\n'
+    return f"{head}\n{moves} {result}\n"
+
+
+# A lead held through an exchange the opponent starts: +1 after 3.exd5, -2 for one ply after 4...Bxf3, +1 after 5.Bxf3 —
+# the facts say «White up 1 after 3.exd5, for 7 plies».
+HELD_THROUGH = _pgn("1.e4 d5 2.Nf3 Bg4 3.exd5 Nf6 4.Be2 Bxf3 5.Bxf3 Qd6 6.O-O Nxd5 7.Re1 e6")
+# 1.Qxd8 Rxd8 2.Rxd8+: White won 2 rooks for a queen.
+TWO_ROOKS = _pgn("1.Qxd8 Rxd8 2.Rxd8+", "3r1rk1/5pp1/8/3Q4/8/8/5PPP/3R2K1 w - - 0 1", white="Nakamura,Hi",
+                 black="Carlsen,M")
+# A rook ending decided by a promotion: the game ends with queen and rook v rook.
+PROMOTED = _pgn("1.a8=Q+ Kg7", "6k1/P4r2/8/8/8/8/6K1/1R6 w - - 0 1", "1-0")
+# A queen sacrifice paid back three moves later: 1.Qxd8 Rxd8 … 4.Nxe4 — two exchanges in the facts.
+PAID_LATER = _pgn("1.Qxd8 Rxd8 2.Kf1 Kf8 3.Ke1 Ke8 4.Nxe4", "3r1rk1/5ppp/8/3Q4/4b3/2N5/5PPP/6K1 w - - 0 1",
+                  white="Nakamura,Hi", black="Carlsen,M")
+
+RIGHT_1106 = [
+    # a lead kept through a trade the opponent started
+    (HELD_THROUGH, "Белые долго играли с лишней пешкой."),
+    (HELD_THROUGH, "Белые некоторое время сохраняли лишнюю пешку."),
+    # the facts' own «held one move», said back
+    (NAKAMURA_SINDAROV, "Белые ненадолго остались с лишней пешкой."),
+    (NAKAMURA_SINDAROV, "Белые остались с лишней пешкой лишь на полтора хода, до 19...Nxf2."),
+    (NAKAMURA_SINDAROV, "Белые остались с лишней пешкой, но уже на 19-м ходу чёрные её вернули."),
+    (NAKAMURA_SINDAROV, "Накамура остался с лишней пешкой всего на полтора хода."),
+    # a plural with no number is two or more
+    (TWO_ROOKS, "В этой партии белые отдали ферзя за ладьи."),
+    (TWO_ROOKS, "Накамура отдал ферзя за ладьи и выиграл."),
+    (TWO_ROOKS, "Чёрные отдали ладьи за ферзя."),
+    (TWO_ROOKS, "В этой партии белые отдали ферзя за две ладьи."),
+    # «в итоге» of another verb does not make the ending the last position's
+    (PROMOTED, "В этой партии был ладейный эндшпиль, и в итоге белые провели ферзя."),
+    (PROMOTED, "Партия перешла в ладейный эндшпиль, а в итоге белые поставили ферзя на a8."),
+    (PROMOTED, "Партия закончилась после того, как белые превратили пешку в ферзя в ладейном эндшпиле."),
+    # a sacrifice paid back a few moves later is one trade
+    (PAID_LATER, "Белые отдали ферзя за ладью и слона."),
+    (PAID_LATER, "Накамура пожертвовал ферзя за ладью и слона."),
+]
+WRONG_1106 = [
+    (HELD_THROUGH, "Белые долго играли с лишней фигурой.", "never led by 3"),
+    (NAKAMURA_SINDAROV, "Белые надолго остались с лишней пешкой.", "held only 3 plies"),
+    (TWO_ROOKS, "Белые отдали ферзя за три ладьи.", "no exchange of it was that"),
+    (TWO_ROOKS, "Белые отдали ладьи за ферзя.", "no exchange of it was that"),
+    (PROMOTED, "В итоге получился ладейный эндшпиль.", "the game ended with queen and rook v rook"),
+    (PROMOTED, "Партия закончилась ладейным эндшпилем.", "the game ended with queen and rook v rook"),
+    (PAID_LATER, "Белые отдали ферзя за две ладьи.", "no exchange of it was that"),
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("pgn,sentence", RIGHT_1106)
+def test_a_true_story_passes_review_1106(check_on, pgn, sentence):
+    assert check_sentence(sentence, _ctx(pgn)) == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("pgn,sentence,why", WRONG_1106)
+def test_a_wrong_story_is_still_cut_review_1106(check_on, pgn, sentence, why):
+    issues = check_sentence(sentence, _ctx(pgn))
+    assert issues and any(why in i for i in issues), issues
+
+
+@pytest.mark.unit
+def test_the_facts_and_the_check_agree_on_how_long_a_lead_held():
+    assert "White up 1 after 3.exd5, for 7 plies (3 moves), until 6...Nxd5" in GameStory.from_pgn(HELD_THROUGH).facts()
+
+
+@pytest.mark.unit
+def test_the_strict_lock_drops_the_note_on_what_the_board_shows(monkeypatch):
+    """Under a strict lock the game is not put up: «The board shows the final position of this game…» would be a lie."""
+    import src.sessions as sessions
+    from src.board_truth import board_truth
+
+    raw = json.dumps(twic_search._with_board({"id": 3708548, "pgn": NAKAMURA_SINDAROV}), ensure_ascii=False)
+    assert "board_shows" in json.loads(raw)
+    monkeypatch.setattr(sessions, "board_lock_strict_for", lambda kwargs: True)
+    kept = json.loads(board_truth(raw, {}))
+    assert "board_actions" not in kept and "board_shows" not in kept and kept.get("board_hint")
+
+
+@pytest.mark.unit
+def test_the_database_game_note_leaves_once_a_tool_moves_the_board():
+    """The turn's «## The database game on the board» (facts, shown ply) goes with the board's state when get_game_pgn
+    show=true / set_fen puts another position up (server._forget_old_board)."""
+    from src.server import OLD_BOARD_NOTE, forget_old_board_text, turn_board_blocks_of
+
+    story = f"## The database game on the board\n{game_facts(NAKAMURA_SINDAROV, 92)}"
+    turn = f"## Current Board State\nFEN: x\n\n{story}\n\n## Spoken answer\nshort"
+    blocks = turn_board_blocks_of(turn)
+    assert story in blocks and len(blocks) == 2
+    text = forget_old_board_text(f"А теперь Каспаров – Топалов\n\n{turn}", blocks)
+    assert "rook and knight v rook and bishop" not in text and text.count(OLD_BOARD_NOTE) == 1
+    assert text.endswith("## Spoken answer\nshort")
+
+
+@pytest.mark.unit
+def test_on_a_browsed_board_a_lone_arrow_for_a_coming_move_is_not_drawn():
+    """At ply 2 of HELD_THROUGH the bishop stands on f1: e2→f3 (5.Bxf3) points from an empty square. The next move,
+    from a piece on the board, is drawn; a line of play drawn as a chain is drawn."""
+    game = chess.pgn.read_game(io.StringIO(HELD_THROUGH))
+    board = game.board()
+    for move in list(game.mainline_moves())[:2]:
+        board.push(move)
+    action, dropped = arrow_verdicts(_arrows(("e2", "f3")), board.fen(), HELD_THROUGH, 2)
+    assert action == {} and dropped[0][1] == ("it is the game's move 5.Bxf3, played later in the game, made on another "
+                                              "position — the board shows the position after ply 2")
+    action, dropped = arrow_verdicts(_arrows(("g1", "f3")), board.fen(), HELD_THROUGH, 2)
+    assert dropped == [] and action["arrows"]
+    action, dropped = arrow_verdicts(_arrows(("f1", "e2"), ("e2", "f3")), board.fen(), HELD_THROUGH, 2)
+    assert dropped == [] and len(action["arrows"]) == 2
