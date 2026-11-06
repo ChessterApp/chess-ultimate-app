@@ -154,7 +154,9 @@ def analyze_position(
     if pool_on():
         # A persistent process (src/engine_pool.py): the time cap is set once a process is free, so waiting for
         # one counts against *max_ms* as the start of a new process did.
-        flight = None if movetime_ms else _exact_begin(fen, depth, multipv, sm)
+        # The flight's own time bound — what a check that joins it weighs against a search of its own (exact_join).
+        budget_s = max_ms / 1000.0 if deadline is not None else (own_cap / 1000.0 if own_cap > 0 else None)
+        flight = None if movetime_ms else _exact_begin(fen, depth, multipv, sm, budget_s)
         result = {"error": "search failed"}
         try:
             if flight is not None and flight.job is not None:
@@ -570,16 +572,17 @@ def analyze_exact(fen: str, depth: int, multipv: int, *, max_ms: int | None = No
 _exact_flights: dict = {}
 
 
-def _exact_begin(fen: str, depth: int, multipv: int, sm: tuple):
+def _exact_begin(fen: str, depth: int, multipv: int, sm: tuple, budget_s: float | None = None):
     from src import engine_pool
 
     key = _exact_key(fen, depth, multipv, sm)
     with _inflight_lock:
         if key in _exact_flights:
             return None  # one at work already: this one runs beside it and is not the one joined
-        background = engine_pool.current_priority() >= engine_pool.PRIORITY_BACKGROUND
+        prio = engine_pool.current_priority()
+        background = prio >= engine_pool.PRIORITY_BACKGROUND
         flight = _Flight(multipv, None, engine_pool.Job("exact flight", parent=engine_pool.current_job())
-                         if background else None)
+                         if background else None, base=prio, budget_s=budget_s)
         _exact_flights[key] = flight
         return flight
 
@@ -595,7 +598,14 @@ def _exact_end(fen: str, depth: int, multipv: int, sm: tuple, flight, result: di
 
 def exact_join(fen: str, depth: int, multipv: int, wait_s: float, searchmoves=()) -> dict | None:
     """The complete result of a search to *depth* of this position already at work, waited for up to *wait_s*
-    (the search is promoted to the caller's priority); None when none is at work or it did not complete in time."""
+    (the search is promoted to the caller's priority meanwhile); None when none is at work, it did not complete in
+    time, or it is bounded tighter than the caller's own search would be.
+
+    Verify 06.11: a search joined is one that can do at least what the caller's own search could — its own time
+    bound (*budget_s*: its caller's deadline, or its cap) no shorter than *wait_s*; it started earlier from the same
+    empty hash, so it then completes no later. A tighter one (the model's analyze_position call at the check's depth
+    and lines, capped at STOCKFISH_MAX_MS; another check's search with less time) is not waited for: on a slow host it
+    stops short, and the check, having waited for it, had too little time left for its own search (V-eng-02)."""
     from src import engine_pool
     from src.fen_repair import repair_fen
 
@@ -606,9 +616,9 @@ def exact_join(fen: str, depth: int, multipv: int, wait_s: float, searchmoves=()
         flight = _exact_flights.get(key)
     if flight is None:
         return None
-    if flight.job is not None:
-        engine_pool.promote(flight.job, engine_pool.current_priority())
-    if not flight.event.wait(wait_s):
+    if flight.budget_s is not None and flight.budget_s + _MERGE_SLACK_S < wait_s:
+        return None  # runs beside it: the caller's own search has more time than this one
+    if not _join_wait(flight, engine_pool.current_priority(), wait_s):
         return None
     res = flight.result or {}
     return res if _complete(res, depth) else None
@@ -630,12 +640,39 @@ _MERGE_SLACK_S = 0.15
 
 
 class _Flight:
-    __slots__ = ("multipv", "ends_by", "event", "result", "job")
+    __slots__ = ("multipv", "ends_by", "event", "result", "job", "base", "budget_s", "joiners")
 
-    def __init__(self, multipv: int, ends_by: float | None, job=None):
+    def __init__(self, multipv: int, ends_by: float | None, job=None, base: int | None = None,
+                 budget_s: float | None = None):
         self.multipv, self.ends_by, self.job = multipv, ends_by, job
+        self.base = base          # the priority it runs at of its own (what a joiner that gives up restores)
+        self.budget_s = budget_s  # its own time bound (exact flights), None = none
+        self.joiners: list = []   # the priorities of the requests waiting for it now
         self.event = threading.Event()
         self.result: dict | None = None
+
+
+def _join_wait(flight: _Flight, prio: int | None, wait: float | None) -> bool:
+    """Wait for *flight* up to *wait*; it is promoted to *prio* (None: not promoted) while this request waits.
+
+    A request that gives up undoes its promotion (verify 06.11): the search runs at its own priority again, or at the
+    highest of the requests still waiting — a background search no answer waits for any more may be stopped by one."""
+    from src import engine_pool
+
+    if flight.job is None or prio is None:
+        return flight.event.wait(wait)
+    with _inflight_lock:
+        flight.joiners.append(prio)
+        engine_pool.promote(flight.job, prio)
+    done = flight.event.wait(wait)
+    with _inflight_lock:
+        flight.joiners.remove(prio)
+        if not done and not flight.event.is_set():
+            base = engine_pool.PRIORITY_BACKGROUND if flight.base is None else flight.base
+            engine_pool.demote(flight.job, base)
+            if flight.joiners:
+                engine_pool.promote(flight.job, min(flight.joiners))
+    return done
 
 
 def _satisfies(result: dict | None, depth: int, multipv: int) -> bool:
@@ -669,17 +706,17 @@ def _merged(fen: str, sm: tuple, need_depth: int, multipv: int, own_s: float | N
             # A background search gets a job of its own (a child of the precompute's), so promoting it raises this
             # search alone, even before it has reached the pool's queue.
             mine = _Flight(multipv, own_end, engine_pool.Job("flight", parent=engine_pool.current_job())
-                           if background else None)
+                           if background else None, base=prio)
             _inflight.setdefault(key, []).append(mine)
     if join is not None:
         wait = None if join.ends_by is None else max(0.0, join.ends_by - time.monotonic()) + _MERGE_SLACK_S
-        if join.job is not None and not background:
+        promote = join.job is not None and not background
+        if promote:
             # Promoted, the search runs at this request's priority and started before it: it ends about when a
             # search of its own would, even after the queue it met (replay 31.10: a wait cut at its estimated end,
             # then a search of its own, cost three turns their engine line). Twice its own time at most.
-            engine_pool.promote(join.job, prio)
             wait = 2 * (own_s or MAX_MS / 1000.0 or 3.0) + 0.3
-        if join.event.wait(wait) and _satisfies(join.result, need_depth, multipv):
+        if _join_wait(join, prio if promote else None, wait) and _satisfies(join.result, need_depth, multipv):
             res = join.result
             return {**res, "lines": res["lines"][:multipv]}
         return run()

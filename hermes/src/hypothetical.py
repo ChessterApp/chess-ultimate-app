@@ -545,10 +545,14 @@ def _reply_point(after: chess.Board, reply_san: str) -> Optional[str]:
 
 
 @_answer_check
-def verify_line(board: chess.Board, line: list[str], movetime_ms: int = 300, threshold_cp: int = 150) -> Optional[str]:
+def verify_line(board: chess.Board, line: list[str], movetime_ms: int = 300, threshold_cp: int = 150,
+                deadline: Optional[float] = None) -> Optional[str]:
     """Why a written line («после Nf7 Kxf7 Qxc5 у тебя перевес») ends badly for
     the side that starts it: the evaluation at its end against the position
-    before, by the engine. None when it holds, or the line cannot be played."""
+    before, by the engine. None when it holds, or the line cannot be played.
+
+    *deadline* (time.monotonic()): the held sentence's budget when the line is checked after its move
+    (verify_recommendation) — one budget per sentence; a line checked on its own gets VERIFY_MAX_MS."""
     try:
         end = board.copy(stack=False)
         played = []
@@ -561,7 +565,8 @@ def verify_line(board: chess.Board, line: list[str], movetime_ms: int = 300, thr
             end.push(mv)
         if len(played) < 2 or end.is_game_over():
             return None
-        deadline = time.monotonic() + VERIFY_MAX_MS / 1000.0
+        if deadline is None:
+            deadline = time.monotonic() + VERIFY_MAX_MS / 1000.0
         b_line = _look(board.fen(), movetime_ms, deadline)
         e_line = _look(end.fen(), movetime_ms, deadline) if b_line else None
         if not b_line or not e_line:
@@ -646,6 +651,8 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
     try:
         if move not in board.legal_moves:
             return None
+        # One budget for the held sentence (verify 06.11): the move's pair and the end of a written line after it share
+        # it. With the searches no longer cut at STOCKFISH_MAX_MS, a fresh budget for the line held a sentence ~12 s.
         deadline = time.monotonic() + VERIFY_MAX_MS / 1000.0
         base_line = _look(board.fen(), movetime_ms, deadline)
         if not base_line:
@@ -653,7 +660,7 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
         before = _white_pawns(base_line, board.turn)
         best = _san_line(board, base_line.get("pv", ""), 1)
         if best and best[0] == san:
-            return verify_line(board, line_moves, movetime_ms, threshold_cp) if line_moves else None
+            return verify_line(board, line_moves, movetime_ms, threshold_cp, deadline) if line_moves else None
         after = board.copy(stack=False)
         after.push(move)
         if after.is_game_over():
@@ -668,7 +675,7 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
         if loss * 100 < threshold_cp or _keeps_decided(before, after_pawns, board.turn) \
                 or _tablebase_keeps(board, san) or _ending_unproven(board, before, after_pawns):
             # The move itself holds; a written line after it may still end badly.
-            return verify_line(board, line_moves, movetime_ms, threshold_cp) if line_moves else None
+            return verify_line(board, line_moves, movetime_ms, threshold_cp, deadline) if line_moves else None
         reply = _san_line(after, line.get("pv", ""), 3)
         facts = moved_piece_facts(board, after, move)
         mated = abs(after_pawns) >= MATE_PAWNS - 0.5 and (after_pawns > 0) != (board.turn == chess.WHITE)
