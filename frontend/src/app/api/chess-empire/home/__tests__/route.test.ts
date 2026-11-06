@@ -17,9 +17,15 @@ vi.mock('next/headers', () => ({
   }),
 }));
 
-const authStore: { userId: string | null } = { userId: 'user-1' };
+const authStore: { userId: string | null; throws: boolean } = {
+  userId: 'user-1',
+  throws: false,
+};
 vi.mock('@clerk/nextjs/server', () => ({
-  auth: async () => ({ userId: authStore.userId }),
+  auth: async () => {
+    if (authStore.throws) throw new Error('clerk handshake');
+    return { userId: authStore.userId };
+  },
 }));
 
 const autoClaim = vi.fn(async () => false);
@@ -57,6 +63,7 @@ import { GET } from '../route';
 beforeEach(() => {
   headerStore.current = { 'x-org-id': 'org-ce', 'x-org-slug': 'chess-empire' };
   authStore.userId = 'user-1';
+  authStore.throws = false;
   loadStore.result = { kind: 'no_link' };
   loadStore.throws = false;
   vi.clearAllMocks();
@@ -80,6 +87,16 @@ describe('GET /api/chess-empire/home', () => {
     authStore.userId = null;
     const res = await GET();
     expect(res.status).toBe(401);
+    expect(loadEmpireHomeData).not.toHaveBeenCalled();
+  });
+
+  it('401 (not 500) when auth() throws, as the page treats it', async () => {
+    authStore.throws = true;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET();
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'Unauthorized' });
+    expect(autoClaim).not.toHaveBeenCalled();
     expect(loadEmpireHomeData).not.toHaveBeenCalled();
   });
 

@@ -35,7 +35,14 @@ export async function GET() {
     return NextResponse.json({ error: 'not_ce_host' }, { status: 400 });
   }
 
-  const { userId } = await auth();
+  // Same as the page: a throwing auth() (stale/rotated token) is treated as
+  // no session, so the caller re-authenticates instead of seeing a 500.
+  let userId: string | null = null;
+  try {
+    userId = (await auth()).userId ?? null;
+  } catch (err) {
+    console.error('[chess-empire/home] auth() threw', err);
+  }
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
