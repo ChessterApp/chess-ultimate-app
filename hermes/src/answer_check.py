@@ -341,6 +341,8 @@ class CheckContext:
     current: Optional[chess.Board] = None
     # The student's colour when known (a game against the coach): «твой конь».
     student_color: Optional[bool] = None
+    # Why the server knows it (src/student_side.StudentSide.why): «the student told the opponent's move: …».
+    student_side_why: str = ""
     # The language the answer must be in ('ru', 'kk', 'kz', 'en'), when known.
     language: Optional[str] = None
     # The engine's evaluation of the position on the screen, in pawns from

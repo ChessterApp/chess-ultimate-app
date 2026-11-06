@@ -1197,7 +1197,9 @@ def _student_side_note(ctx) -> str:
     if side is None:
         return ""
     name, other = ("White", "Black") if side else ("Black", "White")
-    return (f"The student plays {name} (the side to move on the board): «ты», «твой», \"you\", \"your\" mean {name}; "
+    why = (getattr(ctx, "student_side_why", "") or "the side to move on the board") \
+        if getattr(ctx, "student_color", None) is not None else "the side to move on the board"
+    return (f"The student plays {name} ({why}): «ты», «твой», \"you\", \"your\" mean {name}; "
             f"{other} is the opponent.")
 
 
@@ -2493,6 +2495,18 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             logger.debug("question moves failed", exc_info=True)
             named_moves = []
 
+    # Whose side the student plays: decided once, from the game, the student's words and who the question says made a
+    # move (src/student_side.py, 06.11) — the same decision goes to the model (the block below) and to every check
+    # (check_ctx.student_color). «Они сыграли f5» made the student the side that had just moved (shipped1104 t25, t46).
+    from src.student_side import StudentSide, decide as decide_student_side
+
+    try:
+        student_side = decide_student_side(body.message, session.board_state, pgn=active_board.pgn,
+                                           game_state=active_board.game_state if live_game else None)
+    except Exception:  # noqa: BLE001 — the checks fall back to the side to move
+        logger.debug("student side failed", exc_info=True)
+        student_side = StudentSide(None, "none")
+
     # The agent does not depend on the prompt (it only stores it), so it is
     # built while the profile arrives and the prompt is assembled.
     fallback_model = _turn_fallback_model(model)
@@ -2625,6 +2639,13 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             turn_context = f"{turn_context}\n\n{moves_note}" if turn_context else moves_note
     except Exception:  # noqa: BLE001 — never block a turn on this
         logger.debug("moves-in-question block failed", exc_info=True)
+    try:
+        side_board = chess.Board(session.board_state) if session.board_state else None
+    except ValueError:
+        side_board = None
+    side_block = student_side.note(side_board)
+    if side_block:
+        turn_context = f"{turn_context}\n\n{side_block}" if turn_context else side_block
     if body.speech:
         # The site's voice pipeline reads the answer aloud sentence by sentence, with a pause before the first
         # (25.10): the point first and short, nothing a listener cannot follow.
@@ -2762,16 +2783,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # Every board of the session counts (a capture named for the second
         # board was cut as impossible on the first, 2026-10-02), and in a game
         # the student's colour decides whose «твой конь» is.
-        student_color = None
-        if live_game:
+        # The student's colour is the turn's one decision (src/student_side.py): the game's, the colour the student
+        # said, or the one the move they told shows («Я сыграл Qb6. Это мат?» — White, 2026-10-08; «Они сыграли f5» —
+        # the other side, 06.11). Guessed (the side to move), it stays None: the checks read «ты» on their own then.
+        from src.student_side import check_color
+
+        student_color = check_color(student_side)
+        if live_game and student_color is None:
             student_color = chess.WHITE if active_board.game_state.get("student_color") == "white" else chess.BLACK
-        elif any(str(q.get("verdict") or "").startswith("already played") for q in named_moves or []):
-            # «Я сыграл Qb6. Это мат?»: the student is the side that just moved, not the side to
-            # move («твой ферзь на b6» was called the opponent's — 2026-10-08).
-            try:
-                student_color = not chess.Board(session.board_state).turn
-            except (ValueError, TypeError):
-                student_color = None
         check_ctx = CheckContext.from_fens(
             [hidden_fen, session.board_state, body.fen] + [b.fen for b in session.boards] + ([past["fen"]] if past else [])
             + [q["after_fen"] for q in named_moves if q.get("after_fen")],  # the positions the student's idea leads to
@@ -2782,6 +2801,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             question=body.message,
             student_color=student_color,
         )
+        check_ctx.student_side_why = student_side.why() if student_color is not None else ""
         check_ctx.language = turn_language  # a sentence in the wrong language is rewritten like a wrong move
         # What the turn's database tools return, and a database game already on the board, are what the answer may
         # say of them (src/answer_check_db.py, review 03.11).
@@ -5003,6 +5023,16 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                 named = []
         ideas = [q["after_fen"] for q in named if q.get("after_fen")]
         ctx = CheckContext.from_fens([body.fen] + ideas, [body.pgn] if body.pgn else [], question=heard.question)
+        # The student's side as the text turn decides it (src/student_side.py): «они сыграли f5» said aloud makes the
+        # student the other side, «я играю чёрными» Black; a game on the board decides it below.
+        try:
+            from src.student_side import check_color, decide as decide_student_side
+
+            side = decide_student_side(heard.question or "", body.fen, pgn=body.pgn)
+            ctx.student_color = check_color(side)
+            ctx.student_side_why = side.why() if ctx.student_color is not None else ""
+        except Exception:  # noqa: BLE001 — the check reads «ты» as the side to move then
+            logger.debug("voice student side failed", exc_info=True)
         # The moves the student asked about are quoted, not advised, however the question names them: a question said
         # aloud names its move in words («а если ферзь жэ четыре?»), which the notation reader of CheckContext does not
         # read — the engine stage then judged the student's own idea as the coach's recommendation (voice 03.11).
@@ -5037,6 +5067,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                     if live.pgn:
                         ctx.add_line(live.pgn)  # the game's history: «пешка h6 взяла слона» was true a move ago (26.10)
                     ctx.student_color = chess.WHITE if live.game_state.get("student_color") == "white" else chess.BLACK
+                    ctx.student_side_why = "the game against the coach on the board"
             except SessionLoadError:
                 raise  # the game is unknown, not absent: 503, never a check without it (28.10)
             except Exception:  # noqa: BLE001 — the check still runs without the game
