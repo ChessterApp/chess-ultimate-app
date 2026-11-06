@@ -139,7 +139,10 @@ _EN_COLOUR_END = r"(?![a-z'’-]|\s+(?:squares?|squared|bishops?|knights?|rooks?
 _SAID_EN = re.compile(
     r"(?<![a-z])(?:"
     rf"i(?:'m|\s+am)\s+(?:playing\s+)?(?:as\s+|with\s+)?(?:the\s+)?(?P<c1>white|black){_EN_COLOUR_END}"
-    rf"|i\s+(?:play|played|was\s+playing|have)\s+(?:as\s+|with\s+)?(?:the\s+)?(?P<c2>white|black){_EN_COLOUR_END}"
+    rf"|i\s+(?:play|played|was\s+playing)\s+(?:as\s+|with\s+)?(?:the\s+)?(?P<c2>white|black){_EN_COLOUR_END}"
+    # "I have White." — the colour ends the clause: "I have White on the ropes", "I have Black in zugzwang" make it
+    # the object (verifier 06.11)
+    r"|i\s+have\s+(?:the\s+)?(?P<c5>white|black)(?:\s+pieces)?(?=\s*(?:[.,;:!?)]|$|(?:here|now|today|this\s+time|in\s+this\s+game)\b))"
     rf"|my\s+(?:side|colou?r|pieces)\s+(?:is|are)\s+(?:the\s+)?(?P<c3>white|black){_EN_COLOUR_END}"
     # "what should I play as Black?", "how do I defend as White", "how to play with Black" — the student playing:
     # "What's the best move for Black here?" asks about a side, often the opponent's reply
@@ -162,6 +165,58 @@ _SAID_KK = re.compile(
 _NEGATED = re.compile(r"(?:(?<![а-яa-z])не|not|n't|never|емес)\s*$", re.IGNORECASE)
 
 
+# A side named in a clause that is not the student's side in this game (verifier 06.11, all under ``on``): a
+# preference («Я сам за белых не люблю играть»), another game or time («Я играл за белых в прошлой партии», «Я играю
+# чёрными в следующем турнире»), or both colours in one sentence («Мне играть белыми или чёрными?», "Should I play as
+# White or Black?", «за белых и чёрных»). No decision is better than a wrong one: the 04.11 pin then applies.
+_SAID_NOT_NOW = re.compile(
+    r"(?<![а-яa-z])(?:люб(?:лю|ил)|нрав\w*|предпочита\w*|ненавиж\w*|обычно|всегда|раньше|когда-то|вчера|завтра|"
+    r"прошл\w*|следующ\w*|друг(?:ой|ую|их|ом)\s+парти\w*|"
+    r"like|love|prefer\w*|hate|usually|always|used\s+to|yesterday|tomorrow|last\s+(?:game|time|week|year|month)|"
+    r"next\s+(?:game|time|week|tournament|round)|ұнай\w*|әдетте|өткен|келесі)(?![а-яa-z])",
+    re.IGNORECASE)
+_COLOUR_ANY = re.compile(r"(?<![а-яa-zәғқңөұүһі])(?:бел(?:ые|ых|ыми|ым)|черн(?:ые|ых|ыми|ым)|white|black|"
+                         r"ақ(?:тар|пен|тармен|қа|тарға)?|қара(?:лар|мен|лармен|ға|ларға)?)(?![а-яa-zәғқңөұүһі])",
+                         re.IGNORECASE)
+_WH_WORD = re.compile(r"(?<![а-яa-zәғқңөұүһі])(?:что|чем|как|куда|какой|какая|какие|каким|где|почему|зачем|"
+                      r"what|how|which|where|why|қалай|қандай|не|қайда)(?![а-яa-zәғқңөұүһі])", re.IGNORECASE)
+_THEIRS = re.compile(r"(?:у\s+(?:него|нее|них|соперника|противника|оппонента)|(?:he|she|they)\s+(?:has|have|play\w*)|"
+                     r"(?:opponent|his|her|their)\S*\s+(?:has|is|are|plays?|playing|side)?)\s*(?:[—–:-]\s*)?(?:the\s+)?$",
+                     re.IGNORECASE)
+_STATEMENT_GROUPS = {"c1", "c2", "c3", "c5"}  # the question forms («что делать чёрными?») end with «?» by nature
+
+
+def _said_now(low: str, m: re.Match, rx: re.Pattern, color: bool) -> bool:
+    """The side the match states is the student's in this game — not a preference, another game, a question about
+    which side, or one of two colours named together."""
+    sent_start = max(low.rfind(c, 0, m.start()) for c in ".!?\n") + 1
+    ends = [i for i in (low.find(c, m.end()) for c in ".!?\n") if i >= 0]
+    sent_end = min(ends) if ends else len(low)
+    clause_start = max(low.rfind(c, 0, m.start()) for c in ".!?\n,;:—–") + 1
+    clause_ends = [i for i in (low.find(c, m.end()) for c in ".!?\n,;:—–") if i >= 0]
+    clause = low[clause_start: min(clause_ends) if clause_ends else len(low)]
+    if _SAID_NOT_NOW.search(clause):
+        return False
+    group = next(k for k, v in m.groupdict().items() if v)
+    if (group in _STATEMENT_GROUPS and not (rx is _SAID_KK and group == "c3")
+            and low[m.end():].lstrip().startswith("?") and not _WH_WORD.search(low[sent_start:m.start()])):
+        return False  # «Я играю белыми?» asks which side; "What should I play as Black?" asks a move
+    # The other colour in the same sentence, unless it is the subject of a move («я играю чёрными, а белые сыграли f5»)
+    # or the opponent's («у меня белые, а у него чёрные»)
+    for o in _COLOUR_ANY.finditer(low, sent_start, sent_end):
+        if m.start() <= o.start() < m.end():
+            continue
+        if o.group(0).startswith(("бел", "white", "ақ")) == color:
+            continue  # the same colour again
+        if _THEIRS.search(low[max(sent_start, o.start() - 25): o.start()]):
+            continue
+        after = low[o.end(): o.end() + 30].split()[:2]
+        if any(_PAST.fullmatch(w.strip(".,!?«»\"'")) or _PLAY.fullmatch(w.strip(".,!?«»\"'")) for w in after):
+            continue
+        return False
+    return True
+
+
 def _said(low: str) -> tuple[Optional[bool], str]:
     found: list[tuple[bool, str]] = []
     for rx in (_SAID_RU, _SAID_EN, _SAID_KK):
@@ -170,6 +225,8 @@ def _said(low: str) -> tuple[Optional[bool], str]:
             if _NEGATED.search(low[max(0, m.start() - 8): m.start()]) or (
                     rx is not _SAID_KK and re.search(r"(?<![а-яa-z])(?:не|not)\s", m.group(0))):
                 continue  # Kazakh «не» is «what»: «қаралар үшін не істеу керек?»
+            if not _said_now(low, m, rx, re.sub(r"^за\s+", "", word).startswith(("бел", "white", "ақ"))):
+                continue
             word = re.sub(r"^за\s+", "", word)
             color = chess.WHITE if word.startswith(("бел", "white", "ақ")) else chess.BLACK
             found.append((color, m.group(0).strip()))
@@ -198,7 +255,7 @@ _FIRST_NOUN = re.compile(
 # Not «сопернику/соперника» (an object: «что угрожает сопернику после Nf3?») and not the engine, the bot or the
 # computer — they recommend moves, they are not the student's opponent here («движок советует Nf3», review 06.11).
 _THIRD = re.compile(
-    r"(?<![а-яa-zәғқңөұүһі])(?:они|соперник(?:и)?|противник(?:и)?|оппонент(?:ы)?|they|(?:my\s+|the\s+)?opponents?|"
+    r"(?<![а-яa-zәғқңөұүһі])(?:они|соперни(?:к|ки|ца)|противни(?:к|ки|ца)|оппонент(?:ы)?|they|(?:my\s+|the\s+)?opponents?|"
     r"олар|қарсылас(?:ым|ың|тар)?)(?![а-яa-zәғқңөұүһі])",
     re.IGNORECASE)
 # Subjects that are neither the student nor their opponent, nearer the move than an «я» before them: a colour
@@ -218,8 +275,8 @@ _PIECE_SUBJECT = re.compile(
 # A move told as done: «сыграли», «пошёл», «взяли», "played", "replied", «жүрді», «алды».
 _PAST = re.compile(
     r"(?<![а-яa-zәғқңөұүһі])(?:сыграл\w*|сходил\w*|пош[её]л|пошли|пошла|взял\w*|побил\w*|съел\w*|забрал\w*|поставил\w*|"
-    r"ответил\w*|отош[её]л|отошли|уш[её]л|ушли|двинул\w*|толкнул\w*|продвинул\w*|вывел\w*|сделал\w*|рокировал\w*|"
-    r"played|moved|took|captured|replied|answered|responded|went|pushed|castled|put|"
+    r"ответил\w*|пожертвовал\w*|ударил\w*|отош[её]л|отошли|уш[её]л|ушли|двинул\w*|толкнул\w*|продвинул\w*|вывел\w*|сделал\w*|рокировал\w*|"
+    r"played|moved|took|captured|replied|answered|responded|went|pushed|castled|put|sacrificed|"
     r"жүрді\w*|ойнады\w*|алды\w*|қойды\w*|жеді\w*|жауап\s+берді\w*)(?![а-яa-zәғқңөұүһі])",
     re.IGNORECASE)
 # A move to come played by its subject: «сыграю», «если они возьмут», «пойти», "play", "takes", «жүрсем».
@@ -392,7 +449,17 @@ def _mover(board: chess.Board, san: str, done: bool, record: dict[str, list],
     return None  # a move to come that neither side (or both) can play now says nothing about who will
 
 
-def _subject(head: str, tail: str) -> Optional[tuple[str, bool]]:
+# A plural the pronoun «они»/"they"/«олар» can stand for that is not the opponent: pieces («Мои кони отличные, они
+# пошли на g5 и f7», "My knights are strong, they went to g5 and f7") or the student's own side («мы», "we", «мои»).
+_PRONOUN_THIRD = re.compile(r"(?:они|they|олар)", re.IGNORECASE)
+_PLURAL_ANTECEDENT = re.compile(
+    r"(?<![а-яa-zәғқңөұүһі])(?:мои|моих|наши|мы|my|our|we|менің|біздің|"
+    r"пешки|пешек|кони|коней|слоны|слонов|ладьи|ладей|ферзи|фигуры|фигур|"
+    r"pawns|knights|bishops|rooks|queens|pieces|сарбаздар|аттар|пілдер|туралар)(?![а-яa-zәғқңөұүһі])",
+    re.IGNORECASE)
+
+
+def _subject(head: str, tail: str, before: str = "") -> Optional[tuple[str, bool]]:
     """('first' | 'third' | 'other', done) — the subject of the move that follows *head* (its sentence up to the move)
     when it is the subject of a move verb in the move's own clause; *tail* is the text right after the move. 'other'
     is someone neither the student nor their opponent — a colour, «он» («белые сыграли Nd5», «он пошёл на d5») — or
@@ -405,13 +472,17 @@ def _subject(head: str, tail: str) -> Optional[tuple[str, bool]]:
     if not cands:
         return None
     start, end, kind = max(cands, key=lambda c: (c[0], c[1]))
+    if kind == "third" and _PRONOUN_THIRD.fullmatch(head[start:end]) and _PLURAL_ANTECEDENT.search(
+            before + " " + head[:start]):
+        return None  # «они» may be the pieces just named, or the student's own — no decision rather than a wrong one
     span = head[end:]
     if kind != "noun" and _BOUNDARY.search(span):
         return None  # the subject's clause ended before the move
     # A move in the subjunctive was not made: «Я бы тоже сыграл d4», «Если бы я сыграл d4», "I would have played d4",
     # "I should have played d4" tell an idea, not who moved (review 06.11, second verifier) — the subject decides
     # nothing then. «Если я возьму на f4» (a move to come) still counts.
-    if re.search(r"(?<![а-яa-z])(?:бы|б|would|could|should|might)(?![а-яa-z])|'d\s",
+    # "I wouldn't have played f5" / "shouldn't" too (verifier 06.11: the contraction slipped past the word boundary).
+    if re.search(r"(?<![а-яa-z])(?:бы|б|(?:would|could|should|might)(?:n['’]?t)?)(?![а-яa-z])|['’]d\s",
                  _BOUNDARY.split(head)[-1]):
         return None
     if kind == "noun":  # «мой последний ход Qb6», "my last move was Qb6" — made
@@ -485,6 +556,12 @@ def _implicit_first(head: str, move_words: str = "", after: str = "") -> bool:
     return not words or bool(_IMPLICIT_AFTER.fullmatch(words[0]))
 
 
+# The move a reply answered: «я ответил на Nc3», «в ответ на Nc3», "I replied to Nc3", "in response to Nc3".
+_ANSWERED = re.compile(r"(?:(?<![а-я])(?:ответил\w*|отвеча\w*|в\s+ответ)\s+на|"
+                       r"(?<![a-z])(?:replied|responded|answered|in\s+(?:response|reply|answer))\s+to)\s+$",
+                       re.IGNORECASE)
+
+
 def _told_moves(message: str, board: chess.Board, pgn: Optional[str],
                 master_game: bool = False) -> list[tuple[Optional[bool], str, str, str]]:
     """(student colour, source, words, move) for every move the message tells with its subject: own_move,
@@ -498,7 +575,9 @@ def _told_moves(message: str, board: chess.Board, pgn: Optional[str],
     text = normalize(message)
     text = re.sub(r"(?<![0-9A-Za-z-])0-0-0(?![0-9-])", "O-O-O", text)
     text = re.sub(r"(?<![0-9A-Za-z-])0-0(?![0-9-])", "O-O", text)
+    prev = ""
     for sent in _SENTENCE.finditer(text):
+        before, prev = prev, sent.group(0).lower().replace("ё", "е")
         s = sent.group(0)
         converted, _ = _to_san(s)
         moves = [(m.start(), m.end(), m["san"] + (m["check"] or "")) for m in _MOVE.finditer(converted)]
@@ -518,7 +597,9 @@ def _told_moves(message: str, board: chess.Board, pgn: Optional[str],
         for start, end, san in moves:
             head = low[:start]
             tail = low[end: end + 30]
-            subject = _subject(head, tail)
+            if _ANSWERED.search(head):
+                continue  # «Я ответил на Nc3 ходом a6»: the move answered, not the subject's own (verifier 06.11)
+            subject = _subject(head, tail, before)
             if subject is None and _KK_FIRST_VERB.match(tail):
                 subject = ("first", True)  # «e4 жүрдім»: the verb after the move says «I»
             if subject is None and _implicit_first(head, low[start:end], low[end:]):
