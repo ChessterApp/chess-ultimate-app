@@ -366,6 +366,13 @@ COACH_MOVE_VERIFY_PER_TURN = int(os.environ.get("COACH_MOVE_VERIFY_PER_TURN", "4
 # (src/line_verdict.py; prod check 29.10).
 #   COACH_LINE_VERDICT — kill switch (default ON; off with COACH_MOVE_VERIFY too).
 COACH_LINE_VERDICT = _env_flag("COACH_LINE_VERDICT", True)
+# The voice check's whole engine part (/api/coach/voice/check: the forced reply, the recommendation, the line verdict)
+# ends this long after the request arrived (verify 06.11-2). The site stops listening at 4 s
+# (frontend/src/app/api/coach/voice/check/route.ts, CHECK_TIMEOUT_MS = 4000) and treats a late answer as «no issues»,
+# so a search past that point corrects nothing and only holds one of the pool's processes at check priority (never
+# preempted) while the next sentence's check queues behind it. Keep it under CHECK_TIMEOUT_MS minus the network.
+#   COACH_VOICE_CHECK_BUDGET_MS — default 3500.
+COACH_VOICE_CHECK_BUDGET_MS = int(os.environ.get("COACH_VOICE_CHECK_BUDGET_MS", "3500"))
 # «после Kd5 a6 Kc6 — ничья» (30.10): an outcome claim at the end of a written line in an ending of ≤ 7 pieces is
 # judged by the tablebase on the line's last position (src/endgame_claims.py) — at most this many lookups per
 # answer (each ≤ COACH_TABLEBASE_TIMEOUT_S, cached); 0 turns the line lookups off.
@@ -596,6 +603,13 @@ COACH_EXPLICIT_RULES = _env_flag("COACH_EXPLICIT_RULES", True)
 #                                new process gives, and trap-legal's depth-17 confirm needs 21 % fewer nodes than at
 #                                32 MB — 0.7–0.9 s against 1.04 s, over its 1 s budget; stage-3 integration 31.10).
 #   STOCKFISH_RECYCLE_SEARCHES — a process is restarted after this many searches (default 5000).
+#   STOCKFISH_MAX_MS           — the cap of a depth search with no clock of its own (the model's analyze_position call;
+#                                default 3000, src/tools/stockfish.py). A check's search is bounded by the check's own
+#                                deadline instead (06.11: the move check's depth 16 was cut at 3 s, V-eng-02 Ne4).
+#   STOCKFISH_EXACT_MAX_MS     — the cap of a fixed-depth search for the exact store without a deadline (the
+#                                precompute's searches for the checks, the game's evals; default 8000).
+#   Threads stay 1 on purpose: a fixed-depth search with more threads gives different lines run to run, and the
+#   checks' verdicts must be the same every time (K3 02.11).
 #   COACH_PRECOMPUTE           — the board-change listener's precompute (default on).
 STOCKFISH_POOL = _env_flag("STOCKFISH_POOL", True)
 STOCKFISH_POOL_SIZE = max(1, int(os.environ.get("STOCKFISH_POOL_SIZE") or min(2, os.cpu_count() or 1)))

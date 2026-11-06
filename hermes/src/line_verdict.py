@@ -914,8 +914,9 @@ def _name_trade(claim: dict, low: str, ctx) -> None:
 # ── the engine ──────────────────────────────────────────────────────────────
 
 
-def _eval(board: chess.Board, movetime_ms: int) -> Optional[tuple]:
-    """(White's score in pawns, the engine's line as SAN) for *board*, or None."""
+def _eval(board: chess.Board, movetime_ms: int, deadline: float) -> Optional[tuple]:
+    """(White's score in pawns, the engine's line as SAN) for *board*, or None — None too when the held sentence's
+    budget (*deadline*, time.monotonic(), from verify_claims) is spent before the search completes."""
     from src import hypothetical
     from src.hypothetical import MIN_DEPTH, _san_line, _white_pawns
 
@@ -926,9 +927,10 @@ def _eval(board: chess.Board, movetime_ms: int) -> Optional[tuple]:
     # K3 02.11: at the engine stage's fixed depth (src/hypothetical.VERIFY_DEPTH, the exact store), not a timed look or
     # whatever the analysis cache held — op-show-italian's «опасная для чёрных» was cut or shown by what earlier turns
     # had searched (verify1102: caught in a full replay, missed alone, on the same tree)
-    import time
-
-    line = hypothetical._look(board.fen(), movetime_ms, time.monotonic() + hypothetical.VERIFY_MAX_MS / 1000.0)
+    # One budget per held sentence (verify 06.11-2): every search of every claim shares the deadline verify_claims
+    # set. A fresh VERIFY_MAX_MS per search held a sentence ~18 s on a slow host (three searches of a line, 6 s each)
+    # once a check's search was no longer cut at STOCKFISH_MAX_MS (a30a51d6).
+    line = hypothetical._look(board.fen(), movetime_ms, deadline)
     if not line:
         return None
     return _white_pawns(line, board.turn), _san_line(board, line.get("pv", ""), MAX_PLIES)
@@ -965,7 +967,7 @@ def _took(board: chess.Board, moves: list, side: bool, kinds: tuple) -> bool:
     return False
 
 
-def _verify_line(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
+def _verify_line(claim: dict, movetime_ms: int, reveal: bool, deadline: float) -> Optional[str]:
     from src.hypothetical import _fmt, _numbered
 
     board, moves, side = claim["board"], claim["moves"], claim["side"]
@@ -976,7 +978,7 @@ def _verify_line(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
     if stake and _took(board, moves, side, stake):
         return None
     line, end = _line_text(board, moves)
-    got = _eval(end, movetime_ms)
+    got = _eval(end, movetime_ms, deadline)
     if got is None:
         return None
     white, pv = got
@@ -1000,7 +1002,7 @@ def _verify_line(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
     before = board.copy(stack=False)
     for mv in moves[:last]:
         before.push(mv)
-    got_before = _eval(before, movetime_ms)
+    got_before = _eval(before, movetime_ms, deadline)
     if got_before is None:
         return None
     if got_before[1] and got_before[1][0] == before.san(moves[last]):
@@ -1013,7 +1015,7 @@ def _verify_line(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
     if last == len(moves) - 1:
         mover_after = mine
     else:
-        got_after = _eval(after_board, movetime_ms)
+        got_after = _eval(after_board, movetime_ms, deadline)
         if got_after is None:
             return None
         mover_after = got_after[0] if side == chess.WHITE else -got_after[0]
@@ -1026,12 +1028,13 @@ def _verify_line(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
             f"say what really happens in this line or leave it out")
 
 
-def _verify_swing(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
+def _verify_swing(claim: dict, movetime_ms: int, reveal: bool, deadline: float) -> Optional[str]:
     from src.hypothetical import _fmt, _numbered
 
     board, moves, side = claim["board"], claim["moves"], claim["side"]
     line, end = _line_text(board, moves)
-    got_before, got_after = _eval(board, movetime_ms), _eval(end, movetime_ms)
+    got_before = _eval(board, movetime_ms, deadline)
+    got_after = _eval(end, movetime_ms, deadline) if got_before is not None else None
     if got_before is None or got_after is None:
         return None
     if max(abs(got_before[0]), abs(got_after[0])) >= MATE_PAWNS - 0.5:
@@ -1117,7 +1120,7 @@ def _moves_in_pv(board: chess.Board, pv: str, squares: tuple, side: bool) -> boo
     return False
 
 
-def _verify_piece(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
+def _verify_piece(claim: dict, movetime_ms: int, reveal: bool, deadline: float) -> Optional[str]:
     from src import hypothetical
     from src.hypothetical import MIN_DEPTH, _fmt, _numbered, _white_pawns
 
@@ -1125,8 +1128,8 @@ def _verify_piece(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
     if board.turn != side:
         return None
     mine_moves = [m for m in board.legal_moves if m.from_square in squares]
-    if not mine_moves:
-        return None
+    if not mine_moves or _spent(deadline, movetime_ms):
+        return None  # (its looks are timed, *movetime_ms* each: one is not started once the sentence's time is spent)
     best = _first_line(hypothetical.analyze_timed(board.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH))
     best_white = _white_pawns(best, board.turn)
     if best is None or best_white is None or not best.get("pv"):
@@ -1135,6 +1138,8 @@ def _verify_piece(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
     if best_move in mine_moves:
         piece, piece_white = best, best_white
     else:
+        if _spent(deadline, movetime_ms):
+            return None
         piece = _first_line(hypothetical.analyze_timed(board.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH,
                                                        searchmoves=[m.uci() for m in mine_moves]))
         piece_white = _white_pawns(piece, board.turn)
@@ -1166,17 +1171,35 @@ def _verify_piece(claim: dict, movetime_ms: int, reveal: bool) -> Optional[str]:
             f"({_fmt(best_white)}) — {why}; say what the engine says or leave the claim out")
 
 
+def _spent(deadline: float, movetime_ms: int) -> bool:
+    """Too little of the held sentence's budget is left for a timed look of *movetime_ms*."""
+    import time
+
+    return (deadline - time.monotonic()) * 1000 < movetime_ms
+
+
 _VERIFY = {"swing": _verify_swing, "piece_decides": _verify_piece}
 _DETECTOR_OF = {"piece_decides": "piece_decides"}
 
 
-def verify_claims(claims: list, movetime_ms: int = 300, reveal: bool = True) -> Optional[str]:
+def verify_claims(claims: list, movetime_ms: int = 300, reveal: bool = True,
+                  deadline: Optional[float] = None) -> Optional[str]:
     """Why the first of *claims* (src/line_verdict.line_claims) the engine clearly contradicts is wrong, or None.
     *reveal* off (a live game) keeps the engine's continuation out. Never raises. A claim of a detector in shadow
-    (plan 31.10 §1.3) is judged and logged, never returned."""
+    (plan 31.10 §1.3) is judged and logged, never returned.
+
+    The held sentence gets one budget, VERIFY_MAX_MS, for every search of every claim in it (or less: *deadline*,
+    time.monotonic(), the caller's — the voice check's, bounded by what the site waits for). A search the budget
+    cannot complete says nothing: the sentence stands (a miss, not a long hold)."""
+    import time
+
+    from src import hypothetical
+
+    own = time.monotonic() + hypothetical.VERIFY_MAX_MS / 1000.0
+    deadline = own if deadline is None else min(own, deadline)
     for claim in claims or []:
         try:
-            why = _VERIFY.get(claim.get("kind"), _verify_line)(claim, movetime_ms, reveal)
+            why = _VERIFY.get(claim.get("kind"), _verify_line)(claim, movetime_ms, reveal, deadline)
         except Exception:  # noqa: BLE001 — a failed check never blocks the answer
             logger.debug("line verdict failed", exc_info=True)
             why = None

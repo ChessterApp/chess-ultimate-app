@@ -192,6 +192,10 @@ _SF = os.environ.get("STOCKFISH_PATH") or shutil.which("stockfish") or (
 ])
 def test_with_the_engine(monkeypatch, fen, spoken, bad):
     monkeypatch.setattr("src.tools.stockfish.ENGINE_API_URL", "")
+    # What is tested is that the move said aloud reaches the engine and is judged, given the time: the depth-16 search
+    # after 3...Qh4 alone takes ~3.2 s on an M-series Mac from an empty store, past COACH_VOICE_CHECK_BUDGET_MS (3.5 s
+    # from the request's arrival, under the site's 4 s wait: verify 06.11-2). The site drops a later answer anyway.
+    monkeypatch.setattr(config, "COACH_VOICE_CHECK_BUDGET_MS", 15000)
     got = _check(spoken, fen)
     assert got["engine"] is True
     if bad:
