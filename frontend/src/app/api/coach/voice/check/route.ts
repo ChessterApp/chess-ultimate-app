@@ -5,6 +5,8 @@ import { requireCoachAccess } from '@/lib/coach-access';
 import { resolveUserTier } from '@/lib/subscription-tier';
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
+// Hermes ends the check's engine searches within COACH_VOICE_CHECK_BUDGET_MS (3500, hermes/src/config.py) to answer
+// before this: raising one means raising the other.
 const CHECK_TIMEOUT_MS = 4000;
 // Same bound as /api/coach/voice/intent: the hook now sends the loaded game's pgn here (28.10).
 const PGN_MAX = 20000;

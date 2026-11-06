@@ -638,14 +638,16 @@ def live_game_note(fen: str, movetime_ms: int = 300) -> Optional[dict]:
 
 @_answer_check
 def verify_recommendation(board: chess.Board, move: chess.Move, san: str, movetime_ms: int = 300,
-                          threshold_cp: int = 150, reveal_best: bool = True, line: Optional[list] = None) -> Optional[str]:
+                          threshold_cp: int = 150, reveal_best: bool = True, line: Optional[list] = None,
+                          deadline: Optional[float] = None) -> Optional[str]:
     """Why the move the coach recommends is wrong on *board*, by the engine.
 
     None when the move holds the evaluation (gives away less than
     *threshold_cp*), mates, or the engine cannot say. The text names the
     reply, the evaluation against the position before, and what the moved
     piece really does — the rewrite is written from it. *reveal_best* off (a
-    live game) keeps the engine's own move out of it.
+    live game) keeps the engine's own move out of it. *deadline* (time.monotonic()): the caller's own bound when it is
+    tighter than VERIFY_MAX_MS (the voice check: what the site waits for); past it the move says nothing.
     """
     line_moves = list(line or [])
     try:
@@ -653,7 +655,8 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
             return None
         # One budget for the held sentence (verify 06.11): the move's pair and the end of a written line after it share
         # it. With the searches no longer cut at STOCKFISH_MAX_MS, a fresh budget for the line held a sentence ~12 s.
-        deadline = time.monotonic() + VERIFY_MAX_MS / 1000.0
+        own = time.monotonic() + VERIFY_MAX_MS / 1000.0
+        deadline = own if deadline is None else min(own, deadline)
         base_line = _look(board.fen(), movetime_ms, deadline)
         if not base_line:
             return None
@@ -902,7 +905,8 @@ def _verify_one_reading(claim: dict, movetime_ms: int, reveal_best: bool, until:
 
 
 @_answer_check
-def verify_forced_reply(claim: dict, movetime_ms: int = 300, reveal_best: bool = True) -> Optional[str]:
+def verify_forced_reply(claim: dict, movetime_ms: int = 300, reveal_best: bool = True,
+                        until: Optional[float] = None) -> Optional[str]:
     """Why the reply *claim* says is forced is not, by the engine; None when it holds or the engine cannot say.
 
     *claim* comes from src/answer_check_rules.forced_reply_claim: the board, the move it follows, the replies
@@ -910,10 +914,12 @@ def verify_forced_reply(claim: dict, movetime_ms: int = 300, reveal_best: bool =
     and *strict* — forced, not merely best («должны ответить»). Its *also* are the other readings of the same
     sentence (the line the sentences before built, where the moves of this one are legal too): the claim is
     wrong only when it is wrong in each of them, and then the line's own reading speaks. *reveal_best* off (a
-    live game) keeps the engine's own reply out of the text. Never raises.
+    live game) keeps the engine's own reply out of the text. *until* (time.monotonic()): the caller's own bound when it
+    is tighter than FORCED_TOTAL_MAX_MS (the voice check: what the site waits for). Never raises.
     """
     try:
-        until = time.monotonic() + FORCED_TOTAL_MAX_MS / 1000.0  # every reading of the sentence within one budget
+        own = time.monotonic() + FORCED_TOTAL_MAX_MS / 1000.0  # every reading of the sentence within one budget
+        until = own if until is None else min(own, until)
         issue = _verify_one_reading(claim, movetime_ms, reveal_best, until)
         for other in claim.get("also") or []:
             if issue is None:

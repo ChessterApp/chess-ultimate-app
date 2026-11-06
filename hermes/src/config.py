@@ -366,6 +366,13 @@ COACH_MOVE_VERIFY_PER_TURN = int(os.environ.get("COACH_MOVE_VERIFY_PER_TURN", "4
 # (src/line_verdict.py; prod check 29.10).
 #   COACH_LINE_VERDICT — kill switch (default ON; off with COACH_MOVE_VERIFY too).
 COACH_LINE_VERDICT = _env_flag("COACH_LINE_VERDICT", True)
+# The voice check's whole engine part (/api/coach/voice/check: the forced reply, the recommendation, the line verdict)
+# ends this long after the request arrived (verify 06.11-2). The site stops listening at 4 s
+# (frontend/src/app/api/coach/voice/check/route.ts, CHECK_TIMEOUT_MS = 4000) and treats a late answer as «no issues»,
+# so a search past that point corrects nothing and only holds one of the pool's processes at check priority (never
+# preempted) while the next sentence's check queues behind it. Keep it under CHECK_TIMEOUT_MS minus the network.
+#   COACH_VOICE_CHECK_BUDGET_MS — default 3500.
+COACH_VOICE_CHECK_BUDGET_MS = int(os.environ.get("COACH_VOICE_CHECK_BUDGET_MS", "3500"))
 # «после Kd5 a6 Kc6 — ничья» (30.10): an outcome claim at the end of a written line in an ending of ≤ 7 pieces is
 # judged by the tablebase on the line's last position (src/endgame_claims.py) — at most this many lookups per
 # answer (each ≤ COACH_TABLEBASE_TIMEOUT_S, cached); 0 turns the line lookups off.

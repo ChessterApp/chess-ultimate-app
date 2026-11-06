@@ -4979,6 +4979,8 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
     model to correct itself aloud. Returns {"issues": [...]} — empty when
     nothing checkable is wrong.
     """
+    # The site waits CHECK_TIMEOUT_MS (4 s) for this answer, then drops it: the engine part ends by then (verify 06.11-2).
+    until = time.monotonic() + config.COACH_VOICE_CHECK_BUDGET_MS / 1000.0
     user_id = _get_user_id(request)
     await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
     from src.answer_check import CheckContext, check_sentence
@@ -5074,6 +5076,8 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                 return [issue]
         if issues or not body.fen or not config.COACH_MOVE_VERIFY:
             return issues
+        # Every engine stage below within *until* (what the site waits for): to_thread work is never cancelled when
+        # the site gives up, so the search itself must end by then; one the time does not cover says nothing.
         # A reply claimed forced («чёрные обязаны ответить dxe5»), against the engine's best replies, as in the
         # text coach (src/hypothetical.verify_forced_reply, prod 29.10); the engine's own move stays out.
         claim = ctx.forced_claims.get(spoken_text)
@@ -5081,7 +5085,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
             from src.hypothetical import verify_forced_reply
 
             used[0] = True
-            forced = verify_forced_reply(claim, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal_best=False)
+            forced = verify_forced_reply(claim, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal_best=False, until=until)
             if forced:
                 return [forced]
         # The coach's recommendation («сыграй Rg1») against the engine, as in the
@@ -5091,20 +5095,20 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         from src.hypothetical import verify_recommendation
 
         found = proposed_move(spoken_text, ctx)
-        if found:
+        if found and time.monotonic() < until:
             used[0] = True
             why = verify_recommendation(found[0], found[1], found[2], config.COACH_MOVE_VERIFY_MOVETIME_MS,
-                                        config.COACH_MOVE_VERIFY_CP, reveal_best=False)
+                                        config.COACH_MOVE_VERIFY_CP, reveal_best=False, deadline=until)
             if why:
                 return [why]
         # A line with the outcome it promises, as in the text coach (src/line_verdict.py, prod 29.10): the
         # engine's continuation kept out here too.
         claims = ctx.line_claims.get(spoken_text)
-        if claims and config.COACH_LINE_VERDICT:
+        if claims and config.COACH_LINE_VERDICT and time.monotonic() < until:
             from src.line_verdict import verify_claims
 
             used[0] = True
-            why = verify_claims(claims, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal=False)
+            why = verify_claims(claims, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal=False, deadline=until)
             if why:
                 return [why]
         return issues
