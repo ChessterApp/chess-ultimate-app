@@ -653,9 +653,11 @@ def _theory(board: chess.Board, start: Optional[int] = None, theory_words: bool 
         return False
 
 
-def loaded_game_issues(original: str, ctx, hits: Optional[list] = None) -> list[str]:
+def loaded_game_issues(original: str, ctx, hits: Optional[list] = None, story: bool = True) -> list[str]:
     """The moves told of the database game on the board, against its main line. *hits*, when given, receives the
-    plies (board, move) a clause told and the game has — what src/rewrite_proof takes as the game's record."""
+    plies (board, move) a clause told and the game has — what src/rewrite_proof takes as the game's record. *story*
+    False leaves out the ending, the trades and the leads (src/game_story) — told_game_plies: the record a rewrite is
+    proved by depends on the moves told only (review 06.11)."""
     line = getattr(ctx, "loaded_game", None) if ctx is not None else None
     if not line:
         return []
@@ -680,11 +682,12 @@ def loaded_game_issues(original: str, ctx, hits: Optional[list] = None) -> list[
     # The ending, the trades and the leads told of the game, against the facts the server computed from its moves
     # (src/game_story.py; live run 04.11: «ладейно-пешечное окончание» about R+N v R+B, «ферзя и ладью за ферзя и
     # слона» for a queen and a knight, «лишняя пешка» that held one move).
-    from src.game_story import story_issues
+    if story:
+        from src.game_story import story_issues
 
-    told = story_issues(text, low, ctx, about, lambda part: _sides_named(part, game))
-    if told:
-        return told
+        told = story_issues(text, low, ctx, about, lambda part: _sides_named(part, game))
+        if told:
+            return told
     if about is not True:
         return []  # «На 12-м ходу белые берут пешку» with nothing tying it to the game: not judged
     out: list[str] = _walk_issues(low, text, line)
@@ -799,7 +802,7 @@ def told_game_plies(original: str, ctx) -> Optional[list]:
         if not getattr(ctx, "loaded_game", None):
             return None
         hits: list = []
-        if loaded_game_issues(original, ctx, hits) or not hits:
+        if loaded_game_issues(original, ctx, hits, story=False) or not hits:
             return None
         return [(b, mv, b.san(mv)) for b, mv in hits]
     except Exception:  # noqa: BLE001
