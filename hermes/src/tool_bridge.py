@@ -461,37 +461,33 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
             # Arrows a piece cannot draw are dropped here as in the text turn (board_markup.prune_arrows): the
             # voice model drew «the knight d4 attacks c4» on Alexander's phone (24.10) — the text path had the
             # pruning since 01.10, the voice path returned the arrows as drawn.
-            board_actions, dropped = _prune_voice_arrows(board_actions, session.board_state)
+            board_actions, dropped = _prune_voice_arrows(board_actions, session)
             if dropped and isinstance(parsed, dict):
                 parsed = {**parsed, "arrows_dropped": dropped,
-                          "arrows_note": "These arrows were NOT drawn — the piece on the square cannot move that way. "
-                                         "Do not describe them as attacks or threats."}
+                          "arrows_note": "These arrows were NOT drawn — the piece on the square cannot move that way, "
+                                         "or the move was made on another position of the game than the board shows. "
+                                         "Do not describe them as attacks or threats, nor as drawn."}
             _sync_session_board(session, board_actions)
 
     return {"result": parsed, "board_actions": board_actions}
 
 
-def _prune_voice_arrows(actions: list, fen: Optional[str]) -> tuple[list, list]:
-    """(the actions with impossible arrows removed, the arrows removed as 'd4c4: a knight cannot go there')."""
-    from src.board_markup import prune_arrows
+def _prune_voice_arrows(actions: list, session) -> tuple[list, list]:
+    """(the actions with the arrows that cannot be drawn removed, the arrows removed as 'd4c4: a knight cannot go
+    there' / 'f3e5: it is the game's move 6.Nxe5, made on another position…') — the text turn's rule
+    (src/board_markup.prune_board_actions). *session* may also be a FEN (the board with no game)."""
+    from src.board_markup import prune_board_actions
 
-    kept, dropped = [], []
-    for action in actions:
-        if not isinstance(action, dict) or action.get("type") != "draw_arrows" or not fen:
-            kept.append(action)
-            continue
-        pruned = prune_arrows(action, fen)
-        left = {(a.get("from"), a.get("to")) for a in (pruned.get("arrows") or [])} if pruned else set()
+    if isinstance(session, str) or session is None:
+        fen, pgn, ply = session, None, None
+    else:
+        fen, pgn, ply = session.board_state, None, None
         try:
-            board = chess.Board(fen)
-        except ValueError:
-            board = None
-        for arrow in action.get("arrows") or []:
-            if (arrow.get("from"), arrow.get("to")) in left:
-                continue
-            piece = board.piece_at(chess.parse_square(str(arrow.get("from")))) if board else None
-            what = chess.piece_name(piece.piece_type) if piece else "piece"
-            dropped.append(f"{arrow.get('from')}{arrow.get('to')}: a {what} cannot go there")
-        if pruned:
-            kept.append(pruned)
-    return kept, dropped
+            board = session.active_board()
+            if board is not None and board.pgn and board.fen == fen:
+                pgn, ply = board.pgn, board.ply
+        except Exception:  # noqa: BLE001
+            pass
+    if not fen:
+        return list(actions), []
+    return prune_board_actions(actions, fen, pgn, ply)

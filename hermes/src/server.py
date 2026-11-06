@@ -105,7 +105,7 @@ from src.voice_metrics import (
 from src.voice_quota import voice_quota_ledger
 from src.voice_engine_note import engine_note
 from src.transcript_sweep import delete_session_files
-from src.board_markup import MarkupFilter, strip_markup, prune_arrows
+from src.board_markup import MarkupFilter, strip_markup, prune_board_actions
 
 # Set HERMES_HOME so the agent picks up the chess coach profile
 os.environ.setdefault("HERMES_HOME", str(PROFILE_DIR))
@@ -675,6 +675,18 @@ def _forget_old_board(agent, moved: dict, old_blocks: list) -> None:
     agent._build_api_kwargs = _build_api_kwargs
 
 
+# The turn context's blocks about the position on the board: its state and analysis, and the database game it shows
+# (its facts and the shown ply, src/game_story.py — 06.11: they stayed after get_game_pgn put another game up).
+BOARD_BLOCK_HEADERS = ("## Current Board State", "## The database game on the board")
+
+
+def turn_board_blocks_of(turn_context: Optional[str]) -> list:
+    """The blocks of *turn_context* under BOARD_BLOCK_HEADERS — what _forget_old_board leaves out once a tool puts a
+    different position up."""
+    heads = "|".join(re.escape(h) for h in BOARD_BLOCK_HEADERS)
+    return re.findall(rf"(?:{heads})\n.*?(?=\n\n## |\Z)", turn_context or "", re.S)
+
+
 def forget_old_board_text(text: str, old_blocks: list) -> str:
     """*text* with every block about the old board replaced by OLD_BOARD_NOTE (once)."""
     noted = False
@@ -1180,6 +1192,18 @@ def _parse_white_eval(text) -> Optional[float]:
         return float(t)
     except ValueError:
         return None
+
+
+def _shown_game(session, board_id: Optional[str]) -> tuple:
+    """(pgn, ply) of the game the board *board_id* shows at the session's position, or (None, None) — what the arrows
+    of the turn are judged against (src/board_markup.prune_board_actions)."""
+    try:
+        board = session.get_board(board_id) or session.active_board()
+        if board is not None and board.pgn and board.fen == session.board_state:
+            return board.pgn, board.ply
+    except Exception:  # noqa: BLE001
+        pass
+    return None, None
 
 
 def _student_side_note(ctx) -> str:
@@ -2551,6 +2575,18 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     turn_context = f"{turn_context}\n\n{facts_note}"
         except Exception:  # noqa: BLE001 — never block a turn on the game note
             logger.debug("game context failed", exc_info=True)
+    if (active_board.source or {}).get("twic_game_id") and active_board.pgn and active_board.kind != "game":
+        # The database game on the board from an earlier turn: its facts (material, trades, ending — computed from its
+        # moves, src/game_story.py) and the position the board shows, for what the student asks of it now (06.11).
+        try:
+            from src.game_story import game_facts
+
+            story_note = game_facts(active_board.pgn, active_board.ply)
+            if story_note:
+                story_note = f"## The database game on the board\n{story_note}"
+                turn_context = f"{turn_context}\n\n{story_note}" if turn_context else story_note
+        except Exception:  # noqa: BLE001 — never block a turn on the game's facts
+            logger.debug("game facts failed", exc_info=True)
     if active_board.kind == "game" and active_board.game_state and _ASKS_BETTER_MOVE.search(body.message or ""):
         # «Что было лучше вместо моего хода?»: the engine judged the student's last move when it was played; its better
         # move is a fact — the model guessed another, illegal one on the long prod run (26.10: «слон c1 бьёт на h6»
@@ -2637,7 +2673,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     current_message = attach_turn_context(current_message, turn_context)
     # The blocks about the board the student sent — its state and analysis, the moves they named —
     # leave the model's later calls once a tool puts a different position up (_forget_old_board).
-    turn_board_blocks = re.findall(r"## Current Board State\n.*?(?=\n\n## |\Z)", turn_context or "", re.S)
+    turn_board_blocks = turn_board_blocks_of(turn_context)
     if moves_note:
         turn_board_blocks.append(moves_note)
     if history_messages:
@@ -3234,8 +3270,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         def _board_frame(actions: list) -> str:
             """Apply *actions* to the session's board record (so the position survives
             a reload) and frame them, each tagged with the board (tab) it hit.
-            Arrows a piece on the board cannot draw are dropped (board_markup.prune_arrows)."""
-            actions = [a for a in (prune_arrows(a, session.board_state) for a in actions) if a]
+            Arrows a piece on the board cannot draw are dropped, and so are the moves of the game on the board made on
+            another position than the one it shows (board_markup.prune_board_actions; live run 04.11: f3→e5 for 6.Nxe5
+            drawn on the final position)."""
+            actions, _ = prune_board_actions(actions, session.board_state, *_shown_game(session, active_board.id))
             if not actions:
                 return ""
             gate.board_changed()  # a promise to show it on the board («Покажу на доске.») is kept
