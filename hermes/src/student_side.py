@@ -32,13 +32,13 @@ What decides, strongest first:
 
 Signals that disagree (the student says Black, the move told says White) leave the side unknown.
 
-COACH_STUDENT_SIDE (off | shadow | on, default shadow; ``applied``): in shadow the decision is logged every turn but
-reaches the checks and the model only where the server pinned the side before (a game; a move of the question
-«already played» on the board — the 2026-10-08 rule), so it can correct that pin with the pin's own move or a side
-the student said («Они сыграли f5», t25) or drop it («Белые поставили коня на d5», t46) but never pins a new class of
-questions. Where nothing is told about the move («Qxf7 — это мат?») the pin stays in every mode. ``on`` uses the
-decision everywhere. A master game on the board (src/answer_check_db.note_board_game, also one loaded mid-turn) is
-nobody's in both.
+COACH_STUDENT_SIDE (off | shadow | on, default shadow; ``applied``): in shadow the decision is only logged (the
+student_side event, with what ``on`` would apply): the checker's colour, the rewrite's side note and the model's prompt
+are exactly prod 04.11's — a game, or the 2026-10-08 pin «a move of the question already played is the student's».
+``on`` uses the decision: it corrects the pin with a side told exactly («Они сыграли f5», t25), drops it where the
+pin's move is told as someone else's («Белые поставили коня на d5», t46), keeps it where nothing is told about the
+move («Qxf7 — это мат?»), and treats a master game on the board (src/answer_check_db.note_board_game, also one loaded
+mid-turn) as nobody's.
 
 The board's orientation is not a signal: the site flips its board locally and never tells the server, and a study
 board is created «white» by default — it says nothing about the student.
@@ -408,6 +408,12 @@ def _subject(head: str, tail: str) -> Optional[tuple[str, bool]]:
     span = head[end:]
     if kind != "noun" and _BOUNDARY.search(span):
         return None  # the subject's clause ended before the move
+    # A move in the subjunctive was not made: «Я бы тоже сыграл d4», «Если бы я сыграл d4», "I would have played d4",
+    # "I should have played d4" tell an idea, not who moved (review 06.11, second verifier) — the subject decides
+    # nothing then. «Если я возьму на f4» (a move to come) still counts.
+    if re.search(r"(?<![а-яa-z])(?:бы|б|would|could|should|might)(?![а-яa-z])|'d\s",
+                 _BOUNDARY.split(head)[-1]):
+        return None
     if kind == "noun":  # «мой последний ход Qb6», "my last move was Qb6" — made
         if _NOT_DONE.search(span):
             return None
@@ -435,9 +441,28 @@ def _subject(head: str, tail: str) -> Optional[tuple[str, bool]]:
     return kind, done
 
 
-def _implicit_first(head: str) -> bool:
+# The dropped-«я» reading is taken only when the clause is the verb and the move and nothing that could be the verb's
+# own subject (review 06.11, second verifier): Russian puts the subject after its verb as easily as before it —
+# «Пошёл слон на b4», «Взяла пешка на c4», «Сыграл Карлсен Bb4», «Ответил Bb4 мой соперник», «Пошёл на b4 слон».
+# Between the verb and the move only these words stand (prepositions, adverbs, the piece the move was made with or
+# took — never a nominative); right after the move the clause ends, or one of these words follows. Anything else
+# decides nothing — no decision is better than a wrong one, and the 04.11 pin then still applies (``applied``).
+_IMPLICIT_BETWEEN = re.compile(
+    r"(?:на|в|во|с|со|уже|сразу|туда|сюда|тоже|также|еще|только|что|сейчас|просто|ход|ходом|вперед|назад|обратно|"
+    r"пешкой|конем|слоном|ладьей|ладьею|ферзем|королем|пешку|коня|слона|ладью|ферзя|короля|[a-h]|[a-h][1-8]|"
+    r"[kqrbn]?[a-h]?[1-8]?x?[a-h][1-8](?:=[qrbn])?[+#]?|o-o(?:-o)?[+#]?|x|-)",
+    re.IGNORECASE)
+_IMPLICIT_AFTER = re.compile(
+    r"(?:это|и|а|но|ли|или|теперь|сейчас|тут|здесь|правильно|неправильно|нормально|хорошо|плохо|зря|верно|мат|шах|"
+    r"же|разве|вообще|сразу|тоже|уже|в|на|после|потом|затем|чтобы|что|как|когда|был|было|была|ход|ошибка)",
+    re.IGNORECASE)
+_WORD = re.compile(r"[^\s.,;:!?«»\"'()—–]+")
+
+
+def _implicit_first(head: str, move_words: str = "", after: str = "") -> bool:
     """«Сыграл Qb6. Это мат?», «Пошёл ферзём на b6»: the move's clause opens with a singular past verb and has no
-    subject — the student's own move with the «я» dropped."""
+    subject — the student's own move with the «я» dropped. *move_words* are the words of the move itself (a move told
+    in words: «слоном на b4», «слон на b4»), *after* the text right after it."""
     if (_FIRST.search(head) or _THIRD.search(head) or _OTHER_SUBJECT.search(head) or _FIRST_NOUN.search(head)
             or _PIECE_SUBJECT.search(head)):
         return False  # «Пошла пешка на g5»: the verb has its subject
@@ -447,7 +472,17 @@ def _implicit_first(head: str) -> bool:
     if m is None:
         return False
     rest = head[m.end():]
-    return not (_BOUNDARY.search(rest) or _NOT_DONE.search(rest) or re.search(r"(?<![а-я])бы(?![а-я])", rest))
+    if _BOUNDARY.search(rest) or _NOT_DONE.search(rest) or re.search(r"(?<![а-я])бы(?![а-я])", rest):
+        return False
+    # Nothing between the verb and the move, nor in the move's own words, may be a subject («Сыграл Карлсен Bb4»,
+    # «Пошёл слон на b4» — the words of the move read «слон на b4»).
+    if any(not _IMPLICIT_BETWEEN.fullmatch(w) for w in _WORD.findall(rest + " " + move_words)):
+        return False
+    # Right after the move the clause ends or goes on with a word that is no subject («Ответил Bb4 мой соперник»,
+    # «Пошёл на b4 слон»).
+    clause_after = _BOUNDARY.split(re.split(r"[.!?\n]", after, maxsplit=1)[0], maxsplit=1)[0]
+    words = _WORD.findall(clause_after)
+    return not words or bool(_IMPLICIT_AFTER.fullmatch(words[0]))
 
 
 def _told_moves(message: str, board: chess.Board, pgn: Optional[str],
@@ -486,7 +521,7 @@ def _told_moves(message: str, board: chess.Board, pgn: Optional[str],
             subject = _subject(head, tail)
             if subject is None and _KK_FIRST_VERB.match(tail):
                 subject = ("first", True)  # «e4 жүрдім»: the verb after the move says «I»
-            if subject is None and _implicit_first(head):
+            if subject is None and _implicit_first(head, low[start:end], low[end:]):
                 subject = ("first", True)  # «Сыграл Qb6. Это мат?»: the dropped «я»
             if subject is None:
                 continue
@@ -494,15 +529,21 @@ def _told_moves(message: str, board: chess.Board, pgn: Optional[str],
             if kind == "third" and master_game:
                 continue  # «почему они сыграли Bxf7?» about the database game on the board — not the student's opponent
             # «взяли на f4», "took on f4", «f4-ке»: a square the move went to, not the pawn move «f4»
+            # The clause around the move («я пошёл слоном на c6 и взял коня») names the pieces.
+            clause = re.split(r"[,;:—–()]", head)[-1] + " " + re.split(r"[,;:—–()]", low[end:])[0]
+            # «взяли на f4», "took on f4", «f4-ке»: a square the move went to, not the pawn move «f4». So is a bare
+            # square in a clause told as a capture — «я взял пешку e5», «соперник забрал пешку c4», "they took my d5
+            # pawn», «e5 пешкасын алдым»: the square of the piece taken, where the capture landed, not the push «e5»
+            # of the record (review 06.11, second verifier: 1...e5 made «я съел пешку e5 конём» Black's).
             square_only = bool(re.fullmatch(r"[a-h][1-8]", san)) and bool(
-                re.search(r"(?<![а-яa-z])(?:на|в|on|to|at|onto)\s+$", head) or re.match(r"[-‐]?(?:ке|ка|ге|ға|те|та)(?![а-яәғқңөұүһі])", tail))
+                re.search(r"(?<![а-яa-z])(?:на|в|on|to|at|onto)\s+$", head)
+                or re.match(r"[-‐]?(?:ке|ка|ге|ға|те|та)(?![а-яәғқңөұүһі])", tail)
+                or _CAPTURE_VERB.search(clause))
             key = ("@" + san) if square_only else san.rstrip("+#")
             words = s.strip()[:80]
             if kind == "other":
                 out.append((None, "other_mover", words, key))
                 continue
-            # The clause around a square told alone («я пошёл слоном на c6 и взял коня») names the pieces.
-            clause = re.split(r"[,;:—–()]", head)[-1] + " " + re.split(r"[,;:—–()]", low[end:])[0]
             mover = _mover(board, san, done, record, square_only, clause)
             if mover is None:
                 continue
@@ -605,31 +646,28 @@ def applied(side: StudentSide, legacy: Optional[bool], how: Optional[str] = None
     """What the checks and the model get this turn under COACH_STUDENT_SIDE (*how*, default the config).
 
     *legacy* is the 04.11 pin (a move of the question «already played»: the student made it), *pinned_moves* the
-    moves it came from (``legacy_moves``). A game decides in every mode; ``off`` is the 04.11 pin itself. Otherwise:
+    moves it came from (``legacy_moves``). A game decides in every mode. ``off`` and ``shadow`` give the 04.11 pin
+    itself — shadow only logs the decision (``log_payload``: what ``on`` would apply), so the checker and the model
+    see exactly what prod 04.11 gave them (merge review 06.11). ``on``:
 
     - a master game on the board: no side (nobody's — not the pin either);
     - nothing told about the move («Qxf7 — это мат?», "Is Qxf7 mate?", «После Qxf7 это мат?»): the pin stays — the
       student asks about the move just played (2026-10-08), and the decision has nothing better (review 06.11);
     - the move of the pin told as someone else's («Белые поставили коня на d5», t46) or signals that disagree: dropped;
-    - a side told exactly: ``on`` takes it; ``shadow`` takes it where the pin was — a side the student said, or the
-      very move of the pin («Они сыграли f5», t25) — and drops the pin when another move disagrees with it, never
-      flips it on another move's say-so («Я взял на c6, а потом Nxe5»), and never pins a question the 04.11 server
-      left alone.
+    - a side told exactly («Они сыграли f5», t25; «я играю чёрными»): taken.
     """
     how = how or mode()
     if side.source == "game":
         return side
-    if how == "off":
+    if how != "on":
         return StudentSide(legacy, "legacy") if legacy is not None else StudentSide(None, "none")
     if side.source == "master_game":
         return side
     if legacy is None:
-        return side if how == "on" else StudentSide(None, "none")
+        return side
     pin = StudentSide(legacy, "legacy")
     if side.exact:
-        if how == "on" or side.source == "said" or side.color == legacy or _same_move(side.moves, pinned_moves):
-            return side
-        return StudentSide(None, "none")
+        return side
     if side.source == "other_mover":
         return side if _same_move(side.moves, pinned_moves) else pin
     if side.source == "conflict":
@@ -637,11 +675,14 @@ def applied(side: StudentSide, legacy: Optional[bool], how: Optional[str] = None
     return pin
 
 
-def log_payload(side: StudentSide, used: StudentSide, legacy: Optional[bool], how: Optional[str] = None) -> dict:
-    """The student_side event: the decision, what was applied and the 04.11 pin — for grading shadow before ``on``."""
+def log_payload(side: StudentSide, used: StudentSide, legacy: Optional[bool], how: Optional[str] = None,
+                pinned_moves: Optional[tuple] = None) -> dict:
+    """The student_side event: the decision, what was applied, what ``on`` would apply and the 04.11 pin — for
+    grading shadow before ``on``."""
     def name(color: Optional[bool]) -> Optional[str]:
         return None if color is None else ("white" if color else "black")
 
+    would = applied(side, legacy, "on", pinned_moves)
     return {"mode": how or mode(), "decided": name(side.color), "source": side.source, "exact": side.exact,
             "evidence": side.evidence[:80], "moves": list(side.moves), "applied": name(check_color(used)),
-            "applied_source": used.source, "legacy": name(legacy)}
+            "applied_source": used.source, "on_would_apply": name(check_color(would)), "legacy": name(legacy)}

@@ -93,6 +93,9 @@ def _turn(monkeypatch, user, question, fen, answer, pgn=None):
 
 @pytest.mark.unit
 def test_t25_they_played_f5_keeps_the_student_white(monkeypatch):
+    from src import config
+
+    monkeypatch.setattr(config, "COACH_STUDENT_SIDE", "on", raising=False)
     true = "Твой конь b5 нападает на пешку c7, но её защищает ферзь e7."
     shown, model_saw = _turn(monkeypatch, "side-t25", "Они сыграли f5. Брать?", P25,
                              "Чёрные сыграли f5 и нападают на пешку e4. " + true, pgn=P25_PGN)
@@ -102,6 +105,9 @@ def test_t25_they_played_f5_keeps_the_student_white(monkeypatch):
 
 @pytest.mark.unit
 def test_t46_white_put_the_knight_on_d5_keeps_the_student_black(monkeypatch):
+    from src import config
+
+    monkeypatch.setattr(config, "COACH_STUDENT_SIDE", "on", raising=False)
     true = "Белый конь d5 под боем твоей пешки e6."
     shown, _ = _turn(monkeypatch, "side-t46", "Белые поставили коня на d5. Брать?", P46, true + " Это важно.")
     assert true in shown, shown
@@ -109,6 +115,9 @@ def test_t46_white_put_the_knight_on_d5_keeps_the_student_black(monkeypatch):
 
 @pytest.mark.unit
 def test_i_played_qb6_still_makes_the_student_white(monkeypatch):
+    from src import config
+
+    monkeypatch.setattr(config, "COACH_STUDENT_SIDE", "on", raising=False)
     # The case the old «already played» rule was written for (2026-10-08) keeps working: «твой ферзь на b6».
     _shown, model_saw = _turn(monkeypatch, "side-qb6", "Я сыграл Qb6. Это мат?", QB6, "Твой ферзь на b6 стоит рядом с королём.")
     assert "The student plays White" in model_saw and "Black's (the opponent's) move now" in model_saw
@@ -445,11 +454,13 @@ def test_shadow_applies_only_where_the_server_pinned_before():
     told = decide("Они сыграли f5. Брать?", P25, pgn=P25_PGN)
     legacy = legacy_color([{"verdict": "already played (16...f5)"}], P25)
     assert legacy == B  # the 04.11 pin: the side that just moved
-    assert check_color(applied(told, legacy, "shadow")) == W  # corrected
+    assert check_color(applied(told, legacy, "on")) == W  # corrected under on
+    assert check_color(applied(told, legacy, "shadow")) == B  # shadow: 04.11 as it was (merge review 06.11)
     assert check_color(applied(told, legacy, "off")) == B  # 04.11 as it was
-    assert applied(told, legacy, "off").note(chess.Board(P25)) == ""
+    assert applied(told, legacy, "shadow").note(chess.Board(P25)) == ""
     guess = decide("Белые поставили коня на d5. Брать?", P46)
-    assert check_color(applied(guess, True, "shadow")) is None  # the wrong pin dropped
+    assert check_color(applied(guess, True, "on")) is None  # the wrong pin dropped under on
+    assert check_color(applied(guess, True, "shadow")) is True
     game = decide("x", P25, game_state={"student_color": "black"})
     assert check_color(applied(game, None, "shadow")) == B
 

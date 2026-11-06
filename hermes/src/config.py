@@ -335,14 +335,13 @@ COACH_LOADED_GAME_CHECK = os.environ.get("COACH_LOADED_GAME_CHECK", "shadow").st
 # what the proof would drop (answer_check event, unproven_shadow) and shows the rewrite as production does.
 # Read at call time.
 COACH_REWRITE_PROOF = os.environ.get("COACH_REWRITE_PROOF", "shadow").strip().lower()
-# The student's side decided once by the server (src/student_side.py, 06.11). off | shadow | on, default shadow: the
-# decision is logged every turn (student_side event) but reaches the answer check and the model only where the server
-# pinned the side before — a game, or a move of the question «already played» on the board (2026-10-08) — so it
-# corrects «Они сыграли f5» (t25) and drops «Белые поставили коня на d5» (t46) without pinning new classes of
-# questions; the review of 06.11 found the first cut pinned threat and colour-object questions wrong. Where nothing is
-# told about the move («Qxf7 — это мат?») the 04.11 pin stays in shadow and on; a move other than the pin's never flips
-# it in shadow; a master game on the board drops it (second review 06.11). ``on`` after a replay set with such
-# questions; ``off`` is the 04.11 behaviour. Read at call time (src/student_side.mode).
+# The student's side decided once by the server (src/student_side.py, 06.11). off | shadow | on, default shadow.
+# shadow is pure logging: the decision is written to the student_side event every turn (with what ``on`` would apply),
+# while the answer check's colour, the rewrite's side note, the model's prompt and the voice check stay exactly prod
+# 04.11's (a game; a move of the question «already played» is the student's — 2026-10-08). ``on`` applies it: «Они
+# сыграли f5» keeps the student White (t25), «Белые поставили коня на d5» drops the pin (t46), «я играю чёрными» is
+# told to the model, a master game on the board is nobody's; where nothing is told about the move («Qxf7 — это мат?»)
+# the 04.11 pin stays. ``off`` behaves as shadow. Read at call time (src/student_side.mode).
 COACH_STUDENT_SIDE = os.environ.get("COACH_STUDENT_SIDE", "shadow").strip().lower()
 
 # The student's idea on the board (2026-10-04): a move named in the message

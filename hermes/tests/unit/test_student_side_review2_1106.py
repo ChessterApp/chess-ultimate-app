@@ -154,10 +154,13 @@ def test_subjectless_question_through_the_server(monkeypatch, question, how):
 def test_the_pins_own_move_told_as_someone_elses_still_drops_it():
     # t46 («Белые поставили коня на d5»): the move of the pin told as White's — the student is not the mover
     p46 = "3qk2r/3b1pbp/B2ppp2/P2N4/1Q2PP2/8/1Pr3PP/R3K2R b KQk - 0 16"
-    side, used = _applied("Белые поставили коня на d5. Брать?", p46, None, "shadow")
-    assert side.source == "other_mover" and check_color(used) is None, (side, used)
     side, used = _applied("Белые поставили коня на d5. Брать?", p46, None, "on")
-    assert check_color(used) is None
+    assert side.source == "other_mover" and check_color(used) is None, (side, used)
+    # shadow is pure logging: the 04.11 pin (Black just moved? no — «already played» Nd5 is White's: White)
+    from src.prompt_builder import question_moves
+
+    _side, shadow = _applied("Белые поставили коня на d5. Брать?", p46, None, "shadow")
+    assert check_color(shadow) == legacy_color(question_moves("Белые поставили коня на d5. Брать?", p46), p46)
 
 
 # ── 2. a master game on the board is nobody's ─────────────────────────────────────────────────────────────────
@@ -174,7 +177,8 @@ def test_the_pins_own_move_told_as_someone_elses_still_drops_it():
 def test_a_master_game_outranks_every_word(question, how):
     side = decide(question, RUY_BA4, master_game=True)
     assert (side.color, side.source) == (None, "master_game")
-    assert check_color(applied(side, W, how, ("Ba4",))) is None  # the 04.11 pin is dropped too
+    # on: the 04.11 pin is dropped too; shadow: the 04.11 pin itself (pure logging, merge review 06.11)
+    assert check_color(applied(side, W, how, ("Ba4",))) == (None if how == "on" else W)
     assert side.note(chess.Board(RUY_BA4)) == ""
 
 
@@ -198,13 +202,19 @@ def test_a_game_loaded_mid_turn_drops_a_side_from_words(monkeypatch, source):
     from src.answer_check_db import note_board_game
     from src.server import _student_side_note
 
-    monkeypatch.setattr(config, "COACH_STUDENT_SIDE", "shadow", raising=False)
+    monkeypatch.setattr(config, "COACH_STUDENT_SIDE", "on", raising=False)
     ctx = CheckContext.from_fens([RUY_BA4], [], question="Покажи партию Карлсена", student_color=W)
     ctx.student_side_why, ctx.student_side_source = "the student said so: «я за белых»", source
     note_board_game(ctx, _db_game_pgn())
     assert ctx.student_color is None and ctx.student_side_why == ""
     note = _student_side_note(ctx)
     assert "neither side is the student" in note and "The student plays" not in note
+    # shadow: the colour stays as 04.11 left it
+    monkeypatch.setattr(config, "COACH_STUDENT_SIDE", "shadow", raising=False)
+    ctx = CheckContext.from_fens([RUY_BA4], [], question="Покажи партию Карлсена", student_color=W)
+    ctx.student_side_source = source
+    note_board_game(ctx, _db_game_pgn())
+    assert ctx.student_color == W
 
 
 @pytest.mark.unit
@@ -300,14 +310,18 @@ def test_the_exchange_keeps_the_pin_and_the_true_sentences(question, how):
 
 
 @pytest.mark.unit
-def test_shadow_never_flips_the_pin_on_another_moves_say_so():
+def test_shadow_is_the_04_11_pin_whatever_the_decision():
+    # Merge review 06.11: shadow only logs — the pin of 04.11 (or nothing) reaches the checks, whatever was decided.
     own_c6 = StudentSide(B, "own_move", "я взял на c6", ("@c6",))
-    assert check_color(applied(own_c6, W, "shadow", ("Nxe5",))) is None  # dropped, not flipped
+    assert check_color(applied(own_c6, W, "shadow", ("Nxe5",))) == W
     assert check_color(applied(own_c6, W, "on", ("Nxe5",))) == B  # on: the decision
     their_f5 = StudentSide(W, "their_move", "они сыграли f5", ("f5",))
-    assert check_color(applied(their_f5, B, "shadow", ("f5",))) == W  # the pin's own move corrects it (t25)
+    assert check_color(applied(their_f5, B, "shadow", ("f5",))) == B
+    assert check_color(applied(their_f5, B, "on", ("f5",))) == W  # on corrects it (t25)
     said = StudentSide(B, "said", "я играю чёрными")
-    assert check_color(applied(said, W, "shadow", ("Nxe5",))) == B  # a side the student said
+    assert check_color(applied(said, W, "shadow", ("Nxe5",))) == W
+    assert check_color(applied(said, None, "shadow")) is None
+    assert check_color(applied(said, None, "on")) == B
     agree = StudentSide(W, "own_move", "я сыграл Nf3", ("Nf3",))
     assert check_color(applied(agree, W, "shadow", ("Nxe5",))) == W
 
@@ -410,7 +424,7 @@ P12_PGN = ("1. e4 c5 2. Nf3 e6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 d6 6. g3 Nc6 7. h3 
 @pytest.mark.unit
 @pytest.mark.parametrize("question", ["Пешка пошла на g5. Куда отступать конём?",
                                       "The pawn went to g5. Where should my knight go?"])
-@pytest.mark.parametrize("how", ["shadow", "on"])
+@pytest.mark.parametrize("how", ["on"])
 def test_a_piece_told_as_the_mover_drops_the_pin(question, how):
     side, used = _applied(question, P12, P12_PGN, how)
     assert side.source == "other_mover" and check_color(used) is None, (side, used)

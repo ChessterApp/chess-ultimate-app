@@ -113,11 +113,11 @@ def note_board_game(ctx, pgn: str, headers: Optional[dict] = None, moves: Option
     # A master game on the board is nobody's: the side the student's words gave («я за белых», «они сыграли …»)
     # is not a side of it. A game against the coach keeps its colour, and so does a side no decision set (a lesson,
     # a game comment): src/student_side, review 06.11 — a game loaded mid-turn by get_game_pgn was never seen by the
-    # turn's decision. COACH_STUDENT_SIDE=off keeps 04.11.
+    # turn's decision. Only under COACH_STUDENT_SIDE=on: off and shadow keep 04.11.
     try:
         from src.student_side import mode
 
-        if mode() != "off" and getattr(ctx, "student_side_source", "") not in ("game", ""):
+        if mode() == "on" and getattr(ctx, "student_side_source", "") not in ("game", ""):
             ctx.student_color = None
             ctx.student_side_why = ""
             ctx.student_side_source = "master_game"
