@@ -596,6 +596,13 @@ COACH_EXPLICIT_RULES = _env_flag("COACH_EXPLICIT_RULES", True)
 #                                new process gives, and trap-legal's depth-17 confirm needs 21 % fewer nodes than at
 #                                32 MB — 0.7–0.9 s against 1.04 s, over its 1 s budget; stage-3 integration 31.10).
 #   STOCKFISH_RECYCLE_SEARCHES — a process is restarted after this many searches (default 5000).
+#   STOCKFISH_MAX_MS           — the cap of a depth search with no clock of its own (the model's analyze_position call;
+#                                default 3000, src/tools/stockfish.py). A check's search is bounded by the check's own
+#                                deadline instead (06.11: the move check's depth 16 was cut at 3 s, V-eng-02 Ne4).
+#   STOCKFISH_EXACT_MAX_MS     — the cap of a fixed-depth search for the exact store without a deadline (the
+#                                precompute's searches for the checks, the game's evals; default 8000).
+#   Threads stay 1 on purpose: a fixed-depth search with more threads gives different lines run to run, and the
+#   checks' verdicts must be the same every time (K3 02.11).
 #   COACH_PRECOMPUTE           — the board-change listener's precompute (default on).
 STOCKFISH_POOL = _env_flag("STOCKFISH_POOL", True)
 STOCKFISH_POOL_SIZE = max(1, int(os.environ.get("STOCKFISH_POOL_SIZE") or min(2, os.cpu_count() or 1)))

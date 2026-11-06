@@ -31,6 +31,13 @@ MAX_DEPTH = max(DEFAULT_DEPTH, int(os.environ.get("STOCKFISH_MAX_DEPTH", str(DEF
 # lines took 24 s in a game review on the bench of 2026-09-28. The search stops
 # at the depth or after this many milliseconds, whichever comes first (0 = no cap).
 MAX_MS = int(os.environ.get("STOCKFISH_MAX_MS", "3000"))
+# 06.11: MAX_MS bounds the searches that have no clock of their own (the model's analyze_position call). A search that
+# judges — one to a fixed depth from an empty hash, kept in the exact store (the move check, the forced-reply confirm,
+# the precompute's searches for them, the game's evals) — is bounded by its caller's deadline (*max_ms*), else by
+# this: the longest a check waits for one such search (src/hypothetical.FORCED_CONFIRM_MAX_MS). Capped at MAX_MS, the
+# move check's depth-16 search after «сыграй конём на e4» (650k nodes) stopped short on the bench host in 3 runs of 3
+# and the bad move went out unjudged although the check had 6 s (shipped1104/REPORT.md, V-eng-02).
+EXACT_MAX_MS = int(os.environ.get("STOCKFISH_EXACT_MAX_MS", "8000"))
 DEFAULT_MULTIPV = 3
 MAX_MULTIPV = 5
 TIMEOUT_SECONDS = 30
@@ -104,12 +111,15 @@ def analyze_position(
     movetime_ms: int | None = None,
     max_ms: int | None = None,
     searchmoves: tuple | list | None = None,
+    cap_ms: int | None = None,
 ) -> dict:
     """Run Stockfish analysis on a FEN position — to *depth*, or for *movetime_ms* when given.
 
     *max_ms* bounds a search to *depth* in time, the engine server and the local fallback together: a search
     stopped short of the depth returns its lines as deep as they got (the caller decides whether that says
-    anything), and no time is left → an error.
+    anything), and no time is left → an error. The caller's *max_ms* is the search's whole bound: STOCKFISH_MAX_MS
+    does not cut it shorter (06.11). Without *max_ms* a depth search is capped at *cap_ms*, else at MAX_MS — the cap
+    of the search itself, not of the wait for a process.
 
     *searchmoves* (UCI strings; plan 31.10): the search looks only at these moves of the side to move («решает ферзь»:
     the queen's best). The engine server has no such option, so a restricted search is always local."""
@@ -138,6 +148,9 @@ def analyze_position(
         cap = int((deadline - time.monotonic()) * 1000)
         if cap < 100:
             return {"error": "no time left for the search"}
+    # The search's own cap: none when the caller brought a deadline (the pool sets the time left once a process is
+    # free; the process-per-search path gets *cap*), else *cap_ms* or the analysis cap.
+    own_cap = 0 if deadline is not None else (cap_ms if cap_ms is not None else MAX_MS)
     if pool_on():
         # A persistent process (src/engine_pool.py): the time cap is set once a process is free, so waiting for
         # one counts against *max_ms* as the start of a new process did.
@@ -148,9 +161,9 @@ def analyze_position(
                 from src import engine_pool
 
                 with engine_pool.priority(engine_pool.current_priority(), flight.job):
-                    result = _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline, sm)
+                    result = _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline, sm, own_cap)
             else:
-                result = _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline, sm)
+                result = _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline, sm, own_cap)
             _exact_put(fen, depth, multipv, sm, movetime_ms, result)  # `ucinewgame` first: an empty hash
             return result
         finally:
@@ -160,6 +173,7 @@ def analyze_position(
         global _running
         _running += 1
     try:
+        cap = cap if cap is not None else own_cap
         if sm:
             result = _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms, cap, searchmoves=sm)
         else:
@@ -256,13 +270,15 @@ def pool_on() -> bool:
         return False
 
 
-def _go_spec(depth: int, movetime_ms: int | None, searchmoves=()) -> str:
-    """The `go` arguments today's process-per-search path sends, before the caller's own time cap."""
+def _go_spec(depth: int, movetime_ms: int | None, searchmoves=(), cap_ms: int | None = None) -> str:
+    """The `go` arguments the process-per-search path sends: a depth search capped at *cap_ms* (default MAX_MS; 0 =
+    no cap of its own — a caller's deadline then sets it on the pool)."""
     restrict = f" searchmoves {' '.join(searchmoves)}" if searchmoves else ""
+    cap = MAX_MS if cap_ms is None else cap_ms
     if movetime_ms:
         return f"movetime {movetime_ms}{restrict}"
-    if MAX_MS > 0:
-        return f"depth {depth} movetime {MAX_MS}{restrict}"
+    if cap > 0:
+        return f"depth {depth} movetime {cap}{restrict}"
     return f"depth {depth}{restrict}"
 
 
@@ -283,11 +299,11 @@ def progress(on_line):
         _progress.fn = old
 
 
-def _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline=None, searchmoves=()) -> dict:
+def _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline=None, searchmoves=(), cap_ms=None) -> dict:
     """analyze_position on the pool: the same `go`, the same parsing, the same result as a new process gives."""
     from src import engine_pool
 
-    out = engine_pool.search(fen, go=_go_spec(depth, movetime_ms, searchmoves), multipv=multipv,
+    out = engine_pool.search(fen, go=_go_spec(depth, movetime_ms, searchmoves, cap_ms), multipv=multipv,
                              deadline=deadline, clear_hash=True,
                              timeout=None if movetime_ms or timeout == TIMEOUT_SECONDS else timeout,
                              on_line=getattr(_progress, "fn", None))
@@ -296,7 +312,7 @@ def _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline=None, se
     if out.get("stopped"):
         # A background search an answer needed the process for (or a board that changed): incomplete, never cached.
         return {"error": "search stopped (preempted)"}
-    return _build_result(out["output"], depth, movetime_ms)
+    return _build_result(out["output"], depth, movetime_ms, capped=deadline is not None or (MAX_MS if cap_ms is None else cap_ms) > 0)
 
 
 def _searchmoves(searchmoves) -> tuple:
@@ -326,10 +342,14 @@ def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms,
 
     try:
         proc.stdin.write("uci\n")
+        # The pool's options (src/engine_pool.py): one thread (a fixed-depth search then gives the same lines every
+        # run — the exact store's rule) and the same hash, so STOCKFISH_POOL=0 judges a move as the pool does.
+        proc.stdin.write(f"setoption name Threads value 1\nsetoption name Hash value {_hash_mb()}\n")
         proc.stdin.write("isready\n")
         proc.stdin.write(f"setoption name MultiPV value {multipv}\n")
         proc.stdin.write(f"position fen {fen}\n")
-        cap = min(c for c in (MAX_MS, cap_ms) if c and c > 0) if (MAX_MS > 0 or cap_ms) else 0
+        # The caller's cap (its deadline's time left, or its own cap) replaces MAX_MS; MAX_MS when it brings none.
+        cap = cap_ms if cap_ms is not None else MAX_MS
         restrict = f" searchmoves {' '.join(searchmoves)}" if searchmoves else ""
         if movetime_ms:
             proc.stdin.write(f"go movetime {movetime_ms}{restrict}\n")
@@ -363,10 +383,19 @@ def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms,
     except BrokenPipeError:
         pass  # Stockfish already exited
 
-    return _build_result(lines, depth, movetime_ms)
+    return _build_result(lines, depth, movetime_ms, capped=cap > 0)
 
 
-def _build_result(lines: list, depth: int, movetime_ms: int | None) -> dict:
+def _hash_mb() -> int:
+    try:
+        from src import config
+
+        return int(config.STOCKFISH_HASH_MB)
+    except Exception:  # noqa: BLE001
+        return 16
+
+
+def _build_result(lines: list, depth: int, movetime_ms: int | None, capped: bool | None = None) -> dict:
     """The analysis dict from Stockfish's output up to `bestmove` (one parser for the new-process and pool paths)."""
     # Parse info lines — keep only the deepest for each multipv
     best_lines: dict[int, dict] = {}
@@ -407,7 +436,8 @@ def _build_result(lines: list, depth: int, movetime_ms: int | None) -> dict:
     # Stopped by the time cap short of the requested depth (a found mate also
     # ends early, but then the line is already decided).
     reached = result_lines[0]["depth"] if result_lines else 0
-    if not movetime_ms and MAX_MS > 0 and reached < depth and "mate_in" not in (result_lines[0] if result_lines else {}):
+    capped = MAX_MS > 0 if capped is None else capped
+    if not movetime_ms and capped and reached < depth and "mate_in" not in (result_lines[0] if result_lines else {}):
         result["time_capped"] = True
     return result
 
@@ -527,7 +557,8 @@ def analyze_exact(fen: str, depth: int, multipv: int, *, max_ms: int | None = No
     hit = exact_get(fen, depth, multipv, sm) if pool_on() else None  # STOCKFISH_POOL=0: a search every time, as before
     if hit is not None:
         return hit
-    kwargs = {"max_ms": max_ms} if max_ms else {}
+    # A search that judges: bounded by the caller's deadline, else by EXACT_MAX_MS — never by the analysis cap.
+    kwargs = {"max_ms": max_ms} if max_ms else {"cap_ms": EXACT_MAX_MS}
     if sm:
         kwargs["searchmoves"] = sm
     return analyze_position(fen, depth=depth, multipv=multipv, **kwargs)  # kept in the store when complete
