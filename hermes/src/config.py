@@ -339,8 +339,10 @@ COACH_REWRITE_PROOF = os.environ.get("COACH_REWRITE_PROOF", "shadow").strip().lo
 # decision is logged every turn (student_side event) but reaches the answer check and the model only where the server
 # pinned the side before — a game, or a move of the question «already played» on the board (2026-10-08) — so it
 # corrects «Они сыграли f5» (t25) and drops «Белые поставили коня на d5» (t46) without pinning new classes of
-# questions; the review of 06.11 found the first cut pinned threat and colour-object questions wrong. ``on`` after a
-# replay set with such questions; ``off`` is the 04.11 behaviour. Read at call time (src/student_side.mode).
+# questions; the review of 06.11 found the first cut pinned threat and colour-object questions wrong. Where nothing is
+# told about the move («Qxf7 — это мат?») the 04.11 pin stays in shadow and on; a move other than the pin's never flips
+# it in shadow; a master game on the board drops it (second review 06.11). ``on`` after a replay set with such
+# questions; ``off`` is the 04.11 behaviour. Read at call time (src/student_side.mode).
 COACH_STUDENT_SIDE = os.environ.get("COACH_STUDENT_SIDE", "shadow").strip().lower()
 
 # The student's idea on the board (2026-10-04): a move named in the message

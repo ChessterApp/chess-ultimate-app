@@ -343,6 +343,9 @@ class CheckContext:
     student_color: Optional[bool] = None
     # Why the server knows it (src/student_side.StudentSide.why): «the student told the opponent's move: …».
     student_side_why: str = ""
+    # Where it came from (src/student_side.StudentSide.source): "game" outranks a database game loaded later in the
+    # turn, any other side is dropped then (src/answer_check_db.note_board_game).
+    student_side_source: str = ""
     # The language the answer must be in ('ru', 'kk', 'kz', 'en'), when known.
     language: Optional[str] = None
     # The engine's evaluation of the position on the screen, in pawns from

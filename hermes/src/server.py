@@ -2506,7 +2506,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                                     game_state=active_board.game_state if live_game else None,
                                     master_game=bool((active_board.source or {}).get("twic_game_id")))
         side_legacy = _side.legacy_color(named_moves, session.board_state)
-        student_side = _side.applied(side_decided, side_legacy)
+        student_side = _side.applied(side_decided, side_legacy, pinned_moves=_side.legacy_moves(named_moves))
         if side_decided.exact or side_legacy is not None:
             log_event("student_side", surface="text", user_id=user_id, session_id=session.id, turn_id=turn_id,
                       payload=_side.log_payload(side_decided, student_side, side_legacy))
@@ -2794,8 +2794,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # said, or the one the move they told shows («Я сыграл Qb6. Это мат?» — White, 2026-10-08; «Они сыграли f5» —
         # the other side, 06.11). Guessed (the side to move), it stays None: the checks read «ты» on their own then.
         student_color = _side.check_color(student_side)
+        student_side_source = student_side.source if student_color is not None else ""
         if live_game and student_color is None:
             student_color = chess.WHITE if active_board.game_state.get("student_color") == "white" else chess.BLACK
+            student_side_source = "game"
         check_ctx = CheckContext.from_fens(
             [hidden_fen, session.board_state, body.fen] + [b.fen for b in session.boards] + ([past["fen"]] if past else [])
             + [q["after_fen"] for q in named_moves if q.get("after_fen")],  # the positions the student's idea leads to
@@ -2807,6 +2809,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             student_color=student_color,
         )
         check_ctx.student_side_why = student_side.why() if student_color is not None else ""
+        check_ctx.student_side_source = student_side_source  # a database game loaded mid-turn drops all but a game
         check_ctx.language = turn_language  # a sentence in the wrong language is rewritten like a wrong move
         # What the turn's database tools return, and a database game already on the board, are what the answer may
         # say of them (src/answer_check_db.py, review 03.11).
@@ -3014,6 +3017,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         if isinstance(action, dict) and action.get("type") == GAME_ACTION and action.get("game"):
                             check_ctx.game_engine_moves = _engine_moves(action["game"])  # a move played mid-answer
                             check_ctx.game_moves = list(action["game"].get("moves") or [])
+                            # The game started (or played on) mid-answer decides the student's colour, over the
+                            # words of the question («я за чёрных» against a game the tool set up from this
+                            # position or at random) — the record's checks read «твой ход» by it (review 06.11).
+                            game_color = action["game"].get("student_color")
+                            if game_color in ("white", "black"):
+                                check_ctx.student_color = chess.WHITE if game_color == "white" else chess.BLACK
+                                check_ctx.student_side_why = "the game against the coach on the board"
+                                check_ctx.student_side_source = "game"
                         if isinstance(action, dict) and action.get("type") in POSITION_ACTIONS:
                             new_fen = position_after(action)
                             if (new_fen or "").split(" ")[0] != (board_moved["from"] or "").split(" ")[0]:
@@ -5031,10 +5042,26 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         # The student's side as the text turn decides it (src/student_side.py): «они сыграли f5» said aloud makes the
         # student the other side, «я играю чёрными» Black; a game on the board decides it below.
         # COACH_STUDENT_SIDE=shadow (default): the 04.11 voice check pinned no side, so it is only logged.
+        # A database game on the session's board is nobody's, as on the text turn: «почему они сыграли Bxf7?» about
+        # Carlsen's game is no opponent's move (review 06.11). Without the session it cannot be known, so a move told
+        # as the opponent's decides nothing then.
+        master_game: Optional[bool] = None
+        if body.session_id:
+            try:
+                voice_session = session_store.get(body.session_id, user_id)
+                voice_board = (voice_session.get_board(voice_session.active_board_id)
+                               if voice_session is not None else None)
+                master_game = bool(voice_board is not None and (voice_board.source or {}).get("twic_game_id"))
+            except SessionLoadError:
+                raise  # the session is unknown, not absent: 503, never a check without it (28.10)
+            except Exception:  # noqa: BLE001 — unknown: a move told as the opponent's decides nothing
+                master_game = None
         try:
             from src import student_side as _side
 
-            decided = _side.decide(heard.question or "", body.fen, pgn=body.pgn)
+            decided = _side.decide(heard.question or "", body.fen, pgn=body.pgn, master_game=bool(master_game))
+            if master_game is None and decided.source == "their_move":
+                decided = _side.StudentSide(None, "none", decided.evidence)
             side = _side.applied(decided, None)
             ctx.student_color = _side.check_color(side)
             ctx.student_side_why = side.why() if ctx.student_color is not None else ""
