@@ -96,17 +96,56 @@ def _points(board: chess.Board, color: bool) -> int:
 def ending_name(board: chess.Board) -> str:
     """The ending's name by the pieces on the board: «a rook ending», «rook and knight v rook and bishop»."""
     white, black = _pieces(board, chess.WHITE), _pieces(board, chess.BLACK)
-    kinds = set(white) | set(black)
-    if not kinds:
+    kinds = _single_kind(board)
+    if not white and not black:
         return "a pawn ending (kings and pawns only)"
     single = {chess.ROOK: "a rook ending (rooks and pawns only)", chess.QUEEN: "a queen ending (queens and pawns only)",
               chess.KNIGHT: "a knight ending (knights and pawns only)"}
-    if len(kinds) == 1 and next(iter(kinds)) in single:
-        return single[next(iter(kinds))]
-    if kinds == {chess.BISHOP}:
+    if kinds in single:
+        return single[kinds]
+    if kinds == chess.BISHOP:
         return "a bishop ending" + (" with opposite-coloured bishops" if opposite_bishops(board) else "")
     extra = " (opposite-coloured bishops)" if opposite_bishops(board) else ""
     return f"{_side_list(white)} v {_side_list(black)}{extra}"
+
+
+def _single_kind(board: chess.Board) -> Optional[int]:
+    """The one kind of piece both sides have besides the king and the pawns — a rook ending is a rook (or rooks) on
+    each side and pawns; rook against pawns is not one (review 06.11: «a rook ending» after 5.Rxb8+ for R v pawns) —,
+    else None."""
+    white, black = set(_pieces(board, chess.WHITE)), set(_pieces(board, chess.BLACK))
+    if len(white) == 1 and white == black:
+        return next(iter(white))
+    return None
+
+
+def imbalance(board: chess.Board) -> str:
+    """The pieces one side has for the other's, besides the ones both have — «White up the exchange», «Black up a piece
+    for 2 pawns», «White has a queen for a rook and a bishop» —, '' when the pieces are the same (pawns only differ).
+    A lead in points says nothing of the pieces: R+5P v B+6P is «up 1» and «up the exchange for a pawn»."""
+    w, b = Counter(_pieces(board, chess.WHITE)), Counter(_pieces(board, chess.BLACK))
+    both = w & b
+    w, b = w - both, b - both
+    if not w and not b:
+        return ""
+    wv, bv = sum(VALUE[t] * n for t, n in w.items()), sum(VALUE[t] * n for t, n in b.items())
+    color = chess.WHITE if wv >= bv else chess.BLACK
+    mine, theirs = (w, b) if color == chess.WHITE else (b, w)
+    side = "White" if color == chess.WHITE else "Black"
+    minors = (chess.KNIGHT, chess.BISHOP)
+    pawns = len(board.pieces(chess.PAWN, color)) - len(board.pieces(chess.PAWN, not color))
+    n_mine = sum(mine.values())
+    if mine == Counter({chess.ROOK: 1}) and sum(theirs.values()) == 1 and next(iter(theirs)) in minors:
+        what = f"{side} up the exchange"
+    elif not theirs and all(t in minors for t in mine):
+        what = f"{side} up {'a piece' if n_mine == 1 else f'{n_mine} pieces'}"
+    elif not theirs:
+        what = f"{side} up {_list(list(mine.elements()))}"
+    else:
+        return f"{side} has {_list(list(mine.elements()))} for {_list(list(theirs.elements()))}"
+    if pawns:
+        what += f" {'for' if pawns < 0 else 'and'} {_list([chess.PAWN] * abs(pawns))}"
+    return what
 
 
 def opposite_bishops(board: chess.Board) -> bool:
@@ -126,7 +165,8 @@ class GameStory:
         self.moves: list = []
         self.boards: list = []
         self.labels: list = []
-        self.taken: list = []  # per ply: the piece type it took, or None
+        self.taken: list = []  # per ply: the piece type it took (a promoted piece counts as the pawn it was), or None
+        promoted: set = set()  # the squares a promoted piece stands on
         for board, move in line:
             if not self.boards:
                 self.boards.append(board.copy(stack=False))
@@ -136,6 +176,16 @@ class GameStory:
             victim = None
             if before.is_capture(move):
                 victim = chess.PAWN if before.is_en_passant(move) else before.piece_at(move.to_square).piece_type
+                if move.to_square in promoted:
+                    # 1.dxc8=Q+ Rxc8: Black took the pawn White promoted — White won a bishop for a pawn, not
+                    # Black a queen for a bishop (review 06.11)
+                    victim = chess.PAWN
+            promoted.discard(move.to_square)
+            if move.from_square in promoted:
+                promoted.discard(move.from_square)
+                promoted.add(move.to_square)
+            if move.promotion:
+                promoted.add(move.to_square)
             self.labels.append(f"{before.fullmove_number}{'.' if before.turn == chess.WHITE else '...'}{before.san(move)}")
             self.taken.append(victim)
             self.moves.append(move)
@@ -143,6 +193,9 @@ class GameStory:
             after.push(move)
             self.boards.append(after)
         self.balance = [_points(b, chess.WHITE) - _points(b, chess.BLACK) for b in self.boards]
+        # the same without the pawns: «лишнее качество», «лишняя фигура» are pieces, not points (review 06.11)
+        self.piece_balance = [sum(VALUE[t] for t in _pieces(b, chess.WHITE)) - sum(VALUE[t] for t in _pieces(b, chess.BLACK))
+                              for b in self.boards]
 
     # ── construction ────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -194,10 +247,11 @@ class GameStory:
     def lead(self, color: bool, i: int) -> int:
         return self.balance[i] if color == chess.WHITE else -self.balance[i]
 
-    def spans(self) -> list:
-        """[(first, last, balance)]: the positions first..last (inclusive) with the same material balance."""
+    def spans(self, values: Optional[list] = None) -> list:
+        """[(first, last, balance)]: the positions first..last (inclusive) with the same material balance (or the same
+        of *values*, one per position: ``piece_balance``)."""
         out = []
-        for i, bal in enumerate(self.balance):
+        for i, bal in enumerate(self.balance if values is None else values):
             if out and out[-1][2] == bal:
                 out[-1] = (out[-1][0], i, bal)
             else:
@@ -249,22 +303,44 @@ class GameStory:
         return out
 
     def ending(self) -> str:
-        """How the game ended, from the final position and the result."""
+        """How the game ended — only what the score establishes: a mate, a stalemate, a draw the final position or the
+        repetitions make (insufficient material, the 50-move rule, a position come three times), the PGN's Termination
+        header; else the result and where the score stops. A PGN does not say a game was resigned or agreed drawn
+        (review 06.11: «Black resigned» for a time forfeit, «a draw agreed» for king and knight v king)."""
         final = self.boards[-1]
-        result = self.headers.get("Result") or ""
+        result = (self.headers.get("Result") or "").strip()
+        last = self.labels[-1]
         if final.is_checkmate():
-            return f"{self.labels[-1]} is checkmate"
+            return f"{last} is checkmate"
         if final.is_stalemate():
-            return f"stalemate after {self.labels[-1]}"
-        repeats = sum(1 for b in self.boards if b.board_fen() == final.board_fen() and b.turn == final.turn)
-        if result == "1/2-1/2" and repeats >= 3:
-            return f"a draw by repetition (the position after {self.labels[-1]} came {repeats} times)"
+            return f"stalemate after {last}"
+        term = (self.headers.get("Termination") or "").strip()
+        tl = term.lower()
         if result == "1/2-1/2":
-            return f"a draw agreed after {self.labels[-1]}"
+            if final.is_insufficient_material():
+                return f"a draw after {last}: neither side has the material left to mate"
+            repeats = sum(1 for b in self.boards if b.board_fen() == final.board_fen() and b.turn == final.turn)
+            if repeats >= 3:
+                return f"a draw by repetition (the position after {last} came {repeats} times)"
+            if final.halfmove_clock >= 100:
+                return f"a draw by the 50-move rule after {last}"
+            if term and tl not in ("normal", "unterminated", "?"):
+                return f"a draw after {last} (the PGN's termination: {term})"
+            return f"a draw after {last}; the PGN does not say how (agreed or claimed)"
         if result in ("1-0", "0-1"):
-            loser = "Black" if result == "1-0" else "White"
-            return f"{loser} resigned after {self.labels[-1]}"
-        return f"the score stops after {self.labels[-1]} ({result or 'no result'})"
+            winner, loser = ("White", "Black") if result == "1-0" else ("Black", "White")
+            if "time" in tl:
+                return f"{loser} lost on time after {last} ({result})"
+            if tl == "normal":
+                # «Normal» (lichess, chess.com): mate or resignation; not mate here, so resigned
+                return f"{loser} resigned after {last} ({result})"
+            if "abandon" in tl:
+                return f"{loser} abandoned the game after {last} ({result})"
+            if term and tl not in ("unterminated", "?"):
+                return f"{winner} won ({result}) after {last} (the PGN's termination: {term})"
+            return (f"{winner} won ({result}); the score stops after {last} — the PGN does not say whether by "
+                    "resignation or on time")
+        return f"the score stops after {last} ({result or 'no result'})"
 
     # ── the text the model is given ─────────────────────────────────────────────────────────────────────────────
 
@@ -285,6 +361,9 @@ class GameStory:
             else:
                 who = "White" if bal > 0 else "Black"
                 what = f"{who} up {abs(bal)}"
+            pieces = {imbalance(self.boards[i]) for i in range(first, last + 1)}
+            if len(pieces) == 1 and "" not in pieces:
+                what += f" ({pieces.pop()})"  # «White up 1 (White up the exchange for a pawn)»: the pieces behind it
             out.append(f"{what} {since}, {self._held(first, last)}")
         if len(out) > 24:  # a long, swinging game: the first, the longest held, the last
             spans = self.steady(self.spans())
@@ -337,7 +416,8 @@ class GameStory:
             board = self.boards[first]
             pawns = f"pawns {len(board.pieces(chess.PAWN, chess.WHITE))}–{len(board.pieces(chess.PAWN, chess.BLACK))}"
             since = "from the start" if first == 0 else f"from {self.labels[first - 1]}"
-            out.append(f"{since}, {self._held(first, last)}: {ending_name(board)}; {pawns}")
+            pieces = imbalance(board)
+            out.append(f"{since}, {self._held(first, last)}: {ending_name(board)}; {pawns}" + (f"; {pieces}" if pieces else ""))
         return out
 
     def moment_lines(self) -> list:
@@ -461,17 +541,33 @@ def _clause(low: str, start: int, end: int) -> str:
 def _ending_matches(story: GameStory, kind: str, positions: list) -> bool:
     for i in positions:
         board = story.boards[i]
-        kinds = set(_pieces(board, chess.WHITE)) | set(_pieces(board, chess.BLACK))
         if kind == "opposite":
             if opposite_bishops(board):
                 return True
         elif kind == "pawn":
-            if not kinds:
+            if not _pieces(board, chess.WHITE) and not _pieces(board, chess.BLACK):
                 return True
-        elif kinds == {{"rook": chess.ROOK, "queen": chess.QUEEN, "bishop": chess.BISHOP,
-                        "knight": chess.KNIGHT}[kind]}:
-            return True
+        elif _single_kind(board) == {"rook": chess.ROOK, "queen": chess.QUEEN, "bishop": chess.BISHOP,
+                                     "knight": chess.KNIGHT}[kind]:
+            return True  # both sides have that piece and nothing else: rook against pawns is no rook ending
     return False
+
+
+# The ending's own clause does not say the game reached it: it was avoided, aimed at, feared, possible — «Накамура
+# избежал ладейного эндшпиля», «уклонились от размена в ладейный эндшпиль», «стремился перевести игру в ладейный
+# эндшпиль», «могла перейти в…», "avoided a rook ending" (review 06.11: five true sentences cut).
+_UNREAL = re.compile(
+    _B + r"(?:избеж\w*|избега\w*|уклон\w*|уклоня\w*|стрем\w*|пыта\w*|попыт\w*|хоте\w*|хоч\w*|мечта\w*|планир\w*|"
+    r"рассчитыва\w*|надея\w*|наде\w+с[яь]|иска\w*|добива\w*|цели\w*|нацели\w*|боял\w*|боя\w*|опаса\w*|"
+    r"грози\w*|предлага\w*|предложи\w*|мог|могл\w*|можно|могут|может|чтобы|ради|вместо|отказал\w*|"
+    r"перевести|свести|перейти|уйти|получить|избежать|"
+    r"avoid\w*|aim\w*|tr(?:y|ied|ies|ying)|want\w*|hop\w*|sought|seek\w*|steer\w*|fear\w*|could|might|would|can|"
+    r"instead|declin\w*|refus\w*|threaten\w*)" + _E, re.IGNORECASE)
+# The game went into the ending — «в итоге» with it is «eventually», not «at the very end»: «в итоге партия перешла в
+# ладейный эндшпиль» about a rook ending won by promoting (review 06.11).
+_TRANSITION = re.compile(
+    _B + r"(?:перешл\w*|переш[её]л|свел\w*|св[её]л|свелась|возник\w*|дошл\w*|дош[её]л|получил\w*|получилось|"
+    r"сложил\w*|reached|arose|went\s+into|turned\s+into|transposed|led\s+to|resulted\s+in)" + _E, re.IGNORECASE)
 
 
 def ending_issues(low: str, story: GameStory, about: Optional[bool]) -> list:
@@ -485,11 +581,14 @@ def ending_issues(low: str, story: GameStory, about: Optional[bool]) -> list:
             part = low[left:min(nxt) if nxt else len(low)]  # its own clause: «…, где Накамура не смог…» is another
             if _NEG.search(part) or _GENERIC.search(clause):
                 continue  # «это не ладейный эндшпиль», «в ладейном эндшпиле обычно…»
+            if _UNREAL.search(part):
+                continue  # «избежал ладейного эндшпиля», «стремился к ладейному эндшпилю»: not told as reached
             if about is not True and not _HAPPENED.search(clause):
                 continue  # «ладейный эндшпиль — это…», a rule; the board now is the board check's
             # «в итоге» / «закончилась» of the ending's own sub-clause only: «был ладейный эндшпиль, и в итоге белые
-            # провели ферзя» says the rook ending happened, and the game ended with a queen promoted from it.
-            final = bool(_FINAL.search(part))
+            # провели ферзя» says the rook ending happened, and the game ended with a queen promoted from it. With a verb
+            # of going into it, «в итоге перешла в ладейный эндшпиль» is «eventually»: any position of the game.
+            final = bool(_FINAL.search(part)) and not _TRANSITION.search(part)
             positions = [len(story.boards) - 1] if final else list(range(len(story.boards)))
             if _ending_matches(story, kind, positions):
                 continue
@@ -610,10 +709,18 @@ def trade_issues(original: str, low: str, story: GameStory, sides: callable) -> 
             ok = False
             for window in _windows(story):
                 white, black = story.took(window)
+                # as the facts tell it (GameStory.pairs): the pieces both sides took are a trade, the rest «won X for
+                # Y» — 1.Rxd5 Nxe4 2.Bxe4 Rxd5 is «knights traded; White won a queen for a rook» (review 06.11); a
+                # sentence naming the traded pair too («ферзя и коня за ладью и коня») fits the window as taken
+                both = Counter(white) & Counter(black)
+                net_w, net_b = list((Counter(white) - both).elements()), list((Counter(black) - both).elements())
                 for color in colors:
-                    mine, theirs = (white, black) if color == chess.WHITE else (black, white)
-                    if _fits(took, mine, took_open) and _fits(gave, theirs, gave_open):
-                        ok = True
+                    for w_side, b_side in ((white, black), (net_w, net_b)):
+                        mine, theirs = (w_side, b_side) if color == chess.WHITE else (b_side, w_side)
+                        if _fits(took, mine, took_open) and _fits(gave, theirs, gave_open):
+                            ok = True
+                            break
+                    if ok:
                         break
                 if ok:
                     break
@@ -636,6 +743,10 @@ def trade_issues(original: str, low: str, story: GameStory, sides: callable) -> 
             return [f"«{m.group(0)}» does not match the game on the board — no exchange of it was that{said} "
                     "(tell the trades only from the game's facts)"]
     return []
+
+
+# A lead in pieces, not points: «лишнее качество», «лишняя фигура», «на фигуру больше».
+_PIECE_UNIT = re.compile(r"качеств|фигур", re.IGNORECASE)
 
 
 def lead_issues(original: str, low: str, story: GameStory, sides: callable, about: Optional[bool]) -> list:
@@ -680,27 +791,40 @@ def lead_issues(original: str, low: str, story: GameStory, sides: callable, abou
             continue  # a moment named by a move («после 18.Qxd5 у белых лишняя пешка») is the move check's
         color = chess.WHITE if claim.who == "W" else chess.BLACK
         sign = 1 if claim.more else -1
+        # «лишнее качество», «лишняя фигура»: what pieces the side has, not the points — the exchange is mostly paid
+        # for with a pawn or two (R+5P v B+6P: up 1 in points, up the exchange in pieces; review 06.11). Judged on
+        # the pieces besides pawns, at least that much; a unit said beside pawns («качество за пешку») is not judged.
+        unit_span = (claim.span or clause)
+        pieces_claim = bool(_PIECE_UNIT.search(unit_span))
+        if pieces_claim and re.search(r"пешк|пешек", unit_span):
+            continue
+        values = story.piece_balance if pieces_claim else story.balance
+        amount = ("the exchange" if "качеств" in unit_span else "a piece") if pieces_claim else str(claim.points)
 
         def holds_balance(balance):
             lead = sign * (balance if color == chess.WHITE else -balance)
             if claim.hedged:
                 return lead > 0
+            if pieces_claim:
+                return lead >= claim.points
             return lead >= claim.points if claim.atleast else lead == claim.points
 
         def holds(i):
-            return holds_balance(story.balance[i])
+            return holds_balance(values[i])
 
         side = "White" if color == chess.WHITE else "Black"
         span_text = (low[claim.at:claim.end] if len(low) == len(text) else claim.span or clause).strip()
         if final:
             last = len(story.boards) - 1
             if not holds(last):
-                out.append(f"«{span_text}» does not match the game on the board: it ended "
-                           f"{story._balance_word(last)} in material (tell the material only from the game's facts)")
+                at_end = (imbalance(story.boards[last]) or "the same pieces on both sides") if pieces_claim \
+                    else f"{story._balance_word(last)} in material"
+                out.append(f"«{span_text}» does not match the game on the board: it ended {at_end} (tell the material "
+                           "only from the game's facts)")
                 break
             continue
         runs = []
-        for first, last, _ in story.spans():
+        for first, last, _ in story.spans(values):
             if all(holds(i) for i in range(first, last + 1)):
                 if runs and runs[-1][1] == first - 1:
                     runs[-1] = (runs[-1][0], last)
@@ -710,7 +834,7 @@ def lead_issues(original: str, low: str, story: GameStory, sides: callable, abou
             # how long a lead held is read on the spans the facts tell (story.steady): a capture the opponent starts and
             # gets straight back (+1 → -2 → +1) does not end it — «White up 1 after 3.exd5, for 7 plies»
             held = []
-            steady = story.steady(story.spans())
+            steady = story.steady(story.spans(values))
             for j, (first, last, balance) in enumerate(steady):
                 if holds_balance(balance):
                     if held and held[-1][2] == j - 1:
@@ -723,15 +847,15 @@ def lead_issues(original: str, low: str, story: GameStory, sides: callable, abou
             if runs:
                 first, last = max(runs, key=lambda r: r[1] - r[0])
                 out.append(f"«{span_text}» does not match the game on the board: {side}'s lead of "
-                           f"{claim.points} after {story.after(first)} held only {last - first + 1} "
+                           f"{amount} after {story.after(first)} held only {last - first + 1} "
                            f"{'ply' if last == first else 'plies'} — it was not kept (tell the material only from the "
                            "game's facts)")
             else:
-                out.append(f"«{span_text}» does not match the game on the board: {side} never led by {claim.points} in "
+                out.append(f"«{span_text}» does not match the game on the board: {side} never led by {amount} in "
                            "it (tell the material only from the game's facts)")
             break
         if not runs:
-            out.append(f"«{span_text}» does not match the game on the board: {side} never led by {claim.points} in it "
+            out.append(f"«{span_text}» does not match the game on the board: {side} never led by {amount} in it "
                        "(tell the material only from the game's facts)")
             break
     return out

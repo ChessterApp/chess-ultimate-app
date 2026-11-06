@@ -108,7 +108,10 @@ def test_the_facts_tell_an_exchange_as_pairs():
     assert ("20...Bxd5 21.Nxd8 21...Bxf3 22.Ne6 22...Bd5 23.Nxf8 23...Kxf8: queens traded; White won a rook for a "
             "knight and a pawn; material after it: White up 1") in facts
     assert "56.a8=Q: White promotes to a queen" in facts and "57...f1=Q: Black promotes to a queen" in facts
-    assert "The game ended: Black resigned after 58.Qd8+" in facts
+    # the PGN says 1-0 and no more: not «Black resigned» (Black still has a queen; a 3+0 game may be lost on time)
+    assert ("The game ended: White won (1-0); the score stops after 58.Qd8+ — the PGN does not say whether by "
+            "resignation or on time") in facts
+    assert "resigned" not in facts
 
 
 @pytest.mark.unit
@@ -371,11 +374,10 @@ RIGHT_1106 = [
     (PAID_LATER, "Накамура пожертвовал ферзя за ладью и слона."),
 ]
 WRONG_1106 = [
-    (HELD_THROUGH, "Белые долго играли с лишней фигурой.", "never led by 3"),
+    (HELD_THROUGH, "Белые долго играли с лишней фигурой.", "never led by a piece"),
     (NAKAMURA_SINDAROV, "Белые надолго остались с лишней пешкой.", "held only 3 plies"),
     (TWO_ROOKS, "Белые отдали ферзя за три ладьи.", "no exchange of it was that"),
     (TWO_ROOKS, "Белые отдали ладьи за ферзя.", "no exchange of it was that"),
-    (PROMOTED, "В итоге получился ладейный эндшпиль.", "the game ended with queen and rook v rook"),
     (PROMOTED, "Партия закончилась ладейным эндшпилем.", "the game ended with queen and rook v rook"),
     (PAID_LATER, "Белые отдали ферзя за две ладьи.", "no exchange of it was that"),
 ]
