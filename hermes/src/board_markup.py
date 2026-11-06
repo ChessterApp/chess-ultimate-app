@@ -296,30 +296,143 @@ def _arrow_fits(piece: chess.Piece, a: int, b: int) -> bool:
     return (dx == 0 and dy * forward in (1, 2)) or (adx == 1 and dy * forward == 1)
 
 
-def prune_arrows(action: dict, fen: Optional[str]) -> dict:
-    """*action* with the arrows a piece on the board cannot draw removed.
+def prune_arrows(action: dict, fen: Optional[str], pgn: Optional[str] = None, ply: Optional[int] = None) -> dict:
+    """*action* with the arrows that cannot be drawn on the board removed (``arrow_verdicts``). Returns {} when nothing
+    is left to draw."""
+    return arrow_verdicts(action, fen, pgn, ply)[0]
 
-    The game tester (2026-10-01) got an arrow g1→h4 for a rook: the sentence
-    with the claim is checked and withheld, the arrow in it had already gone
-    to the board. An arrow from a square with a piece on it must follow that
-    piece's way of moving; an arrow from an empty square (a line of play) is
-    kept. Returns {} when nothing is left to draw.
-    """
+
+def arrow_verdicts(action: dict, fen: Optional[str], pgn: Optional[str] = None,
+                   ply: Optional[int] = None) -> tuple[dict, list]:
+    """(*action* with the arrows that cannot be drawn on the board removed — {} when none is left —, the removed ones
+    as [(arrow, why)]).
+
+    The game tester (2026-10-01) got an arrow g1→h4 for a rook: the sentence with the claim is checked and withheld,
+    the arrow in it had already gone to the board. An arrow from a square with a piece on it must follow that piece's
+    way of moving; an arrow from an empty square (a line of play) is kept —
+
+    — unless the board shows a game (*pgn*, at *ply* or at the position *fen*) and the arrow is one of that game's
+    moves made on another position (live run 04.11: «белые вернули пешку на e5» about 6.Nxe5 drew f3→e5 on the final
+    position of Sindarov – Nakamura, where nothing stands on f3). Such an arrow is kept only where it still traces the
+    move — the piece that made it stands on its square and nothing has moved from or to it since —, or when an earlier
+    arrow of the same drawing brought a piece to its square (a line: d2→f3, f3→e5)."""
     if not isinstance(action, dict) or action.get("type") != "draw_arrows" or not fen:
-        return action
+        return action, []
     try:
         board = chess.Board(fen)
     except ValueError:
-        return action
-    kept = []
+        return action, []
+    game = _game_at(pgn, ply, board) if pgn else None
+    kept, dropped, ends = [], [], set()
     for arrow in action.get("arrows") or []:
         try:
             a, b = chess.parse_square(str(arrow.get("from"))), chess.parse_square(str(arrow.get("to")))
         except (ValueError, TypeError, AttributeError):
             continue
         piece = board.piece_at(a)
-        if piece is None or _arrow_fits(piece, a, b):
-            kept.append(arrow)
+        if piece is not None and not _arrow_fits(piece, a, b):
+            dropped.append((arrow, f"a {chess.piece_name(piece.piece_type)} cannot go there"))
+            continue
+        if piece is None and a not in ends and game is not None:
+            other = _move_of_another_position(game, a, b)
+            if other:
+                dropped.append((arrow, other))
+                continue
+        kept.append(arrow)
+        ends.add(b)
     if not kept:
-        return {}
-    return {**action, "arrows": kept}
+        return {}, dropped
+    return {**action, "arrows": kept}, dropped
+
+
+def _game_at(pgn: str, ply: Optional[int], board: chess.Board) -> Optional[tuple]:
+    """(the game's positions, its moves, the index of the shown position) when *board* is a position of the game in
+    *pgn* — at *ply* if that is it, else its last occurrence —, or None."""
+    import io
+
+    import chess.pgn
+
+    try:
+        game = chess.pgn.read_game(io.StringIO(pgn))
+    except Exception:  # noqa: BLE001
+        return None
+    if game is None:
+        return None
+    pos = game.board()
+    boards, moves = [pos.copy(stack=False)], []
+    for move in game.mainline_moves():
+        if move not in pos.legal_moves:
+            break
+        moves.append(move)
+        pos.push(move)
+        boards.append(pos.copy(stack=False))
+    if not moves:
+        return None
+    key = (board.board_fen(), board.turn)
+    if ply is not None and 0 <= ply < len(boards) and (boards[ply].board_fen(), boards[ply].turn) == key:
+        return boards, moves, ply
+    at = [i for i, b in enumerate(boards) if (b.board_fen(), b.turn) == key]
+    return (boards, moves, at[-1]) if at else None
+
+
+def _move_of_another_position(game: tuple, a: int, b: int) -> str:
+    """Why the arrow a→b is a move of the game made on another position than the shown one ('' when it is not)."""
+    boards, moves, shown = game
+    made = [k for k, m in enumerate(moves) if m.from_square == a and m.to_square == b]
+    if not made:
+        return ""
+    for k in made:
+        if k >= shown:
+            continue
+        piece = boards[k + 1].piece_at(b)
+        later = moves[k + 1:shown]
+        if piece is not None and boards[shown].piece_at(b) == piece \
+                and not any(m.from_square == b or m.to_square == b for m in later):
+            return ""  # the piece that made the move still stands there: the arrow traces it
+    k = max((x for x in made if x < shown), default=made[0])
+    label = boards[k].fullmove_number
+    san = boards[k].san(moves[k])
+    told = f"{label}{'.' if boards[k].turn == chess.WHITE else '...'}{san}"
+    where = "the final position" if shown == len(moves) else f"the position after ply {shown}"
+    return f"it is the game's move {told}, made on another position — the board shows {where}"
+
+
+def prune_board_actions(actions: list, fen: Optional[str], pgn: Optional[str] = None,
+                        ply: Optional[int] = None) -> tuple[list, list]:
+    """(*actions* with the arrows that cannot be drawn removed — an arrows action left empty goes —, the arrows removed
+    as 'f3e5: why'). The board starts at *fen* (showing the game *pgn* at *ply*, when it does) and follows the
+    position actions of the list: a load_pgn puts its game up at its last move, a set_fen / set_puzzle a position of
+    no game, a navigate moves along the game — every arrow is judged on the board it is drawn on (text and voice)."""
+    kept, dropped = [], []
+    for action in actions or []:
+        if not isinstance(action, dict):
+            kept.append(action)
+            continue
+        kind = action.get("type")
+        if kind == "draw_arrows":
+            pruned, why = arrow_verdicts(action, fen, pgn, ply)
+            dropped += [f"{arrow.get('from')}{arrow.get('to')}: {reason}" for arrow, reason in why]
+            if pruned:
+                kept.append(pruned)
+            continue
+        kept.append(action)
+        try:
+            if kind == "load_pgn" and action.get("pgn"):
+                from src.board_truth import position_after
+
+                fen, pgn, ply = position_after(action) or fen, action["pgn"], None
+            elif kind in ("set_fen", "set_puzzle") and action.get("fen"):
+                fen, pgn, ply = action["fen"], None, None
+            elif kind == "clear_board":
+                fen, pgn, ply = chess.STARTING_FEN, None, None
+            elif kind == "navigate" and pgn:
+                game = _game_at(pgn, ply, chess.Board(fen))
+                if game is not None:
+                    boards, _, at = game
+                    at = {"first": 0, "last": len(boards) - 1, "prev": at - 1, "next": at + 1}.get(
+                        action.get("direction"), at)
+                    ply = max(0, min(at, len(boards) - 1))
+                    fen = boards[ply].fen()
+        except Exception:  # noqa: BLE001 — bookkeeping: the arrows are then judged on the board before
+            pass
+    return kept, dropped

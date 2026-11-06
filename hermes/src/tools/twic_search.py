@@ -533,13 +533,22 @@ def get_game_pgn(
     if moves:
         out["moves"] = moves
         out["note"] = MOVES_NOTE
+    # The material, the trades and the ending, added up by the server: the coach added them up itself and told R+N v
+    # R+B as «ладейно-пешечное окончание», a queen and a knight as «ферзя и слона» (live run 04.11).
+    from src.game_story import game_facts
+
+    facts = game_facts(pgn_text)
+    if facts:
+        out["facts"] = facts
     return out
 
 
 # The coach retold a loaded game from memory: «на 4-м ходу белые взяли пешку на e4» for 4...Nxe4, «33.d8=Q+» for
 # d8=R+, «Хюбнер забрал ладью» for a knight (review 03.11). Every move, told as what it is.
 MOVES_NOTE = ("moves: every move of this game in order — who moved, which piece, what it took. Tell the game only from "
-              "this list and the headers: a move, a capture or a side you cannot read here was not in this game.")
+              "this list and the headers: a move, a capture or a side you cannot read here was not in this game. "
+              "facts: the material, the exchanges, the ending and the key moments, computed from these moves — say "
+              "what was won, traded or left only as the facts say.")
 _PIECE = {chess.PAWN: "pawn", chess.KNIGHT: "knight", chess.BISHOP: "bishop", chess.ROOK: "rook",
           chess.QUEEN: "queen", chess.KING: "king"}
 
@@ -605,7 +614,16 @@ def _with_board(result: dict) -> dict:
     action = {"type": "load_pgn", "pgn": pgn}
     if result.get("id"):
         action["game_id"] = result["id"]  # the board remembers it is this database game (src/sessions.py)
-    return {**result, "board_actions": [action]}
+    out = {**result, "board_actions": [action]}
+    try:  # the board opens on the final position: an arrow for an earlier move is not drawn there (live run 04.11)
+        from src.game_story import GameStory
+
+        story = GameStory.from_pgn(pgn)
+        if story is not None:
+            out["board_shows"] = story.shown_note(story.plies)
+    except Exception:  # noqa: BLE001
+        pass
+    return out
 
 
 def _handle_get_game_pgn(args: dict, **kwargs) -> str:
