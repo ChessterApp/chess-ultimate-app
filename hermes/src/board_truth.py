@@ -19,6 +19,10 @@ import chess
 import chess.pgn
 
 POSITION_ACTIONS = frozenset({"set_fen", "set_puzzle", "load_pgn", "clear_board"})
+# The keys of a tool result that say what its position does on the student's board — left out when the lock keeps the
+# position off it: «how_to_show», «on_board» (the puzzle tools), «board_shows» (get_game_pgn show=true: which ply of the
+# game the board shows, where its arrows go).
+ON_BOARD_KEYS = ("how_to_show", "on_board", "board_shows")
 
 GAME_KEPT_NOTE = (
     "A game against the student is on: the position belongs to the game and nothing was put on the board. "
@@ -178,7 +182,7 @@ def board_truth(result, kwargs: Optional[dict]):
             obj["board_actions"] = kept
         else:
             obj.pop("board_actions", None)
-        for key in ("how_to_show", "on_board"):  # «already on the student's board» would be a lie
+        for key in ON_BOARD_KEYS:  # «already on the student's board» would be a lie
             obj.pop(key, None)
         obj["board_hint"] = note
         return json.dumps(obj, ensure_ascii=False)

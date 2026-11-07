@@ -105,7 +105,7 @@ from src.voice_metrics import (
 from src.voice_quota import voice_quota_ledger
 from src.voice_engine_note import engine_note
 from src.transcript_sweep import delete_session_files
-from src.board_markup import MarkupFilter, strip_markup, prune_arrows
+from src.board_markup import MarkupFilter, strip_markup, prune_board_actions
 
 # Set HERMES_HOME so the agent picks up the chess coach profile
 os.environ.setdefault("HERMES_HOME", str(PROFILE_DIR))
@@ -675,6 +675,18 @@ def _forget_old_board(agent, moved: dict, old_blocks: list) -> None:
     agent._build_api_kwargs = _build_api_kwargs
 
 
+# The turn context's blocks about the position on the board: its state and analysis, and the database game it shows
+# (its facts and the shown ply, src/game_story.py — 06.11: they stayed after get_game_pgn put another game up).
+BOARD_BLOCK_HEADERS = ("## Current Board State", "## The database game on the board")
+
+
+def turn_board_blocks_of(turn_context: Optional[str]) -> list:
+    """The blocks of *turn_context* under BOARD_BLOCK_HEADERS — what _forget_old_board leaves out once a tool puts a
+    different position up."""
+    heads = "|".join(re.escape(h) for h in BOARD_BLOCK_HEADERS)
+    return re.findall(rf"(?:{heads})\n.*?(?=\n\n## |\Z)", turn_context or "", re.S)
+
+
 def forget_old_board_text(text: str, old_blocks: list) -> str:
     """*text* with every block about the old board replaced by OLD_BOARD_NOTE (once)."""
     noted = False
@@ -1182,6 +1194,18 @@ def _parse_white_eval(text) -> Optional[float]:
         return None
 
 
+def _shown_game(session, board_id: Optional[str]) -> tuple:
+    """(pgn, ply) of the game the board *board_id* shows at the session's position, or (None, None) — what the arrows
+    of the turn are judged against (src/board_markup.prune_board_actions)."""
+    try:
+        board = session.get_board(board_id) or session.active_board()
+        if board is not None and board.pgn and board.fen == session.board_state:
+            return board.pgn, board.ply
+    except Exception:  # noqa: BLE001
+        pass
+    return None, None
+
+
 def _student_side_note(ctx) -> str:
     """Whose side «ты» is, for the rewrite: the student's colour in a game, else
     the side to move (production, 2026-10-05: the rewrite told a student playing
@@ -1197,7 +1221,9 @@ def _student_side_note(ctx) -> str:
     if side is None:
         return ""
     name, other = ("White", "Black") if side else ("Black", "White")
-    return (f"The student plays {name} (the side to move on the board): «ты», «твой», \"you\", \"your\" mean {name}; "
+    why = (getattr(ctx, "student_side_why", "") or "the side to move on the board") \
+        if getattr(ctx, "student_color", None) is not None else "the side to move on the board"
+    return (f"The student plays {name} ({why}): «ты», «твой», \"you\", \"your\" mean {name}; "
             f"{other} is the opponent.")
 
 
@@ -2493,6 +2519,29 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             logger.debug("question moves failed", exc_info=True)
             named_moves = []
 
+    # Whose side the student plays: decided once, from the game, the student's words and who the question says made a
+    # move (src/student_side.py, 06.11) — the same decision goes to the model (the block below) and to every check
+    # (check_ctx.student_color). «Они сыграли f5» made the student the side that had just moved (shipped1104 t25, t46).
+    # COACH_STUDENT_SIDE=shadow (default): only logged — the checks, the rewrite and the model get exactly the 04.11
+    # pin (a game; a move of the question «already played» is the student's); ``on`` applies the decision.
+    from src import student_side as _side
+
+    side_on = _side.mode() == "on"
+    side_legacy = _side.legacy_color(named_moves, session.board_state)  # the 04.11 pin (2026-10-08)
+    student_side = (_side.StudentSide(side_legacy, "legacy") if side_legacy is not None
+                    else _side.StudentSide(None, "none"))
+    try:
+        side_decided = _side.decide(body.message, session.board_state, pgn=active_board.pgn,
+                                    game_state=active_board.game_state if live_game else None,
+                                    master_game=bool((active_board.source or {}).get("twic_game_id")))
+        side_pinned = _side.legacy_moves(named_moves)
+        student_side = _side.applied(side_decided, side_legacy, pinned_moves=side_pinned)
+        if side_decided.exact or side_legacy is not None:
+            log_event("student_side", surface="text", user_id=user_id, session_id=session.id, turn_id=turn_id,
+                      payload=_side.log_payload(side_decided, student_side, side_legacy, pinned_moves=side_pinned))
+    except Exception:  # noqa: BLE001 — the 04.11 pin stands
+        logger.debug("student side failed", exc_info=True)
+
     # The agent does not depend on the prompt (it only stores it), so it is
     # built while the profile arrives and the prompt is assembled.
     fallback_model = _turn_fallback_model(model)
@@ -2551,6 +2600,18 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     turn_context = f"{turn_context}\n\n{facts_note}"
         except Exception:  # noqa: BLE001 — never block a turn on the game note
             logger.debug("game context failed", exc_info=True)
+    if (active_board.source or {}).get("twic_game_id") and active_board.pgn and active_board.kind != "game":
+        # The database game on the board from an earlier turn: its facts (material, trades, ending — computed from its
+        # moves, src/game_story.py) and the position the board shows, for what the student asks of it now (06.11).
+        try:
+            from src.game_story import game_facts
+
+            story_note = game_facts(active_board.pgn, active_board.ply)
+            if story_note:
+                story_note = f"## The database game on the board\n{story_note}"
+                turn_context = f"{turn_context}\n\n{story_note}" if turn_context else story_note
+        except Exception:  # noqa: BLE001 — never block a turn on the game's facts
+            logger.debug("game facts failed", exc_info=True)
     if active_board.kind == "game" and active_board.game_state and _ASKS_BETTER_MOVE.search(body.message or ""):
         # «Что было лучше вместо моего хода?»: the engine judged the student's last move when it was played; its better
         # move is a fact — the model guessed another, illegal one on the long prod run (26.10: «слон c1 бьёт на h6»
@@ -2625,6 +2686,13 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             turn_context = f"{turn_context}\n\n{moves_note}" if turn_context else moves_note
     except Exception:  # noqa: BLE001 — never block a turn on this
         logger.debug("moves-in-question block failed", exc_info=True)
+    try:
+        side_board = chess.Board(session.board_state) if session.board_state else None
+    except ValueError:
+        side_board = None
+    side_block = student_side.note(side_board) if side_on else ""  # shadow: the 04.11 prompt, byte for byte
+    if side_block:
+        turn_context = f"{turn_context}\n\n{side_block}" if turn_context else side_block
     if body.speech:
         # The site's voice pipeline reads the answer aloud sentence by sentence, with a pause before the first
         # (25.10): the point first and short, nothing a listener cannot follow.
@@ -2637,7 +2705,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     current_message = attach_turn_context(current_message, turn_context)
     # The blocks about the board the student sent — its state and analysis, the moves they named —
     # leave the model's later calls once a tool puts a different position up (_forget_old_board).
-    turn_board_blocks = re.findall(r"## Current Board State\n.*?(?=\n\n## |\Z)", turn_context or "", re.S)
+    turn_board_blocks = turn_board_blocks_of(turn_context)
     if moves_note:
         turn_board_blocks.append(moves_note)
     if history_messages:
@@ -2762,16 +2830,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # Every board of the session counts (a capture named for the second
         # board was cut as impossible on the first, 2026-10-02), and in a game
         # the student's colour decides whose «твой конь» is.
-        student_color = None
-        if live_game:
+        # The student's colour is the turn's one decision (src/student_side.py): the game's, the colour the student
+        # said, or the one the move they told shows («Я сыграл Qb6. Это мат?» — White, 2026-10-08; «Они сыграли f5» —
+        # the other side, 06.11). Guessed (the side to move), it stays None: the checks read «ты» on their own then.
+        # Shadow and off: the 04.11 pin, and no reason given (the rewrite's note stays 04.11's).
+        student_color = _side.check_color(student_side)
+        student_side_source = student_side.source if (side_on and student_color is not None) else ""
+        if live_game:  # the game decides, as on 04.11
             student_color = chess.WHITE if active_board.game_state.get("student_color") == "white" else chess.BLACK
-        elif any(str(q.get("verdict") or "").startswith("already played") for q in named_moves or []):
-            # «Я сыграл Qb6. Это мат?»: the student is the side that just moved, not the side to
-            # move («твой ферзь на b6» was called the opponent's — 2026-10-08).
-            try:
-                student_color = not chess.Board(session.board_state).turn
-            except (ValueError, TypeError):
-                student_color = None
+            student_side_source = "game" if side_on else ""
         check_ctx = CheckContext.from_fens(
             [hidden_fen, session.board_state, body.fen] + [b.fen for b in session.boards] + ([past["fen"]] if past else [])
             + [q["after_fen"] for q in named_moves if q.get("after_fen")],  # the positions the student's idea leads to
@@ -2782,6 +2849,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             question=body.message,
             student_color=student_color,
         )
+        check_ctx.student_side_why = student_side.why() if (side_on and student_color is not None) else ""
+        check_ctx.student_side_source = student_side_source  # a database game loaded mid-turn drops all but a game
         check_ctx.language = turn_language  # a sentence in the wrong language is rewritten like a wrong move
         # What the turn's database tools return, and a database game already on the board, are what the answer may
         # say of them (src/answer_check_db.py, review 03.11).
@@ -2989,6 +3058,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         if isinstance(action, dict) and action.get("type") == GAME_ACTION and action.get("game"):
                             check_ctx.game_engine_moves = _engine_moves(action["game"])  # a move played mid-answer
                             check_ctx.game_moves = list(action["game"].get("moves") or [])
+                            # The game started (or played on) mid-answer decides the student's colour, over the
+                            # words of the question («я за чёрных» against a game the tool set up from this
+                            # position or at random) — the record's checks read «твой ход» by it (review 06.11).
+                            game_color = action["game"].get("student_color")
+                            if game_color in ("white", "black") and side_on:  # shadow: the 04.11 checks
+                                check_ctx.student_color = chess.WHITE if game_color == "white" else chess.BLACK
+                                check_ctx.student_side_why = "the game against the coach on the board"
+                                check_ctx.student_side_source = "game"
                         if isinstance(action, dict) and action.get("type") in POSITION_ACTIONS:
                             new_fen = position_after(action)
                             if (new_fen or "").split(" ")[0] != (board_moved["from"] or "").split(" ")[0]:
@@ -3234,8 +3311,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         def _board_frame(actions: list) -> str:
             """Apply *actions* to the session's board record (so the position survives
             a reload) and frame them, each tagged with the board (tab) it hit.
-            Arrows a piece on the board cannot draw are dropped (board_markup.prune_arrows)."""
-            actions = [a for a in (prune_arrows(a, session.board_state) for a in actions) if a]
+            Arrows a piece on the board cannot draw are dropped, and so are the moves of the game on the board made on
+            another position than the one it shows (board_markup.prune_board_actions; live run 04.11: f3→e5 for 6.Nxe5
+            drawn on the final position)."""
+            actions, _ = prune_board_actions(actions, session.board_state, *_shown_game(session, active_board.id))
             if not actions:
                 return ""
             gate.board_changed()  # a promise to show it on the board («Покажу на доске.») is kept
@@ -4979,6 +5058,8 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
     model to correct itself aloud. Returns {"issues": [...]} — empty when
     nothing checkable is wrong.
     """
+    # The site waits CHECK_TIMEOUT_MS (4 s) for this answer, then drops it: the engine part ends by then (verify 06.11-2).
+    until = time.monotonic() + config.COACH_VOICE_CHECK_BUDGET_MS / 1000.0
     user_id = _get_user_id(request)
     await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
     from src.answer_check import CheckContext, check_sentence
@@ -5003,6 +5084,41 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                 named = []
         ideas = [q["after_fen"] for q in named if q.get("after_fen")]
         ctx = CheckContext.from_fens([body.fen] + ideas, [body.pgn] if body.pgn else [], question=heard.question)
+        # The student's side as the text turn decides it (src/student_side.py): «они сыграли f5» said aloud makes the
+        # student the other side, «я играю чёрными» Black; a game on the board decides it below.
+        # COACH_STUDENT_SIDE=shadow (default): the 04.11 voice check pinned no side, so it is only logged.
+        # A database game on the session's board is nobody's, as on the text turn: «почему они сыграли Bxf7?» about
+        # Carlsen's game is no opponent's move (review 06.11). Without the session it cannot be known, so a move told
+        # as the opponent's decides nothing then.
+        # COACH_STUDENT_SIDE=shadow (default): only logged — the session is not read for it and the check gets no side,
+        # as on 04.11.
+        from src import student_side as _side
+
+        voice_side_on = _side.mode() == "on"
+        master_game: Optional[bool] = None
+        if body.session_id and voice_side_on:
+            try:
+                voice_session = session_store.get(body.session_id, user_id)
+                voice_board = (voice_session.get_board(voice_session.active_board_id)
+                               if voice_session is not None else None)
+                master_game = bool(voice_board is not None and (voice_board.source or {}).get("twic_game_id"))
+            except SessionLoadError:
+                raise  # the session is unknown, not absent: 503, never a check without it (28.10)
+            except Exception:  # noqa: BLE001 — unknown: a move told as the opponent's decides nothing
+                master_game = None
+        try:
+            decided = _side.decide(heard.question or "", body.fen, pgn=body.pgn, master_game=bool(master_game))
+            if master_game is None and decided.source == "their_move":
+                decided = _side.StudentSide(None, "none", decided.evidence)
+            side = _side.applied(decided, None)
+            if voice_side_on:
+                ctx.student_color = _side.check_color(side)
+                ctx.student_side_why = side.why() if ctx.student_color is not None else ""
+            if decided.exact:
+                log_event("student_side", surface="voice", user_id=user_id,
+                          payload=_side.log_payload(decided, side, None))
+        except Exception:  # noqa: BLE001 — the check reads «ты» as the side to move then
+            logger.debug("voice student side failed", exc_info=True)
         # The moves the student asked about are quoted, not advised, however the question names them: a question said
         # aloud names its move in words («а если ферзь жэ четыре?»), which the notation reader of CheckContext does not
         # read — the engine stage then judged the student's own idea as the coach's recommendation (voice 03.11).
@@ -5037,6 +5153,8 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                     if live.pgn:
                         ctx.add_line(live.pgn)  # the game's history: «пешка h6 взяла слона» was true a move ago (26.10)
                     ctx.student_color = chess.WHITE if live.game_state.get("student_color") == "white" else chess.BLACK
+                    if voice_side_on:
+                        ctx.student_side_why = "the game against the coach on the board"
             except SessionLoadError:
                 raise  # the game is unknown, not absent: 503, never a check without it (28.10)
             except Exception:  # noqa: BLE001 — the check still runs without the game
@@ -5074,6 +5192,8 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                 return [issue]
         if issues or not body.fen or not config.COACH_MOVE_VERIFY:
             return issues
+        # Every engine stage below within *until* (what the site waits for): to_thread work is never cancelled when
+        # the site gives up, so the search itself must end by then; one the time does not cover says nothing.
         # A reply claimed forced («чёрные обязаны ответить dxe5»), against the engine's best replies, as in the
         # text coach (src/hypothetical.verify_forced_reply, prod 29.10); the engine's own move stays out.
         claim = ctx.forced_claims.get(spoken_text)
@@ -5081,7 +5201,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
             from src.hypothetical import verify_forced_reply
 
             used[0] = True
-            forced = verify_forced_reply(claim, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal_best=False)
+            forced = verify_forced_reply(claim, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal_best=False, until=until)
             if forced:
                 return [forced]
         # The coach's recommendation («сыграй Rg1») against the engine, as in the
@@ -5091,20 +5211,20 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         from src.hypothetical import verify_recommendation
 
         found = proposed_move(spoken_text, ctx)
-        if found:
+        if found and time.monotonic() < until:
             used[0] = True
             why = verify_recommendation(found[0], found[1], found[2], config.COACH_MOVE_VERIFY_MOVETIME_MS,
-                                        config.COACH_MOVE_VERIFY_CP, reveal_best=False)
+                                        config.COACH_MOVE_VERIFY_CP, reveal_best=False, deadline=until)
             if why:
                 return [why]
         # A line with the outcome it promises, as in the text coach (src/line_verdict.py, prod 29.10): the
         # engine's continuation kept out here too.
         claims = ctx.line_claims.get(spoken_text)
-        if claims and config.COACH_LINE_VERDICT:
+        if claims and config.COACH_LINE_VERDICT and time.monotonic() < until:
             from src.line_verdict import verify_claims
 
             used[0] = True
-            why = verify_claims(claims, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal=False)
+            why = verify_claims(claims, config.COACH_MOVE_VERIFY_MOVETIME_MS, reveal=False, deadline=until)
             if why:
                 return [why]
         return issues

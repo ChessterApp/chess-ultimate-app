@@ -31,6 +31,13 @@ MAX_DEPTH = max(DEFAULT_DEPTH, int(os.environ.get("STOCKFISH_MAX_DEPTH", str(DEF
 # lines took 24 s in a game review on the bench of 2026-09-28. The search stops
 # at the depth or after this many milliseconds, whichever comes first (0 = no cap).
 MAX_MS = int(os.environ.get("STOCKFISH_MAX_MS", "3000"))
+# 06.11: MAX_MS bounds the searches that have no clock of their own (the model's analyze_position call). A search that
+# judges — one to a fixed depth from an empty hash, kept in the exact store (the move check, the forced-reply confirm,
+# the precompute's searches for them, the game's evals) — is bounded by its caller's deadline (*max_ms*), else by
+# this: the longest a check waits for one such search (src/hypothetical.FORCED_CONFIRM_MAX_MS). Capped at MAX_MS, the
+# move check's depth-16 search after «сыграй конём на e4» (650k nodes) stopped short on the bench host in 3 runs of 3
+# and the bad move went out unjudged although the check had 6 s (shipped1104/REPORT.md, V-eng-02).
+EXACT_MAX_MS = int(os.environ.get("STOCKFISH_EXACT_MAX_MS", "8000"))
 DEFAULT_MULTIPV = 3
 MAX_MULTIPV = 5
 TIMEOUT_SECONDS = 30
@@ -104,12 +111,15 @@ def analyze_position(
     movetime_ms: int | None = None,
     max_ms: int | None = None,
     searchmoves: tuple | list | None = None,
+    cap_ms: int | None = None,
 ) -> dict:
     """Run Stockfish analysis on a FEN position — to *depth*, or for *movetime_ms* when given.
 
     *max_ms* bounds a search to *depth* in time, the engine server and the local fallback together: a search
     stopped short of the depth returns its lines as deep as they got (the caller decides whether that says
-    anything), and no time is left → an error.
+    anything), and no time is left → an error. The caller's *max_ms* is the search's whole bound: STOCKFISH_MAX_MS
+    does not cut it shorter (06.11). Without *max_ms* a depth search is capped at *cap_ms*, else at MAX_MS — the cap
+    of the search itself, not of the wait for a process.
 
     *searchmoves* (UCI strings; plan 31.10): the search looks only at these moves of the side to move («решает ферзь»:
     the queen's best). The engine server has no such option, so a restricted search is always local."""
@@ -138,19 +148,24 @@ def analyze_position(
         cap = int((deadline - time.monotonic()) * 1000)
         if cap < 100:
             return {"error": "no time left for the search"}
+    # The search's own cap: none when the caller brought a deadline (the pool sets the time left once a process is
+    # free; the process-per-search path gets *cap*), else *cap_ms* or the analysis cap.
+    own_cap = 0 if deadline is not None else (cap_ms if cap_ms is not None else MAX_MS)
     if pool_on():
         # A persistent process (src/engine_pool.py): the time cap is set once a process is free, so waiting for
         # one counts against *max_ms* as the start of a new process did.
-        flight = None if movetime_ms else _exact_begin(fen, depth, multipv, sm)
+        # The flight's own time bound — what a check that joins it weighs against a search of its own (exact_join).
+        budget_s = max_ms / 1000.0 if deadline is not None else (own_cap / 1000.0 if own_cap > 0 else None)
+        flight = None if movetime_ms else _exact_begin(fen, depth, multipv, sm, budget_s)
         result = {"error": "search failed"}
         try:
             if flight is not None and flight.job is not None:
                 from src import engine_pool
 
                 with engine_pool.priority(engine_pool.current_priority(), flight.job):
-                    result = _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline, sm)
+                    result = _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline, sm, own_cap)
             else:
-                result = _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline, sm)
+                result = _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline, sm, own_cap)
             _exact_put(fen, depth, multipv, sm, movetime_ms, result)  # `ucinewgame` first: an empty hash
             return result
         finally:
@@ -160,6 +175,7 @@ def analyze_position(
         global _running
         _running += 1
     try:
+        cap = cap if cap is not None else own_cap
         if sm:
             result = _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms, cap, searchmoves=sm)
         else:
@@ -256,13 +272,15 @@ def pool_on() -> bool:
         return False
 
 
-def _go_spec(depth: int, movetime_ms: int | None, searchmoves=()) -> str:
-    """The `go` arguments today's process-per-search path sends, before the caller's own time cap."""
+def _go_spec(depth: int, movetime_ms: int | None, searchmoves=(), cap_ms: int | None = None) -> str:
+    """The `go` arguments the process-per-search path sends: a depth search capped at *cap_ms* (default MAX_MS; 0 =
+    no cap of its own — a caller's deadline then sets it on the pool)."""
     restrict = f" searchmoves {' '.join(searchmoves)}" if searchmoves else ""
+    cap = MAX_MS if cap_ms is None else cap_ms
     if movetime_ms:
         return f"movetime {movetime_ms}{restrict}"
-    if MAX_MS > 0:
-        return f"depth {depth} movetime {MAX_MS}{restrict}"
+    if cap > 0:
+        return f"depth {depth} movetime {cap}{restrict}"
     return f"depth {depth}{restrict}"
 
 
@@ -283,11 +301,11 @@ def progress(on_line):
         _progress.fn = old
 
 
-def _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline=None, searchmoves=()) -> dict:
+def _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline=None, searchmoves=(), cap_ms=None) -> dict:
     """analyze_position on the pool: the same `go`, the same parsing, the same result as a new process gives."""
     from src import engine_pool
 
-    out = engine_pool.search(fen, go=_go_spec(depth, movetime_ms, searchmoves), multipv=multipv,
+    out = engine_pool.search(fen, go=_go_spec(depth, movetime_ms, searchmoves, cap_ms), multipv=multipv,
                              deadline=deadline, clear_hash=True,
                              timeout=None if movetime_ms or timeout == TIMEOUT_SECONDS else timeout,
                              on_line=getattr(_progress, "fn", None))
@@ -296,7 +314,7 @@ def _analyze_pooled(fen, depth, multipv, timeout, movetime_ms, deadline=None, se
     if out.get("stopped"):
         # A background search an answer needed the process for (or a board that changed): incomplete, never cached.
         return {"error": "search stopped (preempted)"}
-    return _build_result(out["output"], depth, movetime_ms)
+    return _build_result(out["output"], depth, movetime_ms, capped=deadline is not None or (MAX_MS if cap_ms is None else cap_ms) > 0)
 
 
 def _searchmoves(searchmoves) -> tuple:
@@ -326,10 +344,14 @@ def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms,
 
     try:
         proc.stdin.write("uci\n")
+        # The pool's options (src/engine_pool.py): one thread (a fixed-depth search then gives the same lines every
+        # run — the exact store's rule) and the same hash, so STOCKFISH_POOL=0 judges a move as the pool does.
+        proc.stdin.write(f"setoption name Threads value 1\nsetoption name Hash value {_hash_mb()}\n")
         proc.stdin.write("isready\n")
         proc.stdin.write(f"setoption name MultiPV value {multipv}\n")
         proc.stdin.write(f"position fen {fen}\n")
-        cap = min(c for c in (MAX_MS, cap_ms) if c and c > 0) if (MAX_MS > 0 or cap_ms) else 0
+        # The caller's cap (its deadline's time left, or its own cap) replaces MAX_MS; MAX_MS when it brings none.
+        cap = cap_ms if cap_ms is not None else MAX_MS
         restrict = f" searchmoves {' '.join(searchmoves)}" if searchmoves else ""
         if movetime_ms:
             proc.stdin.write(f"go movetime {movetime_ms}{restrict}\n")
@@ -363,10 +385,19 @@ def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms,
     except BrokenPipeError:
         pass  # Stockfish already exited
 
-    return _build_result(lines, depth, movetime_ms)
+    return _build_result(lines, depth, movetime_ms, capped=cap > 0)
 
 
-def _build_result(lines: list, depth: int, movetime_ms: int | None) -> dict:
+def _hash_mb() -> int:
+    try:
+        from src import config
+
+        return int(config.STOCKFISH_HASH_MB)
+    except Exception:  # noqa: BLE001
+        return 16
+
+
+def _build_result(lines: list, depth: int, movetime_ms: int | None, capped: bool | None = None) -> dict:
     """The analysis dict from Stockfish's output up to `bestmove` (one parser for the new-process and pool paths)."""
     # Parse info lines — keep only the deepest for each multipv
     best_lines: dict[int, dict] = {}
@@ -407,7 +438,8 @@ def _build_result(lines: list, depth: int, movetime_ms: int | None) -> dict:
     # Stopped by the time cap short of the requested depth (a found mate also
     # ends early, but then the line is already decided).
     reached = result_lines[0]["depth"] if result_lines else 0
-    if not movetime_ms and MAX_MS > 0 and reached < depth and "mate_in" not in (result_lines[0] if result_lines else {}):
+    capped = MAX_MS > 0 if capped is None else capped
+    if not movetime_ms and capped and reached < depth and "mate_in" not in (result_lines[0] if result_lines else {}):
         result["time_capped"] = True
     return result
 
@@ -527,7 +559,8 @@ def analyze_exact(fen: str, depth: int, multipv: int, *, max_ms: int | None = No
     hit = exact_get(fen, depth, multipv, sm) if pool_on() else None  # STOCKFISH_POOL=0: a search every time, as before
     if hit is not None:
         return hit
-    kwargs = {"max_ms": max_ms} if max_ms else {}
+    # A search that judges: bounded by the caller's deadline, else by EXACT_MAX_MS — never by the analysis cap.
+    kwargs = {"max_ms": max_ms} if max_ms else {"cap_ms": EXACT_MAX_MS}
     if sm:
         kwargs["searchmoves"] = sm
     return analyze_position(fen, depth=depth, multipv=multipv, **kwargs)  # kept in the store when complete
@@ -539,16 +572,17 @@ def analyze_exact(fen: str, depth: int, multipv: int, *, max_ms: int | None = No
 _exact_flights: dict = {}
 
 
-def _exact_begin(fen: str, depth: int, multipv: int, sm: tuple):
+def _exact_begin(fen: str, depth: int, multipv: int, sm: tuple, budget_s: float | None = None):
     from src import engine_pool
 
     key = _exact_key(fen, depth, multipv, sm)
     with _inflight_lock:
         if key in _exact_flights:
             return None  # one at work already: this one runs beside it and is not the one joined
-        background = engine_pool.current_priority() >= engine_pool.PRIORITY_BACKGROUND
+        prio = engine_pool.current_priority()
+        background = prio >= engine_pool.PRIORITY_BACKGROUND
         flight = _Flight(multipv, None, engine_pool.Job("exact flight", parent=engine_pool.current_job())
-                         if background else None)
+                         if background else None, base=prio, budget_s=budget_s)
         _exact_flights[key] = flight
         return flight
 
@@ -564,7 +598,14 @@ def _exact_end(fen: str, depth: int, multipv: int, sm: tuple, flight, result: di
 
 def exact_join(fen: str, depth: int, multipv: int, wait_s: float, searchmoves=()) -> dict | None:
     """The complete result of a search to *depth* of this position already at work, waited for up to *wait_s*
-    (the search is promoted to the caller's priority); None when none is at work or it did not complete in time."""
+    (the search is promoted to the caller's priority meanwhile); None when none is at work, it did not complete in
+    time, or it is bounded tighter than the caller's own search would be.
+
+    Verify 06.11: a search joined is one that can do at least what the caller's own search could — its own time
+    bound (*budget_s*: its caller's deadline, or its cap) no shorter than *wait_s*; it started earlier from the same
+    empty hash, so it then completes no later. A tighter one (the model's analyze_position call at the check's depth
+    and lines, capped at STOCKFISH_MAX_MS; another check's search with less time) is not waited for: on a slow host it
+    stops short, and the check, having waited for it, had too little time left for its own search (V-eng-02)."""
     from src import engine_pool
     from src.fen_repair import repair_fen
 
@@ -575,9 +616,9 @@ def exact_join(fen: str, depth: int, multipv: int, wait_s: float, searchmoves=()
         flight = _exact_flights.get(key)
     if flight is None:
         return None
-    if flight.job is not None:
-        engine_pool.promote(flight.job, engine_pool.current_priority())
-    if not flight.event.wait(wait_s):
+    if flight.budget_s is not None and flight.budget_s + _MERGE_SLACK_S < wait_s:
+        return None  # runs beside it: the caller's own search has more time than this one
+    if not _join_wait(flight, engine_pool.current_priority(), wait_s):
         return None
     res = flight.result or {}
     return res if _complete(res, depth) else None
@@ -599,12 +640,39 @@ _MERGE_SLACK_S = 0.15
 
 
 class _Flight:
-    __slots__ = ("multipv", "ends_by", "event", "result", "job")
+    __slots__ = ("multipv", "ends_by", "event", "result", "job", "base", "budget_s", "joiners")
 
-    def __init__(self, multipv: int, ends_by: float | None, job=None):
+    def __init__(self, multipv: int, ends_by: float | None, job=None, base: int | None = None,
+                 budget_s: float | None = None):
         self.multipv, self.ends_by, self.job = multipv, ends_by, job
+        self.base = base          # the priority it runs at of its own (what a joiner that gives up restores)
+        self.budget_s = budget_s  # its own time bound (exact flights), None = none
+        self.joiners: list = []   # the priorities of the requests waiting for it now
         self.event = threading.Event()
         self.result: dict | None = None
+
+
+def _join_wait(flight: _Flight, prio: int | None, wait: float | None) -> bool:
+    """Wait for *flight* up to *wait*; it is promoted to *prio* (None: not promoted) while this request waits.
+
+    A request that gives up undoes its promotion (verify 06.11): the search runs at its own priority again, or at the
+    highest of the requests still waiting — a background search no answer waits for any more may be stopped by one."""
+    from src import engine_pool
+
+    if flight.job is None or prio is None:
+        return flight.event.wait(wait)
+    with _inflight_lock:
+        flight.joiners.append(prio)
+        engine_pool.promote(flight.job, prio)
+    done = flight.event.wait(wait)
+    with _inflight_lock:
+        flight.joiners.remove(prio)
+        if not done and not flight.event.is_set():
+            base = engine_pool.PRIORITY_BACKGROUND if flight.base is None else flight.base
+            engine_pool.demote(flight.job, base)
+            if flight.joiners:
+                engine_pool.promote(flight.job, min(flight.joiners))
+    return done
 
 
 def _satisfies(result: dict | None, depth: int, multipv: int) -> bool:
@@ -638,17 +706,17 @@ def _merged(fen: str, sm: tuple, need_depth: int, multipv: int, own_s: float | N
             # A background search gets a job of its own (a child of the precompute's), so promoting it raises this
             # search alone, even before it has reached the pool's queue.
             mine = _Flight(multipv, own_end, engine_pool.Job("flight", parent=engine_pool.current_job())
-                           if background else None)
+                           if background else None, base=prio)
             _inflight.setdefault(key, []).append(mine)
     if join is not None:
         wait = None if join.ends_by is None else max(0.0, join.ends_by - time.monotonic()) + _MERGE_SLACK_S
-        if join.job is not None and not background:
+        promote = join.job is not None and not background
+        if promote:
             # Promoted, the search runs at this request's priority and started before it: it ends about when a
             # search of its own would, even after the queue it met (replay 31.10: a wait cut at its estimated end,
             # then a search of its own, cost three turns their engine line). Twice its own time at most.
-            engine_pool.promote(join.job, prio)
             wait = 2 * (own_s or MAX_MS / 1000.0 or 3.0) + 0.3
-        if join.event.wait(wait) and _satisfies(join.result, need_depth, multipv):
+        if _join_wait(join, prio if promote else None, wait) and _satisfies(join.result, need_depth, multipv):
             res = join.result
             return {**res, "lines": res["lines"][:multipv]}
         return run()

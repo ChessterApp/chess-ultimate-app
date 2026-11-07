@@ -685,6 +685,23 @@ class EnginePool:
                     wt.priority = level
             self._cv.notify_all()
 
+    def demote(self, job: Optional[Job], level: int) -> None:
+        """The answer that promoted *job* stopped waiting for it (its own deadline came first): the search runs at
+        *level* again (its own, a background one) — an answer may stop it, and it counts toward MAX_BACKGROUND.
+        Promoted for good, a precompute search a check gave up on held a process unstoppable to its own cap
+        (verify 06.11: STOCKFISH_EXACT_MAX_MS, 8 s, on a pool of two)."""
+        if job is None:
+            return
+        with self._cv:
+            job.boost = None
+            for wid, (w, p, j) in list(self._busy.items()):
+                if j is job and p < level:
+                    self._busy[wid] = (w, level, j)
+            for wt in self._waiters:
+                if wt.job is job and wt.priority < level:
+                    wt.priority = level
+            self._cv.notify_all()
+
     def cancel(self, job: Optional[Job]) -> None:
         """Drop *job*: its waiting searches return at once, a running one gets ``stop``."""
         if job is None:
@@ -742,6 +759,11 @@ def cancel(job: Optional[Job]) -> None:
 def promote(job: Optional[Job], level: int) -> None:
     if _pool is not None:
         _pool.promote(job, level)
+
+
+def demote(job: Optional[Job], level: int) -> None:
+    if _pool is not None:
+        _pool.demote(job, level)
 
 
 def running() -> int:

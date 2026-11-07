@@ -28,4 +28,15 @@ describe('POST /api/coach/tool — interface language', () => {
     expect(sent.locale).toBe('kz');
     expect(sent.args).toEqual({ theme: 'pin' });
   });
+
+  it('forwards the position the board shows, for the arrows (06.11)', async () => {
+    const fen = 'r1bqkb1r/pppp1ppp/2n2n2/4N3/4P3/8/PPPP1PPP/RNBQKB1R b KQkq - 0 4';
+    const request = new NextRequest('http://localhost/api/coach/tool', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'board_control', args: {}, shown_fen: fen }),
+    });
+    await POST(request);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(sent.shown_fen).toBe(fen);
+  });
 });

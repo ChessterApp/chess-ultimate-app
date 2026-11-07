@@ -110,13 +110,33 @@ def note_board_game(ctx, pgn: str, headers: Optional[dict] = None, moves: Option
     heads = dict(headers or {}) or dict(game.headers)
     ctx.loaded_game = line
     ctx.master_game = {k: heads.get(k, "") for k in ("White", "Black", "Event", "Date", "Result")}
+    # A master game on the board is nobody's: the side the student's words gave («я за белых», «они сыграли …»)
+    # is not a side of it. A game against the coach keeps its colour, and so does a side no decision set (a lesson,
+    # a game comment): src/student_side, review 06.11 — a game loaded mid-turn by get_game_pgn was never seen by the
+    # turn's decision. Only under COACH_STUDENT_SIDE=on: off and shadow keep 04.11.
+    try:
+        from src.student_side import mode
+
+        if mode() == "on" and getattr(ctx, "student_side_source", "") not in ("game", ""):
+            ctx.student_color = None
+            ctx.student_side_why = ""
+            ctx.student_side_source = "master_game"
+    except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
+        pass
     if not moves:
         from src.tools.twic_search import move_list
 
         moves = move_list(pgn)
+    from src.game_story import GameStory
+
+    try:
+        facts = GameStory(line, heads).facts()
+    except Exception:  # noqa: BLE001 — without the facts the rewrite has the moves
+        facts = ""
     ctx.loaded_game_text = (
         f"White {heads.get('White', '?')}, Black {heads.get('Black', '?')}, {heads.get('Event', '')} "
-        f"{heads.get('Date', '')}, result {heads.get('Result', '')}.\n" + "\n".join(moves))
+        f"{heads.get('Date', '')}, result {heads.get('Result', '')}.\n" + "\n".join(moves)
+        + (f"\n\n{facts}" if facts else ""))
 
 
 def turn_tools_note(ctx) -> str:
@@ -385,6 +405,8 @@ _PIECE_EN = {"pawn": chess.PAWN, "knight": chess.KNIGHT, "bishop": chess.BISHOP,
 _ADJ_SIDE = re.compile(_B + r"(?:(?P<s>бел(?:ая|ый)|ч[её]рн(?:ая|ый))\s+(?P<p>пешка|конь|слон|ладья|ферзь|король)|"
                        r"(?P<p2>пешка|конь|слон|ладья|ферзь|король)\s+(?P<s2>белых|ч[её]рных))" + _E, re.IGNORECASE)
 # The piece that moved, in the instrumental: «взял пешку на d4 конём», «взяли коня пешкой» (check 04.11).
+# «с лишней пешкой», «со слоном», "with an extra pawn": the instrumental after «с» is a companion, not the mover.
+_WITH_PIECE = re.compile(r"(?:^|\s)(?:с|со)\s+(?:[\w-]+\s+)?$", re.IGNORECASE)
 _PIECE_INS = {"пешкой": chess.PAWN, "конем": chess.KNIGHT, "слоном": chess.BISHOP, "ладьей": chess.ROOK,
               "ладьею": chess.ROOK, "ферзем": chess.QUEEN, "королем": chess.KING}
 _CAPTURE = re.compile(_B + r"(?:взял\w*|взяли|взять|забрал\w*|забира\w*|побил\w*|съел\w*|сбил\w*|бь[её]т|бьют|"
@@ -404,6 +426,8 @@ _REPLY = re.compile(r",\s*(?:а|и|and|but)\s+(?=(?:[\w-]+\s+){0,3}?(?:в\s+от
 _LATER = re.compile(_B + r"(?:потом|позже|затем|в\s+итоге|после\w*|через|в\s+конце|далее|дальше|later|then|after\w*|"
                     r"eventually|finally)" + _E, re.IGNORECASE)
 _SQUARE = re.compile(r"(?<![a-z0-9])[a-h][1-8](?![0-9])")
+_THEN = re.compile(r",\s*(?:(?:а|и|но|and|but)\s+)?(?:потом|затем|позже|после\s+этого|then|later|afterwards)" + _E,
+                   re.IGNORECASE)
 # Two plies of the game written in a row before the wrong one tie a line to the game («20.Qa2 Bxg2 21.Kxg1»).
 _TIED_PLIES = 2
 
@@ -642,9 +666,11 @@ def _theory(board: chess.Board, start: Optional[int] = None, theory_words: bool 
         return False
 
 
-def loaded_game_issues(original: str, ctx, hits: Optional[list] = None) -> list[str]:
+def loaded_game_issues(original: str, ctx, hits: Optional[list] = None, story: bool = True) -> list[str]:
     """The moves told of the database game on the board, against its main line. *hits*, when given, receives the
-    plies (board, move) a clause told and the game has — what src/rewrite_proof takes as the game's record."""
+    plies (board, move) a clause told and the game has — what src/rewrite_proof takes as the game's record. *story*
+    False leaves out the ending, the trades and the leads (src/game_story) — told_game_plies: the record a rewrite is
+    proved by depends on the moves told only (review 06.11)."""
     line = getattr(ctx, "loaded_game", None) if ctx is not None else None
     if not line:
         return []
@@ -666,6 +692,15 @@ def loaded_game_issues(original: str, ctx, hits: Optional[list] = None) -> list[
     issue = _numbered_issue(text, line, about, bool(_THEORY_WORDS.search(low)))
     if issue:
         return [issue]
+    # The ending, the trades and the leads told of the game, against the facts the server computed from its moves
+    # (src/game_story.py; live run 04.11: «ладейно-пешечное окончание» about R+N v R+B, «ферзя и ладью за ферзя и
+    # слона» for a queen and a knight, «лишняя пешка» that held one move).
+    if story:
+        from src.game_story import story_issues
+
+        told = story_issues(text, low, ctx, about, lambda part: _sides_named(part, game))
+        if told:
+            return told
     if about is not True:
         return []  # «На 12-м ходу белые берут пешку» with nothing tying it to the game: not judged
     out: list[str] = _walk_issues(low, text, line)
@@ -678,6 +713,11 @@ def loaded_game_issues(original: str, ctx, hits: Optional[list] = None) -> list[
         if _NOT.search(window):
             continue
         orig_window = _window(text, m.start(), m.end())
+        later = _THEN.search(window)
+        if later and len(orig_window) == len(window):
+            # «Ферзи разменялись на 21-м ходу, а потом белый конь забрал ладью»: what comes «потом» is a later move,
+            # not a part of the move this number tells (story set 06.11)
+            window, orig_window = window[:later.start()], orig_window[:later.start()]
         reply = orig_reply = None
         split = _REPLY.search(window)
         if split and len(orig_window) == len(window):
@@ -775,7 +815,7 @@ def told_game_plies(original: str, ctx) -> Optional[list]:
         if not getattr(ctx, "loaded_game", None):
             return None
         hits: list = []
-        if loaded_game_issues(original, ctx, hits) or not hits:
+        if loaded_game_issues(original, ctx, hits, story=False) or not hits:
             return None
         return [(b, mv, b.san(mv)) for b, mv in hits]
     except Exception:  # noqa: BLE001
@@ -821,7 +861,9 @@ def _want(window: str, orig_window: str, game: dict) -> Optional[tuple]:
     before, after = window[:verb.start()], window[verb.end():]
     if "mover" not in want:
         nom = re.search(_B + r"(пешка|конь|слон|ладья|ферзь|король)" + _E, window)
-        ins = re.search(_B + r"(" + "|".join(_PIECE_INS) + r")" + _E, window)
+        # «…взял пешку конём»: the mover; «…и остался с лишней пешкой» is what the side has, not who moved
+        ins = next((m for m in re.finditer(_B + r"(" + "|".join(_PIECE_INS) + r")" + _E, window)
+                    if not _WITH_PIECE.search(window[:m.start()])), None)
         if nom:
             want["mover"] = _PIECE_NOM[nom.group(1)]
         elif ins:

@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   const denied = await requireCoachAccess(userId);
   if (denied) return denied;
 
-  let body: { name?: string; args?: Record<string, unknown>; session_id?: string; utterance?: string; caller?: string };
+  let body: { name?: string; args?: Record<string, unknown>; session_id?: string; utterance?: string; caller?: string; shown_fen?: string };
   try {
     body = await request.json();
   } catch {
@@ -58,6 +58,8 @@ export async function POST(request: NextRequest) {
           // The page's own call for the student's words (siteToolCall), not the model's: Hermes lets only it
           // restart a game for «давай заново» (29.10).
           caller: body.caller === 'site' ? 'site' : undefined,
+          // The position the student's board shows: Hermes judges the voice coach's arrows on it (06.11).
+          shown_fen: typeof body.shown_fen === 'string' ? body.shown_fen.slice(0, 100) : undefined,
         }),
         signal: AbortSignal.timeout(TOOL_TIMEOUT_MS),
       },

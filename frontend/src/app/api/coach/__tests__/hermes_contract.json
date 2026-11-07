@@ -144,7 +144,8 @@
    "session_id",
    "utterance",
    "locale",
-   "caller"
+   "caller",
+   "shown_fen"
   ]
  },
  "POST /api/coach/voice/check": {

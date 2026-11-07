@@ -1211,6 +1211,9 @@ export default function useGeminiLive(
               session_id: sessionId,
               // Hermes decides the board lock from the student's words, as for a text turn.
               utterance: userUtteranceRef.current || undefined,
+              // The position the board shows: arrows are judged on it — a live game's browsed position is not synced to
+              // the server, so without it a move of the game drawn there was dropped as another position's (06.11).
+              shown_fen: optionsRef.current.getFen?.() || undefined,
             }),
             signal: controller.signal,
           });

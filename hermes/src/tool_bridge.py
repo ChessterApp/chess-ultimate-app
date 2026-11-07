@@ -303,6 +303,9 @@ class ToolDispatchRequest(CoachRequest):
     # "site" when the page made the call itself for the student's words (useGeminiLive siteToolCall), not the model:
     # «давай заново» from both is one restart, and only the site's call does it (src/tools/game_play.py, 29.10).
     caller: Optional[str] = None
+    # The position the student's board shows (the page's FEN, as the text turn sends it): arrows are judged on it. While
+    # a game against the coach is live the page does not sync a browsed position to the server (review 06.11).
+    shown_fen: Optional[str] = None
 
 
 # Tools whose handler reads args["locale"] (src/tools: puzzles, knowledge_topics, learning_path,
@@ -461,37 +464,53 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
             # Arrows a piece cannot draw are dropped here as in the text turn (board_markup.prune_arrows): the
             # voice model drew «the knight d4 attacks c4» on Alexander's phone (24.10) — the text path had the
             # pruning since 01.10, the voice path returned the arrows as drawn.
-            board_actions, dropped = _prune_voice_arrows(board_actions, session.board_state)
+            board_actions, dropped = _prune_voice_arrows(board_actions, session, body.shown_fen)
             if dropped and isinstance(parsed, dict):
                 parsed = {**parsed, "arrows_dropped": dropped,
-                          "arrows_note": "These arrows were NOT drawn — the piece on the square cannot move that way. "
-                                         "Do not describe them as attacks or threats."}
+                          "arrows_note": "These arrows were NOT drawn — the piece on the square cannot move that way, "
+                                         "or the move was made on another position of the game than the board shows. "
+                                         "Do not describe them as attacks or threats, nor as drawn."}
             _sync_session_board(session, board_actions)
 
     return {"result": parsed, "board_actions": board_actions}
 
 
-def _prune_voice_arrows(actions: list, fen: Optional[str]) -> tuple[list, list]:
-    """(the actions with impossible arrows removed, the arrows removed as 'd4c4: a knight cannot go there')."""
-    from src.board_markup import prune_arrows
+def _prune_voice_arrows(actions: list, session, shown_fen: Optional[str] = None) -> tuple[list, list]:
+    """(the actions with the arrows that cannot be drawn removed, the arrows removed as 'd4c4: a knight cannot go
+    there' / 'f3e5: it is the game's move 6.Nxe5, made on another position…') — the text turn's rule
+    (src/board_markup.prune_board_actions). *session* may also be a FEN (the board with no game).
 
-    kept, dropped = [], []
-    for action in actions:
-        if not isinstance(action, dict) or action.get("type") != "draw_arrows" or not fen:
-            kept.append(action)
-            continue
-        pruned = prune_arrows(action, fen)
-        left = {(a.get("from"), a.get("to")) for a in (pruned.get("arrows") or [])} if pruned else set()
+    The arrows are judged on the position the student sees: *shown_fen* when the page sent it, located in the game on
+    the active board. Without it a live game's board is the live position only — the page does not sync a position
+    browsed back to (page.tsx: «if (gameLive) return»), so a move of the game is not judged as «made on another
+    position» there: the student may be looking at that position (review 06.11)."""
+    from src.board_markup import prune_board_actions
+
+    if isinstance(session, str) or session is None:
+        fen, pgn, ply = session, None, None
+    else:
+        fen, pgn, ply = session.board_state, None, None
+        shown = _valid_fen(shown_fen)
         try:
-            board = chess.Board(fen)
-        except ValueError:
-            board = None
-        for arrow in action.get("arrows") or []:
-            if (arrow.get("from"), arrow.get("to")) in left:
-                continue
-            piece = board.piece_at(chess.parse_square(str(arrow.get("from")))) if board else None
-            what = chess.piece_name(piece.piece_type) if piece else "piece"
-            dropped.append(f"{arrow.get('from')}{arrow.get('to')}: a {what} cannot go there")
-        if pruned:
-            kept.append(pruned)
-    return kept, dropped
+            board = session.active_board()
+            if board is not None and board.pgn:
+                if shown:
+                    pgn, ply = board.pgn, (board.ply if board.fen == shown else None)
+                elif board.fen == fen and board.kind != "game":
+                    pgn, ply = board.pgn, board.ply
+        except Exception:  # noqa: BLE001
+            pass
+        if shown:
+            fen = shown
+    if not fen:
+        return list(actions), []
+    return prune_board_actions(actions, fen, pgn, ply)
+
+
+def _valid_fen(fen: Optional[str]) -> Optional[str]:
+    if not isinstance(fen, str) or not fen.strip():
+        return None
+    try:
+        return chess.Board(fen.strip()).fen()
+    except (ValueError, TypeError):
+        return None
