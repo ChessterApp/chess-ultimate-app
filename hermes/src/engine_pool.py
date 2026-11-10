@@ -68,6 +68,8 @@ READ_SLACK_S = 0.5
 DEADLINE_SLACK_S = 0.4
 # A search given less than this is not started (the same floor as src/tools/stockfish.analyze_position).
 MIN_SEARCH_MS = 100
+# The weight of the newest answer-time search in the moving average of the wait for a process (answer_wait_ms).
+ANSWER_WAIT_ALPHA = 0.1
 
 _EOF = object()
 
@@ -373,6 +375,9 @@ class EnginePool:
         self._replacing: set = set()
         self.stats = {"searches": 0, "restarts": 0, "retries": 0, "preempted": 0, "cancelled": 0,
                       "recycled": 0, "timeouts": 0, "no_time": 0, "started": 0}
+        # How long an answer-time search waits for a process now (ms, a moving average): what a search asked now
+        # should expect before it starts (src/tools/critical_moments.scan_estimate_ms, 10.11 load test).
+        self.answer_wait_ms = 0.0
 
     # ── lifecycle ────────────────────────────────────────────────────────────────────────────────────────────
     def start(self) -> bool:
@@ -441,7 +446,8 @@ class EnginePool:
                 "alive": sum(1 for w in self._workers if w.alive()),
                 "busy": len(self._busy), "waiting": len(self._waiters),
                 "background": sum(1 for _, p, _ in self._busy.values() if p >= PRIORITY_BACKGROUND),
-                "down": self._down_error, "hash_mb": self.hash_mb, **self.stats,
+                "down": self._down_error, "hash_mb": self.hash_mb, "answer_wait_ms": round(self.answer_wait_ms),
+                **self.stats,
             }
 
     def running(self) -> int:
@@ -625,6 +631,9 @@ class EnginePool:
                 why = self._down_error
             return {"error": why}
         wait_ms = (time.monotonic() - t0) * 1000.0
+        if prio < PRIORITY_BACKGROUND:
+            with self._cv:
+                self.answer_wait_ms += ANSWER_WAIT_ALPHA * (wait_ms - self.answer_wait_ms)
         broken = False
         try:
             for attempt in (1, 2):
@@ -768,6 +777,11 @@ def demote(job: Optional[Job], level: int) -> None:
 
 def running() -> int:
     return _pool.running() if _pool is not None else 0
+
+
+def answer_wait_ms() -> float:
+    """The recent wait of an answer-time search for a process (ms, a moving average; 0 without a pool)."""
+    return float(getattr(_pool, "answer_wait_ms", 0.0) or 0.0) if _pool is not None else 0.0
 
 
 def has_spare() -> bool:

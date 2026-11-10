@@ -24,6 +24,10 @@ it), with exactly the requests the turn will make, so the turn reads the analysi
 Each board has a change counter: a new save cancels the board's old job (its waiting searches are dropped, a running
 one is stopped); the jobs for a turn's answer check are replaced by the next turn's. Nothing new reaches the model: a cached line is what a search at the turn would have found, and the
 guards that keep a live game's best move from the coach act when a result is read, not when it is computed.
+A game offered for review before it is on a board (the daily plan's card, game_offered) gets the board's review steps
+at the lowest level (LEVEL_OFFERED, COACH_PRECOMPUTE_PLAN). A board created with a position (POST …/boards: a game
+opened in its tab) is told like a saved one (src/sessions.add_board, 10.11). A review a turn did not wait for is
+finished here (review_soon).
 ``COACH_PRECOMPUTE=0`` (or ``STOCKFISH_POOL=0``) switches it off.
 """
 
@@ -65,7 +69,12 @@ STATS = {"jobs": 0, "steps": 0, "cancelled": 0, "failed": 0}
 LEVEL_IDEA = engine_pool.PRIORITY_BACKGROUND         # the forced-reply confirm after the student's own idea moves
 LEVEL_CHECK = engine_pool.PRIORITY_BACKGROUND + 1    # the positions the turn's recommended-move check will ask for
 LEVEL_CONFIRM = engine_pool.PRIORITY_BACKGROUND + 2  # the forced-reply check's confirming searches
-LEVEL_BOARD = engine_pool.PRIORITY_BACKGROUND + 3    # a board's own positions
+# A live game's position with the student to move: the move's verdict and the voice check read it within seconds,
+# so it goes before any board's review scan (10.11 load test, one student: behind the tab's and the plan's 80-move
+# scans the move took 0.31 s instead of 0.13 s, the voice check 0.59 s instead of 0.21 s).
+LEVEL_LIVE = engine_pool.PRIORITY_BACKGROUND + 3
+LEVEL_BOARD = engine_pool.PRIORITY_BACKGROUND + 4    # a board's own positions
+LEVEL_OFFERED = engine_pool.PRIORITY_BACKGROUND + 5  # a game offered for review, not on any board yet (10.11)
 
 
 class _Task:
@@ -278,10 +287,10 @@ def _plan(kind: str, fen: str, pgn: str, state: Optional[dict]) -> list:
 
 # ── the job queue ────────────────────────────────────────────────────────────────────────────────────────────────
 # Tasks run one step at a time: a step is one position's searches. Tasks go by level (LEVEL_CHECK, LEVEL_CONFIRM,
-# LEVEL_BOARD), the level is the steps' priority in the pool, and a waiting step stops a running one further back
-# (the board's 3 s depth-16 search gives way to the positions the check is about to ask for). Two workers take
-# steps, so a step the turn joined (and promoted, src/tools/stockfish._merged) does not hold the rest back. The pool
-# still runs at most one background search at a time (src/engine_pool.MAX_BACKGROUND).
+# LEVEL_LIVE, LEVEL_BOARD, LEVEL_OFFERED), the level is the steps' priority in the pool, and a waiting step stops a
+# running one further back (the board's 3 s depth-16 search gives way to the positions the check is about to ask
+# for). Two workers take steps, so a step the turn joined (and promoted, src/tools/stockfish._merged) does not hold
+# the rest back. The pool still runs at most one background search at a time (src/engine_pool.MAX_BACKGROUND).
 WORKERS = 2
 
 
@@ -298,6 +307,9 @@ def _submit(key: str, steps: list, label: str, replace: bool = True,
         task.not_before = time.monotonic() + delay_s if delay_s > 0 else 0.0
         _pending[key] = task
         _pending.move_to_end(key)
+        # The bound holds while both workers are blocked in a step too (10.11 load test, 20 students: 74 tasks queued
+        # when only a worker looking for work dropped the old ones).
+        _expire_locked()
         STATS["jobs"] += 1
         _ensure_workers()
         _lock.notify_all()
@@ -335,7 +347,7 @@ MAX_TASKS = 24
 def _expire_locked() -> None:
     now = time.monotonic()
     for key, task in list(_pending.items()):
-        ttl = BOARD_TTL_S if task.level >= LEVEL_BOARD else CHECK_TTL_S
+        ttl = BOARD_TTL_S if task.level >= LEVEL_LIVE else CHECK_TTL_S
         if not task.busy and now - task.queued_at > ttl:
             _pending.pop(key, None)
             task.job.cancelled = True
@@ -462,8 +474,10 @@ def board_changed(session, board) -> None:
     with _lock:
         _cancel_locked(key)
         _cancel_locked(key + "#rest")  # the old board's least likely moves: the new board's positions go first
-    # The plan reads the PGN: built on a worker thread, never on the request's.
-    _submit(key, [("plan", lambda: _plan(kind, fen, pgn, snap_state))], f"board {key}", replace=False)
+    # The plan reads the PGN: built on a worker thread, never on the request's. A game in progress goes first.
+    live = kind == "game" and bool(snap_state) and snap_state.get("status") == "playing"
+    _submit(key, [("plan", lambda: _plan(kind, fen, pgn, snap_state))], f"board {key}", replace=False,
+            level=LEVEL_LIVE if live else LEVEL_BOARD)
 
 
 # How many positions after candidate moves are analysed for the recommended-move check per engine line, first (the
@@ -633,6 +647,37 @@ def after_ideas(session_id: str, board_id: str, idea_fens: list) -> None:
     # Strictly ahead of the candidates (review-wiring2 01.11: at their level, trap-legal's confirm after 5.Nxe5 was
     # still at work when the sentence was held in 1 of 3 full replays, and the turn's own 1 s search fell short).
     _submit(f"{session_id}/{board_id}#ideas", steps, "ideas", level=LEVEL_IDEA)
+
+
+def game_offered(key: str, pgn: str) -> Optional[engine_pool.Job]:
+    """A game the coach offers for review before it is on any board — the daily plan's «review my last game» card
+    (src/daily_plan, COACH_PRECOMPUTE_PLAN): its review steps (the scan, the final position, the biggest moments) in
+    the background, behind every board's own work (LEVEL_OFFERED), so the review the card starts — the turn's review
+    step with review_game_id — reads the cache. One game per *key* (a student): a new offer replaces the old one; a game
+    already in the cache costs nothing but the lookups."""
+    from src import config
+
+    if not enabled() or not config.COACH_PRECOMPUTE_PLAN or not pgn:
+        return None
+    return _submit(key, [("plan", lambda: _review_steps(pgn))], f"offer {key}", level=LEVEL_OFFERED)
+
+
+def review_soon(key: str, pgn: str) -> Optional[engine_pool.Job]:
+    """A game whose review a turn did not wait for — the board's game with more left to search than the review step's
+    wait allows, or a review step that ran past COACH_REVIEW_WAIT_MS and gave the engine back (src/server.coach_chat,
+    10.11 load test): its review steps in the background at the board's level, so the next question about it reads
+    the cache. One per *key* (a newer one replaces it); the positions searched so far are in the cache already."""
+    if not enabled() or not pgn:
+        return None
+    return _submit(key, [("plan", lambda: _review_steps(pgn))], f"review {key}", level=LEVEL_BOARD)
+
+
+def status() -> dict:
+    """For /health: on or off, the counters, and the work queued now (tasks waiting, steps at work)."""
+    with _lock:
+        waiting = len(_pending)
+        working = sum(r[1] for r in _running.values())
+    return {"on": enabled(), **STATS, "pending": waiting, "running": working}
 
 
 def idle(timeout: float = 30.0) -> bool:
