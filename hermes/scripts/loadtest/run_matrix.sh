@@ -14,6 +14,10 @@
 # Run, then read:
 #   WORK=… PY=<python with httpx, chess> run_matrix.sh "1 5 10 20" "main branch branch-noplan" 240
 #   python report.py $WORK/results
+# Same games in every variant: the coach's replies are seeded by the position and searched from an empty hash
+# (launcher.py, BENCH_SEEDED_REPLIES=1 by default), the students' moves too (loadgen.py). Before 10.11-2 the games split
+# at the first random reply, and with 1–2 students a 15–20-move median measured the positions, not the version.
+# BENCH_TRACE=/w/trace-<name>.jsonl (docker -e) writes every pool search, game move and voice check (bench_trace.py).
 # Variants: a directory name under code/; <name>-noplan adds COACH_PRECOMPUTE_PLAN=0, off = branch with
 # COACH_PRECOMPUTE=0. Afterwards: colima stop loadtest && colima delete loadtest; docker context use default.
 set -u

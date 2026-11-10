@@ -1,8 +1,12 @@
-"""Hermes for the load test (how to run: scripts/loadtest/run_matrix.sh): the real server, three things changed.
+"""Hermes for the load test (how to run: scripts/loadtest/run_matrix.sh): the real server, four things changed.
 
 * Every OpenRouter URL points at BENCH_STUB_URL (scripts/loadtest/stub_llm.py): no model is called, nothing is paid.
 * The daily plan and the plan card's game read a fake «last game» per student (BENCH_GAMES_JSON: user id → PGN)
   instead of Supabase.
+* The coach's reply in a game is seeded by the position (BENCH_SEEDED_REPLIES, default on): every variant and every
+  run plays the same games. Unseeded, the games split at the first random reply, and a move's time depends on its
+  position (the reply's depth-12 search with 5 lines: 0.07–2 s on 2 vCPU) far more than on the version — the 10.11
+  small-load «regression» (one or two students, a 15–20-move median) was that, not the code (10.11-2 note).
 * Timing of the turn up to the model: a request to /api/coach/chat with the header X-Bench-Sid is timed from its
   arrival to the first AIAgent.run_conversation of that session (the moment the model is called, after every engine
   wait of the turn); GET /bench/model?sid=… returns and clears it. GET /bench/proc gives this process's CPU and RSS.
@@ -91,6 +95,34 @@ def _install_fakes() -> None:
 
     daily_plan._sources = _fake_sources
     user_data.get_user_game_pgn = _fake_game_pgn
+    if os.environ.get("BENCH_SEEDED_REPLIES", "1") != "0":
+        _seed_replies()
+
+
+def _seed_replies() -> None:
+    """The coach's reply move chosen with a random generator seeded by the position (src/game_engine.pick_candidate),
+    from an empty hash: the reply process is shared by every student, so with the hash kept the candidates' scores —
+    and the move picked — would depend on which student's search came before."""
+    import random
+    import zlib
+
+    import chess.engine
+
+    from src import game_engine
+
+    orig = game_engine.GameEngine.choose_move
+
+    def choose_move(self, fen, elo, rng=None):
+        return orig(self, fen, elo, rng or random.Random(zlib.crc32(fen.encode())))
+
+    game_engine.GameEngine.choose_move = choose_move
+    analyse = chess.engine.SimpleEngine.analyse
+
+    def fresh_analyse(self, board, limit, **kw):
+        kw.setdefault("game", object())  # a new «game» each time: python-chess sends ucinewgame (the hash cleared)
+        return analyse(self, board, limit, **kw)
+
+    chess.engine.SimpleEngine.analyse = fresh_analyse
 
 
 # ── time to the model ──
@@ -184,6 +216,11 @@ def main() -> None:
     n = _redirect_urls()
     _install_fakes()
     _wrap_agent()
+    if os.environ.get("BENCH_TRACE"):
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import bench_trace  # scripts/loadtest/bench_trace.py
+
+        bench_trace.install()
     print(f"loadtest launcher: {n} OpenRouter references → {STUB}; {len(GAMES)} students' games", flush=True)
     app = _Timing(server.app)
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8642")), log_level="warning", workers=1)

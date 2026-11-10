@@ -15,7 +15,8 @@ Measured on the live path (client side unless noted):
   plan, board, game_start, comment.
 Every 2 s: /health (stockfish.pool, stockfish.precompute) and /bench/proc (CPU seconds, RSS).
 
-Deterministic: the games and every random choice come from --seed and the student's number.
+Deterministic: the games and every random choice come from --seed and the student's number; with the coach's replies
+seeded by the position (launcher.py, BENCH_SEEDED_REPLIES) every variant plays the same games.
   python loadgen.py --n 10 --duration 240 --out results/branch-n10.json
 """
 
@@ -84,7 +85,8 @@ class Mover:
         async with self.lock:
             if self.eng is None:
                 _, self.eng = await chess.engine.popen_uci(self.path)
-            info = await self.eng.analyse(board, chess.engine.Limit(depth=3), multipv=3)
+            # from an empty hash (a new «game»): the move does not depend on which student searched before
+            info = await self.eng.analyse(board, chess.engine.Limit(depth=3), multipv=3, game=object())
         cand = [x["pv"][0] for x in info if x.get("pv")]
         return rng.choice(cand) if cand else rng.choice(moves)
 
