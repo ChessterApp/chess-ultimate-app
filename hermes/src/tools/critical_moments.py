@@ -334,6 +334,46 @@ def _wait_inflight(fen: str) -> None:
         held[1].wait(TIMEOUT_PER_MOVE)
 
 
+# The engine time of one scan search on this host now (ms, without the wait for a process), learned from every scan's
+# searches: what a turn's review step expects to spend on each position it still has to search (scan_estimate_ms).
+SEARCH_MS_START = 100.0
+SEARCH_MS_ALPHA = 0.1
+_search_ms = [SEARCH_MS_START]
+
+
+def _note_search(ms: float) -> None:
+    if ms > 0:
+        with _inflight_lock:
+            _search_ms[0] += SEARCH_MS_ALPHA * (ms - _search_ms[0])
+
+
+def scan_estimate_ms(pgn: str) -> tuple[int, float]:
+    """(positions still to search, the time a review scan of *pgn* would take now) — the searched positions come from
+    the cache; the rest are split between the pool's processes, each search costing this host's search time plus the
+    wait an answer-time search has for a process now (src/engine_pool.answer_wait_ms: the other students' answers it
+    queues with). (0, 0.0) when everything is in hand; (-1, 0.0) when the game cannot be read."""
+    from src import config, engine_pool
+
+    try:
+        game = chess.pgn.read_game(io.StringIO(pgn or ""))
+    except Exception:  # noqa: BLE001
+        return -1, 0.0
+    if game is None:
+        return -1, 0.0
+    board, missing = game.board(), 0
+    for move in [None, *game.mainline_moves()]:
+        if move is not None:
+            board.push(move)
+        if not (board.is_checkmate() or board.is_stalemate() or board.is_insufficient_material()) \
+                and _cached_eval(board.fen()) is None:
+            missing += 1
+    if not missing:
+        return 0, 0.0
+    procs = max(1, int(getattr(config, "STOCKFISH_POOL_SIZE", 2) or 1))
+    halves = 1 if missing < 8 else min(2, procs)
+    return missing, missing / halves * (_search_ms[0] + engine_pool.answer_wait_ms())
+
+
 def _scan_pooled(positions: list, halves: int | None = None):
     """Every position's eval on the engine pool (plan 31.10 P7a): positions analysed before (the game's evals, the
     precompute, an engine line) come from the cache; the rest are searched to ANALYSIS_DEPTH in game order with the
@@ -396,9 +436,14 @@ def _scan_pooled(positions: list, halves: int | None = None):
                         continue
                     claim = _claim(fen, prio, force=True)
                 try:
+                    t0 = time.monotonic()
                     res = engine_pool.search(fen, go=f"depth {ANALYSIS_DEPTH}", multipv=1,
                                              clear_hash=(searched == 0), timeout=TIMEOUT_PER_MOVE)
                     searched += 1
+                    if own.cancelled and "error" not in res:
+                        # The answer that asked for this scan stopped waiting (src/server._await_review): the search
+                        # was stopped part-way — its line is not a depth-12 look, and nothing reads the rest.
+                        res = {"error": "cancelled"}
                     if "error" in res or res.get("stopped"):
                         failed.append(i)
                         if res.get("stopped") or own.cancelled:
@@ -409,6 +454,7 @@ def _scan_pooled(positions: list, halves: int | None = None):
                     if not result.get("lines"):
                         out[i] = (0.0, [])  # as _white_eval scores a search that said nothing
                         continue
+                    _note_search((time.monotonic() - t0) * 1000.0 - float(res.get("wait_ms") or 0.0))
                     stockfish._cache_put(fen, result)
                     out[i] = _as_scan(b, result)
                 finally:

@@ -267,3 +267,155 @@ def test_two_scans_of_one_game_search_each_position_once(server_pool):
         th.join()
     assert out[0] == out[1] and out[0]["total_moves"] == 20
     assert len(_gos(log)) <= 21 + 4          # 21 positions; at most a search or two raced at the start of each half
+
+
+# ── the load test of 10.11: a review the turn cannot wait for never holds the live path ───────────────────────────
+def test_the_scan_estimate_counts_what_is_left_at_this_hosts_speed(server_pool, monkeypatch):
+    from src.tools import critical_moments as cm
+
+    pool, _ = server_pool
+    monkeypatch.setattr(cm, "_search_ms", [100.0])
+    monkeypatch.setattr(pool, "answer_wait_ms", 0.0)
+    missing, est = cm.scan_estimate_ms(GAME)
+    assert missing == 21 and est == pytest.approx(21 / 2 * 100)           # two processes, no wait for one
+    monkeypatch.setattr(pool, "answer_wait_ms", 400.0)                     # the other students' answers queue
+    assert cm.scan_estimate_ms(GAME)[1] == pytest.approx(21 / 2 * 500)
+    cm.find_critical_moments(GAME)
+    assert cm.scan_estimate_ms(GAME) == (0, 0.0)                          # all in the cache now
+    assert cm._search_ms[0] != 100.0                                      # learned from the searches it made
+    assert cm.scan_estimate_ms("not a game")[0] in (-1, 0)
+
+
+def test_a_board_game_whose_scan_does_not_fit_goes_as_on_main_and_is_finished_in_the_background(turn, monkeypatch):
+    from src import engine_precompute
+    from src.tools import critical_moments as cm
+
+    client, seen, scans = turn
+    later = []
+    monkeypatch.setattr(cm, "scan_estimate_ms", lambda pgn: (60, 30_000.0))
+    monkeypatch.setattr(engine_precompute, "review_soon", lambda key, pgn: later.append((key, pgn)))
+    sid = client.post("/api/coach/sessions", json={}, headers=H).json()["id"]
+    bid = client.post(f"/api/coach/sessions/{sid}/boards", json={"kind": "master_game", "pgn": GAME},
+                      headers=H).json()["id"]
+    _say(client, sid, "Разбери эту партию")
+    assert scans == [] and "Critical moments" not in seen["message"]       # no 6 s wait for a scan that cannot end
+    assert "find_critical_moments" in seen["tools"]                         # the model's tools, as on main
+    assert later == [(f"{sid}/{bid}#review", GAME)]
+    monkeypatch.setattr(cm, "scan_estimate_ms", lambda pgn: (0, 0.0))      # the background has done it
+    _say(client, sid, "Разбери эту партию")
+    assert scans == [GAME] and "Critical moments of the student's game" in seen["message"]
+
+
+@pytest.fixture
+def slow_pool(fake, monkeypatch):
+    """The server's pool on a fake engine that takes 25 ms per depth (a depth-12 scan search: 0.3 s)."""
+    exe, log, make = fake
+    monkeypatch.setenv("FAKE_UCI_PLY_MS", "25")
+    pool = make()
+    old = engine_pool._set_pool_for_tests(pool)
+    monkeypatch.setattr(config, "STOCKFISH_POOL", True)
+    monkeypatch.setattr(stockfish, "ENGINE_API_URL", "")
+    stockfish.clear_analysis_cache()
+    stockfish.clear_exact_store()
+    yield pool, log
+    engine_pool._set_pool_for_tests(old)
+    stockfish.clear_analysis_cache()
+    stockfish.clear_exact_store()
+
+
+def test_a_late_review_step_gives_the_engine_back(slow_pool, monkeypatch):
+    """Past COACH_REVIEW_WAIT_MS the turn's scan is cancelled (both processes free at once) and handed to the
+    background; nothing it stopped part-way is cached as a depth-12 look."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from src import server
+
+    pool, _ = slow_pool
+    monkeypatch.setattr(config, "COACH_REVIEW_WAIT_MS", 400)
+    job, state, handed = engine_pool.Job("review step"), {}, []
+    ex = ThreadPoolExecutor(1)
+    started = time.monotonic()
+    future = ex.submit(server._review_scan, GAME, job)
+    assert server._await_review(future, started, state, job=job, on_late=lambda: handed.append(1)) is None
+    assert state.get("late") and job.cancelled and handed == [1]
+    t = time.monotonic()
+    future.result(timeout=5)
+    assert time.monotonic() - t < 1.0                                       # stopped, not run to its end
+    deadline = time.monotonic() + 1.0
+    while pool.status()["busy"] and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert pool.status()["busy"] == 0
+    with stockfish._cache_lock:
+        depths = [stockfish._result_depth(v) for v in stockfish._cache.values()]
+    assert depths and all(d >= 12 for d in depths)                           # only whole searches were kept
+    ex.shutdown()
+
+
+def test_an_answer_waits_behind_no_abandoned_review(slow_pool, monkeypatch):
+    """The live path after a late review: the model's own tool call (behind every answer-time search) gets a process
+    at once — before, the abandoned scan held both processes at an answer's level until its last position (20 s to
+    the model's answer on the 10.11 load test)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from src import server
+
+    monkeypatch.setattr(config, "COACH_REVIEW_WAIT_MS", 300)
+    job = engine_pool.Job("review step")
+    ex = ThreadPoolExecutor(1)
+    started = time.monotonic()
+    future = ex.submit(server._review_scan, GAME, job)
+    server._await_review(future, started, {}, job=job)
+    res = engine_pool.search(chess.Board().fen(), go="depth 2", multipv=1, priority=engine_pool.PRIORITY_TOOL)
+    assert res.get("wait_ms", 1e9) < 500
+    future.result(timeout=5)
+    ex.shutdown()
+
+
+def test_the_background_queue_stays_bounded_while_its_workers_are_blocked(monkeypatch):
+    """20 students on a 2-vCPU host (10.11 load test): both workers wait on the pool in a step, and every board save
+    still queues a task — the queue keeps MAX_TASKS, the furthest back and oldest dropped first."""
+    from src import engine_precompute as ep
+
+    monkeypatch.setattr(ep, "_ensure_workers", lambda: None)               # nobody takes work: the workers are blocked
+    keys = [f"bound/{i}" for i in range(ep.MAX_TASKS + 16)]
+    try:
+        for i, key in enumerate(keys):
+            ep._submit(key, [("x", lambda: None)], key, level=ep.LEVEL_OFFERED if i % 2 else ep.LEVEL_BOARD)
+        with ep._lock:
+            mine = [k for k in ep._pending if k.startswith("bound/")]
+            levels = [ep._pending[k].level for k in mine]
+        assert len(mine) <= ep.MAX_TASKS
+        assert levels.count(ep.LEVEL_BOARD) == (ep.MAX_TASKS + 16) // 2      # the offered games went first
+    finally:
+        with ep._lock:
+            for key in keys:
+                ep._cancel_locked(key)
+
+
+def test_a_live_games_position_goes_before_every_boards_review(precompute, monkeypatch):
+    """One student, 10.11 load test: the game's position after each move waited behind the tab's and the plan's
+    80-move scans, and the move's verdict searched it itself. Now a game in progress has its own level, ahead."""
+    from src import engine_precompute as ep
+    from src.sessions import session_store
+
+    assert ep.LEVEL_CONFIRM < ep.LEVEL_LIVE < ep.LEVEL_BOARD < ep.LEVEL_OFFERED
+    seen = {}
+    real = ep._submit
+
+    def spy(key, steps, label, replace=True, level=ep.LEVEL_BOARD, delay_s=0.0):
+        seen[key] = level
+        return real(key, steps, label, replace=replace, level=level, delay_s=delay_s)
+
+    monkeypatch.setattr(ep, "_submit", spy)
+    session = session_store.create("p1110-live")
+    tab = session.add_board(activate=False, kind="master_game", pgn=GAME)
+    game = session.add_board(activate=True, kind="game", title="")
+    game.game_state = {"status": "playing", "student_color": "white", "moves": []}
+    ep.board_changed(session, game)
+    over = session.add_board(activate=False, kind="game", title="")
+    over.game_state = {"status": "finished", "student_color": "white", "moves": []}
+    ep.board_changed(session, over)
+    assert seen[f"{session.id}/{tab.id}"] == ep.LEVEL_BOARD
+    assert seen[f"{session.id}/{game.id}"] == ep.LEVEL_LIVE
+    assert seen[f"{session.id}/{over.id}"] == ep.LEVEL_BOARD          # a finished game's review: a board's level
+    assert ep.idle(20)

@@ -1066,7 +1066,7 @@ _engine_pool = _ContextExecutor(max_workers=8, thread_name_prefix="engine-note")
 
 # Every board save starts the analysis of its new position in the background (src/engine_precompute.py, plan 31.10
 # P7b; COACH_PRECOMPUTE=0 or STOCKFISH_POOL=0 switches it off at call time).
-from src import engine_precompute  # noqa: E402
+from src import engine_pool, engine_precompute  # noqa: E402
 
 engine_precompute.install()
 
@@ -1317,10 +1317,47 @@ def _board_review_pgn(active_board, message: str) -> Optional[str]:
         return None
 
 
-def _await_review(future, started: float, state: dict) -> Optional[dict]:
+# A game on the board is reviewed by the server's step only when its scan fits in this share of COACH_REVIEW_WAIT_MS
+# (src/tools/critical_moments.scan_estimate_ms: the positions not yet in the cache, at this host's search time and the
+# answers' wait for a process now). Half: a scan that does not end in the wait costs the student the whole wait and
+# then the model's own step (10.11 load test: 6 s, then 7–10 s to the first word), one skipped costs only what main
+# did — so the doubt goes to skipping.
+REVIEW_BOARD_FIT = 0.5
+
+
+def _review_scan(pgn: str, job):
+    """The turn's review step: the scan at an answer's level, as one job — the turn cancels it if it stops waiting."""
+    from src.tools import critical_moments as cm
+
+    with engine_pool.priority(engine_pool.PRIORITY_LINE, job):
+        return cm.find_critical_moments(pgn)
+
+
+def _board_review_fits(pgn: str) -> tuple[bool, dict]:
+    """Whether the server's review step can scan the board's *pgn* within its wait now; (fits, what was measured).
+
+    10.11 load test (2 vCPU): a tab's game asked about before the background had scanned it made the turn wait the full
+    COACH_REVIEW_WAIT_MS and then answer without the moments — 6 s to the model instead of main's 1.6 s, and the scan
+    left running at an answer's level held both processes, so the model's own tool call waited behind it (20 s).
+    A board's game that does not fit goes as on main (the model and its tools), and is finished in the background."""
+    try:
+        from src.tools.critical_moments import scan_estimate_ms
+
+        missing, est = scan_estimate_ms(pgn)
+    except Exception:  # noqa: BLE001 — no estimate: as on main
+        logger.debug("review estimate failed", exc_info=True)
+        return False, {}
+    seen = {"missing": missing, "estimate_ms": int(est)}
+    return missing >= 0 and est <= config.COACH_REVIEW_WAIT_MS * REVIEW_BOARD_FIT, seen
+
+
+def _await_review(future, started: float, state: dict, job=None, on_late=None) -> Optional[dict]:
     """The game's critical moments, waiting at most COACH_REVIEW_WAIT_MS from *started*.
 
-    A late or failed scan leaves the review to the model's own tools.
+    A late or failed scan leaves the review to the model's own tools. A late one gives the engine back: its *job* is
+    cancelled (left running at an answer's level it held both processes for seconds — every other student's answer
+    and the model's own tool call queued behind it; 10.11 load test) and *on_late* hands the game to the background,
+    which keeps what was searched and finishes the rest behind the answers.
     """
     if future is None:
         return None
@@ -1328,6 +1365,14 @@ def _await_review(future, started: float, state: dict) -> Optional[dict]:
     try:
         result = future.result(timeout=max(0.0, budget))
     except FutureTimeout:
+        state["late"] = True
+        if job is not None:
+            engine_pool.cancel(job)
+        if on_late is not None:
+            try:
+                on_late()
+            except Exception:  # noqa: BLE001 — the background is a bonus
+                logger.debug("review hand-off failed", exc_info=True)
         return None
     except Exception:  # noqa: BLE001 — the pre-step is best-effort
         logger.debug("review pre-step failed", exc_info=True)
@@ -2318,14 +2363,23 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # deciding to scan it, and the scan the precompute had already done waited in the cache for that call. A game in
     # progress never: the coach gives hints there, not the engine's verdicts.
     review_from_board = False
+    review_state = {"used": False, "ms": None, "moments": None}
     if review_pgn is None and config.COACH_REVIEW_PRESTEP and config.COACH_REVIEW_BOARD and not body.review_game_id:
         review_pgn = _board_review_pgn(active_board, body.message)
+        if review_pgn:
+            # Only when its scan fits in the wait (mostly the background's cache): a game with most of it still to
+            # search goes as on main — the model and its tools — and is finished in the background for the next ask.
+            fits, seen = _board_review_fits(review_pgn)
+            review_state["board_estimate"] = seen
+            if not fits:
+                review_state["board_skipped"] = seen
+                engine_precompute.review_soon(f"{session_id}/{getattr(active_board, 'id', '')}#review", review_pgn)
+                review_pgn = None
         review_from_board = bool(review_pgn)
+    review_job = None
     if review_pgn:
-        from src.tools.critical_moments import find_critical_moments
-
-        review_future = _engine_pool.submit(find_critical_moments, review_pgn)
-    review_state = {"used": False, "ms": None, "moments": None}
+        review_job = engine_pool.Job("review step")
+        review_future = _engine_pool.submit(_review_scan, review_pgn, review_job)
     # …and the engine line of the game's final position, as the analyze_position tool asks it (depth 16, 3 lines):
     # read from what the precompute did while the game was on the board, else searched beside the scan.
     review_note_future = None
@@ -3295,7 +3349,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     verdict_rules = ""
                 if verdict_rules:
                     message = f"{message}\n\n{verdict_rules}"
-                review = _await_review(review_future, engine_started, review_state)
+                review = _await_review(
+                    review_future, engine_started, review_state, job=review_job,
+                    on_late=lambda: engine_precompute.review_soon(f"{session_id}/review", review_pgn))
                 if review:
                     message = f"{message}\n\n{review_block(review)}"
                     review_state["from_board"] = review_from_board
