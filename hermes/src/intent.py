@@ -37,6 +37,23 @@ _REVIEW = re.compile(
 _REVIEW_SIDE = re.compile(r"(?P<black>ч[её]рными|за\s+ч[её]рных|as\s+black|with\s+black)|"
                           r"(?P<white>белыми|за\s+белых|as\s+white|with\s+white)", re.IGNORECASE)
 REVIEW_MIN_PLIES = 10
+# The review word about one position, one move or one moment is a question about it, not the whole game's review:
+# «разбери эту позицию», «разбор хода Nxe5», «где я ошибся на 20-м ходу», "review this move" (the turn then keeps the
+# engine line of the position shown, which a game's review would replace).
+_REVIEW_OF_A_PART = re.compile(
+    r"(?<![\w-])(?:позици\w*|положени\w*|ход(?:а|у|ом|е)?|момент(?:а|е|ом)?|вариант\w*|лини[июя]|задач\w*|урок\w*|"
+    r"position|move|moment|line|puzzle|lesson|позиция|жүріс\w*)(?![\w-])|"
+    r"(?<![\w.])\d{1,3}\s*(?:\.|-?(?:м|й|ом|ого|th|st|nd|rd)(?![\w-]))", re.IGNORECASE)
+
+
+def asks_game_review(text: str, pgn: Optional[str] = None) -> bool:
+    """«Разбери партию», «где я ошибся?», "review my game" about the game in hand (*pgn*, when given, at least
+    REVIEW_MIN_PLIES long) — not a question about one of its positions or moves. The server's review step then takes
+    the game on the board (src/server.coach_chat, COACH_REVIEW_BOARD)."""
+    t = text or ""
+    if not _REVIEW.search(t) or _REVIEW_OF_A_PART.search(t):
+        return False
+    return pgn is None or _plies(pgn) >= REVIEW_MIN_PLIES
 # A concept asked about: «что такое связка», «объясни вилку», «покажи пример», "what is a pin"
 _CONCEPT = re.compile(
     r"(?:что\s+так(?:ое|ая|ой|ие)|объясни|расскажи\s+(?:мне\s+)?(?:про|о|об)(?![\w-])|покажи\s+(?:мне\s+)?(?:пример|как)|"

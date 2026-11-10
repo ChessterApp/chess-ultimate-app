@@ -266,6 +266,16 @@ COACH_ENGINE_NOTE_MOVETIME_MS = int(os.environ.get("COACH_ENGINE_NOTE_MOVETIME_M
 #                           a 25-move game takes 1-2 s at depth 12).
 COACH_REVIEW_PRESTEP = _env_flag("COACH_REVIEW_PRESTEP", True)
 COACH_REVIEW_WAIT_MS = int(os.environ.get("COACH_REVIEW_WAIT_MS", "6000"))
+# The review step for the game already on the board (10.11): «разбери эту партию», «где я ошибся?» about a finished
+# game with the coach, a database game in its tab or a loaded game gets the same server step as a pasted game — and
+# its scan is usually in the cache already (src/engine_precompute analysed the game when it went on the board or
+# ended). Never for a game in progress (no hints while it is on).
+#   COACH_REVIEW_BOARD       — on/off (default ON; off = only a pasted game or review_game_id, as before).
+#   COACH_REVIEW_NO_RESCAN   — a turn that carries the server's critical moments has no find_critical_moments /
+#                              review_game tools: the model cannot spend a call scanning the same game again
+#                              (default ON; off = the prompt's «do not call find_critical_moments» only, as before).
+COACH_REVIEW_BOARD = _env_flag("COACH_REVIEW_BOARD", True)
+COACH_REVIEW_NO_RESCAN = _env_flag("COACH_REVIEW_NO_RESCAN", True)
 
 # Threads of the event loop's default executor (2026-09-30): every turn holds
 # one for the agent call and one for the reaction; the default (cpu+4) queued
@@ -619,8 +629,12 @@ COACH_EXPLICIT_RULES = _env_flag("COACH_EXPLICIT_RULES", True)
 #   Threads stay 1 on purpose: a fixed-depth search with more threads gives different lines run to run, and the
 #   checks' verdicts must be the same every time (K3 02.11).
 #   COACH_PRECOMPUTE           — the board-change listener's precompute (default on).
+#   COACH_PRECOMPUTE_PLAN      — the game the daily plan offers for review («разобрать последнюю партию») is scanned in
+#                                the background when the plan is shown, so the card's review reads the cache (default
+#                                on; needs COACH_PRECOMPUTE; one game per student, the lowest background level).
 STOCKFISH_POOL = _env_flag("STOCKFISH_POOL", True)
 STOCKFISH_POOL_SIZE = max(1, int(os.environ.get("STOCKFISH_POOL_SIZE") or min(2, os.cpu_count() or 1)))
 STOCKFISH_HASH_MB = max(1, int(os.environ.get("STOCKFISH_HASH_MB", "16")))
 STOCKFISH_RECYCLE_SEARCHES = max(1, int(os.environ.get("STOCKFISH_RECYCLE_SEARCHES", "5000")))
 COACH_PRECOMPUTE = _env_flag("COACH_PRECOMPUTE", True)
+COACH_PRECOMPUTE_PLAN = _env_flag("COACH_PRECOMPUTE_PLAN", True)

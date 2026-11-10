@@ -24,6 +24,9 @@ it), with exactly the requests the turn will make, so the turn reads the analysi
 Each board has a change counter: a new save cancels the board's old job (its waiting searches are dropped, a running
 one is stopped); the jobs for a turn's answer check are replaced by the next turn's. Nothing new reaches the model: a cached line is what a search at the turn would have found, and the
 guards that keep a live game's best move from the coach act when a result is read, not when it is computed.
+A game offered for review before it is on a board (the daily plan's card, game_offered) gets the board's review steps
+at the lowest level (LEVEL_OFFERED, COACH_PRECOMPUTE_PLAN). A board created with a position (POST …/boards: a game
+opened in its tab) is told like a saved one (src/sessions.add_board, 10.11).
 ``COACH_PRECOMPUTE=0`` (or ``STOCKFISH_POOL=0``) switches it off.
 """
 
@@ -66,6 +69,7 @@ LEVEL_IDEA = engine_pool.PRIORITY_BACKGROUND         # the forced-reply confirm 
 LEVEL_CHECK = engine_pool.PRIORITY_BACKGROUND + 1    # the positions the turn's recommended-move check will ask for
 LEVEL_CONFIRM = engine_pool.PRIORITY_BACKGROUND + 2  # the forced-reply check's confirming searches
 LEVEL_BOARD = engine_pool.PRIORITY_BACKGROUND + 3    # a board's own positions
+LEVEL_OFFERED = engine_pool.PRIORITY_BACKGROUND + 4  # a game offered for review, not on any board yet (10.11)
 
 
 class _Task:
@@ -633,6 +637,27 @@ def after_ideas(session_id: str, board_id: str, idea_fens: list) -> None:
     # Strictly ahead of the candidates (review-wiring2 01.11: at their level, trap-legal's confirm after 5.Nxe5 was
     # still at work when the sentence was held in 1 of 3 full replays, and the turn's own 1 s search fell short).
     _submit(f"{session_id}/{board_id}#ideas", steps, "ideas", level=LEVEL_IDEA)
+
+
+def game_offered(key: str, pgn: str) -> Optional[engine_pool.Job]:
+    """A game the coach offers for review before it is on any board — the daily plan's «review my last game» card
+    (src/daily_plan, COACH_PRECOMPUTE_PLAN): its review steps (the scan, the final position, the biggest moments) in
+    the background, behind every board's own work (LEVEL_OFFERED), so the review the card starts — the turn's review
+    step with review_game_id — reads the cache. One game per *key* (a student): a new offer replaces the old one; a game
+    already in the cache costs nothing but the lookups."""
+    from src import config
+
+    if not enabled() or not config.COACH_PRECOMPUTE_PLAN or not pgn:
+        return None
+    return _submit(key, [("plan", lambda: _review_steps(pgn))], f"offer {key}", level=LEVEL_OFFERED)
+
+
+def status() -> dict:
+    """For /health: on or off, the counters, and the work queued now (tasks waiting, steps at work)."""
+    with _lock:
+        waiting = len(_pending)
+        working = sum(r[1] for r in _running.values())
+    return {"on": enabled(), **STATS, "pending": waiting, "running": working}
 
 
 def idle(timeout: float = 30.0) -> bool:

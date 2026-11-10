@@ -268,6 +268,9 @@ class Session(BaseModel):
             self._persistence.persist_board(board.to_public())
         if activate or self.active_board_id is None:
             self.set_active_board(board.id)
+        # A new board is a board with a position too: a game opened in its own tab (POST …/boards, the site's
+        # «open the game» from the chat) was never saved again, so its review scan waited for the question (10.11).
+        _board_changed(self, board)
         return board
 
     def save_board(self, board: Board) -> None:

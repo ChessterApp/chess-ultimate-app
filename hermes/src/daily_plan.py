@@ -174,4 +174,22 @@ def load_daily_plan(user_id: str, budget_s: float = BUDGET_S) -> dict:
             rows[name] = future.result(timeout=0)
         except (FutureTimeout, Exception):  # noqa: BLE001
             logger.debug("daily plan source %s failed", name, exc_info=True)
-    return build_daily_plan(rows.get("games"), rows.get("insights"), rows.get("focus"))
+    plan = build_daily_plan(rows.get("games"), rows.get("insights"), rows.get("focus"))
+    _offer_review_game(user_id, plan, rows.get("games"))
+    return plan
+
+
+def _offer_review_game(user_id: str, plan: dict, games: Any) -> None:
+    """The game the plan's «review my last game» card offers: scanned in the background now (src/engine_precompute
+    .game_offered, COACH_PRECOMPUTE_PLAN), so the review the card starts reads the cache instead of 4–8 s of engine."""
+    try:
+        card = next((c for c in plan.get("cards") or [] if c.get("type") == "review_last_game"), None)
+        if card is None or not isinstance(games, list):
+            return
+        game = next((g for g in games if isinstance(g, dict) and str(g.get("id")) == card["game_id"]), None)
+        if game and isinstance(game.get("pgn"), str):
+            from src import engine_precompute
+
+            engine_precompute.game_offered(f"plan/{user_id}", game["pgn"])
+    except Exception:  # noqa: BLE001 — the plan never waits for or fails on the engine
+        logger.debug("daily plan: review game not offered to the precompute", exc_info=True)

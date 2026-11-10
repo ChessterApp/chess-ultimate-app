@@ -6,6 +6,7 @@ import re
 import shutil
 import logging
 import subprocess
+import threading
 import time
 
 import chess
@@ -297,6 +298,42 @@ def _as_scan(board: chess.Board, result: dict) -> tuple[float, list[str]]:
     return (score if board.turn == chess.WHITE else -score), pv
 
 
+# The positions a scan is searching right now (fen → (priority, event set when its search ends)): a second scan of
+# the same game (the turn's review step beside the background scan of the board it loaded, two students' reviews of
+# one famous game) reads the result instead of searching it again — but never waits for a scan further back, which
+# a waiting answer may stop at any moment.
+_inflight_lock = threading.Lock()
+_inflight: dict = {}
+
+
+def _claim(fen: str, prio: int, force: bool = False):
+    """Mark *fen* as searched by a scan at *prio*; None when a scan at least as urgent searches it (unless *force*)."""
+    with _inflight_lock:
+        held = _inflight.get(fen)
+        if held is not None and held[0] <= prio and not force:
+            return None
+        claim = (prio, threading.Event())
+        if held is None or held[0] > prio:
+            _inflight[fen] = claim
+        return claim
+
+
+def _release(fen: str, claim) -> None:
+    if claim is None:
+        return
+    with _inflight_lock:
+        if _inflight.get(fen) is claim:
+            del _inflight[fen]
+    claim[1].set()
+
+
+def _wait_inflight(fen: str) -> None:
+    with _inflight_lock:
+        held = _inflight.get(fen)
+    if held is not None:
+        held[1].wait(TIMEOUT_PER_MOVE)
+
+
 def _scan_pooled(positions: list, halves: int | None = None):
     """Every position's eval on the engine pool (plan 31.10 P7a): positions analysed before (the game's evals, the
     precompute, an engine line) come from the cache; the rest are searched to ANALYSIS_DEPTH in game order with the
@@ -331,25 +368,51 @@ def _scan_pooled(positions: list, halves: int | None = None):
     def _run(part):
         own = job or engine_pool.Job("review scan")
         with engine_pool.priority(prio, own):
-            for n, i in enumerate(part):
+            searched = 0
+            queue, deferred = list(part), []
+            while queue or deferred:
+                waited = not queue
+                if queue:
+                    i = queue.pop(0)
+                else:
+                    # A position another scan was searching: its result, else searched here after all.
+                    i = deferred.pop(0)
+                    _wait_inflight(positions[i].fen())
                 if own.cancelled:
-                    failed.append(i)
+                    failed.extend([i] + queue + deferred)
                     return
                 b = positions[i]
                 fen = b.fen()
-                res = engine_pool.search(fen, go=f"depth {ANALYSIS_DEPTH}", multipv=1, clear_hash=(n == 0),
-                                         timeout=TIMEOUT_PER_MOVE)
-                if "error" in res or res.get("stopped"):
-                    failed.append(i)
-                    if res.get("stopped") or own.cancelled:
-                        return
+                # Another scan of the same game may have searched it meanwhile — the turn's review step and the
+                # background scan of the board it loads run side by side (10.11: the two did every position twice).
+                hit = _cached_eval(fen)
+                if hit is not None:
+                    out[i] = _as_scan(b, hit)
                     continue
-                result = stockfish._build_result(res["output"], ANALYSIS_DEPTH, None)
-                if not result.get("lines"):
-                    out[i] = (0.0, [])  # as _white_eval scores a search that said nothing
-                    continue
-                stockfish._cache_put(fen, result)
-                out[i] = _as_scan(b, result)
+                claim = _claim(fen, prio)
+                if claim is None:
+                    if not waited:
+                        deferred.append(i)  # being searched by a scan at least as urgent: read it later
+                        continue
+                    claim = _claim(fen, prio, force=True)
+                try:
+                    res = engine_pool.search(fen, go=f"depth {ANALYSIS_DEPTH}", multipv=1,
+                                             clear_hash=(searched == 0), timeout=TIMEOUT_PER_MOVE)
+                    searched += 1
+                    if "error" in res or res.get("stopped"):
+                        failed.append(i)
+                        if res.get("stopped") or own.cancelled:
+                            failed.extend(queue + deferred)  # the rest of this half is not searched either
+                            return
+                        continue
+                    result = stockfish._build_result(res["output"], ANALYSIS_DEPTH, None)
+                    if not result.get("lines"):
+                        out[i] = (0.0, [])  # as _white_eval scores a search that said nothing
+                        continue
+                    stockfish._cache_put(fen, result)
+                    out[i] = _as_scan(b, result)
+                finally:
+                    _release(fen, claim)
 
     if len(parts) == 1:
         _run(parts[0])
