@@ -255,9 +255,16 @@ class TestGetLesson:
 
     def test_ambiguous_title_lists_candidates(self):
         with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
-            out = get_lesson("король", locale="ru")
+            out = get_lesson("корол", locale="ru")
         assert out["ambiguous"] is True
         assert [l["slug"] for l in out["lessons"]] == ["the-king", "king-and-pawn"]
+
+    def test_the_one_lesson_titled_exactly_so_is_the_lesson(self):
+        # «Шах» is not «Шахматная нотация», «Вечный шах»…: get_lesson("Шах") came back ambiguous (prod 10.11)
+        full = {**LESSON_L3_FULL, **LESSONS[0], "exercise_fen": None, "solution_move": None, "lesson_puzzles": []}
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query(lesson_full=full))):
+            out = get_lesson("король", locale="ru")
+        assert "ambiguous" not in out and out["slug"] == "the-king"
 
     def test_unknown_lesson(self):
         with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):

@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "19"  # 19: voice — no «the conversation has been in X» note, the spoken question decides its language (2026-10-07); 18: a direct question gets the answer first; rules of the position in the facts (2026-10-06); 17: the student's idea is played on the board and judged by the engine before the answer (2026-10-04); 16: the site's lesson comes first and the answer ends with its tasks (2026-10-03); 15: the language the student asks for holds for the session (2026-10-01); 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "20"  # 20: voice — the board changes only through a tool call, «смотри на доску» only about a position a result put up, no tag / FEN / tool name aloud (2026-11-11); 19: voice — no «the conversation has been in X» note, the spoken question decides its language (2026-10-07); 18: a direct question gets the answer first; rules of the position in the facts (2026-10-06); 17: the student's idea is played on the board and judged by the engine before the answer (2026-10-04); 16: the site's lesson comes first and the answer ends with its tasks (2026-10-03); 15: the language the student asks for holds for the session (2026-10-01); 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -1651,6 +1651,12 @@ VOICE_TOOL_LAYER = (
     "Examples of a concept (pin, fork, skewer…) come ONLY from get_topic or "
     "get_lesson, which put the position on the board themselves. Never set up an "
     "example position from memory.\n"
+    "The board changes ONLY through a tool call, never through anything you say. Say «смотри на доску», "
+    "«видишь», \"look at the board\" only about a position that a tool result or a note of this conversation says "
+    "is on the student's board; when a result says nothing was put up, explain in words and point at nothing. A "
+    "lesson's text may speak of its picture («на картинке…»): the student sees it only if the result put it on the "
+    "board. Never say a tag in square brackets, a FEN or a tool's name aloud — spoken, they are noise and do "
+    "nothing (10.11: the coach told a check by a rook over the start position, then read a position record aloud).\n"
     "Say moves the way a person says them out loud (\"knight f3\", \"конь эф "
     "три\", \"ат эф үш\"), never as engine notation like \"g1f3\"."
 )

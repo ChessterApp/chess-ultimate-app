@@ -10,19 +10,26 @@
  * src/hooks/usePipelineVoice.ts.
  */
 
+import { stripNotes } from './voice-notes';
+
 // The model's own final transcript is what sends an utterance (usually 0.3–0.5 s after speech ends); an
 // interim transcript stands in only when no final comes: unchanged this long with a terminal mark…
 export const STT_STABLE_MS = 900;       // (700/1000/300 were tried 25.10: the interim text went out garbled before the final)
 export const STT_STABLE_SLOW_MS = 1300;  // …or this long without one (the stand, 25.10: «Коня в три.» went at 350 ms, «конь f3» came after)
 export const SILENCE_MS = 400;         // no speech energy for this long before an utterance may close
 
-/** The text a sentence is read from: markdown and board markup stripped, whitespace collapsed. */
+/**
+ * The text a sentence is read from: markdown and board markup stripped, whitespace collapsed — and no system
+ * record in it: a note tag in square brackets («[Board] …»), a position record (FEN), a tool's name are never read
+ * aloud in either voice mode (src/lib/coach/voice-notes.ts, 11.11).
+ */
 export function speakable(text: string): string {
-  return text
+  const plain = text
     .replace(/\[\[[^\]]*\]\]/g, ' ')                  // [[arrows: …]] left by the stream
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')            // images
     .replace(/\[([^\]]+)\]\((?:https?:\/\/|\/)[^)]*\)/g, '$1')  // [text](url) → text
-    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ');
+  const out = stripNotes(plain)
     .replace(/`+/g, '')
     .replace(/\*\*|__/g, '')
     .replace(/(^|\n)\s{0,3}(?:[-*•]|\d+[.)])\s+/g, '$1')  // list bullets
@@ -30,7 +37,9 @@ export function speakable(text: string): string {
     .replace(/(^|\s)[*_](\S[^*_]*\S|\S)[*_](?=[\s.,!?;:]|$)/g, '$1$2')
     .replace(/[ \t]+/g, ' ')
     .replace(/\s*\n+\s*/g, ' ')
+    .replace(/\s+([.,!?;:])/g, '$1')
     .trim();
+  return /[\p{L}\p{N}]/u.test(out) ? out : '';  // a sentence that was nothing but a record leaves only its dots
 }
 
 const SENTENCE_END = /[.!?…]+(?:["»)]+)?(?=\s|$)/g;

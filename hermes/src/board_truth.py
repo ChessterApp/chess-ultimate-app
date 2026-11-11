@@ -152,10 +152,44 @@ def _invented(fen: Optional[str], kwargs: Optional[dict]) -> bool:
     return key not in known
 
 
-def board_truth(result, kwargs: Optional[dict]):
-    """The tool's result as the model must read it (see the module docstring)."""
-    if not isinstance(result, str) or not any(f'"{kind}"' in result for kind in POSITION_ACTIONS):
+# The tools whose result teaches from a position (a lesson's text with its pictures, a topic with its example, an
+# opening's line, a famous game): when such a call put NO position on the board, the model is told so in the result
+# itself. On 10.11 get_lesson handed the voice coach the book's «На картинке сверху белому королю стоит шах от черной
+# ладьи. У белых есть 3 возможных защиты…» with nothing on the board, and the coach said «смотри на доску… видишь,
+# белого короля атакует чёрная ладья?» over the start position (Alexander's phone).
+SHOWING_TOOLS = frozenset({"get_topic", "get_lesson", "lookup_opening", "famous_game"})
+NOTHING_SHOWN_NOTE = (
+    "NOTHING was put on the student's board by this call: the board shows what it showed before, and the student "
+    "sees no example, diagram or picture of this. Never say «смотри на доску», «на картинке», «видишь» about a "
+    "position from this result, and never describe one as if it were on the board — explain in words, or first put "
+    "a position up with a tool call and speak only after its result says it is on the board.")
+
+
+def _nothing_shown(result, tool: Optional[str]):
+    """*result* of a showing tool that moved nothing, with the note saying so; any other result as it is."""
+    if tool not in SHOWING_TOOLS or not isinstance(result, str) or not result.lstrip().startswith("{"):
         return result
+    try:
+        obj = json.loads(result)
+    except ValueError:
+        return result
+    if not isinstance(obj, dict) or "error" in obj or obj.get("board_now"):
+        return result
+    if any(isinstance(a, dict) and a.get("type") in POSITION_ACTIONS for a in obj.get("board_actions") or []):
+        return result
+    from src.sessions import BOARD_KEPT_NOTE, HIDDEN_BOARD_NOTE
+
+    if obj.get("board_hint") in (BOARD_KEPT_NOTE, HIDDEN_BOARD_NOTE, GAME_KEPT_NOTE):
+        return result  # the board lock's own note already says nothing went up, and what to do
+    obj["board_now"] = NOTHING_SHOWN_NOTE
+    return json.dumps(obj, ensure_ascii=False)
+
+
+def board_truth(result, kwargs: Optional[dict], tool: Optional[str] = None):
+    """The tool's result as the model must read it (see the module docstring). *tool*: its name — a showing
+    tool's result that put nothing on the board says so (NOTHING_SHOWN_NOTE)."""
+    if not isinstance(result, str) or not any(f'"{kind}"' in result for kind in POSITION_ACTIONS):
+        return _nothing_shown(result, tool)
     try:
         obj = json.loads(result)
     except ValueError:
@@ -166,7 +200,7 @@ def board_truth(result, kwargs: Optional[dict]):
     actions = [obj] if single else [a for a in obj.get("board_actions") or [] if isinstance(a, dict)]
     moving = [a for a in actions if a.get("type") in POSITION_ACTIONS]
     if not moving:
-        return result
+        return _nothing_shown(result, tool)
 
     from src.sessions import BOARD_KEPT_NOTE, _tool_session, board_lock_strict_for
 
@@ -185,7 +219,7 @@ def board_truth(result, kwargs: Optional[dict]):
         for key in ON_BOARD_KEYS:  # «already on the student's board» would be a lie
             obj.pop(key, None)
         obj["board_hint"] = note
-        return json.dumps(obj, ensure_ascii=False)
+        return _nothing_shown(json.dumps(obj, ensure_ascii=False), tool)
 
     if single and obj.get("type") == "set_fen" and _invented(obj.get("fen"), kwargs):
         return json.dumps({"shown": False, "board_hint": INVENTED_NOTE}, ensure_ascii=False)

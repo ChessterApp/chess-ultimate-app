@@ -14,6 +14,7 @@ import { Chess } from 'chess.js';
 import { russianToSan } from '@/lib/russianNotation';
 import useGeminiLive from '@/hooks/useGeminiLive';
 import usePipelineVoice, { readVoiceMode } from '@/hooks/usePipelineVoice';
+import { shownText } from '@/lib/coach/voice-notes';
 import { movePhrase, type PipelineLocale } from '@/lib/coach/voice-pipeline';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
 import { coachApi, type GameStateView } from '@/lib/coach/boards-api';
@@ -179,9 +180,14 @@ export function classifyPastedText(text: string): 'pgn' | 'fen' | 'url' | null {
   return null;
 }
 
-/** The voice coach's words without the tags of the page's notes to it ([Idea], [Check], …). */
+/**
+ * The voice coach's words as the chat shows them: without a system record it read out — a note tag in square
+ * brackets («[Idea] …», «[Board] …»), a position record, a tool's name (src/lib/coach/voice-notes.ts; until 11.11
+ * six tag names were known here: «[Board] …» reached the chat on Alexander's phone, 10.11). The hook stops the
+ * coach's turn at such a record, so what would follow it is neither heard nor sent here.
+ */
 export function stripVoiceNoteTags(text: string): string {
-  return text.replace(/\[(?:Idea|Check|Engine|Topic|Opening|Puzzle)\]\s*/gi, '');
+  return shownText(text);
 }
 
 /** Strip the `data:image/…;base64,` prefix — the conversion routes want raw base64. */

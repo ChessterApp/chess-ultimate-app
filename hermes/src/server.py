@@ -5203,6 +5203,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                 named = []
         ideas = [q["after_fen"] for q in named if q.get("after_fen")]
         ctx = CheckContext.from_fens([body.fen] + ideas, [body.pgn] if body.pgn else [], question=heard.question)
+        ctx.voice = True  # heard already: an issue corrects the coach (src/unshown_board's voice switch)
         # The student's side as the text turn decides it (src/student_side.py): «они сыграли f5» said aloud makes the
         # student the other side, «я играю чёрными» Black; a game on the board decides it below.
         # COACH_STUDENT_SIDE=shadow (default): the 04.11 voice check pinned no side, so it is only logged.
@@ -5278,6 +5279,20 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                 raise  # the game is unknown, not absent: 503, never a check without it (28.10)
             except Exception:  # noqa: BLE001 — the check still runs without the game
                 pass
+        # A game is loaded — on the board (the page sends its moves) or in a tab of the session: the coach may be
+        # telling the game while the board shows its first position, so the start position is not «nobody's» for
+        # src/unshown_board (it judges only a bare board with nothing loaded).
+        ctx.games_loaded = bool((body.pgn or "").strip())
+        if body.session_id and not ctx.games_loaded:
+            try:
+                loaded = session_store.get(body.session_id, user_id)
+                ctx.games_loaded = bool(loaded is not None and any(
+                    (getattr(b, "pgn", None) or "").strip() or getattr(b, "game_state", None)
+                    for b in (getattr(loaded, "boards", None) or [])))
+            except SessionLoadError:
+                raise  # the session is unknown, not absent (28.10)
+            except Exception:  # noqa: BLE001 — unknown: judged as loaded (the unshown check stays out)
+                ctx.games_loaded = True
         if heard.previous:
             _replay_previous(ctx, heard.previous)
         spoken_text = heard.text
@@ -5358,7 +5373,16 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
     if shadow_record[0]:
         log_event("detector_shadow", surface="voice", user_id=user_id, session_id=body.session_id,
                   payload=shadow_record[0])
-    return {"issues": issues, "engine": used[0]}
+    out = {"issues": issues, "engine": used[0]}
+    from src import unshown_board
+
+    if unshown_board.is_unshown(issues):
+        # The coach is describing a position the student cannot see: the site cuts the turn now instead of letting
+        # the whole explanation of it be heard, and tells the coach (useGeminiLive, 11.11).
+        out["unshown"] = True
+        log_event("unshown_board", severity="warn", surface="voice", user_id=user_id, session_id=body.session_id,
+                  payload={"sentence": " ".join(body.text.split())[:300], "fen": body.fen})
+    return out
 
 
 class _VoiceHeard(NamedTuple):
