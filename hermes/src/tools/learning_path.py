@@ -529,6 +529,7 @@ _QUESTION_LEAD = frozenset({
     "а", "ну", "и", "так", "вот", "привет", "здравствуй", "здравствуйте", "пожалуйста", "тренер", "слушай", "скажи",
     "подскажи", "хочу", "хотел", "хотела", "узнать", "понять", "давай", "мне", "нам", "что", "такое", "такой", "такая",
     "это", "значит", "объясни", "объясните", "расскажи", "расскажите", "покажи", "покажите", "про", "о", "об", "как",
+    "на", "доске", "доску", "ещё", "еще", "раз", "on", "board",
     "тема", "тему", "пример", "примеры", "hi", "hello", "please", "coach", "so", "well", "tell", "me", "us", "about",
     "what", "is", "are", "a", "an", "the", "explain", "show", "example", "of", "сәлем", "маған", "айтшы", "түсіндір",
     "түсіндірші", "деген", "не", "туралы",
@@ -562,6 +563,11 @@ def _has_words(text: str, words: str) -> bool:
     return bool(words) and re.search(rf"(?<!\w){re.escape(words)}(?!\w)", text, flags=re.UNICODE) is not None
 
 
+def _same_words(asked: list, title: list) -> bool:
+    """The question's words are the title's words, one for one, inflection aside («рокировку» — «рокировка»)."""
+    return len(asked) == len(title) and all(_stem_match(a, t) for a, t in zip(asked, title))
+
+
 def _programme_matches(programme: dict, q: str, limit: int) -> tuple[list[tuple], str]:
     if len(q) < 3:
         return [], ""
@@ -577,7 +583,9 @@ def _programme_matches(programme: dict, q: str, limit: int) -> tuple[list[tuple]
     for c in programme.get("courses", []):
         for m in c.get("modules", []):
             titles = {_norm(m.get(f) or "") for f in ("title", "title_ru") if m.get(f)}
-            if q in titles:
+            if q in titles or (q_tokens and any(_same_words(q_tokens, t.split()) for t in titles)):
+                # the module's title itself, in whatever case the question put it: «покажи рокировку» is the
+                # module «Рокировка» (real-page run 11.11: the castling diagrams were there and nothing went up)
                 exact.append((c, m))
             elif any((_has_words(t, q) or (len(t) >= 5 and _has_words(q, t))) for t in titles):
                 part.append((c, m))

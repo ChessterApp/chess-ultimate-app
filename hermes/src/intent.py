@@ -61,6 +61,24 @@ _CONCEPT = re.compile(
     r"what's\s+an?(?![\w-])|explain|show\s+me\s+(?:an?\s+)?example|example\s+of)", re.IGNORECASE)
 
 
+# «Покажи рокировку», «покажите мне на доске связку»: a thing asked to be shown is a concept request when it is a
+# topic by its own name — a module or a lesson of the site's programme, a topic of the base (the lookup decides, not
+# a list of words: «покажи лучший ход», «покажи план» name none and stay questions). Real-page run 11.11: «Покажи
+# рокировку» was nothing here, and the lesson's diagrams stayed unseen.
+_SHOW_THING = re.compile(r"(?<![\w-])(?:покажи(?:те)?|show\s+me|көрсет(?:ші|іңіз)?)(?![\w-])", re.IGNORECASE)
+
+
+def _shows_a_topic(text: str) -> bool:
+    if not _SHOW_THING.search(text) or len(text.split()) < 2:
+        return False
+    try:
+        from src.tools.knowledge_topics import names_a_topic
+
+        return names_a_topic(text)
+    except Exception:  # noqa: BLE001 — the lookup is a bonus: the words stay what they were
+        return False
+
+
 def _plies(pgn: Optional[str]) -> int:
     from src.openings_book import _split_moves
 
@@ -193,5 +211,7 @@ def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = No
         # its material — get_topic builds its position on the hidden board (2026-10-20).
         return {"kind": "concept", "topic": t}
     if _CONCEPT.search(t) and len(t.split()) >= 2:
+        return {"kind": "concept", "topic": t}
+    if _shows_a_topic(t):
         return {"kind": "concept", "topic": t}
     return {"kind": "none"}

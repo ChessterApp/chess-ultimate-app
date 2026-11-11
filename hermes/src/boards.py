@@ -92,12 +92,18 @@ class Board(BaseModel):
 
     def set_fen(self, fen: str) -> None:
         chess.Board(fen)  # validates
+        # The page saving the very position the coach has just put up (it stores the board after every change) is
+        # not the student setting a position of their own: the coach's mark stays. It was dropped on that save, so
+        # in voice the next example («а что такое мат?» after the lesson's diagram of a check) stayed on the hidden
+        # board and the coach offered «хочешь, покажу?» instead of showing it (real-page run 11.11).
+        same = not self.pgn and bool(self.fen) and position_key(self.fen) == position_key(fen)
         self._forget_db_game()
         self.fen = fen
         self.pgn = ""
         self.ply = 0
         self.annotations = {}
-        self._unmark_coach()
+        if not same:
+            self._unmark_coach()
         if self.kind == "puzzle":
             self.kind = "study"
             self.puzzle = None

@@ -50,7 +50,7 @@ import {
   sheetReducer,
 } from '@/lib/coach/sheet-detent';
 import { sanMoves } from '@/lib/coach/move-strip';
-import { gameViewFromBoard } from '@/lib/coach/game-restore';
+import { gameViewFromBoard, keepsLocalBoard } from '@/lib/coach/game-restore';
 import { coachErrorText } from '@/lib/coach/coach-errors';
 import type { Key } from 'chessground/types';
 import { Chess } from 'chess.js';
@@ -467,7 +467,12 @@ export default function CoachPage() {
       const liveBoard = data.boards.find((b) => gameViewFromBoard(b) !== null);
       const liveGame = liveBoard ? gameViewFromBoard(liveBoard) : null;
 
-      if (study) {
+      if (study && keepsLocalBoard(study, { fen: board.fen, pgn: board.pgn })) {
+        // The session is new and empty (the voice start creates it), the board is what the student has set up:
+        // it stays, and the session learns it (lib/coach/game-restore.keepsLocalBoard, 11.11).
+        setStudyBoardId(study.id);
+        void coachApi.updateBoard(sessionId, study.id, board.pgn ? { pgn: board.pgn, ply: board.moveIndex } : { fen: board.fen });
+      } else if (study) {
         setStudyBoardId(study.id);
         board.resetBoard();
         if (study.puzzle?.solution && study.puzzle.fen) {

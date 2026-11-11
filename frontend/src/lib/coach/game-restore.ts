@@ -51,3 +51,23 @@ export function gameViewFromBoard(b: BoardRecord): GameStateView | null {
     comment_wanted: false,
   };
 }
+
+const START_PLACEMENT = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
+
+/**
+ * The page's own board stays when a session is opened whose study board nobody has touched (the start position, no
+ * moves, no puzzle) while the page's board holds a position or moves: that is what the student set up before the
+ * session existed. A session created by the voice start is such a one — the page used to load its empty board over
+ * the student's, and the voice coach, told the position at the tap, then spoke about a board the student no longer
+ * saw (real-page run 11.11: 1.e4 e5 2.Nf3 by hand, the microphone, the start position back on the board). The
+ * caller saves the page's board to the session instead.
+ */
+export function keepsLocalBoard(
+  server: Pick<BoardRecord, 'fen' | 'pgn' | 'puzzle'> | null | undefined,
+  local: { fen: string; pgn?: string | null },
+): boolean {
+  if (!server) return false;
+  const untouched = !server.pgn && !server.puzzle && (server.fen ?? '').split(' ')[0] === START_PLACEMENT;
+  const own = !!(local.pgn && local.pgn.trim()) || (local.fen ?? '').split(' ')[0] !== START_PLACEMENT;
+  return untouched && own;
+}

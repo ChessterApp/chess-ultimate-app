@@ -375,7 +375,37 @@ def _kb_match_is_strong(t: dict, query: str) -> bool:
     if q == t["slug"] or q in t.get("aliases", []) or q in t["lichess_themes"]:
         return True
     names = [t["title_ru"].lower(), t["title_en"].lower(), t["title_kk"].lower()] + list(t.get("aliases", []))
-    return any(q and (q in x or x in q) for x in names if x and len(x) >= 4)
+    # …by whole words: "check" is not the name of «Basic checkmates» (the voice model's own get_topic("check") came
+    # back as the elementary mates with the lesson «Шах»'s diagram beside them; real-page run 11.11).
+    from src.tools.learning_path import _has_words
+
+    return any(q and (_has_words(x, q) or _has_words(q, x)) for x in names if x and len(x) >= 4)
+
+
+def names_a_topic(words: str) -> bool:
+    """The words name a topic by its own name: a module or a lesson of the site's programme, or a topic of the base
+    whose title or alias they are, inflection aside (src/intent._shows_a_topic: «покажи рокировку», «покажи вилку»
+    ask for it; «покажи лучший ход», «покажи план» name none — «план» is one word of a longer title)."""
+    hits, strength = _site_matches(words)
+    if hits and strength in ("module", "lesson"):
+        return True
+    try:
+        from src.tools.learning_path import _norm, _same_words, _topic_words
+
+        named = (_topic_words(_norm(words)) or "").split()
+        if not named:
+            return False
+        for t in (kb.load_topics() or {}).values():
+            names = [t.get("title_ru"), t.get("title_en"), t.get("title_kk"), (t.get("slug") or "").replace("-", " ")]
+            names += list(t.get("aliases") or [])
+            for name in names:
+                # «Вилка (двойной удар)» is «вилка»
+                plain = _norm(re.sub(r"\([^)]*\)", " ", name or ""))
+                if plain and _same_words(named, plain.split()):
+                    return True
+    except Exception:  # noqa: BLE001
+        return False
+    return False
 
 
 def _site_programme_topic(topic: str, user_id: Optional[str], locale: Optional[str], show: bool) -> Optional[dict]:
@@ -771,9 +801,18 @@ def _handle_get_topic(args: dict, **kwargs) -> str:
     # The student's own position stays, nothing asked to replace it: the example is still chosen and looked
     # at (on the hidden board), only not put up (src/question_position, 2026-10-20).
     hidden = bool(locked) and board_lock_reason_for(kwargs) == "owned"
+    said = str(kwargs.get("student_message") or kwargs.get("utterance") or "")
+    show = args.get("show") is not False and (not locked or hidden)
     result = get_topic(str(args.get("topic") or ""), locale=args.get("locale") or "ru",
-                       user_id=user_id, show=args.get("show") is not False and (not locked or hidden),
-                       question=str(kwargs.get("student_message") or kwargs.get("utterance") or ""))
+                       user_id=user_id, show=show, question=said)
+    if said and isinstance(result, dict) and (result.get("ambiguous") or result.get("error")) and names_a_topic(said):
+        # The model's name for the topic found nothing or several («castling» for «Покажи рокировку»: two topics of
+        # the base), while the student's own words name a lesson or a topic by its name: the lookup is by what the
+        # student said. Real-page run 11.11: the page put the lesson's castling diagram up from the words, and the
+        # model, answering from its own «ambiguous», asked «какую рокировку показать?» over it.
+        by_words = get_topic(said, locale=args.get("locale") or "ru", user_id=user_id, show=show, question=said)
+        if isinstance(by_words, dict) and not by_words.get("ambiguous") and not by_words.get("error"):
+            result = by_words
     if locked and isinstance(result, dict):
         result.pop("board_actions", None)
         result["board_hint"] = HIDDEN_BOARD_NOTE if hidden else BOARD_KEPT_NOTE

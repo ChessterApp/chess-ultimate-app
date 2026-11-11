@@ -109,7 +109,7 @@ def programme(monkeypatch):
     ("А что такое шах в шахматах?", "Шах"), ("Шах деген не?", "Шах"), ("What is a check?", "Шах"),
     ("мат", "Мат"), ("Что такое мат?", "Мат"), ("checkmate", "Мат"), ("Что такое шах и мат?", "Шах"),
     ("А что такое пат в шахматах?", "Пат"), ("what is stalemate", "Пат"),
-    ("Я не понял, покажи ещё раз, что такое мат.", "Мат"), ("Слушай, а расскажи мне про рокировку", "Зачем делать рокировку?"),  # the word as it was said, in that module
+    ("Я не понял, покажи ещё раз, что такое мат.", "Мат"), ("Слушай, а расскажи мне про рокировку", "Что такое рокировка"),
     ("Okay, and what is a check?", "Шах"),
     ("Что такое рокировка?", "Что такое рокировка"), ("связка", "Связка"),
 ])
@@ -124,6 +124,62 @@ def test_a_word_inside_another_word_is_no_match(programme, words):
     hits, _ = lp.programme_matches(programme, words)
     assert all(m["title"] != "Основы шахмат" for _c, m, _l in hits)
     assert "Король" not in [l["title"] for _c, _m, l in hits][:1]
+
+
+CASTLE_FEN = "r3k2r/ppp2ppp/8/8/8/8/PPP2PPP/R3K2R w KQkq - 0 1"
+
+
+@pytest.mark.parametrize("words", ["Покажи рокировку.", "Объясни рокировку", "рокировка", "про рокировку"])
+def test_castling_asked_in_any_case_puts_the_lessons_diagram_up(programme, words):
+    """Real-page run 11.11: «Покажи рокировку» — the Live model spoke a tool record, then explained in words over
+    the start position; the module «Рокировка» was matched only «by words» and its diagrams stayed unseen."""
+    hits, strength = lp.programme_matches(programme, words)
+    assert strength == "module" and hits[0][1]["title"] == "Рокировка"
+    out = kt.get_topic(words, question=words)
+    assert out["board_actions"] == [{"type": "set_fen", "fen": CASTLE_FEN}]
+    board = chess.Board(out["example"]["fen"])
+    assert {"O-O", "O-O-O"} <= {board.san(m) for m in board.legal_moves}
+
+
+def test_the_models_vague_topic_is_looked_up_by_the_students_words(programme):
+    """Real-page run 11.11: for «Покажи рокировку» the Live model called get_topic("castling") — two topics of the
+    base, «ambiguous» — and asked the student which castling they meant, with the lesson's diagram already up."""
+    from src.tools import registry
+
+    handler = registry.get_entry("get_topic").handler
+    vague = json.loads(handler({"topic": "castling"}))
+    assert vague.get("ambiguous")                                   # nothing to go by: as before
+    out = json.loads(handler({"topic": "castling"}, utterance="Покажи рокировку."))
+    assert not out.get("ambiguous") and out["board_actions"] == [{"type": "set_fen", "fen": CASTLE_FEN}]
+    assert CASTLE_FEN in out["board_now"]
+    # a topic the model names exactly is the model's to choose, whatever the words were
+    exact = json.loads(handler({"topic": "fork"}, utterance="Покажи рокировку."))
+    assert exact["slug"] == "fork"
+    # words that name no topic leave the model's answer as it is
+    assert json.loads(handler({"topic": "castling"}, utterance="Да, давай")).get("ambiguous")
+
+
+@pytest.mark.parametrize("words,kind", [
+    ("Покажи рокировку.", "concept"), ("Покажите мне на доске связку", "concept"), ("Покажи вилку", "concept"),
+    ("Show me a fork", "concept"),
+    # a thing that is no topic by name stays what it was
+    ("Покажи лучший ход", "none"), ("Покажи план", "none"), ("Покажи ещё раз", "none"),
+    ("Что мне здесь играть?", "none"), ("Привет", "none"),
+])
+def test_a_thing_asked_to_be_shown_is_a_concept_when_it_is_a_topic_by_name(programme, words, kind):
+    from src.intent import read_intent
+
+    assert read_intent(words, fen=START)["kind"] == kind
+
+
+def test_show_words_of_the_game_and_the_board_keep_their_own_reading(programme):
+    from src.intent import read_intent
+
+    own = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
+    assert read_intent("Покажи лучший ход", fen=own)["kind"] in ("board", "none")  # about the student's position
+    assert read_intent("Покажи решение", fen=own, puzzle_on_board=True)["kind"] == "solution"
+    assert read_intent("Дай задачу на вилку", fen=START)["kind"] == "puzzle"
+    assert read_intent("Покажи позицию после второго хода", fen=own, live_game=True)["kind"] != "concept"
 
 
 def test_the_course_by_its_own_name_still_matches(programme):
@@ -142,10 +198,55 @@ def test_the_concept_goes_on_the_board_from_the_book(programme, question, fen):
     assert "стоит шах от черной ладьи" in out["example"]["note"]
 
 
+def test_the_models_own_english_topic_is_the_lesson_not_a_base_topic_that_contains_the_word(programme):
+    """Real-page run 11.11: the Live model called get_topic("check") itself; "check" is inside «Basic checkmates», so
+    the base's elementary mates came back as the topic, with the lesson «Шах»'s diagram as their example."""
+    out = kt.get_topic("check", question="Что такое шах?")
+    assert out.get("slug") is None and out["source"] == "site_programme" and out["title"] == "Шах"
+    assert out["board_actions"] == [{"type": "set_fen", "fen": CHECK_FEN}]
+    mates = kt.get_topic("basic checkmates", show=False)
+    assert mates["slug"] == "basic-checkmates"   # the base topic by its own name is still itself
+
+
 def test_get_lesson_by_its_title_puts_the_diagram_up(programme):
     out = lp.get_lesson("Шах", show=True)
     assert "ambiguous" not in out and out["board_actions"] == [{"type": "set_fen", "fen": CHECK_FEN}]
     assert "стоит шах от черной ладьи" in out["lesson_text"]
+
+
+# ── the coach's example stays the coach's when the page saves it ─────────────────────────────────────────────────
+
+def test_the_page_saving_the_coachs_example_does_not_make_it_the_students():
+    from src.boards import new_board
+    from src.question_position import show_on_board, student_owns
+
+    board = new_board("s", fen=START)
+    board.set_fen(CHECK_FEN)
+    board.mark_coach("set_fen")          # get_topic put the lesson's diagram up
+    board.set_fen(CHECK_FEN)             # the page stores the board it now shows: {"fen": …}
+    board.set_position(CHECK_FEN)        # …and its position: {"position": …}
+    assert not student_owns(board) and show_on_board("а что такое мат?", board)
+    moved = chess.Board(CHECK_FEN)
+    moved.push_san("Kh2")
+    board.set_fen(moved.fen())           # the student moves a piece on it: theirs from here on
+    assert student_owns(board) and not show_on_board("а что такое мат?", board)
+
+
+def test_the_next_example_goes_up_after_the_page_saved_the_first(programme):
+    """The real page's order of calls: the tool for «что такое шах», the page's save of the board, the tool for
+    «а что такое мат?» — the mate diagram goes on the board, not on the hidden one."""
+    client = TestClient(app)
+    who = {"X-User-Id": "voice-demo-1111-boards"}
+    sid = client.post("/api/coach/sessions", headers=who, json={}).json()["id"]
+    bid = client.get(f"/api/coach/sessions/{sid}/boards", headers=who).json()["active_board_id"]
+    first = client.post("/api/coach/tool/get_topic", headers=who, json={
+        "args": {"topic": "Что такое шах?"}, "session_id": sid, "utterance": "Что такое шах?"}).json()
+    assert first["board_actions"] == [{"type": "set_fen", "fen": CHECK_FEN}]
+    for body in ({"fen": CHECK_FEN}, {"position": CHECK_FEN}):
+        assert client.patch(f"/api/coach/sessions/{sid}/boards/{bid}", headers=who, json=body).status_code == 200
+    second = client.post("/api/coach/tool/get_topic", headers=who, json={
+        "args": {"topic": "checkmate"}, "session_id": sid, "utterance": "А что такое мат?"}).json()
+    assert second["board_actions"] == [{"type": "set_fen", "fen": MATE_FEN}], second.get("result", {}).get("board_hint")
 
 
 # ── a showing tool that put nothing on the board says so ─────────────────────────────────────────────────────────
