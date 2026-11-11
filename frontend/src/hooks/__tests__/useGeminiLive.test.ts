@@ -2025,6 +2025,128 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
     expect(onTranscript.mock.calls.map(([t]) => `${t.role}:${t.final}`)).toContain('model:true');
   });
 
+  // Alexander's phone, 10.11, «Анализ» with the start position: «смотри на доску… видишь, белого короля атакует
+  // чёрная ладья?» with nothing on the board, then «…сейчас всё исправлю. [Board] …» read aloud as noise.
+  describe('a position that is not on the board, a system record read aloud (Alexander 10.11)', () => {
+    const coachSays = (text: string) => act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { outputTranscription: { text } } }));
+    const coachAudio = () => act(() => g.connectArgs.value.callbacks.onmessage({
+      serverContent: { modelTurn: { parts: [{ inlineData: { data: AUDIO_B64, mimeType: 'audio/pcm;rate=24000' } }] } } }));
+    const turns = () => g.session.sendClientContent.mock.calls.map((c: any[]) => ({ text: c[0].turns[0].parts[0].text as string, now: c[0].turnComplete as boolean }));
+
+    it('a system record in the coach\'s words cuts the turn: not played, not shown, and the coach is told', async () => {
+      const onTranscript = vi.fn();
+      await connectWith({ getFen: () => START, onTranscript });
+      g.session.sendClientContent.mockClear();
+      coachAudio();
+      coachSays('Секунду, сейчас всё исправлю. ');
+      coachSays('[Board] Current position (FEN): 4r1k1/8/8/8/8/8/8/4K3 w - - 0 1 ');
+      expect(createdSources[0].stop).toHaveBeenCalled();   // the queued audio is not played
+      const shown = onTranscript.mock.calls.filter((c: any[]) => c[0].role === 'model').map((c: any[]) => c[0].text).join('');
+      expect(shown).toBe('Секунду, сейчас всё исправлю. ');
+      const note = turns().find((t) => t.text.startsWith('[Voice]'));
+      expect(note?.now).toBe(true);
+      expect(note?.text).toContain('the board still shows the starting position');
+      expect(note?.text).toContain('get_topic');
+      // the rest of the turn is neither heard nor shown
+      const before = createdSources.length;
+      coachAudio();
+      coachSays('e1 p p p p p p p p ');
+      expect(createdSources.length).toBe(before);
+      expect(onTranscript.mock.calls.filter((c: any[]) => c[0].role === 'model' && c[0].text.includes('p p p'))).toHaveLength(0);
+      // the next turn is heard again
+      act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { turnComplete: true } }));
+      coachSays('Прости, сейчас покажу пример. ');
+      expect(onTranscript.mock.calls.some((c: any[]) => c[0].role === 'model' && c[0].text.includes('покажу пример'))).toBe(true);
+    });
+
+    it('a tag that arrives in pieces is caught, and nothing of its chunk is shown', async () => {
+      const onTranscript = vi.fn();
+      await connectWith({ getFen: () => START, onTranscript });
+      g.session.sendClientContent.mockClear();
+      coachSays('Сейчас поставлю. [Bo');
+      expect(turns().some((t) => t.text.startsWith('[Voice]'))).toBe(false);
+      coachSays('ard] rnbqkbnr/pppppppp/8/8');
+      expect(turns().filter((t) => t.text.startsWith('[Voice]'))).toHaveLength(1);
+      expect(onTranscript.mock.calls.some((c: any[]) => c[0].role === 'model' && c[0].text.includes('ard]'))).toBe(false);
+    });
+
+    it('a position record or a tool name without a tag is one too; plain chess talk is not', async () => {
+      await connectWith({ getFen: () => START });
+      g.session.sendClientContent.mockClear();
+      coachSays('Конь на f3 защищает пешку e5, а слон идёт на c4. Ладья a1 пока стоит. ');
+      expect(turns().some((t) => t.text.startsWith('[Voice]'))).toBe(false);
+      coachSays('board_control set_fen ');
+      expect(turns().filter((t) => t.text.startsWith('[Voice]'))).toHaveLength(1);
+    });
+
+    it('stopped twice for it since the student spoke, the coach is not asked a third time', async () => {
+      await connectWith({ getFen: () => START });
+      g.session.sendClientContent.mockClear();
+      for (let i = 0; i < 3; i++) {
+        coachSays('[Engine] best move e4 ');
+        act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { turnComplete: true } }));
+      }
+      expect(turns().filter((t) => t.text.startsWith('[Voice]'))).toHaveLength(2);
+      say('Ладно, а что такое вилка?');   // the student speaks: the count starts again
+      coachSays('[Engine] best move e4 ');
+      expect(turns().filter((t) => t.text.startsWith('[Voice]'))).toHaveLength(3);
+    });
+
+    it('Hermes says the coach points at a position that is not on the board: the turn is cut and it is told', async () => {
+      checkReply = (b) => (String(b.text).includes('Видишь')
+        ? { issues: ["nothing of this is on the student's board: it shows the starting position"], engine: false, unshown: true }
+        : { issues: [], engine: false });
+      const onToolResult = vi.fn();
+      await connectWith({ getFen: () => START, onToolResult });
+      g.session.sendClientContent.mockClear();
+      coachAudio();
+      coachSays('Отлично, смотри на доску. Шах — это когда на твоего короля нападают. Видишь, белого короля атакует чёрная ладья? ');
+      await waitFor(() => expect(turns().some((t) => t.text.startsWith('[Check] You said «Видишь, белого короля атакует чёрная ладья?»'))).toBe(true));
+      const note = turns().find((t) => t.text.startsWith('[Check] You said'))!;
+      expect(note.now).toBe(true);
+      expect(note.text).toContain('it shows the starting position');
+      expect(note.text).toContain('call get_topic');
+      expect(createdSources[0].stop).toHaveBeenCalled();
+      const checks = bodiesTo('/api/coach/voice/check');
+      expect(checks[checks.length - 1]).toMatchObject({ fen: START, previous: expect.stringContaining('смотри на доску') });
+      // one note for it: the turn's end does not read it back again
+      act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { turnComplete: true } }));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(turns().filter((t) => t.text.startsWith('[Check]'))).toHaveLength(1);
+    });
+
+    it('over the bare start position a sentence about the board is checked even with no chess word in it', async () => {
+      await connectWith({ getFen: () => START });
+      coachSays('Вот, посмотрите, теперь на доске должен быть пример спёртого мата. ');
+      await waitFor(() => expect(bodiesTo('/api/coach/voice/check')).toHaveLength(1));
+      expect(bodiesTo('/api/coach/voice/check')[0]).toMatchObject({ text: expect.stringContaining('пример спёртого мата'), fen: START });
+    });
+
+    it('…and over a position of its own it is not (nothing to judge there)', async () => {
+      await connectWith({ getFen: () => AFTER });
+      coachSays('Вот, посмотрите, теперь на доске должен быть пример спёртого мата. ');
+      await new Promise((r) => setTimeout(r, 30));
+      expect(bodiesTo('/api/coach/voice/check')).toHaveLength(0);
+    });
+
+    it('a concept the site found no position for is left to the coach\'s own tools: no note of the page for it', async () => {
+      // 11.11: a «nothing went up» note of the page's own was read aloud by the Live model in 3 runs of 4; the
+      // tool's result says it instead (Hermes' board_truth), and a coach pointing at the board is stopped (above).
+      toolReply = (b) => (b.name === 'get_topic'
+        ? { result: { source: 'site_programme', title: 'Шах', board_hint: 'No position to show', board_now: 'NOTHING was put on the student\'s board by this call' }, board_actions: [] }
+        : {});
+      intentReply = () => ({ kind: 'concept', topic: 'Что такое шах и мат?' });
+      const onToolResult = vi.fn();
+      await connectWith({ getFen: () => START, onToolResult });
+      g.session.sendClientContent.mockClear();
+      say('Что такое шах и мат?');
+      await waitFor(() => expect(bodiesTo('/api/coach/tool').some((b: any) => b.name === 'get_topic')).toBe(true));
+      await new Promise((r) => setTimeout(r, 30));
+      expect(turns().some((t) => t.text.startsWith('[Topic]'))).toBe(false);
+      expect(onToolResult).not.toHaveBeenCalledWith('get_topic', expect.anything());
+    });
+  });
+
   describe('the notes carry the programme (parity with the text coach, 2026-10-19)', () => {
   it('a puzzle from the programme is said to be its next set, with the address', async () => {
     const { puzzleNote } = await import('../useGeminiLive');

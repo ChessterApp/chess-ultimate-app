@@ -147,7 +147,7 @@ def _tell_the_board() -> None:
                         remember_positions(out, kwargs)
                     except Exception:  # noqa: BLE001 — the memory is a guard's help, never the tool's failure
                         pass
-                return board_truth(out, kwargs)
+                return board_truth(out, kwargs, _name)
             except SessionLoadError as exc:
                 return _session_not_loaded(exc)
 

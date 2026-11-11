@@ -514,6 +514,61 @@ def programme_matches(programme: dict, query: str, limit: int = 8) -> tuple[list
     """
     q = _norm(query)
     q = re.sub(r"^(?:что\s+такое|объясни|расскажи\s+про|тема|тему)\s+", "", q).strip()
+    hits, strength = _programme_matches(programme, q, limit)
+    if not hits:
+        # The question as it was said aloud («Объясни мне, что такое шах», «а что такое пат в шахматах?»): the
+        # words in front that name nothing and the closing «в шахматах» are not the topic (voice, 10.11).
+        topic = _topic_words(q)
+        if topic and topic != q:
+            hits, strength = _programme_matches(programme, topic, limit)
+    return hits, strength
+
+
+# Words a question starts with before it names its topic.
+_QUESTION_LEAD = frozenset({
+    "а", "ну", "и", "так", "вот", "привет", "здравствуй", "здравствуйте", "пожалуйста", "тренер", "слушай", "скажи",
+    "подскажи", "хочу", "хотел", "хотела", "узнать", "понять", "давай", "мне", "нам", "что", "такое", "такой", "такая",
+    "это", "значит", "объясни", "объясните", "расскажи", "расскажите", "покажи", "покажите", "про", "о", "об", "как",
+    "на", "доске", "доску", "ещё", "еще", "раз", "on", "board",
+    "тема", "тему", "пример", "примеры", "hi", "hello", "please", "coach", "so", "well", "tell", "me", "us", "about",
+    "what", "is", "are", "a", "an", "the", "explain", "show", "example", "of", "сәлем", "маған", "айтшы", "түсіндір",
+    "түсіндірші", "деген", "не", "туралы",
+})
+_QUESTION_TAIL = re.compile(r"\s+(?:в\s+шахматах|в\s+шахматной\s+игре|in\s+chess|шахматта|деген\s+не|дегеніміз\s+не|"
+                            r"это\s+что|что\s+это|пожалуйста|please)$")
+
+
+# The words a question names its topic after: «я не понял, покажи ещё раз, что такое мат» → «мат».
+_QUESTION_ASKS = re.compile(r"(?<!\w)(?:что\s+так(?:ое|ая|ой|ие)|что\s+значит|расскажи(?:те)?(?:\s+мне)?\s+(?:про|об?)|"
+                            r"объясни(?:те)?(?:\s+мне)?|покажи(?:те)?(?:\s+мне)?\s+пример|what\s+is|what's|"
+                            r"explain(?:\s+to\s+me)?|tell\s+me\s+about|example\s+of)(?!\w)")
+
+
+def _topic_words(q: str) -> str:
+    """The topic a normalised question names: what follows its last «что такое» / «расскажи про» / "what is",
+    without the question's lead-in words and its closing phrase."""
+    q = _QUESTION_TAIL.sub("", q).strip()
+    asked = list(_QUESTION_ASKS.finditer(q))
+    if asked and q[asked[-1].end():].strip():
+        q = q[asked[-1].end():].strip()
+    words = q.split()
+    while words and words[0] in _QUESTION_LEAD:
+        words = words[1:]
+    return " ".join(words)
+
+
+def _has_words(text: str, words: str) -> bool:
+    """*words* stand in *text* as whole words: «шах» is in «шах и мат», not inside «основы шахмат» — the question
+    «что такое шах» put the two bare kings of the course's first lesson on the board (prod, 10.11)."""
+    return bool(words) and re.search(rf"(?<!\w){re.escape(words)}(?!\w)", text, flags=re.UNICODE) is not None
+
+
+def _same_words(asked: list, title: list) -> bool:
+    """The question's words are the title's words, one for one, inflection aside («рокировку» — «рокировка»)."""
+    return len(asked) == len(title) and all(_stem_match(a, t) for a, t in zip(asked, title))
+
+
+def _programme_matches(programme: dict, q: str, limit: int) -> tuple[list[tuple], str]:
     if len(q) < 3:
         return [], ""
     q_tokens = [t for t in q.split() if t not in _LESSON_STOPWORDS]
@@ -528,22 +583,31 @@ def programme_matches(programme: dict, query: str, limit: int = 8) -> tuple[list
     for c in programme.get("courses", []):
         for m in c.get("modules", []):
             titles = {_norm(m.get(f) or "") for f in ("title", "title_ru") if m.get(f)}
-            if q in titles:
+            if q in titles or (q_tokens and any(_same_words(q_tokens, t.split()) for t in titles)):
+                # the module's title itself, in whatever case the question put it: «покажи рокировку» is the
+                # module «Рокировка» (real-page run 11.11: the castling diagrams were there and nothing went up)
                 exact.append((c, m))
-            elif any((q in t or (len(t) >= 5 and t in q)) for t in titles):
+            elif any((_has_words(t, q) or (len(t) >= 5 and _has_words(q, t))) for t in titles):
                 part.append((c, m))
             elif q_tokens and any(all(any(_stem_match(tok, w) for w in t.split()) for tok in q_tokens) for t in titles):
                 words.append((c, m))
     if exact:
         return lessons_of(exact), "module"
+    # The lesson titled exactly as the topic comes first: «мат» is the lesson «Мат» of the module «Шах и Мат»,
+    # not that module's first lesson «Шах».
+    # …and its slug is its English name («what is a check» → the lesson `check`, «stalemate» → `stalemate`).
+    titled = [(c, m, l) for c, m, l in iter_lessons(programme)
+              if q in {_norm(l.get(f) or "") for f in ("title", "title_ru")} or q == _norm(_slug(l))]
     if part:
-        return lessons_of(part), "module"
-    lesson_hits = [(c, m, l) for c, m, l in iter_lessons(programme)
-                   if any(q in _norm(l.get(f) or "") for f in ("title", "title_ru"))]
+        rest = [x for x in lessons_of(part) if not any(x[2] is t[2] for t in titled)]
+        return (titled + rest)[:limit], "module"
+    lesson_hits = titled + [(c, m, l) for c, m, l in iter_lessons(programme)
+                            if not any(l is t[2] for t in titled)
+                            and any(_has_words(_norm(l.get(f) or ""), q) for f in ("title", "title_ru"))]
     if lesson_hits:
         return lesson_hits[:limit], "lesson"
     course_hits = [c for c in programme.get("courses", [])
-                   if any(q in _norm(c.get(f) or "") for f in ("title", "title_ru"))]
+                   if any(_has_words(_norm(c.get(f) or ""), q) for f in ("title", "title_ru"))]
     if course_hits:
         return lessons_of([(c, m) for c in course_hits for m in c.get("modules", [])]), "course"
     if words:
@@ -612,7 +676,14 @@ def get_lesson(
     matches = find_lessons(programme, lesson)
     if not matches:
         return {"error": f"No lesson matches {lesson!r}. Use get_learning_path to see the lesson titles."}
-    if len(matches) > 1 and not any(_slug(l).lower() == lesson.strip().lower() for _, _, l in matches):
+    by_slug = any(_slug(l).lower() == lesson.strip().lower() for _, _, l in matches)
+    # The one lesson titled exactly so is the lesson asked for: «Шах» is not «Шахматная нотация», «Вечный шах»,
+    # «Открытый шах»… (get_lesson("Шах") came back ambiguous and nothing went on the board; prod 10.11).
+    key = _norm(lesson)
+    titled = [x for x in matches if key and key in {_norm(x[2].get(f) or "") for f in ("title", "title_ru")}]
+    if len(titled) == 1 and not by_slug:
+        matches = titled
+    if len(matches) > 1 and not by_slug:
         return {
             "ambiguous": True,
             "lessons": [
@@ -646,7 +717,7 @@ def get_lesson(
         from src.lesson_texts import lesson_text
 
         own = lesson_text(lesson_id=row["id"], course_slug=_slug(course),
-                          module_title=_loc(module, "title", "ru"), lesson_title=_loc(row, "title", "ru"))
+                          module_title=_loc(module, "title", "ru"), lesson_title=_loc(row, "title", "ru"), coach=True)
     except Exception:  # noqa: BLE001 — the text is a bonus on top of the site's lesson
         logger.debug("lesson text lookup failed", exc_info=True)
     if own and own.get("text"):

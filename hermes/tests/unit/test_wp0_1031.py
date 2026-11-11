@@ -279,6 +279,7 @@ PLAN_NAMES = {
     "after_told_move",
     "material_direction",
     "castle_state",
+    "unshown_board_voice", "unshown_board",  # voice 11.11 (src/unshown_board.py)
 }
 
 
@@ -289,7 +290,8 @@ def test_detector_names_and_defaults(monkeypatch):
     monkeypatch.setattr(config, "COACH_TRADE_SWING_NAMED", False)
     assert set(config.DETECTOR_DEFAULTS) == PLAN_NAMES
     shadow = {n for n in PLAN_NAMES if config.detector_mode(n) == "shadow"}
-    assert shadow == {"open_character", "open_defining", "loaded_line", "king_direction", "pin_noun", "bare_pawn_line"}
+    assert shadow == {"open_character", "open_defining", "loaded_line", "king_direction", "pin_noun", "bare_pawn_line",
+                      "unshown_board"}
     assert config.detector_mode("placement") == "on"  # final 02.11
     assert {n for n in PLAN_NAMES if config.detector_mode(n) == "off"} == {"trade_swing_named"}
     assert config.detector_mode("no_such_detector") == "off"

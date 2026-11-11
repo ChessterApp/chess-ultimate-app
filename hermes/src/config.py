@@ -538,6 +538,12 @@ DETECTOR_DEFAULTS = {
     # review-miss 03.11: a named side said to have castled («Ты уже рокировался»), or to still be able to castle / to be
     # able no longer («Соперник ещё может рокироваться», «…уже не может сделать короткую рокировку»), by castling_status
     "castle_state": "on",
+    # voice 11.11 (src/unshown_board.py): the coach points the student at the board («смотри на доску», «видишь…») and
+    # tells a check, an attack or a capture as standing there while the board shows the bare start position (or is
+    # empty) — nothing of it is on the board. In the voice check the coach is told at once and corrects itself…
+    "unshown_board_voice": "on",
+    # …in the text turn the issue would withhold the sentence: recorded only until its flags are reviewed
+    "unshown_board": "shadow",
 }
 RELATION_DETECTORS = frozenset({
     "pin_escape", "pin_noun", "locked", "cover_cause", "idea_scope", "start_cue", "bare_pawn_line", "loaded_line",

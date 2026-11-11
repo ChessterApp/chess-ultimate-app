@@ -456,6 +456,11 @@ class CheckContext:
     # not run there, Асан 19.10: the lesson tutor is the team's), 'game' (a move comment — recorded, never cut, until
     # its flags are reviewed). src/answer_check_relations.mode reads it.
     relation_surface: str = "text"
+    # The sentence was said aloud and is checked after it was heard (/api/coach/voice/check): an issue corrects the
+    # coach, it cuts nothing — src/unshown_board runs under its voice switch there.
+    voice: bool = False
+    # …and a game is loaded on the board or in a tab of the session (set by /voice/check): see src/unshown_board.
+    games_loaded: bool = False
     # The games-database checks in shadow (src/answer_check_db.game_db_issues): (part, sentence, issues) they would
     # have cut, for the turn's db_check event.
     db_shadow: list = field(default_factory=list)
@@ -7916,6 +7921,17 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None, *, spoken:
             logger.debug("after-told-move judging failed", exc_info=True)
     if ctx.current is not None and sentence.strip() and not _lesson(ctx):
         ctx.told_before = told
+    # The coach points at the board and tells what is not on it — the bare start position (src/unshown_board.py,
+    # voice 11.11). Read on every sentence (it keeps how long ago the answer pointed); its issue stands beside the
+    # other checks' — «the white king is not in check on this board» alone does not say that nothing was shown.
+    try:
+        from src import unshown_board
+
+        unshown = unshown_board.judge(sentence, ctx)
+        if unshown:
+            issues = list(issues) + _detector("unshown_board_voice" if ctx.voice else "unshown_board", ctx, unshown)
+    except Exception:  # noqa: BLE001 — a bonus check
+        logger.debug("unshown board check failed", exc_info=True)
     if issues:
         ctx.line_scene = line_before
         if line_before is not None:

@@ -84,13 +84,28 @@ def _find(lesson_id: Optional[str], course_slug: Optional[str], module_title: Op
     return None
 
 
+# Where the book has a picture the coach has no position for (a scheme without kings — «как ходит ладья» —
+# or a picture never read into a position): the coach's copy of the text says so in the picture's place. A bare
+# «[Диаграмма]» followed by «На картинке сверху белому королю стоит шах от черной ладьи…» was retold to the student
+# as «смотри на доску… видишь, белого короля атакует чёрная ладья?» with the start position on the board
+# (Alexander's phone, voice, 10.11).
+UNSEEN_PICTURE = ("[Картинка учебника: позиции для неё нет, на доску она не ставится и ученик её НЕ видит — "
+                  "не пересказывай её как видимую]")
+
+
 def lesson_text(lesson_id: Optional[str] = None, course_slug: Optional[str] = None,
-                module_title: Optional[str] = None, lesson_title: Optional[str] = None) -> Optional[dict]:
+                module_title: Optional[str] = None, lesson_title: Optional[str] = None,
+                coach: bool = False) -> Optional[dict]:
     """The programme's text and diagrams for a lesson of the site, or None.
 
     ``text``: the explanation (diagram markers kept as «[Диаграмма: FEN]» where
     the position is legal), ``diagrams``: legal explanatory positions with the
     phrase they illustrate, ``title``/``step``/``lesson``: where it comes from.
+
+    *coach*: the coach's tools' reading (get_lesson, get_topic) — a picture without a position is named as
+    unseen (UNSEEN_PICTURE), and the diagram captioned with the lesson's own title comes first (the book's
+    «Шах и мат» is two lessons of the site: «Мат» shows the mate, not the check). The lesson chat of /learn
+    reads the text as before.
     """
     rec = _find(lesson_id, course_slug, module_title, lesson_title)
     if rec is None:
@@ -101,17 +116,19 @@ def lesson_text(lesson_id: Optional[str] = None, course_slug: Optional[str] = No
         "lesson": rec.get("docx_lesson"),
         "module": rec.get("module_title"),
         "course_slug": rec.get("course_slug"),
-        "text": explanation(rec),
-        "diagrams": diagrams(rec),
+        "text": explanation(rec, unseen=UNSEEN_PICTURE if coach else None),
+        "diagrams": diagrams(rec, prefer=lesson_title if coach else None),
     }
 
 
-def explanation(rec: dict, limit: int = EXPLANATION_CHAR_CAP) -> str:
+def explanation(rec: dict, limit: int = EXPLANATION_CHAR_CAP, unseen: Optional[str] = None) -> str:
+    """The lesson's text with its diagram markers: «[Диаграмма: FEN]» for a legal position; for a picture with
+    none «[Диаграмма]», or *unseen* when given (the coach's copy: see UNSEEN_PICTURE)."""
     text = rec.get("text_ru") or ""
 
     def _mark(m: "re.Match") -> str:
         fen = m["fen"].strip()
-        return f"[Диаграмма: {fen}]" if _legal(fen) else "[Диаграмма]"
+        return f"[Диаграмма: {fen}]" if _legal(fen) else (unseen or "[Диаграмма]")
 
     text = _MARKER.sub(_mark, text)
     text = re.sub(r"[ \t]+\n", "\n", text)
@@ -122,16 +139,26 @@ def explanation(rec: dict, limit: int = EXPLANATION_CHAR_CAP) -> str:
     return text
 
 
-def diagrams(rec: dict) -> list[dict]:
+def diagrams(rec: dict, prefer: Optional[str] = None) -> list[dict]:
+    """The lesson's legal explanatory positions, in the book's order. With *prefer* (a title: the site's lesson
+    the text is read for) the diagrams whose caption has every word of it come first, the book's order kept
+    among them — the diagram a lesson is taught from is the first one."""
     out: list[dict] = []
     for d in rec.get("diagrams") or []:
         fen = (d.get("fen") or "").strip()
         if d.get("valid") is False or not _legal(fen):
             continue  # a scheme without kings («how the rook moves») is not a position for the board
         out.append({"fen": fen, "context": (d.get("context") or "").strip()[:300]})
-        if len(out) >= MAX_DIAGRAMS:
-            break
-    return out
+    words = [w for w in _norm(prefer).split() if len(w) >= 3] if prefer else []
+    if words and len(out) > 1:
+        from src.knowledge_base import _stem_match
+
+        def _captioned(d: dict) -> bool:
+            caption = _norm(d.get("context")).split()
+            return all(any(_stem_match(w, c) for c in caption) for w in words)
+
+        out = [d for d in out if _captioned(d)] + [d for d in out if not _captioned(d)]
+    return out[:MAX_DIAGRAMS]
 
 
 # ── the diagram of the lesson a question in the lesson chat is about (2026-10-20) ──
@@ -271,7 +298,7 @@ def book_series(rec: dict) -> list[dict]:
 def book_view(rec: dict) -> dict:
     """The lesson as the coach's material: title, where it is in the programme, its text (with the
     diagram markers), its legal diagrams, the game it writes out (PGN) when it has one, its parts."""
-    text = explanation(rec)
+    text = explanation(rec, unseen=UNSEEN_PICTURE)  # the coach's material (get_topic, lookup_opening)
     series = book_series(rec)
     return {
         "source": "programme_book",
@@ -289,7 +316,7 @@ def book_view(rec: dict) -> dict:
 
 
 def _summary(text: str, limit: int = SUMMARY_CHAR_CAP) -> str:
-    plain = re.sub(r"\[Диаграмма[^\]]*\]", " ", text)
+    plain = re.sub(r"\[(?:Диаграмма|Картинка учебника)[^\]]*\]", " ", text)
     plain = re.sub(r"\s+", " ", plain).strip()
     if len(plain) <= limit:
         return plain

@@ -20,6 +20,7 @@ import {
   mayAskForAGame,
   mayCommandTheGame,
   mentionsAGame, factsNote, unclearMoveNote, browsingNote, ownGamePosition, askedMeanwhileLine } from '@/lib/coach/voice-game';
+import { leakNote, noteLeak, unshownNote } from '@/lib/coach/voice-notes';
 import { getMicrophone } from '@/lib/audio-session';
 
 /**
@@ -114,6 +115,13 @@ export function mayBeAGameMove(text: string): boolean {
     || (/(?:^|[^0-9A-Za-zА-Яа-яЁё])[a-hабвсдефгх][1-8](?![0-9])/i.test(text) && text.trim().split(/\s+/).length <= 6);
 }
 export const VOICE_VERDICT_HOLD_MS = VOICE_IDEA_HOLD_MS > 0 ? Math.max(VOICE_IDEA_HOLD_MS, 1500) : 0;
+// The coach's turn is cut the moment its words carry a system record — a note tag in square brackets, a position
+// record, a tool's name (src/lib/coach/voice-notes.ts; Alexander's phone 10.11: «[Board] …» read aloud). '0' — off.
+export const VOICE_RECORD_CUT = (process.env.NEXT_PUBLIC_VOICE_RECORD_CUT ?? '1') !== '0';
+// …and when Hermes says the coach is pointing the student at a position that is not on the board (voice/check
+// `unshown`, src/unshown_board.py): with '0' it is corrected after the answer like any other wrong sentence.
+export const VOICE_UNSHOWN_CUT = (process.env.NEXT_PUBLIC_VOICE_UNSHOWN_CUT ?? '1') !== '0';
+export const CUTS_PER_UTTERANCE = 2;
 
 /**
  * Holds the coach's audio while the verdict on the student's move is on its way: released as it was
@@ -224,6 +232,15 @@ export function solutionNote(result: { ok?: boolean; line?: string; note?: strin
 export const SPEECH_SENTENCE_END_RE = /[.!?…](?:\s|$)/;
 // Only sentences with chess content are worth a round trip.
 export const SPEECH_CHECKABLE_RE = /[a-h][1-8]|\d|кон[ьяю]|слон|лад[ьё]|ферз|корол|пешк|knight|bishop|rook|queen|king|pawn/i;
+// Over the bare start position (or an empty board) a sentence that speaks of the board, an example or a diagram is
+// checked too, chess words or not: «Вот, посмотрите, теперь на доске должен быть пример спёртого мата» says an
+// example is up when nothing was put there (live run 11.11; Hermes' src/unshown_board.py judges it).
+export const SPEECH_POINTS_RE = /доск|диаграмм|позици|пример|картинк|задач|board|diagram|position|example|puzzle|picture|тақта|мысал|сурет|есеп/i;
+/** The board is nobody's: the start position or an empty board. */
+export function bareBoard(fen: string | undefined | null): boolean {
+  const placement = (fen ?? '').split(' ')[0];
+  return placement === START_BOARD || placement === '8/8/8/8/8/8/8/8';
+}
 // «Больше ничего не висит», «остальное защищено»: a claim about the whole board with no piece named — Hermes reads it
 // against the coach's earlier sentences of the answer (sent as `previous`), as the text coach does (30.10).
 export const SPEECH_EXHAUSTIVE_RE = /(?:больше|кроме)[^.!?]{0,40}(?:ничего|никто|ни\s+одн)|(?:ничего|ни\s+одн\S*\s+\S+)\s+(?:\S+\s+){0,2}не\s+(?:висит|под\s+ударом|атакован)|остальн\S*\s+(?:\S+\s+){0,3}(?:защищ|прикрыт|в\s+безопасности|не\s+(?:висит|висят|под\s+ударом))|nothing\s+(?:else\s+)?(?:is\s+)?(?:hanging|under\s+attack|attacked)|(?:everything|all)\s+else\s+is\s+(?:safe|defended|protected)/i;
@@ -675,6 +692,15 @@ export default function useGeminiLive(
   const modelWaitsForSiteRef = useRef<Set<string>>(new Set());
   // Bumped when words already said are dropped: their pending checks are not read back to the coach (28.10).
   const speechGenRef = useRef(0);
+  // The coach's words of the turn so far, as they came: a system record is looked for across the chunks (11.11).
+  const turnSaidRef = useRef('');
+  // Cuts the coach's turn now — what is queued is not played, the rest of the turn is neither heard nor shown — and
+  // tells the model why, so it answers again at once (set below, once the playback and the chat handlers exist).
+  const cutTurnRef = useRef<(session: Session, note: string) => void>(() => {});
+  // Turns cut since the student last spoke: after CUTS_PER_UTTERANCE the coach is no longer stopped mid-answer (a
+  // record is still not shown, a wrong sentence is corrected after the answer) — a model that keeps doing it must
+  // not leave the student with a coach that never finishes a sentence.
+  const cutsRef = useRef(0);
   // One per conversation: a fresh open bumps it, a resume after a drop keeps it — a move's result still belongs
   // to the resumed talk (28.10: the drop used to lose the engine's reply for the coach).
   const conversationRef = useRef(0);
@@ -1370,7 +1396,8 @@ export default function useGeminiLive(
     // In a game a short announcement is a claim too: «Я пойду d3.» is checked against the engine's moves (audit 26.10).
     const liveGame = optionsRef.current.getGame?.()?.status === 'playing';
     const exhaustive = SPEECH_EXHAUSTIVE_RE.test(sentence) && previous.trim() !== '';
-    if (!exhaustive && (!SPEECH_CHECKABLE_RE.test(sentence) || (!liveGame && sentence.trim().split(/\s+/).length < 4))) return;
+    const pointsAtBare = !liveGame && SPEECH_POINTS_RE.test(sentence) && bareBoard(optionsRef.current.getFen?.());
+    if (!exhaustive && !pointsAtBare && (!SPEECH_CHECKABLE_RE.test(sentence) || (!liveGame && sentence.trim().split(/\s+/).length < 4))) return;
     const ownMove = liveGame && COACH_MOVE_CLAIM_RE.test(sentence);
     const generation = speechGenRef.current;
     // This answer's budget: a new answer starts a new one, so a late reply never gives a share back to it.
@@ -1404,10 +1431,22 @@ export default function useGeminiLive(
         }),
       });
       if (!res.ok) return;
-      const data = (await res.json().catch(() => null)) as { issues?: string[]; engine?: boolean } | null;
+      const data = (await res.json().catch(() => null)) as { issues?: string[]; engine?: boolean; unshown?: boolean } | null;
       if (data?.engine === false) engineUsed = false;
       if (sessionRef.current !== session) return;
       if (generation !== speechGenRef.current) return;  // words dropped meanwhile: never heard, never corrected
+      if (data?.unshown && VOICE_UNSHOWN_CUT && cutsRef.current < CUTS_PER_UTTERANCE) {
+        // «Смотри на доску… видишь, белого короля атакует чёрная ладья?» over the start position (Alexander 10.11):
+        // the whole explanation would be about a position the student cannot see — stopped here, not after it.
+        reportMetric({ event: 'tool', tool_name: 'voice_unshown', turn_id: turnIdRef.current ?? undefined, ok: false, error_code: 'unshown_board' });
+        try {
+          optionsRef.current.onToolResult?.('voice_check', { result: { corrected: [{ text: sentence, issues: data.issues ?? [] }] } });
+        } catch {
+          /* UI callback errors must not break the session */
+        }
+        cutTurnRef.current(session, unshownNote(sentence, optionsRef.current.getFen?.()));
+        return;
+      }
       if (Array.isArray(data?.issues) && data.issues.length) {
         wrongSentencesRef.current.push({ text: sentence, issues: data.issues });
       }
@@ -1416,7 +1455,7 @@ export default function useGeminiLive(
     } finally {
       if (held && !engineUsed) budget.engine -= 1;  // no engine asked: the next claim may use it
     }
-  }, []);
+  }, [reportMetric]);
 
   // The coach's words: shown in the chat, and each finished sentence checked on the board (a held word replays here
   // once heard; with check false a word already heard is shown, not checked — its answer follows; 28.10).
@@ -1721,7 +1760,10 @@ export default function useGeminiLive(
           | { result?: Parameters<typeof topicNote>[0]; board_actions?: unknown[] }
           | null;
         const note = data?.result ? topicNote(data.result) : null;
-        // No match or an ambiguous one: leave the concept to the coach's own tools.
+        // No match, an ambiguous one, a lesson with no position: nothing went on the board, and the concept is left
+        // to the coach's own tools — their results say when nothing was put up (Hermes' src/board_truth.py), and a
+        // coach that points at the board all the same is stopped (voice/check `unshown`). A note of the page's own
+        // for it was tried on 11.11 and dropped: the Live model began to read it aloud in 3 runs of 4.
         if (!note || !Array.isArray(data?.board_actions) || data.board_actions.length === 0) return;
         if (sessionRef.current !== session) return;
         siteResultsRef.current.set('get_topic', data);
@@ -1926,6 +1968,28 @@ export default function useGeminiLive(
     });
   }, []);
 
+  cutTurnRef.current = (session: Session, note: string) => {
+    if (sessionRef.current !== session) return;
+    cutsRef.current += 1;
+    ideaGate().drop();        // audio held for a verdict: never played
+    heldTextRef.current = [];
+    closeUtterance('model');  // the bubble ends with what was heard
+    flushPlayback();          // what is queued is not played
+    speechGenRef.current += 1;  // checks of the dropped words are not read back
+    wrongSentencesRef.current = [];
+    speechCheckPendingRef.current = [];
+    modelSentenceRef.current = '';
+    spokenBeforeRef.current = '';
+    turnSaidRef.current = '';
+    // The turn still streaming is cut by the note (turnComplete true); its rest is never heard nor shown.
+    if (modelTurnOpenRef.current) discardTurnRef.current = true;
+    try {
+      session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: true });
+    } catch {
+      /* session may be closing */
+    }
+  };
+
   const handleMessage = useCallback(
     (msg: LiveServerMessage) => {
       // Keep the latest resumable handle so we can reconnect after a drop.
@@ -1969,6 +2033,7 @@ export default function useGeminiLive(
         if (!openUtterancesRef.current.user && !glue) {
           userUtteranceRef.current = '';
           conceptDoneRef.current = false;
+          cutsRef.current = 0;
           ideaSentRef.current = '';
           ideaVerdictRef.current = null;
           modelTurnTextRef.current = '';
@@ -2018,19 +2083,49 @@ export default function useGeminiLive(
       if (sc.modelTurn?.parts?.length || sc.outputTranscription?.text) modelTurnOpenRef.current = true;
       if (sc.outputTranscription?.text) {
         const item = { text: sc.outputTranscription.text, final: !!sc.outputTranscription.finished };
+        // A system record in the coach's words («[Board] …», a FEN, a tool's name — it may arrive in pieces): what
+        // came before it is said and shown, the record and the rest of the turn are not (voice-notes.ts, 11.11).
+        let leaked = false;
+        if (VOICE_RECORD_CUT && !discardTurnRef.current) {
+          const before = turnSaidRef.current;
+          turnSaidRef.current = before + item.text;
+          const leak = noteLeak(turnSaidRef.current);
+          if (leak) {
+            leaked = true;
+            item.text = leak.index > before.length ? item.text.slice(0, leak.index - before.length) : '';
+            item.final = false;
+            reportMetric({ event: 'tool', tool_name: 'voice_record', turn_id: turnIdRef.current ?? undefined, ok: false, error_code: leak.kind });
+          }
+        }
         if (discardTurnRef.current) {
           /* words of a turn that is never heard (said before the engine's reply): not shown, not checked */
+        } else if (!item.text) {
+          /* the record began in an earlier chunk: nothing of this one is shown */
         } else if (gameMoveHoldRef.current) {
           closeUtterance('user');  // the coach's turn has begun: the student's next words are a new utterance
           heldTextRef.current.push(item);  // shown and checked once heard
         } else {
           processModelTextRef.current(item.text, item.final);
         }
+        const live = sessionRef.current;
+        if (leaked && live) {
+          if (cutsRef.current < CUTS_PER_UTTERANCE) {
+            cutTurnRef.current(live, leakNote(optionsRef.current.getFen?.()));
+          } else {
+            // Already stopped for it and it reads a record again: the rest of this turn is dropped without another
+            // round with the model.
+            closeUtterance('model');
+            flushPlayback();
+            modelSentenceRef.current = '';
+            if (modelTurnOpenRef.current) discardTurnRef.current = true;
+          }
+        }
       }
 
       const turnOver = () => {
         discardTurnRef.current = false;
         modelTurnOpenRef.current = false;
+        turnSaidRef.current = '';
       };
       if (sc.interrupted) {
         turnOver();
@@ -2091,7 +2186,7 @@ export default function useGeminiLive(
         }
       }
     },
-    [flushPlayback, ideaGate, handleToolCall, handleToolCancellation, ensureTurnId, closeUtterance, lookUpConcept, lookUpIdea, checkSpokenSentence],
+    [flushPlayback, ideaGate, handleToolCall, handleToolCancellation, ensureTurnId, closeUtterance, lookUpConcept, lookUpIdea, checkSpokenSentence, reportMetric],
   );
 
   const fail = useCallback(

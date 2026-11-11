@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { gameViewFromBoard } from '../game-restore';
+import { gameViewFromBoard, keepsLocalBoard } from '../game-restore';
 import type { BoardRecord } from '../boards-api';
 
 // Seam audit 28.10: a reload during a game against the coach lost the kept side lines and the check flag.
@@ -53,5 +53,30 @@ describe('gameViewFromBoard', () => {
   it('is not in check on a quiet position or an unreadable FEN', () => {
     expect(gameViewFromBoard(liveBoard('rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2', ['e4', 'e5']))?.in_check).toBe(false);
     expect(gameViewFromBoard(liveBoard('not a fen', []))?.in_check).toBe(false);
+  });
+});
+
+// Real-page run 11.11: 1.e4 e5 2.Nf3 made by hand, then the microphone — the voice start creates the session, the
+// page loaded that session's empty board over the student's, and the coach talked about a board that was gone.
+describe('keepsLocalBoard', () => {
+  const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  const AFTER = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2';
+  const untouched = { fen: START, pgn: '', puzzle: null };
+
+  it('the student\'s board stays when the session\'s is untouched', () => {
+    expect(keepsLocalBoard(untouched, { fen: AFTER, pgn: '1. e4 e5 2. Nf3' })).toBe(true);
+    expect(keepsLocalBoard(untouched, { fen: AFTER, pgn: '' })).toBe(true);       // a position set up, no moves
+    expect(keepsLocalBoard(untouched, { fen: START, pgn: '1. e4 e5 2. Nf3' })).toBe(true);  // stepped back to the start of their moves
+  });
+
+  it('a session that has a board of its own is restored as before', () => {
+    expect(keepsLocalBoard({ fen: AFTER, pgn: '', puzzle: null }, { fen: START, pgn: '' })).toBe(false);
+    expect(keepsLocalBoard({ fen: START, pgn: '1. d4 d5', puzzle: null }, { fen: AFTER, pgn: '1. e4 e5 2. Nf3' })).toBe(false);
+    expect(keepsLocalBoard({ fen: START, pgn: '', puzzle: { fen: AFTER, solution: ['Nc6'] } as never }, { fen: AFTER })).toBe(false);
+  });
+
+  it('nothing to keep on an untouched page, nothing to compare without a study board', () => {
+    expect(keepsLocalBoard(untouched, { fen: START, pgn: '' })).toBe(false);
+    expect(keepsLocalBoard(null, { fen: AFTER })).toBe(false);
   });
 });
