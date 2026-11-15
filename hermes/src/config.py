@@ -184,6 +184,18 @@ COACH_REASONING_EFFORT = os.environ.get("COACH_REASONING_EFFORT", "none").strip(
 # thinking off ("Reasoning is mandatory", HTTP 400), so "none" means "minimal".
 # Empty string = the provider's default.
 COACH_GEMINI_REASONING_EFFORT = os.environ.get("COACH_GEMINI_REASONING_EFFORT", "minimal").strip()
+# Other models that refuse a request with thinking switched off: OpenRouter answers HTTP 400
+# "Reasoning is mandatory for this endpoint and cannot be disabled", the turn fails and silently
+# moves to the fallback tier — a bench of Claude Sonnet 5.5 and Opus 5.5 was served by Gemini
+# whole (2026-11-15; Haiku 5.5 accepts the switch). They get the lowest level instead, like
+# Gemini 3. Comma-separated model id prefixes.
+COACH_REASONING_MANDATORY = tuple(
+    p.strip().lower()
+    for p in os.environ.get(
+        "COACH_REASONING_MANDATORY", "anthropic/claude-sonnet-5.5,anthropic/claude-opus-5.5"
+    ).split(",")
+    if p.strip()
+)
 # OpenRouter provider order for the coach's calls: "throughput" / "latency" / "price";
 # empty = OpenRouter's default, which leans to the cheapest providers. For DeepSeek
 # V4.1 Flash those run several times slower and some serve an fp4-compressed

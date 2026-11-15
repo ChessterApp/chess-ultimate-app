@@ -43,13 +43,17 @@ KEEPALIVE_S = 90.0
 
 
 def reasoning_for(model: str) -> Optional[dict]:
-    """The thinking level for a Gemini 3 model, or None for any other model.
+    """The thinking level for a model that cannot answer with thinking off, or None for any other.
 
-    Gemini 3 rejects ``enabled: false``, so "none"/"off" becomes "minimal".
+    Gemini 3 rejects ``enabled: false``, so "none"/"off" becomes "minimal"; the same for the
+    models of ``COACH_REASONING_MANDATORY``, which take the coach's own effort when one is set.
     """
     from src import config
 
     name = (model or "").lower()
+    if any(name.startswith(prefix) for prefix in config.COACH_REASONING_MANDATORY):
+        effort = config.COACH_REASONING_EFFORT.lower()
+        return {"effort": "minimal" if effort in ("", "none", "off") else effort}
     if not name.startswith("google/gemini-") or name.startswith("google/gemini-2"):
         return None
     effort = config.COACH_GEMINI_REASONING_EFFORT.lower()

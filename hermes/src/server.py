@@ -607,6 +607,9 @@ def _reasoning_config(model: str) -> Optional[dict]:
     Claude tier is an answer in ~2 s (bench 2026-09-27: Haiku 4.5 without
     thinking started answering at 3.6 s p50, DeepSeek with low reasoning 12.5 s).
     """
+    forced = _gemini_reasoning(model)
+    if forced:  # the model refuses a request with thinking off (Gemini 3, COACH_REASONING_MANDATORY)
+        return forced
     effort = config.COACH_REASONING_EFFORT
     if (model or "").startswith("anthropic/") or (effort and effort.lower() in ("none", "off")):
         return {"enabled": False}

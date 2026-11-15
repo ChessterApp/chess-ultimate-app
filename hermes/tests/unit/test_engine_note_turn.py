@@ -178,6 +178,19 @@ class TestReasoningSwitch:
             server._create_agent(model="deepseek/deepseek-v4.1-flash", system_prompt="s")
         assert fake.call_args.kwargs["reasoning_config"] == expected
 
+    @pytest.mark.parametrize("model,effort,expected", [
+        ("anthropic/claude-sonnet-5.5", "none", {"effort": "minimal"}),
+        ("anthropic/claude-opus-5.5", "low", {"effort": "low"}),
+        ("anthropic/claude-haiku-5.5", "none", {"enabled": False}),
+    ])
+    def test_a_model_that_cannot_switch_thinking_off_gets_the_lowest_level(self, monkeypatch, model, effort, expected):
+        """Sent ``enabled: false`` it answers HTTP 400 and the turn moves to the fallback tier unseen."""
+        monkeypatch.setattr(config, "COACH_REASONING_EFFORT", effort)
+        monkeypatch.setattr(config, "COACH_TOOL_SUBSET", False)
+        with patch("run_agent.AIAgent") as fake:
+            server._create_agent(model=model, system_prompt="s")
+        assert fake.call_args.kwargs["reasoning_config"] == expected
+
     def test_claude_answers_without_thinking_whatever_the_effort(self, monkeypatch):
         """With nothing sent the framework turns Claude's thinking on at medium effort."""
         monkeypatch.setattr(config, "COACH_REASONING_EFFORT", "low")
