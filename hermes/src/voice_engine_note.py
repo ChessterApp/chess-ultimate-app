@@ -23,6 +23,28 @@ from src.tools.stockfish import DEFAULT_DEPTH, DEFAULT_MULTIPV, analyze_cached, 
 PV_PLIES = 4
 MATE_PLIES = 11  # a forced mate up to mate in 6 is written to the end
 
+
+def _line_end(board: chess.Board, pv: list, plies: int) -> Optional[str]:
+    """What is left when the best line ends the game without a mate: «after Nc7+ Kd7 Nxa8 — White: Kе1, Na8,
+    Black: Kd7 — neither side has enough material to mate» (15.11: with only «tablebase: DRAW» in the note the
+    coach told the lone knight left there as «a rook ending without pawns, drawn»)."""
+    after = board.copy(stack=False)
+    try:
+        for uci in pv[:plies]:
+            after.push_uci(uci)
+            if after.is_stalemate() or after.is_insufficient_material():
+                break  # told as it stands at that move, not a move or two later
+        else:
+            return None
+    except ValueError:
+        return None
+    try:
+        from src.board_rules import game_state_facts, placement_facts
+
+        return f"After this line: {placement_facts(after)[0]} — {game_state_facts(after)[0]}."
+    except Exception:  # noqa: BLE001 — the line itself is told either way
+        return None
+
 # Stepping through a game fires one request per move; never run more than a
 # couple of engines for it at once (each request is a Stockfish process).
 _slots = threading.BoundedSemaphore(2)
@@ -325,6 +347,9 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
             told = None
         if told:
             parts.append(f"The best line, move by move (verified): {told}.")
+            ended = _line_end(board, top_pv, MATE_PLIES if mate and mate > 0 else PV_PLIES + 1)
+            if ended:
+                parts.append(ended)
     mate_in = result["lines"][0].get("mate_in")
     tb = None
     if tb_future is not None:

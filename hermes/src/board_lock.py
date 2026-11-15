@@ -42,15 +42,20 @@ _DEFAULT_BOARDS = frozenset({chess.STARTING_BOARD_FEN, "8/8/8/8/8/8/8/8"})
 # puzzle: the coach answered «Задача из урока … Какой здесь первый ход?» with get_puzzle in 3 of
 # 1620 production turns. Words that only touch on a move or a puzzle («Есть задачка на мат в два?»,
 # «как ходит конь») lock out the examples of get_topic/get_lesson, not a puzzle (2026-10-09).
-_ABOUT_THIS_BOARD = re.compile(
+_BOARD_WORDS = (
     r"(?<![\w-])(?:здесь|тут|сейчас|эт(?:а|у|ой|от|ом|и|их|им)\s+(?:[\w-]+\s+)?(?:позици\w*|задач\w*|ход\w*|доск\w*|"
     r"парти\w*|вариант\w*)|в\s+этой\s+позиции|из\s+этой\s+позиции|на\s+доске|перв\w+\s+ход\w*|лучш\w+\s+ход\w*|"
     r"следующ\w+\s+ход\w*|чей\s+ход|как(?:ой|ую|им)\s+(?:[\w-]+\s+)?ход\w*|which\s+move|what\s+move|жүріс\w*|"
     r"как\s+(?:мне\s+|белым\s+|ч[её]рным\s+)?(?:выиграть|решить|спастись|защититься)|"
     r"что\s+(?:мне\s+|белым\s+|ч[её]рным\s+)?(?:делать|играть|сыграть)|here|this\s+(?:position|puzzle|move|board)|"
     r"on\s+the\s+board|best\s+move|first\s+move|what\s+should\s+i\s+play|оцени\w*|осы|бұл|мұнда|қазір|бағала\w*)(?![\w-])"
-    r"|(?<![\w-])(?:[KQRBNКФЛС]?[a-hасе][1-8]|[KQRBNКФЛС][a-h]?x?[a-h][1-8]|O-O(?:-O)?|0-0(?:-0)?)(?![\w-])",
-    re.IGNORECASE)
+)
+_BOARD_SQUARE = (
+    r"(?<![\w-])(?:[KQRBNКФЛС]?[a-hасе][1-8]|[KQRBNКФЛС][a-h]?x?[a-h][1-8]|O-O(?:-O)?|0-0(?:-0)?)(?![\w-])"
+)
+_ABOUT_THIS_BOARD = re.compile(_BOARD_WORDS + "|" + _BOARD_SQUARE, re.IGNORECASE)
+_POINTS_WORDS = re.compile(_BOARD_WORDS, re.IGNORECASE)
+
 
 # The result of the position in front of the student: «Это выигрыш?», «Это ничья?», «Кто выигрывает?», «Белые
 # выигрывают?», "Is this a win?", «Мұнда ұтыс па?» (09.10: «Это выигрыш?» had none of the words above, the board
@@ -71,6 +76,13 @@ _ASKS_RESULT = re.compile(
     re.IGNORECASE)
 _OPENING_TALK = re.compile(r"(?<![\w-])(?:дебют\w*|защит\w*|гамбит\w*|вариант\w*|партии|в\s+целом|обычно|opening|defen[cs]e|"
                            r"gambit|variation|in\s+general|usually)(?![\w-])", re.IGNORECASE)
+
+
+def points_at_board(message: str, squares: bool = True) -> bool:
+    """*message* points at the board in front of the student: «тут», «сейчас», «лучший ход» — and, with
+    *squares*, a square or a move named on it («ладья на d8?»)."""
+    text = re.sub(r"«[^»]*»|\"[^\"]*\"|“[^”]*”", " ", message or "")
+    return bool((_ABOUT_THIS_BOARD if squares else _POINTS_WORDS).search(text))
 
 
 def _asks_result(text: str) -> bool:

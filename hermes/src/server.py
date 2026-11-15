@@ -2441,10 +2441,13 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     if (config.COACH_HIDDEN_BOARD and not live_game and review_future is None and opening_plan is None
             and famous is None):
         try:
-            from src.question_position import board_material, endgame_theory
+            from src.question_position import about_own_position, board_material, endgame_theory
 
             endgame = endgame_theory(body.message)
             if endgame and board_material(session.board_state) == tuple(endgame["sides"]):
+                endgame = None
+            # The student's own position stays on the board and the words point at it: the question is about it.
+            if endgame and not show_board and about_own_position(body.message):
                 endgame = None
             if endgame:
                 endgame["shown"] = show_board

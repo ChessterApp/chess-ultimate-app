@@ -129,6 +129,23 @@ def board_material(fen: Optional[str]) -> Optional[tuple[str, str]]:
     return a, b
 
 
+# «мат в один», «мат в 2 хода», "mate in two": the question counts the moves of a mate on a concrete position.
+_MATE_IN_N = re.compile(
+    r"(?<![\w-])(?:мат\w*\s+в\s+(?:\d+|один|одну|два|две|три|четыре|пять)(?![\w-])|мат\w*\s+в\s+[\w-]+\s+ход\w*|"
+    r"(?:check)?mate\s+in\s+(?:\d+|one|two|three|four|five)(?![\w-]))", re.IGNORECASE)
+
+
+def about_own_position(message: str) -> bool:
+    """A question that names an ending's material but points at the student's own board — «как тут поставить
+    мат ладьёй?», «ладьёй мат сейчас есть?», «мат ферзём? на h7?»: it is about that board, the textbook
+    position does not answer it (15.11: «Тут есть мат в один? Ладья на d8?» got the lone-rook mate method
+    instead of the board's own analysis, and the coach explained a king escape that was not there). A square
+    counts unless the ending is named in full («ладья против пешки на a7» is the textbook's own wording)."""
+    from src.board_lock import points_at_board
+
+    return points_at_board(message, squares=not _SPLIT.search((message or "").replace("ё", "е")))
+
+
 def material_in(text: str) -> Optional[tuple[str, str]]:
     """The two sides' pieces a question names, strongest side first — ('QR', '') for «ферзь и ладья
     против короля», ('Q', 'R') for «ладья против ферзя», ('BB', '') for «мат двумя слонами»; None
@@ -140,6 +157,8 @@ def material_in(text: str) -> Optional[tuple[str, str]]:
         if a is None or b is None or (a == "" and b == ""):
             return None
     elif _MATE_WITH.search(t):
+        if _MATE_IN_N.search(t):
+            return None  # «тут есть мат в один? ладья на d8?» counts moves on a position, it names no ending
         a = _side_pieces(t)
         # «мат конём», «мат слоном», «мат пешкой» are tactics (the piece delivers the mate — the site's own
         # sets), not the endgame of a lone minor piece or pawn against the king.

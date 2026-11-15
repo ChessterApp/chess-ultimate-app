@@ -316,6 +316,9 @@ def line_outcome(board: chess.Board, move: chess.Move, reply_sans: list[str], be
         result = f"{side} has lost {mine} for nothing"
     elif theirs:
         result = f"{side} has won {theirs}"
+    elif len(end.piece_map()) == len(board.piece_map()):
+        # Nothing was taken: «level again» read as «материал равный» with one side a rook up (15.11).
+        result = "no material has changed hands"
     else:
         result = "the material is level again"
     tail = [f for f in static_facts(end) if "trapped" in f or "TRAPPED" in f][:1]
@@ -335,6 +338,15 @@ def moved_piece_facts(board: chess.Board, after: chess.Board, move: chess.Move) 
     facts = []
     if after.is_check():
         facts.append(f"{name} gives check")
+        # Why it is or is not mate — the replies, by kind («есть мат в один? ладья на d8?», 15.11: with the
+        # check alone the coach sent the king to f8, a square the rook covers; the one reply was Kh7).
+        if not after.is_checkmate():
+            try:
+                from src import turn_facts
+
+                facts.extend(turn_facts.texts(turn_facts.collect(after, None, kinds=("check_replies",))))
+            except Exception:  # noqa: BLE001 — the check itself is told either way
+                pass
     targets = [s for s in after.attacks(dest)
                if (p := after.piece_at(s)) is not None and p.color != mover and p.piece_type != chess.KING]
     if targets:
