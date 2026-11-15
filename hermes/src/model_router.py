@@ -70,6 +70,35 @@ def looks_like_pgn(query: str) -> bool:
 
 _TAG_LINE_RE = re.compile(r'^\s*\[\w+\s+"[^"]*"\]\s*$')
 
+_GAME_START_RE = re.compile(r"(?<![\d.])1\s*\.(?!\d)")
+# One step of the movetext: a move number, a move, a result, a comment or a NAG — with the space after it.
+_GAME_STEP_RE = re.compile(
+    r"(?:\d+\s*\.(?:\s*\.\.)?|(?:[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|O-O(?:-O)?|0-0(?:-0)?)[+#]?[!?]*"
+    r"|1-0|0-1|1/2-1/2|\*|\{[^}]*\}|\$\d+)(?:\s+|$)")
+
+
+def without_game(message: str) -> str:
+    """*message* without the game pasted in it — the student's own words around it.
+
+    The moves of a pasted game are the game, not moves the student names on the board in front of them: a
+    review of «…где я ошибся? 1. e4 e5 2. Nf3 Nc6 3. Bc4 Nd4…» also got «Nc6: NOT legal for the side to
+    move», «Bc4: NOT legal — the pawn on e2 is in the way» and «the student's idea: Nf3» for the start
+    position, beside the engine's turning points (bench 15.11)."""
+    if not looks_like_pgn(message):
+        return message
+    lines = [ln for ln in message.splitlines() if not _TAG_LINE_RE.match(ln)]
+    text = "\n".join(lines)
+    start = _GAME_START_RE.search(text)
+    if start is None:
+        return text
+    # The game runs while move numbers and moves follow one another; «…7. Be2 Nf3# А если бы Bxf7?» keeps its question.
+    end = start.start()
+    while (step := _GAME_STEP_RE.match(text, end)) is not None:
+        end = step.end()
+    if end == start.start():
+        return text
+    return (text[:start.start()] + " " + text[end:]).strip()
+
 
 def extract_game_pgn(message: str, min_plies: int = 8) -> str | None:
     """The game in a chat message — its PGN tags and movetext — when it parses.

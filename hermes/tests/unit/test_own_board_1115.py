@@ -83,3 +83,30 @@ class TestTheNamedMove:
         board = chess.Board(BACK_RANK)  # White is a rook up
         told = hypothetical.line_outcome(board, board.parse_san("Rd8+"), ["Kh7", "Kf1", "h5"])
         assert told is None or "level again" not in told
+
+
+GAME = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nd4 4. Nxe5 Qg5 5. Nxf7 Qxg2 6. Rf1 Qxe4+ 7. Be2 Nf3#"
+
+
+@pytest.mark.unit
+class TestPastedGame:
+    """The moves of a pasted game are the game, not moves the student names on the board in front of them."""
+
+    @pytest.mark.parametrize("message,left", [
+        ("Вот моя партия, где я ошибся? " + GAME, "Вот моя партия, где я ошибся?"),
+        (GAME + " А если бы 5.Bxf7+?", "А если бы 5.Bxf7+?"),  # the question after the game keeps its move
+        ('[Event "x"]\n[White "a"]\n\n' + GAME + " 0-1\nПочему не Nxd4?", "Почему не Nxd4?"),
+        ("Можно ли сыграть Nf3?", "Можно ли сыграть Nf3?"),
+    ])
+    def test_the_words_around_the_game(self, message, left):
+        from src.model_router import without_game
+
+        assert without_game(message) == left
+
+    def test_an_unlisted_move_is_not_the_main_mistake(self):
+        from src.prompt_builder import review_block
+
+        block = review_block({"total_moves": 14, "critical_moments": [
+            {"move_number": 5, "side": "white", "move": "Nxf7", "type": "blunder", "eval_before": -0.28,
+             "eval_after": -6.1, "best_move": "Bxf7+"}]})
+        assert "5.Nxf7" in block and "not listed lost less than 1.5 pawns" in block

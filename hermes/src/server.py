@@ -2619,7 +2619,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         try:
             from src.prompt_builder import question_moves
 
-            named_moves = question_moves(body.message, idea_fen)
+            asked = body.message
+            if route.get("reason") == "pgn_in_message":
+                from src.model_router import without_game
+
+                asked = without_game(body.message)  # a pasted game's moves are the game, not ideas for this board
+            named_moves = question_moves(asked, idea_fen)
             if past:
                 played = past["played"].rstrip("+#")
                 named_moves = [q for q in named_moves if q["san"].rstrip("+#") != played]  # the game's own move

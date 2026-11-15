@@ -1462,6 +1462,10 @@ def review_block(result: dict) -> str:
         lines.append(line)
     if not moments:
         lines.append("- The engine found no swing of 1.5 pawns or more: a clean game.")
+    else:
+        # «Главная ошибка — 4.Nxe5» was told with 5.Nxf7 (-0.3 → -6.1) the first move listed (bench 15.11).
+        lines.append("Every move of the game that is not listed lost less than 1.5 pawns by the engine: none of them "
+                     "is the main mistake or a blunder — at most an inaccuracy, and only if you can say why.")
     lines.append(
         "Explain the turning points that matter most, in your own words: what went wrong and "
         "what was better. Set a position on the board only when you walk through one of them."
