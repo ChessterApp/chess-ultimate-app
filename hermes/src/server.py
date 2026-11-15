@@ -2615,15 +2615,19 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         except Exception:  # noqa: BLE001
             logger.debug("past move lookup failed", exc_info=True)
             past = None
+    # The student's words about moves: a pasted game's moves are the game, not ideas for the board in front of them.
+    asked = body.message
+    if route.get("reason") == "pgn_in_message":
+        try:
+            from src.model_router import without_game
+
+            asked = without_game(body.message)
+        except Exception:  # noqa: BLE001
+            asked = body.message
     if idea_fen:
         try:
             from src.prompt_builder import question_moves
 
-            asked = body.message
-            if route.get("reason") == "pgn_in_message":
-                from src.model_router import without_game
-
-                asked = without_game(body.message)  # a pasted game's moves are the game, not ideas for this board
             named_moves = question_moves(asked, idea_fen)
             if past:
                 played = past["played"].rstrip("+#")
@@ -2803,7 +2807,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     try:
         from src.prompt_builder import moves_in_question_block
 
-        moves_note = moves_in_question_block(body.message, idea_fen, named_moves if past else (named_moves or None),
+        moves_note = moves_in_question_block(asked, idea_fen, named_moves if past else (named_moves or None),
                                              where=past["label"] if past else None)
         if moves_note:
             turn_context = f"{turn_context}\n\n{moves_note}" if turn_context else moves_note
