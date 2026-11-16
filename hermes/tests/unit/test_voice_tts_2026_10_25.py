@@ -46,7 +46,7 @@ def upstream(monkeypatch):
 
     monkeypatch.setattr(voice_tts, "open_stream", fake_open)
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    for k in ("COACH_TTS_MODEL", "COACH_TTS_VOICE", "COACH_TTS_MODEL_KK", "COACH_TTS_VOICE_KK"):
+    for k in ("COACH_TTS_MODEL", "COACH_TTS_VOICE", "COACH_TTS_MODEL_KK", "COACH_TTS_VOICE_KK", "ELEVENLABS_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     return calls, state
 
@@ -100,3 +100,37 @@ def test_an_unreachable_upstream_is_a_502_not_a_crash(monkeypatch):
     monkeypatch.setattr(voice_tts, "open_stream", boom)
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     assert _post({"text": "Привет"}).status_code == 502
+
+
+def test_with_its_own_key_an_elevenlabs_model_is_asked_of_elevenlabs_with_the_language(upstream, monkeypatch):
+    """16.11: the ElevenLabs models that speak Kazakh are not all on OpenRouter — with ELEVENLABS_API_KEY the
+    `elevenlabs/<model_id>` pair goes to ElevenLabs itself, the language named; other models stay on OpenRouter."""
+    calls, state = upstream
+    direct = []
+
+    async def fake_eleven(key, model, voice, text, language):
+        direct.append({"key": key, "model": model, "voice": voice, "text": text, "language": language})
+        return _Client(), _Resp(200, [b"\x05\x00"], {"content-type": "audio/pcm"})
+
+    monkeypatch.setattr(voice_tts, "open_elevenlabs_stream", fake_eleven)
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "el-test")
+    monkeypatch.setenv("COACH_TTS_MODEL_KK", "elevenlabs/eleven_v4_turbo")
+    monkeypatch.setenv("COACH_TTS_VOICE_KK", "voice-kk")
+    resp = _post({"text": "Жақсы жүріс!", "locale": "kk"})
+    assert resp.status_code == 200 and resp.content == b"\x05\x00"
+    assert resp.headers["x-sample-rate"] == "24000" and resp.headers["x-tts-model"] == "elevenlabs/eleven_v4_turbo"
+    assert direct == [{"key": "el-test", "model": "eleven_v4_turbo", "voice": "voice-kk", "text": "Жақсы жүріс!", "language": "kk"}]
+    assert _post({"text": "Хороший ход.", "locale": "ru"}).status_code == 200
+    assert [c["model"] for c in calls] == ["google/gemini-3.8-flash-tts"] and len(direct) == 1
+
+
+def test_without_its_own_key_an_elevenlabs_model_stays_on_openrouter(upstream, monkeypatch):
+    calls, _ = upstream
+    monkeypatch.setenv("COACH_TTS_MODEL", "elevenlabs/eleven-flash-v2.5")
+    assert _post({"text": "Хороший ход.", "locale": "ru"}).status_code == 200
+    assert calls[0]["model"] == "elevenlabs/eleven-flash-v2.5" and calls[0]["key"] == "sk-or-test"
+
+
+@pytest.mark.parametrize("locale, language", [("kk", "kk"), ("kz", "kk"), ("ru-RU", "ru"), ("en", "en"), ("de", None), (None, None)])
+def test_the_language_named_to_the_provider(locale, language):
+    assert voice_tts.language_of(locale) == language

@@ -55,7 +55,7 @@ def sheet(args):
                 usage = r["usage"]
                 key[f"{cid}#{n}"] = {
                     "model": r["model"], "run": f"{os.path.basename(os.path.normpath(d))}/{r.get('rep', 0)}",
-                    "ttft_s": r.get("quick_s") or r.get("ttft_s"),
+                    "ttft_s": r.get("answer_s") or r.get("ttft_s"),
                     "prompt_tokens": usage.get("prompt_tokens", 0), "completion_tokens": usage.get("completion_tokens", 0),
                 }
                 out.append(f"### {cid}#{n}\n\n{r['text'].strip()}\n")
@@ -88,7 +88,7 @@ def tally(args):
         if k["model"] in prices:
             pin, pout = prices[k["model"]]
             cost[k["model"]].append(k["prompt_tokens"] * pin + k["completion_tokens"] * pout)
-    print("| model | runs | ok per run | ok mean | wrong per run | first text p50 / p90, s | $ per answer |\n|---|---|---|---|---|---|---|")
+    print("| model | runs | ok per run | ok mean | wrong per run | answer starts p50 / p90, s | $ per answer |\n|---|---|---|---|---|---|---|")
     for m in sorted(runs, key=lambda m: -statistics.mean(r["ok"] for r in runs[m].values())):
         oks = [r["ok"] for _, r in sorted(runs[m].items())]
         wrongs = [r["wrong"] for _, r in sorted(runs[m].items())]
