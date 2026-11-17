@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 from typing import Optional
 
 import httpx
@@ -32,6 +33,14 @@ MAX_CHARS = 600
 TIMEOUT_S = 20.0
 DEFAULT_MODEL = "google/gemini-3.8-flash-tts"
 DEFAULT_VOICE = "Kore"
+# After ElevenLabs fails a chunk, the default voice reads for this long before ElevenLabs is asked again.
+DIRECT_PAUSE_S = 60.0
+_direct_down_until = 0.0
+
+
+def voice_mode() -> str:
+    """`pipeline` when COACH_VOICE_MODE says so, else `live` — the site's default voice (GET /api/coach/voice/mode)."""
+    return "pipeline" if os.environ.get("COACH_VOICE_MODE", "").strip().lower() == "pipeline" else "live"
 
 
 def model_and_voice(locale: Optional[str]) -> tuple[str, str]:
@@ -83,18 +92,9 @@ async def open_elevenlabs_stream(key: str, model: str, voice: str, text: str,
     return client, resp
 
 
-async def speak(text: str, locale: Optional[str]):
-    """The FastAPI response for one chunk: the PCM stream, or a JSON error — 429 (a rate limit) and 402 (no
-    credit) kept apart from a failure (502), so the browser waits the first out and tells the student."""
-    model, voice = model_and_voice(locale)
-    own_key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
-    direct = bool(own_key) and model.startswith(ELEVENLABS_PREFIX)
-    key = own_key if direct else os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if not key:
-        return JSONResponse({"error": "TTS not configured"}, status_code=500)
-    text = (text or "").strip()[:MAX_CHARS]
-    if not text:
-        return JSONResponse({"error": "Missing text"}, status_code=400)
+async def _ask(direct: bool, key: str, model: str, voice: str, text: str, locale: Optional[str]):
+    """One upstream call: (client, response) with the stream open and no refusal, or the refusal alone — 429
+    (a rate limit) and 402 (no credit) kept apart from a failure (502)."""
     try:
         if direct:
             client, resp = await open_elevenlabs_stream(key, model[len(ELEVENLABS_PREFIX):], voice, text, language_of(locale))
@@ -102,21 +102,54 @@ async def speak(text: str, locale: Optional[str]):
             client, resp = await open_stream(key, model, voice, text)
     except Exception as exc:  # noqa: BLE001 — the network, the timeout
         logger.warning("voice tts: upstream unreachable: %s", exc)
-        return JSONResponse({"error": "TTS unreachable"}, status_code=502)
-    if resp.status_code != 200:
-        detail = b""
-        try:
-            detail = await resp.aread()
-        finally:
-            await resp.aclose()
-            await client.aclose()
-        logger.warning("voice tts: upstream %s %s", resp.status_code, detail[:200])
-        status = 429 if resp.status_code == 429 else 402 if resp.status_code == 402 else 502
-        headers = {}
-        retry_after = resp.headers.get("retry-after")
-        if retry_after:
-            headers["Retry-After"] = retry_after
-        return JSONResponse({"error": f"TTS failed: {resp.status_code}"}, status_code=status, headers=headers)
+        return None, None, JSONResponse({"error": "TTS unreachable"}, status_code=502)
+    if resp.status_code == 200:
+        return client, resp, None
+    detail = b""
+    try:
+        detail = await resp.aread()
+    finally:
+        await resp.aclose()
+        await client.aclose()
+    logger.warning("voice tts: upstream %s %s", resp.status_code, detail[:200])
+    status = 429 if resp.status_code == 429 else 402 if resp.status_code == 402 else 502
+    headers = {}
+    retry_after = resp.headers.get("retry-after")
+    if retry_after:
+        headers["Retry-After"] = retry_after
+    return None, None, JSONResponse({"error": f"TTS failed: {resp.status_code}"}, status_code=status, headers=headers)
+
+
+async def speak(text: str, locale: Optional[str]):
+    """The FastAPI response for one chunk: the PCM stream, or a JSON error — 429 (a rate limit) and 402 (no
+    credit) kept apart from a failure (502), so the browser waits the first out and tells the student.
+
+    A chunk ElevenLabs does not read (its quota spent, its key refused, the service away) is read by the default
+    voice through OpenRouter instead (17.11): the coach changes voice, it does not fall silent. ElevenLabs is then
+    left alone for DIRECT_PAUSE_S, so a service that is away does not hold every following chunk up."""
+    global _direct_down_until
+    model, voice = model_and_voice(locale)
+    own_key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+    spare_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    direct = bool(own_key) and model.startswith(ELEVENLABS_PREFIX)
+    if not (own_key if direct else spare_key):
+        return JSONResponse({"error": "TTS not configured"}, status_code=500)
+    text = (text or "").strip()[:MAX_CHARS]
+    if not text:
+        return JSONResponse({"error": "Missing text"}, status_code=400)
+    refusal = None
+    if direct and (not spare_key or time.monotonic() >= _direct_down_until):
+        client, resp, refusal = await _ask(True, own_key, model, voice, text, locale)
+        if refusal is not None and spare_key:
+            _direct_down_until = time.monotonic() + DIRECT_PAUSE_S
+            logger.warning("voice tts: ElevenLabs did not read the chunk (%s) — %s reads for %ss",
+                           refusal.status_code, DEFAULT_MODEL, int(DIRECT_PAUSE_S))
+    if not direct or (spare_key and (refusal is not None or time.monotonic() < _direct_down_until)):
+        if direct:
+            model, voice = DEFAULT_MODEL, DEFAULT_VOICE
+        client, resp, refusal = await _ask(False, spare_key, model, voice, text, locale)
+    if refusal is not None:
+        return refusal
     rate_m = re.search(r"rate=(\d+)", resp.headers.get("content-type", ""))
     rate = rate_m.group(1) if rate_m else "24000"
 

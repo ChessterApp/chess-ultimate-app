@@ -83,6 +83,13 @@ def _review_card(games: list, insights: list) -> Optional[dict]:
     return card
 
 
+def _warmup_card() -> dict:
+    """The card without a theme — the warm-up. `warmup` tells the site and the app that this server reads the
+    warm-up's own request («Разминка: дай мне 5 разных…», board_lock.asks_warmup, 17.11): they send it only on
+    seeing the mark, so a host updated before the server keeps the request the older server understands."""
+    return {"type": "weak_spot", "puzzles": PUZZLES_PER_CARD, "warmup": True}
+
+
 def _weak_spot_card(focus: list, insights: list) -> dict:
     from src.curriculum import _blunder_theme, aggregate_blunders
 
@@ -99,7 +106,7 @@ def _weak_spot_card(focus: list, insights: list) -> dict:
                 break
     card: dict = {"type": "weak_spot", "puzzles": PUZZLES_PER_CARD}
     if theme is None:
-        return card  # puzzles on any theme
+        return _warmup_card()  # puzzles on any theme
     card["theme"] = theme
     reviewed = [r for r in insights if isinstance(r, dict)]
     if len(reviewed) >= MIN_STAT_GAMES:
@@ -139,7 +146,7 @@ def build_daily_plan(
         if card:
             cards.append(card)
     if not any(c["type"] == "weak_spot" for c in cards):
-        cards.append({"type": "weak_spot", "puzzles": PUZZLES_PER_CARD})
+        cards.append(_warmup_card())
     cards.append({"type": "play_coach"})
     return {"kind": "daily_plan", "cards": cards[:MAX_CARDS]}
 

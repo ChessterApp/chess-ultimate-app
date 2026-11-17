@@ -5257,6 +5257,18 @@ async def coach_voice_tts(body: VoiceTtsRequest, request: Request):
     return await speak(body.text, body.locale)
 
 
+@app.get("/api/coach/voice/mode")
+async def coach_voice_mode(request: Request):
+    """Which voice the site turns on for a student who has not chosen one: `live` (Gemini Live, the default) or
+    `pipeline` (words → the text coach → its answer read aloud by src/voice_tts.py). The server that holds the
+    coach's model and voice says it — COACH_VOICE_MODE in its .env — so the mode changes with this server's
+    settings and goes back without a site release (17.11)."""
+    _get_user_id(request)
+    from src.voice_tts import voice_mode
+
+    return {"mode": voice_mode()}
+
+
 @app.post("/api/coach/voice/check")
 async def coach_voice_check(body: VoiceCheckRequest, request: Request):
     """Check a sentence the voice coach said against the board (src/answer_check.py).

@@ -48,6 +48,7 @@ def upstream(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     for k in ("COACH_TTS_MODEL", "COACH_TTS_VOICE", "COACH_TTS_MODEL_KK", "COACH_TTS_VOICE_KK", "ELEVENLABS_API_KEY"):
         monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(voice_tts, "_direct_down_until", 0.0)
     return calls, state
 
 
@@ -131,6 +132,69 @@ def test_without_its_own_key_an_elevenlabs_model_stays_on_openrouter(upstream, m
     assert calls[0]["model"] == "elevenlabs/eleven-flash-v2.5" and calls[0]["key"] == "sk-or-test"
 
 
+def test_a_chunk_elevenlabs_does_not_read_is_read_by_the_default_voice(upstream, monkeypatch):
+    """17.11: ElevenLabs out of quota (or away) must not silence the coach — the chunk goes to the default voice
+    through OpenRouter, and ElevenLabs is left alone for a while, then asked again."""
+    calls, _ = upstream
+    direct = []
+    answer = {"resp": lambda: _Resp(401, [b'{"detail":{"status":"quota_exceeded"}}'])}
+
+    async def fake_eleven(key, model, voice, text, language):
+        direct.append(text)
+        resp = answer["resp"]()
+        if isinstance(resp, Exception):
+            raise resp
+        return _Client(), resp
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(voice_tts, "open_elevenlabs_stream", fake_eleven)
+    monkeypatch.setattr(voice_tts.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "el-test")
+    monkeypatch.setenv("COACH_TTS_MODEL", "elevenlabs/eleven_v4_turbo")
+    monkeypatch.setenv("COACH_TTS_VOICE", "voice-ru")
+    resp = _post({"text": "Первый кусок.", "locale": "ru"})
+    assert resp.status_code == 200 and resp.content == b"\x01\x00\x02\x00\x03\x00"
+    assert resp.headers["x-tts-model"] == "google/gemini-3.8-flash-tts"
+    assert (calls[0]["model"], calls[0]["voice"], calls[0]["key"]) == ("google/gemini-3.8-flash-tts", "Kore", "sk-or-test")
+    # Within the pause the next chunk does not wait on ElevenLabs at all.
+    assert _post({"text": "Второй кусок.", "locale": "ru"}).headers["x-tts-model"] == "google/gemini-3.8-flash-tts"
+    assert direct == ["Первый кусок."] and len(calls) == 2
+    # After it ElevenLabs is asked again — and, back in service, reads.
+    clock["now"] += voice_tts.DIRECT_PAUSE_S + 1
+    answer["resp"] = lambda: _Resp(200, [b"\x09\x00"], {"content-type": "audio/pcm"})
+    resp = _post({"text": "Третий кусок.", "locale": "ru"})
+    assert resp.content == b"\x09\x00" and resp.headers["x-tts-model"] == "elevenlabs/eleven_v4_turbo" and len(calls) == 2
+    # Away altogether (the network): the same way out.
+    answer["resp"] = lambda: RuntimeError("connect failed")
+    assert _post({"text": "Четвёртый кусок.", "locale": "ru"}).headers["x-tts-model"] == "google/gemini-3.8-flash-tts"
+
+
+def test_without_openrouter_an_elevenlabs_refusal_is_told_as_it_is(upstream, monkeypatch):
+    async def fake_eleven(key, model, voice, text, language):
+        return _Client(), _Resp(429, [b"busy"], {"retry-after": "3"})
+
+    monkeypatch.setattr(voice_tts, "open_elevenlabs_stream", fake_eleven)
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "el-test")
+    monkeypatch.setenv("COACH_TTS_MODEL", "elevenlabs/eleven_v4_turbo")
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    resp = _post({"text": "Привет", "locale": "ru"})
+    assert resp.status_code == 429 and resp.headers["retry-after"] == "3"
+    assert _post({"text": "Привет ещё раз", "locale": "ru"}).status_code == 429   # no pause without a way out
+
+
 @pytest.mark.parametrize("locale, language", [("kk", "kk"), ("kz", "kk"), ("ru-RU", "ru"), ("en", "en"), ("de", None), (None, None)])
 def test_the_language_named_to_the_provider(locale, language):
     assert voice_tts.language_of(locale) == language
+
+
+def test_the_server_names_the_default_voice_mode(monkeypatch):
+    """17.11: the site asks which voice to turn on by default; COACH_VOICE_MODE=pipeline switches it, anything
+    else (and nothing) is Gemini Live."""
+    get = lambda: TestClient(app).get("/api/coach/voice/mode", headers={"X-User-Id": "tts-user"})
+    monkeypatch.delenv("COACH_VOICE_MODE", raising=False)
+    assert get().json() == {"mode": "live"}
+    monkeypatch.setenv("COACH_VOICE_MODE", " Pipeline ")
+    assert get().json() == {"mode": "pipeline"}
+    monkeypatch.setenv("COACH_VOICE_MODE", "something")
+    assert get().json() == {"mode": "live"}
+    assert TestClient(app).get("/api/coach/voice/mode").status_code == 401

@@ -27,7 +27,7 @@ def _insight(ref, *themes):
 INSIGHTS = [_insight("g1", "endgame", "middlegame", "opening")] + [_insight(f"r{i}", "endgame") for i in range(3)] + [
     _insight(f"q{i}", "middlegame") for i in range(2)] + [_insight(f"c{i}") for i in range(4)]
 FOCUS = [{"theme": "endgame", "score": 0.9, "blunder_count": 4}]
-MINIMAL = {"kind": "daily_plan", "cards": [{"type": "weak_spot", "puzzles": 5}, {"type": "play_coach"}]}
+MINIMAL = {"kind": "daily_plan", "cards": [{"type": "weak_spot", "puzzles": 5, "warmup": True}, {"type": "play_coach"}]}
 
 
 def test_full_data():
@@ -47,7 +47,8 @@ def test_no_data_gives_the_minimal_plan(args):
 def test_games_without_reviews():
     cards = build_daily_plan(GAMES, None, None)["cards"]
     assert cards[0] == {"type": "review_last_game", "game_id": "g1", "title": "Student – Bot 1500"}  # no count
-    assert cards[1] == {"type": "weak_spot", "puzzles": 5}  # no theme: puzzles on any theme
+    # No theme: the warm-up, marked so the site sends the warm-up's own request (17.11).
+    assert cards[1] == {"type": "weak_spot", "puzzles": 5, "warmup": True}
     assert [c["type"] for c in cards] == ["review_last_game", "weak_spot", "opening_lesson", "play_coach"]
 
 
