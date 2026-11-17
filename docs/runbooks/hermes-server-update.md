@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 11.11 (голос: пример на доске настоящий, служебные записи не звучат) — включает всё из версий 06.10 … 10.11
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 17.11 (подсказка не рисует решение задачи, урок — ссылкой, разминка — смешанный набор по уровню) — включает всё из версий 06.10 … 11.11
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -6,6 +6,12 @@
 > (тому же, что обновлял его в прошлый раз). Больше ничего писать не нужно. Это повторное
 > обновление: всё, что уже сделано в прошлый раз (миграции, база задач, переменные), Claude
 > проверит и пропустит, так что займёт 10–15 минут. В конце Claude пришлёт отчёт.
+>
+> **Новое в этот раз — подшаг 5а «Модель и голос для показа» (по решению Асана).** Если ничего не дописывать, Claude
+> переключит основную модель тренера на `openai/gpt-6.1-terra` (отвечает точнее, стоит примерно в 5 раз дороже за ответ,
+> начинает отвечать примерно на 1,5 с позже), а голос не тронет. Если Асан просил модель не менять — допишите одной строкой
+> «подшаг 5а пропустить». Если Асан передал ключ ElevenLabs для голоса — пришлите его Claude тем же сообщением (в этот файл
+> ключ вписывать не нужно).
 
 ---
 
@@ -29,6 +35,331 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 17.11 (подсказка к задаче не рисует её решение; урок сайта в ответе — ссылка с названием, а не голый адрес;
+разминка — смешанный набор задач по уровню ученика; вопрос о своей доске не уходит в теорию эндшпиля. Код — `hermes/` (`src/`,
+тесты); правки сайта этой версии уже выложены пушем в `main` и со старым Hermes работают (см. пункт «Сайт» ниже). Миграций и
+новых пакетов нет, обязательных переменных нет; есть отдельный подшаг 5а «Модель и голос для показа (по решению Асана)» — его
+можно пропустить. Если сервер на 11.11 — шаги 1, 2, 3, 4, 5 (только пункт «Новое в 17.11» и подшаг 5а), 8 и проверки 1, 3,
+76–81; если ещё раньше — все шаги, версия 11.11 входит сюда целиком):
+- **Что было (отчёт тестировщика 16.11 и замер моделей 15.11).** (1) Кнопка «Подсказка» у задачи отправляет «Подскажи идею в
+  этой задаче, не называя ход.» — тренер ответил словами, как просили, а на доске появилась зелёная стрелка a1→a8, то есть само
+  решение. (2) Ответ тренера заканчивался голым адресом «chesster.io/learn/chess-basics/…»: сайт и приложение показывают такой
+  адрес текстом, а не ссылкой. (3) Карточка «Разминка: тактика» в «Плане на сегодня» обещала пять задач, а отправляла обычное
+  «Дай мне тактическую задачу» — это очередная задача программы ученика, и новичок получил пять почти одинаковых матов ладьёй из
+  одного набора, по одной за просьбу. (4) На замере 15.11 вопрос «Тут есть мат в один? Ладья на d8?» был прочитан как учебный
+  эндшпиль «ладья против короля», и тренер отправил короля на поле, которое бьёт ладья; ходы вставленной партии читались как
+  «идеи ученика» на начальной позиции; Claude Sonnet 5.5 и Opus 5.5 (модели замера, на сервере их нет) на каждом ходу молча
+  заменялись запасной моделью.
+- **Подсказка не рисует решение задачи** (`src/solution_guard.py`). Сервер знает решение задачи, которая стоит на доске, и
+  сколько ходов из него уже сделано. Пока задача не решена и система сама не показала решение, любая стрелка «откуда → куда»
+  оставшегося хода решения до доски не доходит: метка модели в тексте (`[[arrows: …]]`), вызов `board_control`, любой другой
+  инструмент, ответ режима «лучший из двух» и голосовой мост `/api/coach/tool/…`. Подсветка, в которой есть оба поля такого хода,
+  теряет эти два поля; одно поле (фигура, на которую смотреть) остаётся. Стрелка не из решения не трогается; у доски, которая
+  не задача, ничего не скрывается. Вырезанная метка не выписывается в текст ходом (раньше метка на месте хода превращалась в
+  «…шаха — Ra8#.»). В логе — строка `solution guard: withheld from the board (the puzzle is unsolved): a1a8`.
+- **Решение показывает система, и только по просьбе.** Инструмент `puzzle_solution` отвечает, только если ученик сдался или
+  попросил решение своими словами («Сдаюсь, покажи решение», "I give up", «берілемін»), если вызов сделала сама страница по
+  таким словам (`caller: "site"`) или если решение этой задачи уже показано. На «подскажи идею» модель получает отказ
+  (`withheld`) без стрелок и без хода. После показа решение считается открытым (отметка на записи задачи): на следующий вопрос
+  «а почему именно так?» стрелки хода рисуются. Новая задача на доске снова закрыта.
+- **Известно и не исправлено (так было и до 17.11).** Задача, которую голосовой тренер (обычный режим, Gemini Live) поставил
+  своим вызовом `/api/coach/tool/get_puzzle`, записывается в сессию только позицией — без записи о задаче и её решении. Для такой
+  доски сервер решения не знает: стрелки в голосе не задерживаются, а `puzzle_solution` отвечает «No puzzle is on the board».
+  Защита работает для задачи, поставленной текстовым ходом (чат и его кнопки; режим «связка» `?voice=pipeline` тоже идёт через
+  текстовый ход). Замечено 17.11 при подготовке проверки 81; на сервере для этого делать ничего не нужно.
+- **Урок сайта — ссылка с названием** (`src/lesson_links.py`). Строка сервера об уроке теперь сама ссылка: «Урок на сайте:
+  [«Мат в один ход»](https://chesster.io/learn/…) (Основы шахмат)» — на всех трёх языках. Любой адрес урока, который модель
+  оставила в ответе голым (со схемой или без, `chesster.io` или адрес школы вроде `chess-empire.chesster.io`, в угловых
+  скобках, в обратных кавычках), на выходе переписывается в `[название](https://…)`: название — из данных урока, которые
+  вернули инструменты этого хода, а если их нет — нейтральное слово на языке ответа («урок» / «курс» / «уроки»). Работает на
+  потоке (адрес, разрезанный между кусками ответа, собирается), в ответе «лучший из двух» и в ответе без потока; готовую ссылку
+  `[текст](адрес)` и чужие адреса (lichess.org, `chesster.io/pricing`) не трогает. Подсказка модели и подсказки инструментов
+  просят ту же форму (шаблон подсказки 21 — `PROMPT_TEMPLATE_VERSION`). Выключателя нет; прежний `COACH_LESSON_LINK=0` по-прежнему
+  только убирает строку сервера об уроке.
+- **Разминка — смешанный набор по уровню** (`src/board_lock.py` `asks_warmup`, `src/tools/puzzles.py` `warmup_puzzles`).
+  Сервер читает слова карточки — «Разминка: дай мне 5 разных тактических задач по моему уровню.», "Warm-up: give me 5 different
+  tactical puzzles at my level.", «Жаттығу: маған деңгейіме сай 5 түрлі тактикалық есеп бер.» — и то же своими словами («Давай
+  разминку: три задачи»): слово о разминке, слово-просьба и слово о задачах. Набор собирается из базы задач Lichess: по одной
+  задаче из разных семейств тем (12 семейств: вилка, связка, сквозной удар, вскрытое нападение, висящая фигура, маты и т. д.),
+  рейтинг каждой — не дальше 200 от рейтинга ученика из профиля (без профиля — 1200; шкала 600–2800), ни одной из уже
+  показанных в этой сессии. Первая задача сразу на доске, остальные — в очереди сессии («Дальше»). Число — из слов, иначе пять.
+  Обычное «Дай мне тактическую задачу» значит то же, что раньше (очередная задача программы); «Разминка: дай задачи на вилку» —
+  задачи на эту тему. Если базы задач на сервере нет (шаг 7 не выполнен) или рядом с рейтингом ничего не нашлось, просьба идёт
+  как обычная — очередные задачи программы. Набор на базе Lichess собирается за ~0,02 с (Mac, 17.11; пример на уровне 1200:
+  темы capturingDefender, doubleCheck, intermezzo, clearance, pin, рейтинги 1204, 1149, 1215, 1152, 1297). Выключателя нет.
+- **Вопрос о своей доске отвечается по этой доске** (`src/question_position.py`, `src/board_lock.py`, `src/hypothetical.py`,
+  `src/voice_engine_note.py`). «Мат в один», «мат в 2 хода», "mate in two" — это счёт ходов на позиции, а не название
+  эндшпиля; эндшпиль, названный словами, которые показывают на доску ученика («тут», «сейчас», поле: «Как тут поставить мат
+  ладьёй?»), остаётся вопросом об этой доске — учебная позиция её не подменяет («Как поставить мат ладьёй?» без таких слов —
+  по-прежнему теория). К ходу, который ученик назвал и который даёт шах, сервер дописывает ответы на шах («king moves: Kh7») —
+  по ним видно, мат это или нет. Про линию, в которой никто ничего не взял, сказано «no material has changed hands» вместо
+  «the material is level again» (так тренер говорил «материал равный» при лишней ладье). Лучшая линия движка, которая кончается
+  ничьей без мата (пат, недостаточно материала), говорит, что осталось на доске: «After this line: … White: Ke1, Na8 … Black:
+  Kd7 … neither side has enough material to mate» — с одной пометкой «tablebase: DRAW» одинокий конь назывался «ладейным
+  эндшпилем».
+- **Ходы вставленной партии — это партия, а не идеи ученика** (`src/model_router.py` `without_game`,
+  `src/prompt_builder.py`). В разборе «Вот моя партия, где я ошибся? 1. e4 e5 …» названные учеником ходы читаются только из
+  слов вокруг партии (вопрос после партии — «А если бы 5.Bxf7+?» — свой ход сохраняет); раньше рядом с моментами движка в
+  сообщение модели попадало «Nc6: NOT legal for the side to move» про начальную позицию. Блок разбора теперь говорит прямо:
+  ход, которого нет в списке, потерял меньше 1,5 пешки и главной ошибкой или зевком не является (тренер называл главной
+  ошибкой 4.Nxe5 при первом в списке 5.Nxf7).
+- **Модель, которая не умеет отключать «раздумья», получает самый низкий уровень** (`src/config.py`,
+  `src/llm_transport.py`). Claude Sonnet 5.5 и Opus 5.5 на выключатель `reasoning: {enabled: false}` отвечают HTTP 400
+  («Reasoning is mandatory for this endpoint and cannot be disabled»), и ход без единой строки в логе уходил на запасную модель.
+  Для моделей из `COACH_REASONING_MANDATORY` (префиксы через запятую; по умолчанию
+  `anthropic/claude-sonnet-5.5,anthropic/claude-opus-5.5`) вместо выключателя шлётся уровень `minimal` (или
+  `COACH_REASONING_EFFORT`, если он задан уровнем) — как уже было для Gemini 3. На DeepSeek, Gemini, Haiku 5.5 и
+  `openai/gpt-6.1-terra` ничего не меняется. Ещё в `hermes/scripts/` добавлен скрипт замеров `blind_sheet.py` — сервер его не
+  использует.
+- **Озвучка «связки» может идти в ElevenLabs напрямую** (`src/voice_tts.py`). Это только режим `?voice=pipeline` на сайте;
+  обычный голосовой режим (Gemini Live) не затронут. Если в `.env` есть `ELEVENLABS_API_KEY` и модель озвучки названа
+  `elevenlabs/<model_id>`, запрос идёт в ElevenLabs с этим ключом и с названным языком (`ru` / `kk` / `en`), чтобы короткая
+  фраза не читалась на соседнем языке; остальные модели остаются на OpenRouter. Без ключа ничего не меняется (по умолчанию —
+  `google/gemini-3.8-flash-tts` через OpenRouter). Настройка — в подшаге 5а.
+- **Сайт (уже выложен пушем в `main`, отдельно делать ничего не нужно).** «Связка» озвучивает ход на языке слов ученика, а
+  не интерфейса; оборванное соединение в чате называется на языке ученика, а не «Failed to fetch»; установленное приложение
+  (PWA) поворачивается вместе с устройством. Карточка «Разминка» на сайте пока отправляет прежнее «Дай мне тактическую
+  задачу»: свои слова карточки включаются переключателем `WARMUP_OWN_REQUEST` в `frontend/src/lib/coach/daily-plan.ts`, и он
+  выключен, пока на сервере стоит Hermes старше 17.11. **Порядок такой:** сначала это обновление и отчёт с версией 17.11 и
+  проверками 78 и 81 — после этого переключатель включат на сайте. После обновления и до включения переключателя разминку
+  можно получить, написав её слова в чат.
+- **Чем проверено.** Тесты версии проходят (171 в шести файлах: `tests/unit/test_hint_no_solution_1117.py`,
+  `test_lesson_links_1117.py`, `test_warmup_1117.py`, `test_own_board_1115.py`, `test_voice_tts_2026_10_25.py`,
+  `test_engine_note_turn.py`). Команды проверок 76–81 выполнены 17.11 на Mac на коде этой версии, вывод «до обновления» — на
+  коде 11.11; настоящая модель и платные сервисы в них не вызываются.
+- Проверка 76 (без модели и без сервера; подсказка не рисует решение, решение — только по просьбе):
+
+```bash
+cd /root/hermes-chess && SUPABASE_URL= .venv/bin/python - <<'EOF'
+import json
+from src.board_markup import strip_markup
+from src.sessions import session_store
+from src.solution_guard import is_revealed, secret_moves, withhold_solution
+from src.tools.puzzles import _handle_puzzle_solution
+FEN, HINT = "6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1", "Подскажи идею в этой задаче, не называя ход."
+def arrows(*moves):
+    return [{"type": "draw_arrows", "arrows": [{"from": m[:2], "to": m[2:], "brush": "green"} for m in moves]}]
+def drawn(actions):
+    return [a["from"] + a["to"] for act in actions for a in act.get("arrows", [])]
+s = session_store.create("deploy-check")
+s.apply_board_actions([{"type": "set_puzzle", "fen": FEN, "solution": ["Ra8#"], "puzzle_id": "check76"}], board_id=s.ensure_board().id)
+board = lambda: s.get_board(s.active_board_id)
+secret = secret_moves(board())
+kept, held = withhold_solution(arrows("g8h8", "a1a8", "h2h3"), board())
+squares, _ = withhold_solution([{"type": "highlight_squares", "squares": ["a8", "g8", "a1"], "color": "red"}], board())
+text, marks = strip_markup("Начни с шаха — [[arrows: a1a8]].", FEN, secret=lambda: secret_moves(board()))
+hint = json.loads(_handle_puzzle_solution({}, session_id=s.id, student_message=HINT))
+closed = bool(hint.get("withheld")) and "board_actions" not in hint and "Ra8" not in json.dumps(hint) and not is_revealed(board())
+gave_up = json.loads(_handle_puzzle_solution({}, session_id=s.id, student_message="Сдаюсь, покажи решение"))
+after, held_after = withhold_solution(arrows("a1a8"), board())
+ok = secret == [("a1", "a8")] and drawn(kept) == ["g8h8", "h2h3"] and held == ["a1a8"] and squares[0]["squares"] == ["g8"] \
+    and marks == [] and "a8" not in text and closed and drawn(gave_up.get("board_actions") or []) == ["a1a8"] \
+    and is_revealed(board()) and drawn(after) == ["a1a8"] and held_after == []
+print("ОК" if ok else "ПРОВЕРЬ", "| скрыто:", secret, "| стрелки не из решения остались:", drawn(kept), "| стрелка решения задержана:", held,
+      "| подсветка без полей хода:", squares[0]["squares"], "| метка модели:", marks, repr(text), "| решение без просьбы закрыто:", closed,
+      "| «сдаюсь» показывает:", drawn(gave_up.get("board_actions") or []), "| после показа стрелка проходит:", drawn(after))
+EOF
+```
+
+  → `ОК | скрыто: [('a1', 'a8')] | стрелки не из решения остались: ['g8h8', 'h2h3'] | стрелка решения задержана: ['a1a8'] |
+  подсветка без полей хода: ['g8'] | метка модели: [] 'Начни с шаха —.' | решение без просьбы закрыто: True | «сдаюсь»
+  показывает: ['a1a8'] | после показа стрелка проходит: ['a1a8']` (до обновления — `ModuleNotFoundError: No module named
+  'src.solution_guard'`). `SUPABASE_URL=` задан только для этой команды (сессия проверки не пишется в базу), `.env` не
+  трогай; строки `Supabase not configured…` перед ответом — от него, это не ошибка (так же в проверке 78).
+- Проверка 77 (без модели и без сервера; адрес урока уходит ученику ссылкой с названием):
+
+```bash
+cd /root/hermes-chess && .venv/bin/python - <<'EOF'
+import json
+from src.lesson_links import LessonLinks, link_lessons
+from src.prompt_builder import PROMPT_TEMPLATE_VERSION
+from src.server import lesson_link_line
+URL = "https://chesster.io/learn/chess-basics/mate-in-one"
+SRC = [json.dumps({"lesson_id": "l1", "title": "Мат в один ход", "url": URL, "course": {"title": "Основы шахмат"}}, ensure_ascii=False)]
+bare = link_lessons("Пройди урок: chesster.io/learn/chess-basics/mate-in-one. Потом вернёмся.", SRC, "ru")
+unnamed = link_lessons("See chesster.io/learn/x/y", [], "en")
+school = link_lessons("Урок: chess-empire.chesster.io/learn/chess-basics/mate-in-one", SRC, "ru")
+kept = [f"Пройди [урок «Мат в один ход»]({URL}) и возвращайся.", "Партия: https://lichess.org/learn/x и chesster.io/pricing."]
+same = all(link_lessons(t, SRC, "ru") == t for t in kept)
+f = LessonLinks(lambda: SRC, "ru")
+stream = "".join(f.feed(p) for p in ["Урок: chess", "ter.io/learn/chess-ba", "sics/mate-in-one.", " Пройди его."]) + f.flush()
+line = lesson_link_line(SRC, "Объяснение без ссылки.", "ru")
+ok = bare == f"Пройди урок: [Мат в один ход]({URL}). Потом вернёмся." and unnamed == "See [lesson](https://chesster.io/learn/x/y)" \
+    and school == "Урок: [Мат в один ход](https://chess-empire.chesster.io/learn/chess-basics/mate-in-one)" and same \
+    and stream == f"Урок: [Мат в один ход]({URL}). Пройди его." and line == f"Урок на сайте: [«Мат в один ход»]({URL}) (Основы шахмат)" \
+    and PROMPT_TEMPLATE_VERSION == "21"
+print("ОК" if ok else "ПРОВЕРЬ", "| голый адрес:", bare, "| без названия:", unnamed, "| готовая ссылка и чужие адреса не тронуты:", same,
+      "| по кускам:", stream, "| строка сервера:", line, "| шаблон подсказки:", PROMPT_TEMPLATE_VERSION)
+EOF
+```
+
+  → `ОК | голый адрес: Пройди урок: [Мат в один ход](https://chesster.io/learn/chess-basics/mate-in-one). Потом вернёмся. | без
+  названия: See [lesson](https://chesster.io/learn/x/y) | готовая ссылка и чужие адреса не тронуты: True | по кускам: Урок: [Мат
+  в один ход](https://chesster.io/learn/chess-basics/mate-in-one). Пройди его. | строка сервера: Урок на сайте: [«Мат в один
+  ход»](https://chesster.io/learn/chess-basics/mate-in-one) (Основы шахмат) | шаблон подсказки: 21` (до обновления —
+  `ModuleNotFoundError: No module named 'src.lesson_links'`). Команда никуда не обращается: урок в ней — пример, а не запись
+  сайта.
+- Проверка 78 (без модели и без сервера; слова разминки и смешанный набор из базы задач):
+
+```bash
+cd /root/hermes-chess && SUPABASE_URL= .venv/bin/python - <<'EOF'
+import json
+from src import puzzle_db
+from src.board_lock import asks_warmup
+from src.intent import read_intent
+from src.sessions import session_store
+from src.tools import puzzles as pz
+CARD = ["Разминка: дай мне 5 разных тактических задач по моему уровню.", "Warm-up: give me 5 different tactical puzzles at my level.",
+        "Жаттығу: маған деңгейіме сай 5 түрлі тактикалық есеп бер."]
+words = [asks_warmup(t) and read_intent(t) == {"kind": "puzzle", "theme": None} and pz.count_in_words(t) == 5 for t in CARD]
+plain = [asks_warmup(t) for t in ("Дай мне тактическую задачу", "Маған жаттығу бер", "Дай подсказку к этой задаче из разминки")]
+db = puzzle_db.db_available()
+s = session_store.create("deploy-check")
+out = json.loads(pz._handle_get_puzzle({}, session_id=s.id, user_id="deploy-check", student_message=CARD[0]))
+got = out.get("puzzles") or []
+family = lambda theme: next((i for i, f in enumerate(pz.WARMUP_FAMILIES) if theme in f), None)
+themes = [p.get("warmup_theme") for p in got]
+near = all(abs(int(p.get("rating") or 0) - out.get("rating", 0)) <= pz.WARMUP_RATING_SPREAD for p in got)
+mixed = out.get("source") == "warmup" and len(got) == 5 and len({family(t) for t in themes}) == 5 and None not in map(family, themes) and near
+queued = len(s.puzzle_queue) == 4 and [a.get("type") for a in out.get("board_actions") or []] == ["set_puzzle"]
+ok = all(words) and not any(plain) and db and mixed and queued
+print("ОК" if ok else "ПРОВЕРЬ", "| слова карточки ru, en, kz:", words, "| обычные просьбы:", plain, "| база задач:", db,
+      "| источник:", out.get("source"), "| уровень:", out.get("rating"), "| темы:", themes, "| рейтинги:", [p.get("rating") for p in got],
+      "| разные и рядом с уровнем:", mixed, "| одна на доске, четыре в очереди:", queued)
+EOF
+```
+
+  → `ОК | слова карточки ru, en, kz: [True, True, True] | обычные просьбы: [False, False, False] | база задач: True | источник:
+  warmup | уровень: 1200 | темы: [<пять разных тем, например 'pin', 'attraction', 'hangingPiece', 'sacrifice', 'fork'>] |
+  рейтинги: [<пять чисел от 1000 до 1400>] | разные и рядом с уровнем: True | одна на доске, четыре в очереди: True` (до
+  обновления — `ImportError: cannot import name 'asks_warmup' from 'src.board_lock'`). Задачи каждый запуск другие; уровень
+  1200 — потому что у пользователя проверки нет профиля. `ПРОВЕРЬ` с `база задач: False` — база задач не собрана (шаг 7):
+  разминка на сервере идёт как обычная просьба (очередные задачи программы); это не СТОП, отметь в отчёте. `ПРОВЕРЬ` со
+  словами `False` при `база задач: True` — пришли вывод человеку.
+- Проверка 79 (без модели и без сервера; вопрос о своей доске, ответы на шах, вставленная партия, модели с обязательными
+  «раздумьями»):
+
+```bash
+cd /root/hermes-chess && .venv/bin/python - <<'EOF'
+import chess
+from src import config, hypothetical
+from src.model_router import without_game
+from src.prompt_builder import review_block
+from src.question_position import about_own_position, endgame_theory
+from src.server import _reasoning_config
+from src.voice_engine_note import _line_end
+own = endgame_theory("Тут есть мат в один? Ладья на d8?") is None and about_own_position("Как тут поставить мат ладьёй?") \
+    and endgame_theory("Как поставить мат ладьёй?") is not None and not about_own_position("Как поставить мат ладьёй?")
+b = chess.Board("6k1/5pp1/7p/8/8/8/5PPP/3R2K1 w - - 0 1")
+m = b.parse_san("Rd8+"); after = b.copy(stack=False); after.push(m)
+facts = " ".join(hypothetical.moved_piece_facts(b, after, m))
+check = "gives check" in facts and "king moves: Kh7" in facts
+outcome = hypothetical.line_outcome(b, m, ["Kh7", "Kf1", "h5"]) or ""
+left = _line_end(chess.Board("r3k3/8/8/3N4/8/8/8/4K3 w - - 0 1"), ["d5c7", "e8d7", "c7a8", "d7e6", "e1f2"], 5) or ""
+GAME = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nd4 4. Nxe5 Qg5 5. Nxf7 Qxg2 6. Rf1 Qxe4+ 7. Be2 Nf3#"
+pasted = [without_game("Вот моя партия, где я ошибся? " + GAME), without_game(GAME + " А если бы 5.Bxf7+?")]
+block = review_block({"total_moves": 14, "critical_moments": [{"move_number": 5, "side": "white", "move": "Nxf7", "type": "blunder",
+                                                               "eval_before": -0.28, "eval_after": -6.1, "best_move": "Bxf7+"}]})
+unlisted = "5.Nxf7" in block and "not listed lost less than 1.5 pawns" in block
+think = [_reasoning_config(x) for x in ("anthropic/claude-sonnet-5.5", "anthropic/claude-opus-5.5", "anthropic/claude-haiku-5.5")]
+ok = own and check and "no material has changed hands" in outcome and "Na8" in left and "Kd7" in left and "enough material to mate" in left \
+    and pasted == ["Вот моя партия, где я ошибся?", "А если бы 5.Bxf7+?"] and unlisted \
+    and all(t and t.get("effort") for t in think[:2]) and think[2] == {"enabled": False}
+print("ОК" if ok else "ПРОВЕРЬ", "| вопрос о своей доске не теория:", bool(own), "| ответы на шах названы:", check, "| итог линии:", outcome or None,
+      "| что осталось:", left or None, "| слова вокруг партии:", pasted, "| ход вне списка не главная ошибка:", unlisted,
+      "| раздумья Sonnet 5.5, Opus 5.5, Haiku 5.5:", think, "| COACH_REASONING_MANDATORY:", config.COACH_REASONING_MANDATORY)
+EOF
+```
+
+  → `ОК | вопрос о своей доске не теория: True | ответы на шах названы: True | итог линии: At the end of this line no material
+  has changed hands. | что осталось: After this line: Pieces on the board — White: Ke1, Na8; no pawns. Black: Kd7; no pawns —
+  neither side has enough material to mate: the game is a draw. | слова вокруг партии: ['Вот моя партия, где я ошибся?', 'А если
+  бы 5.Bxf7+?'] | ход вне списка не главная ошибка: True | раздумья Sonnet 5.5, Opus 5.5, Haiku 5.5: [{'effort': 'minimal'},
+  {'effort': 'minimal'}, {'enabled': False}] | COACH_REASONING_MANDATORY: ('anthropic/claude-sonnet-5.5',
+  'anthropic/claude-opus-5.5')` (до обновления — `ImportError: cannot import name 'without_game' from 'src.model_router'`).
+  Если у Sonnet и Opus вместо `minimal` другой уровень — в `.env` задан `COACH_REASONING_EFFORT` уровнем (это тоже `ОК`); если
+  список `COACH_REASONING_MANDATORY` другой — он задан в `.env`: выпиши в отчёт, не меняй.
+- Проверка 80 (без модели, без сервера и без сети; куда уходит озвучка «связки» — вызовы наружу в команде подменены):
+
+```bash
+cd /root/hermes-chess && .venv/bin/python - <<'EOF'
+import asyncio, os
+from src import config, voice_tts
+VARS = ("ELEVENLABS_API_KEY", "COACH_TTS_MODEL", "COACH_TTS_VOICE", "COACH_TTS_MODEL_KK", "COACH_TTS_VOICE_KK")
+now = {"ru": voice_tts.model_and_voice("ru"), "kk": voice_tts.model_and_voice("kk"), "ключ ElevenLabs": bool(os.environ.get("ELEVENLABS_API_KEY", "").strip())}
+calls = []
+class Resp:
+    status_code, headers = 200, {"content-type": "audio/pcm;rate=24000"}
+async def router(key, model, voice, text):
+    calls.append(("OpenRouter", model, voice)); return None, Resp()
+async def eleven(key, model, voice, text, language):
+    calls.append(("ElevenLabs", model, voice, language)); return None, Resp()
+voice_tts.open_stream, voice_tts.open_elevenlabs_stream = router, eleven
+def say(locale, **env):
+    for k in VARS:
+        os.environ.pop(k, None)
+    os.environ.update(env); os.environ.setdefault("OPENROUTER_API_KEY", "check")
+    return asyncio.run(voice_tts.speak("Хороший ход.", locale)).headers.get("x-tts-model")
+EL = {"COACH_TTS_MODEL": "elevenlabs/eleven_v4_turbo", "COACH_TTS_VOICE": "EXAVITQu4vr4xnSDxMaL",
+      "COACH_TTS_MODEL_KK": "elevenlabs/eleven_v4_turbo", "COACH_TTS_VOICE_KK": "EXAVITQu4vr4xnSDxMaL"}
+heads = [say("ru"), say("ru", ELEVENLABS_API_KEY="check", **EL), say("kk", ELEVENLABS_API_KEY="check", **EL), say("ru", **EL)]
+ok = calls == [("OpenRouter", "google/gemini-3.8-flash-tts", "Kore"), ("ElevenLabs", "eleven_v4_turbo", "EXAVITQu4vr4xnSDxMaL", "ru"),
+               ("ElevenLabs", "eleven_v4_turbo", "EXAVITQu4vr4xnSDxMaL", "kk"), ("OpenRouter", "elevenlabs/eleven_v4_turbo", "EXAVITQu4vr4xnSDxMaL")] \
+    and heads == ["google/gemini-3.8-flash-tts"] + ["elevenlabs/eleven_v4_turbo"] * 3
+print("ОК" if ok else "ПРОВЕРЬ", "| без переменных:", calls[0], "| с ключом, ru:", calls[1], "| с ключом, kk:", calls[2],
+      "| модель ElevenLabs без ключа уходит в:", calls[3][0], "| X-Tts-Model:", heads, "| сейчас в .env:", now)
+EOF
+```
+
+  → `ОК | без переменных: ('OpenRouter', 'google/gemini-3.8-flash-tts', 'Kore') | с ключом, ru: ('ElevenLabs',
+  'eleven_v4_turbo', 'EXAVITQu4vr4xnSDxMaL', 'ru') | с ключом, kk: ('ElevenLabs', 'eleven_v4_turbo', 'EXAVITQu4vr4xnSDxMaL',
+  'kk') | модель ElevenLabs без ключа уходит в: OpenRouter | X-Tts-Model: ['google/gemini-3.8-flash-tts',
+  'elevenlabs/eleven_v4_turbo', 'elevenlabs/eleven_v4_turbo', 'elevenlabs/eleven_v4_turbo'] | сейчас в .env: {'ru':
+  ('google/gemini-3.8-flash-tts', 'Kore'), 'kk': ('google/gemini-3.8-flash-tts', 'Kore'), 'ключ ElevenLabs': False}`. До
+  обновления — `ПРОВЕРЬ | … | с ключом, ru: ('OpenRouter', 'elevenlabs/eleven_v4_turbo', 'EXAVITQu4vr4xnSDxMaL') | …` (ключ
+  ElevenLabs не читался, всё шло в OpenRouter). Ключи и переменные в команде — подставные, только внутри неё: ни одного запроса
+  наружу нет, `.env` не меняется. Хвост `сейчас в .env` показывает настоящую настройку сервера: такой, как здесь, — если
+  подшаг 5а (голос) не выполнялся; после него — `elevenlabs/eleven_v4_turbo`, голос `EXAVITQu4vr4xnSDxMaL` и `'ключ ElevenLabs':
+  True` (сам ключ не печатается). Пара `elevenlabs/…` при `'ключ ElevenLabs': False` — ошибка настройки: озвучка «связки»
+  уходит в OpenRouter, где этой модели нет; напиши человеку.
+- Проверка 81 (без модели, после шага 8; на работающем сервере: разминка через голосовой мост и ответы на шах в идее ученика):
+
+```bash
+cd /root/hermes-chess && .venv/bin/python - <<'EOF'
+import json, os, urllib.request as u
+URL = os.environ.get("HERMES_URL", "http://localhost:8642")
+H = {"Content-Type": "application/json", "X-User-Id": "deploy-check"}
+def call(path, body=None, method="POST"):
+    return json.load(u.urlopen(u.Request(URL + path, None if body is None else json.dumps(body).encode(), H, method=method), timeout=60))
+def result(r):
+    return json.loads(r["result"]) if isinstance(r.get("result"), str) else (r.get("result") or {})
+CARD = "Разминка: дай мне 5 разных тактических задач по моему уровню."
+sid = call("/api/coach/sessions", {})["id"]
+def puzzle(said):
+    r = call("/api/coach/tool/get_puzzle", {"args": {}, "session_id": sid, "utterance": said, "locale": "ru"})
+    return result(r), [a.get("puzzle_id") for a in r.get("board_actions") or [] if a.get("type") == "set_puzzle"]
+warm, first = puzzle(CARD)
+nxt, second = puzzle("Дальше")
+call("/api/coach/sessions/" + sid, method="DELETE")
+ids = [p.get("puzzle_id") for p in warm.get("puzzles") or []]
+themes = [p.get("warmup_theme") for p in warm.get("puzzles") or []]
+idea = call("/api/coach/voice/idea", {"text": "Тут есть мат в один? Ладья на d8?", "fen": "6k1/5pp1/7p/8/8/8/5PPP/3R2K1 w - - 0 1"}).get("note") or ""
+replies = "gives check" in idea and "king moves: Kh7" in idea
+ok = warm.get("source") == "warmup" and len(ids) == 5 and len(set(themes)) == 5 and first == ids[:1] and second == ids[1:2] \
+    and nxt.get("left_in_queue") == 3 and replies
+print("ОК" if ok else "ПРОВЕРЬ", "| разминка:", warm.get("source"), "| уровень:", warm.get("rating"), "| темы:", themes,
+      "| первая на доске:", bool(first) and first == ids[:1], "| «Дальше» — вторая из набора:", bool(second) and second == ids[1:2],
+      "| осталось в очереди:", nxt.get("left_in_queue"), "| ответы на шах Rd8+ названы:", replies)
+EOF
+```
+
+  → `ОК | разминка: warmup | уровень: 1200 | темы: [<пять разных тем>] | первая на доске: True | «Дальше» — вторая из набора:
+  True | осталось в очереди: 3 | ответы на шах Rd8+ названы: True`. До обновления — `ПРОВЕРЬ | разминка: <site_lesson или
+  None> | … | темы: [None, None, None, None, None] | … | ответы на шах Rd8+ названы: False` (пять очередных задач вместо
+  смешанного набора). Запросы идут от пользователя `deploy-check`; сессия проверки создаётся и в конце удаляется, ни
+  одна доска учеников не меняется; вторая часть считает один ход движком (Stockfish), модель не вызывается. `ПРОВЕРЬ` с
+  `разминка: site_lesson` при верном последнем поле — на сервере нет базы задач (см. проверку 78): отметь в отчёте, не СТОП.
 
 Новое в версии 11.11 (голосовой тренер: позиция, о которой он говорит, стоит на доске; служебные записи не звучат и не
 показываются. Код — `hermes/` (`src/`, `content/lessons/stupeni_steps_1-3.json`, тесты) и страница тренера на сайте
@@ -1912,6 +2243,20 @@ test -f chess-ultimate-app/hermes/src/unshown_board.py \
 
 Если «НЕТ версии 11.11»: **СТОП** — ветка `coach/voice-demo-1111` ещё не влита; напиши Александру, ничего не обновляй.
 
+Версия 17.11 в main:
+
+```bash
+test -f chess-ultimate-app/hermes/src/solution_guard.py \
+  && test -f chess-ultimate-app/hermes/src/lesson_links.py \
+  && grep -q 'def asks_warmup' chess-ultimate-app/hermes/src/board_lock.py \
+  && grep -q 'def about_own_position' chess-ultimate-app/hermes/src/question_position.py \
+  && grep -q 'COACH_REASONING_MANDATORY' chess-ultimate-app/hermes/src/config.py \
+  && grep -q 'ELEVENLABS_API_KEY' chess-ultimate-app/hermes/src/voice_tts.py \
+  && echo "версия 17.11 в main есть" || echo "НЕТ версии 17.11"
+```
+
+Если «НЕТ версии 17.11»: **СТОП** — ветка `release/site-1117` ещё не влита; напиши Александру, ничего не обновляй.
+
 ## Шаг 2. Резервная копия
 
 ```bash
@@ -2051,6 +2396,18 @@ for v in HERMES_ADMIN_TOKEN WHOP_WEBHOOK_SECRET SUPABASE_URL SUPABASE_SERVICE_KE
   рекомендации движком, `0` выключает), `COACH_MOVE_VERIFY_MOVETIME_MS` (300), `COACH_MOVE_VERIFY_CP` (150 —
   порог потери в сотых пешки), `COACH_MOVE_VERIFY_PER_TURN` (2). Если какая-то из них уже есть в `.env`,
   выпиши значение в отчёт.
+- Новое в 17.11 (обязательных переменных нет): `COACH_REASONING_MANDATORY` — список моделей, которым вместо выключателя
+  «раздумий» шлётся самый низкий уровень (по умолчанию `anthropic/claude-sonnet-5.5,anthropic/claude-opus-5.5`; задавать не
+  нужно); `ELEVENLABS_API_KEY` — необязательный ключ для озвучки режима «связка», только в подшаге 5а. Проверь, что из
+  связанного уже задано (печатаются только имена):
+  ```bash
+  cd /root/hermes-chess && for v in COACH_REASONING_MANDATORY COACH_REASONING_EFFORT COACH_LESSON_LINK ELEVENLABS_API_KEY \
+      COACH_TTS_MODEL COACH_TTS_VOICE COACH_TTS_MODEL_KK COACH_TTS_VOICE_KK COACH_MODEL_DEFAULT COACH_MODEL_FAST \
+      COACH_MODEL_ANALYSIS COACH_MODEL_DEEP COACH_MODEL_UTILITY COACH_MODEL_FALLBACK COACH_MODEL_QUICK; do
+    grep -q "^$v=" .env && echo "$v: задана" || echo "$v: нет"; done
+  ```
+  Ничего из этого здесь не добавляй и не меняй; что задано — выпиши в отчёт (у `ELEVENLABS_API_KEY` — только «задана»,
+  значения остальных можно). Модель и голос — в подшаге 5а ниже.
 - Новое в 11.11 (ничего задавать не нужно): новых переменных нет; два новых имени детекторов для уже существующих
   `COACH_DETECTORS_OFF` / `COACH_DETECTORS_SHADOW` — `unshown_board_voice` (по умолчанию включён) и `unshown_board` (по
   умолчанию только запись в лог). Проверь, не заданы ли эти списки: `cd /root/hermes-chess && grep -E
@@ -2074,6 +2431,136 @@ for v in HERMES_ADMIN_TOKEN WHOP_WEBHOOK_SECRET SUPABASE_URL SUPABASE_SERVICE_KE
 - Новое в 04.11 (ничего задавать не нужно): `COACH_DB_CLAIM_CHECK` и `COACH_LOADED_GAME_CHECK` — проверки фраз про базу
   партий и про ходы загруженной партии, `off | shadow | on`, по умолчанию `shadow` (только событие `db_check` в логе, ничего
   не вырезается). Не добавляй их в `.env`; если какая-то уже есть — выпиши значение в отчёт.
+
+### 5а. Модель и голос для показа (по решению Асана)
+
+Отдельный подшаг: он меняет не код, а то, какая модель отвечает ученику и каким голосом говорит режим «связка». Его можно
+пропустить — остальное обновление от него не зависит.
+
+- В сообщении, с которым пришёл этот файл, сказано «подшаг 5а пропустить» — ничего в нём не меняй, в отчёте напиши
+  «5а: пропущен по указанию» (строку с моделями уровней из части 1 всё равно сними для отчёта — она только читает).
+- Иначе выполни часть 1 (модель). Часть 2 (голос) — **только если вместе с файлом передан ключ ElevenLabs**; ключа нет —
+  часть 2 не выполняй вовсе и в отчёте напиши «голос: ключ не передан, не менялся».
+
+**Часть 1. Основная модель тренера — `openai/gpt-6.1-terra`.**
+
+Модели уровней записаны в `profiles/chess-coach/config.yaml` (`model_tiers`); переменная `COACH_MODEL_<УРОВЕНЬ>` в `.env`
+перекрывает уровень без выкладки (`src/config.py`, `get_model_config`). Задаются три переменные:
+
+| Переменная | Что идёт через этот уровень | Сейчас |
+|---|---|---|
+| `COACH_MODEL_FAST` | всё, что спрашивает ученик (позиции, задачи, дебюты, советы); она же пишет первую короткую реакцию, пока не задана `COACH_MODEL_QUICK` | `deepseek/deepseek-v4.1-flash` |
+| `COACH_MODEL_ANALYSIS` | вопросы, которые маршрутизатор относит к анализу | `deepseek/deepseek-v4.1-flash` |
+| `COACH_MODEL_UTILITY` | служебные вызовы: судья режима «лучший из двух», записи памяти | `deepseek/deepseek-v4.1-flash` |
+
+Разбор партий (`deep`) и запасная модель (`fallback`) остаются `google/gemini-3.8-flash` — их не трогай.
+
+Что известно по замеру 15–16.11: на 54 трудных вопросах `openai/gpt-6.1-terra` дала 51–52 верных ответа против 38–40 у
+`deepseek/deepseek-v4.1-flash`; стоит около $0,008 за ответ против $0,0015; ответ начинается примерно через 2,9 с против
+1,4 с. Ключ OpenRouter тот же, поэтому за остатком нужно следить: остаток из шага 3 выпиши в отчёт рядом с этим подшагом, а
+если он меньше $10 — напиши об этом в «Что нужно от людей».
+
+Сначала посмотри, что уже задано и есть ли модель в каталоге OpenRouter (запрос к каталогу бесплатный и без ключа):
+
+```bash
+cd /root/hermes-chess && for v in COACH_MODEL_DEFAULT COACH_MODEL_FAST COACH_MODEL_ANALYSIS COACH_MODEL_DEEP COACH_MODEL_UTILITY COACH_MODEL_FALLBACK COACH_MODEL_QUICK; do
+  grep -q "^$v=" .env && echo "$v: задана — $(grep "^$v=" .env | tail -1 | cut -d= -f2-)" || echo "$v: нет"; done
+curl -s --max-time 20 https://openrouter.ai/api/v1/models | python3 -c 'import sys,json; ids={m["id"] for m in json.load(sys.stdin)["data"]}; print("openai/gpt-6.1-terra в каталоге OpenRouter:", "openai/gpt-6.1-terra" in ids)'
+```
+
+- `COACH_MODEL_FAST`, `COACH_MODEL_ANALYSIS` или `COACH_MODEL_UTILITY` уже заданы (любым значением): строки не меняй
+  (правило «только добавлять»), часть 1 не выполняй, выпиши значения в отчёт и спроси человека.
+- Каталог ответил `False` или не ответил: часть 1 не выполняй, напиши об этом в отчёте.
+
+Добавь три строки (работающий процесс при этом не трогается, он подхватит их на шаге 8):
+
+```bash
+cd /root/hermes-chess && { [ -z "$(tail -c1 .env)" ] || echo >> .env; } \
+  && printf '%s\n' 'COACH_MODEL_FAST=openai/gpt-6.1-terra' 'COACH_MODEL_ANALYSIS=openai/gpt-6.1-terra' 'COACH_MODEL_UTILITY=openai/gpt-6.1-terra' >> .env \
+  && echo "модель: три переменные добавлены"
+```
+
+Какую модель сервер прочитает для каждого уровня (без модели и без сети; запусти и тогда, когда часть 1 пропущена, — строка
+идёт в отчёт):
+
+```bash
+cd /root/hermes-chess && .venv/bin/python -c "
+from src.config import get_model_config, quick_model, utility_model
+t = get_model_config()['tiers']
+print('fast:', t.get('fast'), '| analysis:', t.get('analysis'), '| utility:', utility_model(), '| deep:', t.get('deep'), '| fallback:', t.get('fallback'), '| первая реакция:', quick_model())"
+```
+
+→ после части 1: `fast: openai/gpt-6.1-terra | analysis: openai/gpt-6.1-terra | utility: openai/gpt-6.1-terra | deep:
+google/gemini-3.8-flash | fallback: google/gemini-3.8-flash | первая реакция: openai/gpt-6.1-terra`; без неё на местах первых
+трёх и последнего — `deepseek/deepseek-v4.1-flash`.
+
+После шага 8 и проверок 3–6 шага 9 убедись, что отвечает именно она:
+
+```bash
+pm2 logs hermes-chess --lines 400 --nostream | grep 'turn timings' | tail -3
+```
+
+В строках ходов с `"tier": "fast"` должно быть `"model": "openai/gpt-6.1-terra"` — это модель, которая на самом деле написала
+ответ. Если там `google/gemini-3.8-flash`, ход ушёл на запасную модель: пришли человеку эти строки и последние 80 строк
+`pm2 logs hermes-chess --nostream`. С этой моделью времена проверок 4–7 шага 9 будут на 1–3 с больше прежних (на замере
+16.11 весь ответ — обычно 3–7 с); нормы таблицы остаются. В таблице цен Hermes (`src/model_prices.py`) этой модели нет:
+расход в учёте Hermes считается по цене по умолчанию, в логе один раз появится строка `model_prices: no price for
+'openai/gpt-6.1-terra', using DEFAULT_PRICE` — это не ошибка; настоящий расход смотреть на OpenRouter.
+
+Вернуть прежнюю модель: убрать эти три строки из `.env` и `pm2 restart hermes-chess` (команда — в разделе «Откат»).
+
+**Часть 2. Голос режима «связка» — ElevenLabs (только с ключом от Асана).**
+
+Касается только режима `?voice=pipeline` на сайте: там ответ тренера озвучивает Hermes (`src/voice_tts.py`). Обычный
+голосовой режим (Gemini Live) эти переменные не читает и не меняется.
+
+**Без ключа ElevenLabs четыре переменные `COACH_TTS_…` задавать НЕЛЬЗЯ.** Имя модели `elevenlabs/eleven_v4_turbo` без ключа
+уходит в OpenRouter, где такой модели нет, — озвучка «связки» перестанет работать (ответ 502 вместо звука). Поэтому либо все
+пять строк, либо ни одной:
+
+```
+ELEVENLABS_API_KEY=<ключ передаст Асан>
+COACH_TTS_MODEL=elevenlabs/eleven_v4_turbo
+COACH_TTS_VOICE=EXAVITQu4vr4xnSDxMaL
+COACH_TTS_MODEL_KK=elevenlabs/eleven_v4_turbo
+COACH_TTS_VOICE_KK=EXAVITQu4vr4xnSDxMaL
+```
+
+Посмотри, что уже задано (печатаются только имена):
+
+```bash
+cd /root/hermes-chess && for v in ELEVENLABS_API_KEY COACH_TTS_MODEL COACH_TTS_VOICE COACH_TTS_MODEL_KK COACH_TTS_VOICE_KK; do
+  grep -q "^$v=" .env && echo "$v: задана" || echo "$v: нет"; done
+```
+
+Если какая-то из пяти уже задана — ничего не меняй, выпиши имена в отчёт и спроси человека. Иначе впиши в `.env` строку
+`ELEVENLABS_API_KEY=…` сам (значение — из сообщения, на место `<ключ передаст Асан>`; в чат, в вывод команд и в отчёт ключ
+не печатай), потом добавь остальные четыре командой — она сначала проверяет, что ключ на месте:
+
+```bash
+cd /root/hermes-chess && grep -q '^ELEVENLABS_API_KEY=.' .env \
+  && { [ -z "$(tail -c1 .env)" ] || echo >> .env; } \
+  && printf '%s\n' 'COACH_TTS_MODEL=elevenlabs/eleven_v4_turbo' 'COACH_TTS_VOICE=EXAVITQu4vr4xnSDxMaL' \
+     'COACH_TTS_MODEL_KK=elevenlabs/eleven_v4_turbo' 'COACH_TTS_VOICE_KK=EXAVITQu4vr4xnSDxMaL' >> .env \
+  && echo "голос: четыре переменные добавлены" || echo "КЛЮЧА НЕТ — переменные голоса не добавлены"
+```
+
+Без сети настройку показывает хвост проверки 80: `сейчас в .env: {'ru': ('elevenlabs/eleven_v4_turbo',
+'EXAVITQu4vr4xnSDxMaL'), 'kk': ('elevenlabs/eleven_v4_turbo', 'EXAVITQu4vr4xnSDxMaL'), 'ключ ElevenLabs': True}`.
+
+Какой голос отвечает на самом деле — после шага 8, по заголовку ответа `X-Tts-Model` (два коротких платных запроса озвучки,
+доли цента; запускай, только если часть 2 выполнена):
+
+```bash
+for L in ru kk; do curl -s -o /dev/null -D - --max-time 30 -X POST localhost:8642/api/coach/voice/tts -H 'Content-Type: application/json' \
+  -H 'X-User-Id: deploy-check' -d '{"text":"Хороший ход.","locale":"'$L'"}' | tr -d '\r' | grep -iE '^HTTP|^x-tts-model|^x-sample-rate' | tr '\n' ' '; echo "($L)"; done
+```
+
+→ `HTTP/1.1 200 OK x-sample-rate: 24000 x-tts-model: elevenlabs/eleven_v4_turbo (ru)` и такая же строка с `(kk)`. Если в
+заголовке `google/gemini-3.8-flash-tts` — переменные не прочитаны (процесс не перезапущен или строки с опечаткой). Если
+`HTTP/1.1 502` — ElevenLabs отказал: `pm2 logs hermes-chess --lines 80 --nostream | grep 'voice tts'` покажет строку
+`voice tts: upstream <код> …` (401 — ключ неверный); пришли её человеку, а чтобы «связка» не молчала, сразу убери все пять
+строк и перезапусти (раздел «Откат»).
 
 ## Шаг 6. Миграции Supabase
 
@@ -2379,6 +2866,21 @@ for s in $(cat sid-after sid-before); do
 `COACH_MODEL_DEFAULT=google/gemini-3.8-flash`, `COACH_MODEL_FAST=google/gemini-3.8-flash`,
 `COACH_MODEL_ANALYSIS=google/gemini-3.8-flash`, потом `pm2 restart hermes-chess`.
 
+Вернуть модель и голос, заданные в подшаге 5а (без отката кода; перед правкой `.env` сохраняется рядом):
+- модель — убрать три строки `COACH_MODEL_…=openai/gpt-6.1-terra` (тренер снова отвечает моделями из `config.yaml`):
+  ```bash
+  cd /root/hermes-chess && cp .env /root/hermes-update/env-before-5a-revert && chmod 600 /root/hermes-update/env-before-5a-revert \
+    && sed -i -E '/^COACH_MODEL_(FAST|ANALYSIS|UTILITY)=openai\/gpt-6\.1-terra$/d' .env && pm2 restart hermes-chess
+  ```
+- голос — убрать `ELEVENLABS_API_KEY` и четыре строки `COACH_TTS_…` **все вместе** (озвучка «связки» снова идёт через
+  OpenRouter, `google/gemini-3.8-flash-tts`); оставлять `COACH_TTS_…=elevenlabs/…` без ключа нельзя:
+  ```bash
+  cd /root/hermes-chess && cp .env /root/hermes-update/env-before-5a-revert && chmod 600 /root/hermes-update/env-before-5a-revert \
+    && sed -i -E '/^(ELEVENLABS_API_KEY|COACH_TTS_MODEL|COACH_TTS_VOICE|COACH_TTS_MODEL_KK|COACH_TTS_VOICE_KK)=/d' .env && pm2 restart hermes-chess
+  ```
+
+У защиты решения задачи, ссылок на уроки и разминки (17.11) выключателей в `.env` нет — они убираются только откатом кода.
+
 Откатить настройки скорости, без отката кода (строки в `.env`, потом `pm2 restart hermes-chess`):
 - `COACH_REASONING_EFFORT=low` — вернуть DeepSeek его «раздумья» (медленнее в 3–10 раз, иногда
   аккуратнее в сложных оценках);
@@ -2410,6 +2912,8 @@ for s in $(cat sid-after sid-before); do
   `COACH_REVIEW_NO_RESCAN=0` — оставить модели `find_critical_moments`/`review_game` и в ходе с готовым разбором;
   `COACH_PRECOMPUTE=0` — вообще не считать позиции заранее (ответы по позиции и в партии медленнее примерно на 1 с).
 - `COACH_STREAM_SENTENCE_STARTS=1` — снова отдавать начало предложения до его проверки (быстрее, но бывают обрывки).
+- `COACH_REASONING_MANDATORY=` (пусто) — не подменять выключатель «раздумий» для Claude Sonnet 5.5 / Opus 5.5 (поведение до
+  17.11; на DeepSeek, Gemini и `openai/gpt-6.1-terra` не влияет).
 
 ## Отчёт (пришли человеку в таком виде)
 
@@ -2425,6 +2929,11 @@ COACH_DB_CLAIM_CHECK=<значение или «не задана»>, COACH_LOAD
 COACH_REWRITE_PROOF, COACH_DETECTORS_OFF, COACH_DETECTORS_SHADOW, STOCKFISH_POOL=<значения или «не заданы»>
 COACH_STUDENT_SIDE, STOCKFISH_MAX_MS, STOCKFISH_EXACT_MAX_MS, COACH_VOICE_CHECK_BUDGET_MS=<значения или «не заданы»>
 COACH_REVIEW_BOARD, COACH_REVIEW_NO_RESCAN, COACH_PRECOMPUTE_PLAN, COACH_PRECOMPUTE, ENGINE_API_URL=<значения или «не заданы»>
+COACH_REASONING_MANDATORY, COACH_REASONING_EFFORT, COACH_LESSON_LINK=<значения или «не заданы»>
+5а модель: <три COACH_MODEL_…=openai/gpt-6.1-terra добавлены / пропущен по указанию / не выполнен — почему>
+  уровни: fast <…>, analysis <…>, utility <…>, deep <…>, fallback <…>, первая реакция <…>; в turn timings после шага 9 — model <…>
+5а голос «связки»: ElevenLabs <включён: ключ задан, четыре COACH_TTS_… добавлены / не включён: ключ не передан / не менялся — почему>
+  X-Tts-Model: ru <…>, kk <…> <или «не проверялся»>
 Миграции 016–019: применены / нужно применить вручную в Supabase SQL Editor
 База задач: собрана (<размер>) / не собрана (<почему>)
 Проверки:
@@ -2479,6 +2988,12 @@ COACH_REVIEW_BOARD, COACH_REVIEW_NO_RESCAN, COACH_PRECOMPUTE_PLAN, COACH_PRECOMP
   73 11.11 — диаграммы «Шах и мат», урок по слову, правда инструмента <ОК/ПРОВЕРЬ>, шах <урок, позиция>, мат <урок, позиция>
   74 11.11 — тренер показывает на пустую доску <ОК/ПРОВЕРЬ>, голос/текст <on/shadow>
   75 11.11 — на сервере: unshown <True/None>, «что такое шах» на доске <…>, урок «Шах» на доске <…>
+  76 17.11 — подсказка не рисует решение, решение только по просьбе <ОК/ПРОВЕРЬ>
+  77 17.11 — адрес урока уходит ссылкой с названием <ОК/ПРОВЕРЬ>, шаблон подсказки <21/…>
+  78 17.11 — слова разминки и смешанный набор <ОК/ПРОВЕРЬ>, база задач <True/False>, темы <…>, рейтинги <…>
+  79 17.11 — своя доска, ответы на шах, вставленная партия, обязательные «раздумья» <ОК/ПРОВЕРЬ>
+  80 17.11 — озвучка «связки»: куда уходит запрос <ОК/ПРОВЕРЬ>, сейчас в .env <модель и голос ru / kk, ключ ElevenLabs True/False>
+  81 17.11 — на сервере: разминка <warmup/…>, темы <…>, «Дальше» — вторая из набора <True/False>, ответы на шах <True/False>
 Бэкенд (фото доски): <обновлён, коммит …, grep PHOTO_FEN_ATTEMPTS = … / не обновлён — почему>
 Что нужно от людей: <список или «ничего»>
 ```
