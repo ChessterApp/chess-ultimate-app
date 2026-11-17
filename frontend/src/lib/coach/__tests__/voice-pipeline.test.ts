@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  extendsSentText, fillerFor, groupChunks, localeOf, looksLikeMove, movePhrase, newWords, rotationDue, turnLocale, speakable, spokenMove, splitLong, takeSentences, ttsRetryDelay, utteranceReady,
+  extendsSentText, sameSentText, fillerFor, groupChunks, localeOf, looksLikeMove, movePhrase, newWords, rotationDue, turnLocale, speakable, spokenMove, splitLong, takeSentences, ttsRetryDelay, utteranceReady,
   SILENCE_MS, STT_STABLE_MS, STT_STABLE_SLOW_MS, STT_ROTATE_MS, STT_ROTATE_HARD_MS, STT_QUIET_MS, TTS_WAIT_MAX_MS,
 } from '../voice-pipeline';
 
@@ -149,6 +149,12 @@ describe('the final transcript that extends an interim one already sent (25.10)'
     expect(extendsSentText('Давай сыграем.', 'Давай сыграем.')).toBe(false);   // nothing new: no second send
     expect(extendsSentText('Что думаешь про позицию?', 'Давай сыграем.')).toBe(false);
     expect(extendsSentText('', 'Давай')).toBe(false);
+  });
+  it('is the turn already sent when only the case or the punctuation differs (17.11)', () => {
+    expect(sameSentText('Разминка. Дай мне пять разных тактических задач по моему уровню.', 'разминка. Дай мне пять разных тактических задач по моему уровню.')).toBe(true);
+    expect(sameSentText('Давай сыграем!', 'давай сыграем')).toBe(true);
+    expect(sameSentText('Давай сыграем, я белыми.', 'Давай сыграем.')).toBe(false);   // longer: replaced whole (above)
+    expect(sameSentText('', '')).toBe(false);
   });
 });
 

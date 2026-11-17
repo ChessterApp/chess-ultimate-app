@@ -61,9 +61,6 @@ export type PlanAction =
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 
 /** What tapping a card does: a message to the coach (the review carries its game's id) or the play sheet. */
-/** The warm-up card asks in its own words («Разминка: дай мне 5 разных…»). Off until production Hermes reads them. */
-export const WARMUP_OWN_REQUEST = false;
-
 export function planAction(card: DailyPlanCard, t: Translate): PlanAction {
   switch (card.type) {
     case 'review_last_game':
@@ -74,9 +71,9 @@ export function planAction(card: DailyPlanCard, t: Translate): PlanAction {
       // the generic «Дай мне тактическую задачу» is the next task of the student's programme, and a beginner got
       // five near-identical rook mates of one set (tester, 16.11). Hermes reads these words as a mixed set at the
       // student's level (hermes/src/board_lock.py asks_warmup — the three texts are pinned by its tests).
-      // HELD until Hermes of 17.11 is on production: the coach server there does not read the warm-up words yet, so
-      // for now the card keeps the generic request. Switch `WARMUP_OWN_REQUEST` to true once the update is installed.
-      return { kind: 'send', text: themeKey ? t('planSpotPrompt', { theme: t(themeKey) }) : t(WARMUP_OWN_REQUEST ? 'promptWarmup' : 'promptPuzzle') };
+      // Only a server that reads them is sent them: Hermes marks the card `warmup` (17.11). An older server took
+      // the words for five puzzles to set at once and left the last on the board — it keeps the generic request.
+      return { kind: 'send', text: themeKey ? t('planSpotPrompt', { theme: t(themeKey) }) : t(card.warmup ? 'promptWarmup' : 'promptPuzzle') };
     }
     case 'opening_lesson':
       return { kind: 'send', text: t('planOpeningPrompt', { name: card.name, eco: card.eco }) };

@@ -10,6 +10,10 @@ import en from '../../../../messages/en.json';
 import ru from '../../../../messages/ru.json';
 import type { UseGeminiLiveReturn, LiveStatus } from '@/hooks/useGeminiLive';
 
+// The voice mode is fixed for this file: with none chosen the page asks the coach server for its default on
+// mount (GET /api/coach/voice/mode, 17.11) — a request these tests, which count the page's calls, do not expect.
+process.env.NEXT_PUBLIC_COACH_VOICE_MODE = 'live';
+
 vi.mock('@/hooks/useGeminiLive', () => ({
   __esModule: true,
   default: (): UseGeminiLiveReturn => ({

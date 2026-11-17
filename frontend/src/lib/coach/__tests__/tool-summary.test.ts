@@ -123,6 +123,9 @@ describe('parseDailyPlan', () => {
     expect(parseDailyPlan(FULL)).toEqual(FULL);
     const minimal = { kind: 'daily_plan', cards: [{ type: 'weak_spot', puzzles: 5 }, { type: 'play_coach' }] };
     expect(parseDailyPlan(minimal)).toEqual(minimal);
+    // The server's mark on the warm-up card is kept — and only a true one (17.11).
+    const marked = { kind: 'daily_plan', cards: [{ type: 'weak_spot', puzzles: 5, warmup: true }, { type: 'weak_spot', puzzles: 5, warmup: 'yes' }] };
+    expect(parseDailyPlan(marked)?.cards).toEqual([{ type: 'weak_spot', puzzles: 5, warmup: true }, { type: 'weak_spot', puzzles: 5 }]);
   });
 
   it('drops unknown or broken cards and impossible stats', () => {

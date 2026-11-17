@@ -13,7 +13,7 @@ import { useTranslations } from 'next-intl';
 import { Chess } from 'chess.js';
 import { russianToSan } from '@/lib/russianNotation';
 import useGeminiLive from '@/hooks/useGeminiLive';
-import usePipelineVoice, { readVoiceMode } from '@/hooks/usePipelineVoice';
+import usePipelineVoice, { chosenVoiceMode, fetchServerVoiceMode, readVoiceMode } from '@/hooks/usePipelineVoice';
 import { shownText } from '@/lib/coach/voice-notes';
 import { movePhrase, type PipelineLocale } from '@/lib/coach/voice-pipeline';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
@@ -490,7 +490,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
 
   // The voice pipeline prototype (2026-10-25, `?voice=pipeline`): the student's words, transcribed,
   // go through the ordinary text turn below (sendMessage), and its streamed answer is read aloud.
-  const [voiceMode] = useState(() => readVoiceMode());
+  const [voiceMode, setVoiceMode] = useState(() => readVoiceMode());
   const sendMessageRef = useRef<(text: string) => void>(() => {});
   const abortForVoiceRef = useRef<() => void>(() => {});
   const pipeline = usePipelineVoice({
@@ -593,6 +593,20 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   // Disconnect a live session on unmount without re-running on every toggle.
   const voiceActiveRef = useRef(voiceActive);
   voiceActiveRef.current = voiceActive;
+
+  // Nobody chose a voice mode (the address, an earlier visit, the build): the coach server says which one is on
+  // (17.11). Asked once; a conversation already going is not switched under the student.
+  useEffect(() => {
+    if (chosenVoiceMode() !== null) return;
+    let cancelled = false;
+    void fetchServerVoiceMode().then((mode) => {
+      if (cancelled || !mode || voiceActiveRef.current || pipelineRef.current.isActive) return;
+      setVoiceMode(mode);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   useEffect(() => {
     return () => {
       if (voiceActiveRef.current) {

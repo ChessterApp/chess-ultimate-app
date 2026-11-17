@@ -16,6 +16,10 @@ import { NextIntlClientProvider } from 'next-intl';
 import en from '../../../../messages/en.json';
 import { CLEAN, createHarness, defaultHermesReply, hermesBody, seamProblems, HERMES, type Harness } from '@/app/api/coach/__tests__/seam-harness';
 
+// The voice mode is fixed for this file: with none chosen the page asks the coach server for its default on
+// mount (GET /api/coach/voice/mode, 17.11) — a request these tests, which count the page's calls, do not expect.
+process.env.NEXT_PUBLIC_COACH_VOICE_MODE = 'live';
+
 vi.mock('next/server', async (orig) => ({ ...(await orig<typeof import('next/server')>()), after: () => {} }));
 vi.mock('@clerk/nextjs/server', () => ({ auth: async () => ({ userId: 'u1' }) }));
 vi.mock('@/lib/coach-access', () => ({ requireCoachAccess: async () => null }));

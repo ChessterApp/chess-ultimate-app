@@ -165,6 +165,16 @@ export function extendsSentText(finalText: string, sentText: string): boolean {
   return f.startsWith(s + ' ') || f.startsWith(s);
 }
 
+/**
+ * Whether the final transcript is the interim text already sent, only re-cased or re-punctuated («разминка. дай
+ * мне…» → «Разминка. Дай мне…»): then nothing goes again — the turn that began is the turn (the stand, 17.11:
+ * the phrase stood in the chat twice and its first answer was cut).
+ */
+export function sameSentText(finalText: string, sentText: string): boolean {
+  const f = normWords(finalText);
+  return f !== '' && f === normWords(sentText);
+}
+
 export type PipelineLocale = 'ru' | 'kk' | 'en';
 
 /** The language of the student's words, for the filler and the TTS voice: Kazakh letters, Latin, else Russian. */

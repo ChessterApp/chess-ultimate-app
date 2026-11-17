@@ -284,8 +284,9 @@ export function numberedLine(fen: string, san: string[]): string {
 
 export type DailyPlanCard =
   | { type: 'review_last_game'; game_id: string; title: string; moments_count?: number }
-  /** No theme: puzzles on any theme. `stat`: reviewed games with a blunder on the theme, of how many. */
-  | { type: 'weak_spot'; puzzles: number; theme?: string; stat?: { games_with: number; games: number } }
+  /** No theme: puzzles on any theme. `stat`: reviewed games with a blunder on the theme, of how many.
+   *  `warmup`: the coach server reads the warm-up's own request (Hermes of 17.11 on). */
+  | { type: 'weak_spot'; puzzles: number; theme?: string; stat?: { games_with: number; games: number }; warmup?: true }
   | { type: 'opening_lesson'; eco: string; name: string }
   | { type: 'play_coach'; level?: number };
 
@@ -314,7 +315,7 @@ function planCard(c: Obj): DailyPlanCard | null {
         s && isNum(s.games_with) && isNum(s.games) && s.games_with > 0 && s.games_with <= s.games
           ? { games_with: s.games_with, games: s.games }
           : undefined;
-      return compact({ type: 'weak_spot' as const, puzzles: c.puzzles, theme: optStr(c.theme), stat });
+      return compact({ type: 'weak_spot' as const, puzzles: c.puzzles, theme: optStr(c.theme), stat, warmup: c.warmup === true ? (true as const) : undefined });
     }
     case 'opening_lesson':
       return isStr(c.eco) && isStr(c.name) ? { type: 'opening_lesson', eco: c.eco, name: c.name } : null;

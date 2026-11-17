@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planAction, planLayout, playablePlan, WARMUP_OWN_REQUEST, weakSpotView } from '../daily-plan';
+import { planAction, planLayout, playablePlan, weakSpotView } from '../daily-plan';
 import type { DailyPlan } from '../tool-summary';
 import ru from '../../../../messages/ru.json';
 import en from '../../../../messages/en.json';
@@ -36,9 +36,12 @@ describe('planAction', () => {
   it('each card does its one thing', () => {
     expect(planAction(REVIEW, t)).toEqual({ kind: 'send', text: 'planReviewPrompt', reviewGameId: 'g1' });
     expect(planAction(SPOT, t)).toEqual({ kind: 'send', text: 'planSpotPrompt{"theme":"planThemeEndgame"}' });
-    // The warm-up card (no theme, or one without a label) asks for the warm-up, not for «a puzzle» (17.11).
-    expect(planAction({ type: 'weak_spot', puzzles: 5 }, t)).toEqual({ kind: 'send', text: WARMUP_OWN_REQUEST ? 'promptWarmup' : 'promptPuzzle' });
-    expect(planAction({ ...SPOT, theme: 'zugzwangish' }, t)).toEqual({ kind: 'send', text: WARMUP_OWN_REQUEST ? 'promptWarmup' : 'promptPuzzle' });
+    // The warm-up card (no theme, or one without a label) asks for the warm-up, not for «a puzzle» — of a server
+    // that marks the card as one it reads the warm-up words on (Hermes of 17.11); an older server keeps «a puzzle».
+    expect(planAction({ type: 'weak_spot', puzzles: 5, warmup: true }, t)).toEqual({ kind: 'send', text: 'promptWarmup' });
+    expect(planAction({ ...SPOT, theme: 'zugzwangish', warmup: true }, t)).toEqual({ kind: 'send', text: 'promptWarmup' });
+    expect(planAction({ type: 'weak_spot', puzzles: 5 }, t)).toEqual({ kind: 'send', text: 'promptPuzzle' });
+    expect(planAction({ ...SPOT, warmup: true }, t)).toEqual({ kind: 'send', text: 'planSpotPrompt{"theme":"planThemeEndgame"}' });
     expect(planAction(OPENING, t)).toEqual({ kind: 'send', text: 'planOpeningPrompt{"name":"Italian Game","eco":"C50"}' });
     expect(planAction(PLAY, t)).toEqual({ kind: 'play' });
   });

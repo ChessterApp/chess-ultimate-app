@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import type { LiveStatus } from './useGeminiLive';
 import {
-  FIRST_CHUNK_MAX_CHARS, INTERIM_REPLACE_MS, STT_RECONNECT_DELAYS_MS, STT_ROTATE_RETRY_MS, TTS_BLOCK_MS, TTS_IN_FLIGHT, extendsSentText, fillerFor,
+  FIRST_CHUNK_MAX_CHARS, INTERIM_REPLACE_MS, STT_RECONNECT_DELAYS_MS, STT_ROTATE_RETRY_MS, TTS_BLOCK_MS, TTS_IN_FLIGHT, extendsSentText, sameSentText, fillerFor,
   groupChunks, localeOf, looksLikeMove, movePhrase, newWords, rotationDue, speakable, splitLong, takeSentences, ttsRetryDelay, turnLocale, utteranceReady,
   type PipelineLocale,
 } from '@/lib/coach/voice-pipeline';
@@ -23,9 +23,10 @@ import { getMicrophone } from '@/lib/audio-session';
 
 export type VoiceMode = 'live' | 'pipeline';
 
-/** `?voice=pipeline` in the address, else localStorage `coachVoiceMode`, else the build's default. */
-export function readVoiceMode(): VoiceMode {
-  if (typeof window === 'undefined') return 'live';
+/** The mode someone chose: `?voice=pipeline|live` in the address (remembered), else localStorage `coachVoiceMode`,
+ *  else the build's NEXT_PUBLIC_COACH_VOICE_MODE. Null when nobody chose — then the coach server says (below). */
+export function chosenVoiceMode(): VoiceMode | null {
+  if (typeof window === 'undefined') return null;
   try {
     const q = new URLSearchParams(window.location.search).get('voice');
     if (q === 'pipeline' || q === 'live') {
@@ -37,7 +38,28 @@ export function readVoiceMode(): VoiceMode {
   } catch {
     /* storage may be blocked */
   }
-  return process.env.NEXT_PUBLIC_COACH_VOICE_MODE === 'pipeline' ? 'pipeline' : 'live';
+  const built = process.env.NEXT_PUBLIC_COACH_VOICE_MODE;
+  return built === 'pipeline' || built === 'live' ? built : null;
+}
+
+/** The mode the page starts in: the chosen one, else Gemini Live until the server has answered. */
+export function readVoiceMode(): VoiceMode {
+  return chosenVoiceMode() ?? 'live';
+}
+
+/** The coach server's default mode (Hermes GET /api/coach/voice/mode, COACH_VOICE_MODE in its .env): the server
+ *  that holds the coach's model and voice turns the pipeline on, and off again, without a site release. Null —
+ *  an older server, no answer in time, a failure: the page stays as it is. */
+export async function fetchServerVoiceMode(): Promise<VoiceMode | null> {
+  try {
+    const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(5000) : undefined;
+    const res = await fetch('/api/coach/voice/mode', { signal });
+    if (!res.ok) return null;
+    const mode = ((await res.json()) as { mode?: unknown })?.mode;
+    return mode === 'pipeline' || mode === 'live' ? mode : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface PipelineFrame {
@@ -534,6 +556,11 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
                 baselineRef.current = final;
                 transcriptRef.current = final;
                 sendUtteranceRef.current(whole);
+              } else if (sent && performance.now() - sent.at < INTERIM_REPLACE_MS && sameSentText(whole, sent.text)) {
+                // The final is the interim text that already went, re-cased or re-punctuated: its turn stands.
+                interimSentRef.current = null;
+                baselineRef.current = final;
+                transcriptRef.current = final;
               } else {
                 const words = newWords(final, baselineRef.current);
                 baselineRef.current = final;
