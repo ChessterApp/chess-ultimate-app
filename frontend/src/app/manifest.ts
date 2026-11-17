@@ -86,7 +86,9 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     display: 'standalone',
     background_color: backgroundColor,
     theme_color: themeColor,
-    orientation: 'portrait',
+    // The installed app follows the device: clubs stand tablets in landscape, and with 'portrait' the page was
+    // drawn sideways there (Alexander, 17.11). The site's own layout already serves both.
+    orientation: 'any',
     icons: buildIcons(org),
   };
 }
