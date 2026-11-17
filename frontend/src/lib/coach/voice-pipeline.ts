@@ -178,6 +178,17 @@ export function localeOf(text: string, fallback: PipelineLocale = 'ru'): Pipelin
   return fallback;
 }
 
+/**
+ * The language a turn is spoken in before the coach's own words show one (the move read out from the server's
+ * view comes first). The student's words name it; a bare move («е два е четыре», «e4») names none and keeps the
+ * language of the talk so far (*previous*), else the interface's. 17.11: in a Kazakh game on a Russian
+ * interface the coach's move was read in Russian.
+ */
+export function turnLocale(text: string, ui: PipelineLocale, previous: PipelineLocale | null): PipelineLocale {
+  if (looksLikeMove(text)) return previous ?? localeOf(text, ui);
+  return localeOf(text, ui);
+}
+
 /** A canned spoken filler («Сейчас посмотрю») that plays at once while the text coach thinks. */
 export const FILLERS: Record<PipelineLocale, string[]> = {
   ru: ['/voice/fillers/ru-1.pcm', '/voice/fillers/ru-2.pcm', '/voice/fillers/ru-3.pcm'],

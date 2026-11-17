@@ -15,7 +15,7 @@ import { GoogleGenAI } from '@google/genai';
 import type { LiveStatus } from './useGeminiLive';
 import {
   FIRST_CHUNK_MAX_CHARS, INTERIM_REPLACE_MS, STT_RECONNECT_DELAYS_MS, STT_ROTATE_RETRY_MS, TTS_BLOCK_MS, TTS_IN_FLIGHT, extendsSentText, fillerFor,
-  groupChunks, localeOf, looksLikeMove, movePhrase, newWords, rotationDue, speakable, splitLong, takeSentences, ttsRetryDelay, utteranceReady,
+  groupChunks, localeOf, looksLikeMove, movePhrase, newWords, rotationDue, speakable, splitLong, takeSentences, ttsRetryDelay, turnLocale, utteranceReady,
   type PipelineLocale,
 } from '@/lib/coach/voice-pipeline';
 import { gameFromActions } from '@/lib/coach/voice-game';
@@ -92,6 +92,7 @@ interface Turn {
   factSpoken: boolean;   // the move of the game was read out from the server's view (movePhrase)
   spokenAnswer: boolean;
   done: boolean;
+  spoke?: PipelineLocale;  // the language of the student's words that opened the turn (turnLocale)
 }
 
 interface LiveSessionLike {
@@ -149,6 +150,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
   const nextPlayTimeRef = useRef(0);
   const turnRef = useRef<Turn | null>(null);
   const turnSeqRef = useRef(0);
+  const talkLocaleRef = useRef<PipelineLocale | null>(null);  // the language of the student's last words that named one
   const fillerCacheRef = useRef<Map<string, Int16Array>>(new Map());
 
   const isSupported =
@@ -308,7 +310,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     if (frame.stage === 'quick') turn.quiet = true;
     else if (frame.stage === 'answer') turn.quiet = false;
     if (typeof frame.delta === 'string' && frame.delta && !turn.quiet) turn.buffer += frame.delta;
-    const locale = localeOf(turn.buffer || turn.waiting.join(' '), (optionsRef.current.locale?.() as PipelineLocale) || 'ru');
+    const locale = localeOf(turn.buffer || turn.waiting.join(' '), turn.spoke ?? ((optionsRef.current.locale?.() as PipelineLocale) || 'ru'));
     if (frame.board_actions && !turn.factSpoken) {
       // The server played the move and got the engine's reply before the model spoke: say so now.
       const view = gameFromActions(frame.board_actions);
@@ -408,7 +410,9 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     const turn = newTurn();
     const end = speechEndAtRef.current;
     setTimings({ sttMs: end !== null ? Math.round(performance.now() - end) : null, firstSoundMs: null, firstAnswerMs: null });
-    const locale = localeOf(text, (optionsRef.current.locale?.() as PipelineLocale) || 'ru');
+    const locale = turnLocale(text, (optionsRef.current.locale?.() as PipelineLocale) || 'ru', talkLocaleRef.current);
+    if (!looksLikeMove(text)) talkLocaleRef.current = locale;
+    turn.spoke = locale;
     // No «сейчас посмотрю» before a silence (the TTS is down) nor before a move: its own phrase comes within a second.
     if (performance.now() >= ttsBlockedUntilRef.current && !looksLikeMove(text)) void playFiller(turn, locale);
     try {

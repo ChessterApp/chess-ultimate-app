@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  extendsSentText, fillerFor, groupChunks, localeOf, looksLikeMove, movePhrase, newWords, rotationDue, speakable, spokenMove, splitLong, takeSentences, ttsRetryDelay, utteranceReady,
+  extendsSentText, fillerFor, groupChunks, localeOf, looksLikeMove, movePhrase, newWords, rotationDue, turnLocale, speakable, spokenMove, splitLong, takeSentences, ttsRetryDelay, utteranceReady,
   SILENCE_MS, STT_STABLE_MS, STT_STABLE_SLOW_MS, STT_ROTATE_MS, STT_ROTATE_HARD_MS, STT_QUIET_MS, TTS_WAIT_MAX_MS,
 } from '../voice-pipeline';
 
@@ -149,5 +149,18 @@ describe('the final transcript that extends an interim one already sent (25.10)'
     expect(extendsSentText('Давай сыграем.', 'Давай сыграем.')).toBe(false);   // nothing new: no second send
     expect(extendsSentText('Что думаешь про позицию?', 'Давай сыграем.')).toBe(false);
     expect(extendsSentText('', 'Давай')).toBe(false);
+  });
+});
+
+describe('turnLocale (17.11: in a Kazakh game the move of the coach was read in Russian)', () => {
+  it('takes the language of the student\'s words over the interface\'s', () => {
+    expect(turnLocale('Партия ойнайықшы, мен қарамен ойнаймын.', 'ru', null)).toBe('kk');
+    expect(turnLocale('Какой здесь лучший ход?', 'kk', 'kk')).toBe('ru');
+  });
+  it('keeps the language of the talk for a bare move, which names none', () => {
+    expect(turnLocale('пешка е два е четыре', 'ru', 'kk')).toBe('kk');
+    expect(turnLocale('e4', 'ru', 'kk')).toBe('kk');
+    expect(turnLocale('e4', 'kk', null)).toBe('kk');
+    expect(turnLocale('конь эф три', 'ru', null)).toBe('ru');
   });
 });
