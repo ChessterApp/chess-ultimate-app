@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { classifyHermesError, coachErrorText, hermesErrorFrame, unreachableFrame } from '../coach-errors';
+import {
+  classifyHermesError, classifyThrown, coachErrorText, hermesErrorFrame, thrownErrorText, unreachableFrame,
+} from '../coach-errors';
 import ru from '../../../../messages/ru.json';
 import en from '../../../../messages/en.json';
 import kz from '../../../../messages/kz.json';
@@ -128,5 +130,45 @@ describe('English refusals become the student language', () => {
         expect(coachErrorText(t, code, { detail: 'e9 is not a legal move here.' }).length).toBeGreaterThan(3);
       }
     }
+  });
+});
+
+// Tester's report 16.11: «Ошибка соединения: Failed to fetch» — a thrown fetch error printed as it came.
+describe('a request that threw instead of answering', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('a failed fetch, a timeout and a broken stream are the coach not reached', () => {
+    for (const err of [
+      new TypeError('Failed to fetch'),                              // Chrome, offline
+      new TypeError('Load failed'),                                  // Safari
+      new TypeError('NetworkError when attempting to fetch resource.'),
+      new DOMException('The operation timed out.', 'TimeoutError'),  // AbortSignal.timeout
+      new DOMException('The user aborted a request.', 'AbortError'),
+      Object.assign(new Error('network error'), { name: 'NetworkError' }),
+    ]) {
+      expect(classifyThrown(err).code).toBe('unreachable');
+    }
+  });
+
+  it('anything else thrown on the way is the coach side going wrong', () => {
+    expect(classifyThrown(new Error('HTTP 200'))).toEqual({ code: 'server', message: 'HTTP 200' });
+    expect(classifyThrown('boom')).toEqual({ code: 'server', message: 'boom' });
+    expect(classifyThrown(undefined).code).toBe('server');
+  });
+
+  it("the student never reads the browser's text, in any language; it goes to the console", () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    for (const messages of [ru, en, kz]) {
+      const t = translator(messages as { coach: Record<string, string> });
+      expect(thrownErrorText(t, new TypeError('Failed to fetch'))).toBe(messages.coach.errorCoachUnreachable);
+      expect(thrownErrorText(t, new Error('HTTP 200'))).toBe(messages.coach.errorServer);
+      expect(thrownErrorText(t, null)).toBe(messages.coach.errorServer);
+    }
+    expect(warn).toHaveBeenCalledWith(expect.any(String), 'Failed to fetch');
   });
 });

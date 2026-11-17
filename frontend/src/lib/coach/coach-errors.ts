@@ -162,6 +162,33 @@ export function coachErrorText(
   return t(KEYS[code]);
 }
 
+/** Thrown by fetch and by a stream's reader when the network is gone, a request times out or is cut. */
+const NETWORK_ERROR_NAMES: ReadonlySet<string> = new Set(['TypeError', 'TimeoutError', 'NetworkError', 'AbortError']);
+
+/**
+ * A request to the coach that threw instead of answering — no HTTP status to read. fetch rejects with a TypeError
+ * («Failed to fetch», Safari's «Load failed»), a timeout or a broken stream with a DOMException: the coach was not
+ * reached. Anything else thrown on the way (an answer with no body to read) is the coach side going wrong.
+ */
+export function classifyThrown(err: unknown): { code: 'unreachable' | 'server'; message: string } {
+  const name = err && typeof err === 'object' && typeof (err as { name?: unknown }).name === 'string'
+    ? (err as { name: string }).name
+    : '';
+  const message = err instanceof Error ? err.message : typeof err === 'string' ? err : name;
+  const network = err instanceof TypeError || NETWORK_ERROR_NAMES.has(name);
+  return { code: network ? 'unreachable' : 'server', message };
+}
+
+/**
+ * The student-facing text for a thrown error: never the browser's own («Ошибка соединения: Failed to fetch» in the
+ * chat bubble — tester, 16.11), always the wording of an unreachable coach or a failed one; the original goes to the
+ * console (coachErrorText).
+ */
+export function thrownErrorText(t: Translate, err: unknown): string {
+  const c = classifyThrown(err);
+  return coachErrorText(t, c.code, { detail: c.message || undefined });
+}
+
 /**
  * An SSE error frame's text: the proxies tag their own failures with error_code (a 429, Hermes unreachable…) and
  * get worded here; Hermes's in-stream errors carry no code and are already worded for the student.

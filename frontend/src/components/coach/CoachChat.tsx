@@ -19,7 +19,7 @@ import { movePhrase, type PipelineLocale } from '@/lib/coach/voice-pipeline';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
 import { coachApi, type GameStateView } from '@/lib/coach/boards-api';
 import { handleRestrictedResponse } from '@/lib/access-fetch';
-import { classifyResponse, coachErrorText, frameErrorText } from '@/lib/coach/coach-errors';
+import { classifyResponse, coachErrorText, frameErrorText, thrownErrorText } from '@/lib/coach/coach-errors';
 import { fitTextarea, isNearBottom, shouldSendOnEnter } from './chat-dom';
 import Composer from './Composer';
 import type { AttachKind } from './AttachSheet';
@@ -661,8 +661,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         onBoardActions([{ type: 'load_pgn', pgn: data.pgn }]);
         replaceLocalLine(lineId, t('loadedFromUrl', { white: data.white ?? '?', black: data.black ?? '?' }));
       } catch (err: unknown) {
-        const reason = err instanceof Error ? err.message : t('unknownError');
-        replaceLocalLine(lineId, t('urlFailed', { reason }));
+        // A thrown fetch is the connection, said in the student's language — not «…: Failed to fetch» (17.11).
+        replaceLocalLine(lineId, t('urlFailed', { reason: thrownErrorText(t, err) }));
       }
     },
     [addLocalLine, replaceLocalLine, onBoardActions, t],
@@ -756,8 +756,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           replaceLocalLine(lineId, t('loadedFromScoresheet'));
         }
       } catch (err: unknown) {
-        const reason = err instanceof Error ? err.message : t('unknownError');
-        replaceLocalLine(lineId, t('photoFailed', { reason }));
+        replaceLocalLine(lineId, t('photoFailed', { reason: thrownErrorText(t, err) }));  // as above (17.11)
       } finally {
         setPhotoBusy(false);
       }
@@ -918,14 +917,10 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       if (err instanceof DOMException && err.name === 'AbortError') {
         // User cancelled
       } else {
-        const message = err instanceof Error ? err.message : t('unknownError');
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? { ...m, content: `*${t('connectionErrorLabel')}: ${message}*` }
-              : m
-          )
-        );
+        // The connection dropped (fetch threw, the stream broke): said as the unreachable coach is everywhere else,
+        // in the student's language — the bubble read «Ошибка соединения: Failed to fetch» (tester, 16.11).
+        const note = `*${t('errorLabel')}: ${thrownErrorText(t, err)}*`;
+        setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: note } : m)));
       }
     } finally {
       setIsStreaming(false);
@@ -998,8 +993,13 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         if (!content) setMessages((prev) => prev.filter((m) => m.id !== assistantId));
         else onAssistantReplyRef.current?.(content);
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : t('unknownError');
-        patch(`*${t('connectionErrorLabel')}: ${message}*`);
+        if (commentController.signal.aborted) {
+          // Cut on purpose (a new comment, the student's words): what was said stays, nothing failed — it used to
+          // be replaced by «Ошибка соединения: The user aborted a request.».
+          if (!content) setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+        } else {
+          patch(`*${t('errorLabel')}: ${thrownErrorText(t, err)}*`);  // as the chat's own dropped connection (17.11)
+        }
       } finally {
         if (pipelineRef.current.isActive) pipelineRef.current.feedFrame({ done: true }, turnId);
         if (commentAbortRef.current === commentController) commentAbortRef.current = null;

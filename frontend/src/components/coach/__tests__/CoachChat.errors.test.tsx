@@ -157,6 +157,93 @@ describe('CoachChat — coach failures in the student language', () => {
   });
 });
 
+// Tester's report 16.11: a dropped connection reached the bubble as «Ошибка соединения: Failed to fetch».
+describe('CoachChat — a dropped connection in the student language', () => {
+  function chat(locale: 'ru' | 'en', ref?: React.Ref<CoachChatHandle>) {
+    render(
+      <NextIntlClientProvider locale={locale} messages={(locale === 'ru' ? ru : en) as Record<string, unknown>}>
+        <CoachChat ref={ref} currentFen="fen" sessionId="s-1" onBoardActions={() => {}} />
+      </NextIntlClientProvider>,
+    );
+  }
+  function ask(placeholder: string, text: string) {
+    const input = screen.getByPlaceholderText(placeholder) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: text } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+  }
+
+  it('fetch that throws is the unreachable coach, not the browser text', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    chat('ru');
+    ask(ru.coach.inputPlaceholder, 'что дальше?');
+    expect(await screen.findByText(new RegExp(esc(ru.coach.errorCoachUnreachable)))).toBeTruthy();
+    expect(screen.queryByText(/Failed to fetch/)).toBeNull();
+    expect(screen.queryByText(new RegExp(esc(ru.coach.connectionErrorLabel)))).toBeNull();
+  });
+
+  it('a stream that breaks mid-answer is the unreachable coach too', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const broken = {
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ delta: 'Смотри' })}\n\n`));
+          controller.error(new TypeError('network error'));
+        },
+      }),
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => broken));
+    chat('en');
+    ask(en.coach.inputPlaceholder, 'what now?');
+    expect(await screen.findByText(new RegExp(esc(en.coach.errorCoachUnreachable)))).toBeTruthy();
+    expect(screen.queryByText(/network error/)).toBeNull();
+  });
+
+  it('a game comment whose fetch throws says the same', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Load failed'); }));
+    const ref = React.createRef<CoachChatHandle>();
+    chat('ru', ref);
+    await act(async () => {
+      await ref.current!.streamAssistant('/api/coach/sessions/s-1/game/g1/comment', { event: 'move' });
+    });
+    expect(screen.getByText(new RegExp(esc(ru.coach.errorCoachUnreachable)))).toBeTruthy();
+    expect(screen.queryByText(/Load failed/)).toBeNull();
+  });
+
+  it('an HTTP status keeps its own text', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json(500, { detail: 'boom' })));
+    chat('ru');
+    ask(ru.coach.inputPlaceholder, 'что дальше?');
+    expect(await screen.findByText(new RegExp(esc(ru.coach.errorServer)))).toBeTruthy();
+    expect(screen.queryByText(new RegExp(esc(ru.coach.errorCoachUnreachable)))).toBeNull();
+  });
+
+  it('a comment cut by the next one leaves no error line', async () => {
+    const calls: AbortSignal[] = [];
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => {
+      const signal = init!.signal as AbortSignal;
+      calls.push(signal);
+      if (calls.length > 1) return Promise.resolve(sse({ delta: 'Второй комментарий.' }));
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('The user aborted a request.', 'AbortError')));
+      });
+    }));
+    const ref = React.createRef<CoachChatHandle>();
+    chat('ru', ref);
+    await act(async () => {
+      const first = ref.current!.streamAssistant('/api/coach/sessions/s-1/game/g1/comment', { event: 'move' });
+      const second = ref.current!.streamAssistant('/api/coach/sessions/s-1/game/g1/comment', { event: 'move' });
+      await Promise.all([first, second]);
+    });
+    expect(screen.getByText(/Второй комментарий/)).toBeTruthy();
+    expect(screen.queryByText(new RegExp(esc(ru.coach.errorLabel)))).toBeNull();
+    expect(screen.queryByText(/aborted/)).toBeNull();
+  });
+});
+
 // Site review 28.10: a frozen membership on the game comment showed «У тренера что-то пошло не так» instead of
 // going to the upgrade path, as the chat does.
 describe('CoachChat — a frozen membership on the game comment', () => {
