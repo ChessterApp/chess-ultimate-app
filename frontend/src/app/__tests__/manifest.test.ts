@@ -95,3 +95,11 @@ describe('manifest icons', () => {
     for (const icon of icons) expect(icon.type).toBe('image/svg+xml');
   });
 });
+
+describe('manifest orientation', () => {
+  it('lets the installed app follow the device, portrait or landscape', async () => {
+    orgRef.current = BASE;
+    const m = await manifest();
+    expect(m.orientation).toBe('any');
+  });
+});
