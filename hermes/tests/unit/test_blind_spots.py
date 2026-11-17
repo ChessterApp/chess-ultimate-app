@@ -608,7 +608,9 @@ def test_lesson_link_added_when_the_model_left_it_out():
                          "example": {"source": "site_lesson", "title": "Рентген. Пример 1.", "course": "Шахматная тактика",
                                      "url": "https://chesster.io/learn/chess-tactics/x-ray-example-1"}}, ensure_ascii=False)
     line = lesson_link_line([topic], "Рентген — это обратная связка.", "ru")
-    assert line == "Урок на сайте: «Рентген. Пример 1.» (Шахматная тактика) — https://chesster.io/learn/chess-tactics/x-ray-example-1"
+    # A markdown link since 17.11 (tests/unit/test_lesson_links_1117.py): the bare address was printed as text.
+    assert line == ("Урок на сайте: [«Рентген. Пример 1.»](https://chesster.io/learn/chess-tactics/x-ray-example-1) "
+                    "(Шахматная тактика)")
     assert lesson_link_line([topic], "Пройди урок: https://chesster.io/learn/chess-tactics/x-ray-example-1", "ru") is None
     assert lesson_link_line(['{"best": "e4"}'], "текст", "ru") is None
     assert lesson_link_line([topic], "Text.", "en").startswith("Lesson on the site:")

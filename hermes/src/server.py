@@ -106,6 +106,7 @@ from src.voice_quota import voice_quota_ledger
 from src.voice_engine_note import engine_note
 from src.transcript_sweep import delete_session_files
 from src.board_markup import MarkupFilter, strip_markup, prune_board_actions
+from src.lesson_links import LessonLinks, lesson_md, link_lessons
 
 # Set HERMES_HOME so the agent picks up the chess coach profile
 os.environ.setdefault("HERMES_HOME", str(PROFILE_DIR))
@@ -1471,11 +1472,13 @@ def _is_framework_notice(text: str) -> bool:
     return any(notice in text for notice in _FRAMEWORK_STREAM_NOTICES)
 
 
+# The lesson as a markdown link — [«title»](url), src/lesson_links.lesson_md: the site and the app show it as a link
+# that opens the lesson; the bare address after a dash was printed as text (tester, 16.11).
 _LESSON_LINK_TEXT = {
-    "ru": "Урок на сайте: «{title}»{course} — {url}",
-    "kz": "Сайттағы сабақ: «{title}»{course} — {url}",
-    "kk": "Сайттағы сабақ: «{title}»{course} — {url}",
-    "en": "Lesson on the site: “{title}”{course} — {url}",
+    "ru": "Урок на сайте: {link}{course}",
+    "kz": "Сайттағы сабақ: {link}{course}",
+    "kk": "Сайттағы сабақ: {link}{course}",
+    "en": "Lesson on the site: {link}{course}",
 }
 
 
@@ -1512,7 +1515,7 @@ def lesson_link_line(tool_results: list, answer: str, language: str) -> Optional
             continue
         course = f" ({lesson['course']})" if lesson.get("course") else ""
         template = _LESSON_LINK_TEXT.get(language, _LESSON_LINK_TEXT["ru"])
-        return template.format(title=lesson.get("title") or "", course=course, url=lesson["url"])
+        return template.format(link=lesson_md(lesson.get("title") or "", lesson["url"]), course=course)
     return None
 
 
@@ -2077,6 +2080,8 @@ async def _bestofn_event_stream(
     response_text, mark_actions = strip_markup(response_text, getattr(session, 'board_state', None),
                                                secret=lambda: _puzzle_secret(session))
     response_text = response_text.strip() or response_text
+    # A lesson's bare address becomes a named link, as in the streamed answer (src/lesson_links.py, 17.11).
+    response_text = link_lessons(response_text, tool_results, _session_language(session, body.locale)[0])
     mark_actions = _hint_safe(mark_actions, session)  # a hint never draws the puzzle's solution (17.11)
     if mark_actions:
         board = session.ensure_board()
@@ -3073,6 +3078,17 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # one is released before it is judged, whatever COACH_STREAM_SENTENCE_STARTS says (fix1102 K6).
         fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK), hold_promises=True, release_starts=False)
         fix_markup = MarkupFilter(session.board_state, secret=lambda: _puzzle_secret(session, active_board.id))
+        # A lesson's address never goes out raw: «chesster.io/learn/…» becomes a link named by the lesson — its title
+        # from what the turn's tools (and the pre-steps) returned, else a neutral word (src/lesson_links.py, tester's
+        # report 16.11). One filter for the draft and its rewrite: it sees the text in the order the student does.
+        lesson_links = LessonLinks(
+            lambda: list(tool_results) + [r for r in ((puzzle_step or {}).get("result"), site_puzzle_hit) if r],
+            turn_language)
+
+        def _shown() -> str:
+            """The answer as the student has it: the frames sent and the text the link filter holds for the next
+            one (an address that may still be growing — checked text, on its way out)."""
+            return "".join(answer_parts) + lesson_links.held
         # The coach's recommendation («сыграй Rg1») is checked by the engine
         # before the sentence is shown (src/hypothetical.verify_recommendation).
         verify_state = {"left": config.COACH_MOVE_VERIFY_PER_TURN if config.COACH_MOVE_VERIFY else 0,
@@ -3526,10 +3542,13 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             quick["finished"] = True
             return frames
 
-        def _answer_frames(text: str) -> list:
-            """Frames for answer text that passed the check (the stream as before)."""
+        def _answer_frames(text: str, final: bool = False) -> list:
+            """Frames for answer text that passed the check (the stream as before). *final*: the stream (the draft,
+            the rewrite, the turn) ends here — what the link filter held goes out."""
             nonlocal streamed_chars
             text = chess_terms(strip_leaks(text), turn_language, body.message)  # DeepSeek's tool-call markup as text; «епископ»
+            # The last stop of the answer's text: a lesson's bare address leaves as a named link (17.11).
+            text = lesson_links.feed(text) + (lesson_links.flush() if final else "")
             # A mark on a line of its own leaves an empty paragraph behind.
             if text.startswith("\n") and answer_parts and answer_parts[-1].endswith("\n\n"):
                 text = text.lstrip("\n")
@@ -3599,7 +3618,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         fix.update(running=True, pending=True, sentence=sentence, issues=issues, started=time.monotonic(),
                                    shown_prefix=sentence[: len(sentence) - len(text)] if sentence.endswith(text) else "",
                                    ctx=snapshot(check_ctx), gen=fix["gen"] + 1, db_only=_db_only(issues))
-                        loop.run_in_executor(None, _run_fix, "".join(answer_parts), sentence, issues, fix["gen"])
+                        loop.run_in_executor(None, _run_fix, _shown(), sentence, issues, fix["gen"])
                     elif source == "fix" and fix["mode"] is None:
                         fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
                         fix["abandon"] = True  # a rewrite that opens with a wrong claim is not kept
@@ -3642,7 +3661,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                             frames.extend(_answer_frames(held))
                         fix["held_fix"] = []
                         fix["draft_pairs"], fix["draft_raw"] = [], []
-                shown_text = "".join(answer_parts)
+                shown_text = _shown()
                 cut_any = bool(fix["sentence"] or fix["dropped"] or fix["unproven"])
                 if cut_any and fix.get("after_drop") and not text.strip():
                     # The gap after a sentence left out waits for the next words (R3 03.11: «\n» used to take the
@@ -3861,7 +3880,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                             return
                 fix["emitted"] = True
                 fix["first_ms"] = int((time.monotonic() - fix["started"]) * 1000)
-                shown = "".join(answer_parts)
+                shown = _shown()
                 if shown and shown[-1].isspace():
                     payload = payload.lstrip(" ")
                 elif shown and not payload[0].isspace():
@@ -3950,6 +3969,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     for frame in _sentence_frames(await _verified((gate.feed(tail) if tail else []) + gate.flush()),
                                                   "draft" if fix["mode"] == "draft" else "agent"):
                         yield frame
+                    for frame in _answer_frames("", final=True):  # the draft's last word does not wait for a rewrite
+                        yield frame
                     if fix["superseded"]:
                         # The draft ended at its tools with nothing after them that passed: the held rewrite is the
                         # answer — written again when a database tool ran after it (it did not see what came back).
@@ -3963,7 +3984,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                                         (fix["sentence"] or "").strip()[:200])
                             fix.update(gen=fix["gen"] + 1, started=time.monotonic(), head="", emitted=False,
                                        pending=True, mode=None, held_fix=[], abandon=False)
-                            loop.run_in_executor(None, _run_fix, "".join(answer_parts), fix["sentence"], fix["issues"],
+                            loop.run_in_executor(None, _run_fix, _shown(), fix["sentence"], fix["issues"],
                                                  fix["gen"])
                         else:
                             for payload in held:
@@ -4057,10 +4078,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     result_text = payload
                 elif kind == "error":
                     error_exc = payload
+            for frame in _answer_frames("", final=True):  # the end of the answer: nothing stays held
+                yield frame
             if fix["mode"] in ("draft", "end") and error_exc is None and not "".join(answer_parts).strip():
                 # The rewrite was abandoned and nothing of the draft is left to show: a plain line that the coach will
                 # not guess — never an empty answer (a lone «давай разберёмся» of the rewrite would promise what never comes).
-                for frame in _answer_frames(_CHECK_EMPTY_TEXT.get(turn_language, _CHECK_EMPTY_TEXT["ru"])):
+                for frame in _answer_frames(_CHECK_EMPTY_TEXT.get(turn_language, _CHECK_EMPTY_TEXT["ru"]), final=True):
                     yield frame
             if streamed_any and error_exc is None and not turn_board_locked and config.COACH_LESSON_LINK:
                 # The lesson the topic tool found, when the model left its link out.
@@ -4306,6 +4329,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                                                      secret=lambda: _puzzle_secret(session, active_board.id))
             for action in mark_actions:
                 yield _board_frame([action])
+            answer_text = link_lessons(answer_text, tool_results, turn_language)  # as the streamed text (17.11)
             yield _sse({"delta": answer_text})
 
         # What the student saw, as one message: reaction, blank line, answer. Text

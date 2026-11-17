@@ -332,7 +332,14 @@ def _site_lesson_hint(example: dict, side: str) -> str:
     if example.get("course"):
         where += f" (course «{example.get('course')}»)"
     tasks = example.get("tasks") or 0
-    link = f" Its address: {example['url']}." if example.get("url") else ""
+    # As a markdown link — the site and the app open it; the bare address was printed as text (tester, 16.11;
+    # src/lesson_links.py rewrites what still comes bare).
+    link = ""
+    if example.get("url"):
+        from src.lesson_links import lesson_md
+
+        link = (f" Link it as a markdown link, exactly {lesson_md(example.get('title') or '', example['url'])} — "
+                "never the bare address (spoken aloud: the lesson's name only).")
     if example.get("kind") == "diagram":
         shows = f": «{example['note']}»" if example.get("note") else ""
         return (
@@ -462,7 +469,7 @@ def _site_programme_topic(topic: str, user_id: Optional[str], locale: Optional[s
                 out["board_actions"] = _example_actions(example)
                 out["board_hint"] = _site_lesson_hint(example, side)
         if "board_hint" not in out:
-            out["board_hint"] = ("No position to show: name the site's lesson(s) above with their addresses and "
+            out["board_hint"] = ("No position to show: name the site's lesson(s) above as markdown links — [«title»](url) — and "
                                  "explain the idea in words — never invent a position.")
         return out
     except Exception:  # noqa: BLE001 — the programme is a bonus, never a blocker

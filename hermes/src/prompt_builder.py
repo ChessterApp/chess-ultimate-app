@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "20"  # 20: voice — the board changes only through a tool call, «смотри на доску» only about a position a result put up, no tag / FEN / tool name aloud (2026-11-11); 19: voice — no «the conversation has been in X» note, the spoken question decides its language (2026-10-07); 18: a direct question gets the answer first; rules of the position in the facts (2026-10-06); 17: the student's idea is played on the board and judged by the engine before the answer (2026-10-04); 16: the site's lesson comes first and the answer ends with its tasks (2026-10-03); 15: the language the student asks for holds for the session (2026-10-01); 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "21"  # 21: a lesson is given as a markdown link [«title»](url), never a bare address (2026-11-17); 20: voice — the board changes only through a tool call, «смотри на доску» only about a position a result put up, no tag / FEN / tool name aloud (2026-11-11); 19: voice — no «the conversation has been in X» note, the spoken question decides its language (2026-10-07); 18: a direct question gets the answer first; rules of the position in the facts (2026-10-06); 17: the student's idea is played on the board and judged by the engine before the answer (2026-10-04); 16: the site's lesson comes first and the answer ends with its tasks (2026-10-03); 15: the language the student asks for holds for the session (2026-10-01); 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -423,7 +423,8 @@ def build_system_prompt(
         "and puzzles) and records the student's progress in it. When the student asks "
         "what to study, what comes next, about a course or lesson, or how to fix a "
         "weakness: read the programme with these tools and recommend REAL lessons by "
-        "title with their url — never invent courses or lessons. To teach a lesson, "
+        "title, each as a markdown link — [«title»](url), never a bare address — and never invent "
+        "courses or lessons. To teach a lesson, "
         "call get_lesson: it puts the lesson's exercise on the board as a puzzle itself; "
         "explain the lesson's content in your own words and guide the student through that "
         "exercise. Ask get_user_progress only for statistics.\n\n"
@@ -439,7 +440,7 @@ def build_system_prompt(
         "explaining. When get_topic lists `site_lessons`, the site's own lessons are the "
         "student's programme and come FIRST: teach from the lesson's task on the board, name "
         "the lesson and its course exactly as returned, and END the answer by inviting the "
-        "student to go through that lesson and solve its tasks, with its url — before any "
+        "student to go through that lesson and solve its tasks, as a markdown link [«title»](url) — before any "
         "example of the base or any get_puzzle. When the example carries `explanation`, that is the "
         "lesson's own text from the programme: teach in its words. A `programme_lesson` on get_topic or "
         "lookup_opening, or a result with source `programme_book`, is the student's own programme "

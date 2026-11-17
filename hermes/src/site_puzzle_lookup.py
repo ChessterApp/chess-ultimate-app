@@ -194,6 +194,12 @@ def site_puzzle_block(hit: Optional[dict]) -> str:
     where = f"task {hit.get('n')} of {hit.get('total')} " if hit.get("total") and hit.get("total") > 1 else "the task "
     also = f" (the same position is also in «{'», «'.join(hit['also_in'])}»)" if hit.get("also_in") else ""
     hint = f" The lesson's own hint: {hit['hint']}" if hit.get("hint") else ""
+    link = ""
+    if hit.get("url"):
+        # A markdown link the site and the app open, never the bare address (17.11, src/lesson_links.py).
+        from src.lesson_links import lesson_md
+
+        link = f" — as a markdown link, exactly {lesson_md(hit.get('lesson') or '', hit['url'])}, never the bare address"
     return (
         "## The board shows a task of the site's lesson (private — its solution)\n"
         f"It is {where}of the lesson «{hit.get('lesson')}» (module «{hit.get('module')}», course "
@@ -201,5 +207,5 @@ def site_puzzle_block(hit: Optional[dict]) -> str:
         "The answer to «what is the move here» is exactly this solution — name it first, then why it works; "
         "do not offer another move as the answer even if the engine's line differs (the lesson teaches this "
         "idea). A hint leads to THIS solution: the idea, the target or the piece first. You may say which "
-        "lesson the task is from" + (f" ({hit['url']})" if hit.get("url") else "") + "."
+        "lesson the task is from" + link + "."
     )

@@ -111,6 +111,18 @@ _MORE = re.compile(r"(?<![\w-])(?:ещ[её]|еще|друг\w+|следующ\w
 NEXT_IN_QUEUE = re.compile(r"(?<![\w-])(?:следующ\w*|дальше|далее|next|келесі)(?![\w-])", re.IGNORECASE)
 
 
+def _set_link_hint(puzzle: dict, lead: str = "give the set") -> str:
+    """How the model gives the address of the site's set a task is from: as a markdown link the site and the app
+    open — the bare address was printed as text (tester, 16.11; src/lesson_links.py rewrites what still comes
+    bare). "" without an address."""
+    if not puzzle.get("url"):
+        return ""
+    from src.lesson_links import lesson_md
+
+    return (f"; {lead} as a markdown link, exactly {lesson_md(puzzle.get('lesson') or '', puzzle['url'])} — never "
+            "the bare address (spoken aloud: the set's name only)")
+
+
 def queued_puzzle_result(puzzle: dict, left: int) -> dict:
     """A get_puzzle-shaped result for the next task of the student's queue («дай три задачи» → «дальше»)."""
     shown = SetPuzzle(fen=puzzle["fen"], solution=puzzle.get("solution") or [], puzzle_id=puzzle.get("puzzle_id"))
@@ -129,7 +141,7 @@ def queued_puzzle_result(puzzle: dict, left: int) -> dict:
             f"The next task of what the student asked for is already on the board — do not call board_control for it. "
             + (f"It is task {puzzle.get('n')} of {puzzle.get('of')} of {where}. " if puzzle.get("n") else "")
             + f"{left} more {'is' if left == 1 else 'are'} lined up after it. Say whose move it is and what to look for, "
-            "never the solution" + (f"; the set's address: {puzzle['url']}" if puzzle.get("url") else "") + "."
+            "never the solution" + _set_link_hint(puzzle) + "."
         ),
         "board_actions": [shown.model_dump(by_alias=True)],
     }
@@ -349,9 +361,9 @@ def get_puzzle(
                 + ("the next set of the student's own programme (they asked for a puzzle, not a theme: say it is "
                    "where their programme continues; a random one — get_puzzle(any=true) — only if they ask)"
                    if site.get("next_in_programme") else "the student's own programme")
-                + ": say so, say whose move it is and what to look for, never the solution, and give the set's "
-                "address at the end"
-                + (f": {site['url']}" if site.get("url") else "") + ". For the next task simply call get_puzzle "
+                + ": say so, say whose move it is and what to look for, never the solution"
+                + (_set_link_hint(site, "and end the answer with the set") if site.get("url") else "")
+                + ". For the next task simply call get_puzzle "
                 "again (the same theme, or none): the server remembers the tasks already shown in this session."
                 + queued
             ),
