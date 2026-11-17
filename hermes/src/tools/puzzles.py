@@ -438,6 +438,124 @@ def get_puzzle(
     }
 
 
+# ── The warm-up: a mixed set at the student's level (17.11) ─────────────────────────────────────────
+# The daily plan's card «Разминка: тактика» promised five puzzles and sent the generic «Дай мне тактическую
+# задачу» — the next task of the student's programme, so a beginner on the set «Ладья» got five near-identical
+# rook mates in one, one request at a time (tester, 16.11). The card now asks for the warm-up in its own words
+# (src/board_lock.asks_warmup) and the set is built here: one puzzle from each of N different families of motifs,
+# all near the student's rating, none shown before in the session, lined up in the session's queue («дальше»).
+# The plain request keeps its meaning — the programme's next task (16.10).
+WARMUP_FAMILIES = (
+    ("fork",), ("pin",), ("skewer", "xRayAttack"), ("discoveredAttack", "doubleCheck"),
+    ("hangingPiece", "trappedPiece"), ("mateIn1", "mateIn2", "backRankMate", "smotheredMate"),
+    ("deflection", "attraction"), ("sacrifice",), ("capturingDefender",), ("promotion", "advancedPawn"),
+    ("intermezzo",), ("clearance", "interference"),
+)
+# A warm-up puzzle is at most this far from the student's rating: a motif the set has only far above it is passed over.
+WARMUP_RATING_SPREAD = 200
+# The Lichess puzzle scale the tool works in (GET_PUZZLE_SCHEMA): a profile rating outside it is brought inside.
+WARMUP_RATING_RANGE = (600, 2800)
+
+
+def _profile_rating(user_id: str) -> Optional[int]:
+    from src.user_profile import load_user_profile
+
+    profile = load_user_profile(user_id)
+    return None if getattr(profile, "load_failed", False) else profile.rating
+
+
+# How the student's rating is read. src/server.py points this at its cached profile (the copy every turn uses).
+profile_rating = _profile_rating
+
+
+def student_rating(user_id: Optional[str]) -> int:
+    """The rating a warm-up is built around: the student's profile rating — the number the prompt shows the model
+    for get_puzzle's rating argument (UserProfile.to_prompt_context) — inside the puzzle set's scale. A student
+    with no profile row, or whose profile cannot be read now, has the profile's own default (1200), as the model
+    is told for them everywhere else."""
+    from src.user_profile import UserProfile
+
+    default = UserProfile.model_fields["rating"].default
+    rating = None
+    if user_id:
+        try:
+            rating = profile_rating(user_id)
+        except Exception:  # noqa: BLE001 — the default is still a level to start from
+            rating = None
+    try:
+        rating = int(rating) if rating else default
+    except (TypeError, ValueError):
+        rating = default
+    low, high = WARMUP_RATING_RANGE
+    return max(low, min(rating, high))
+
+
+def warmup_puzzles(rating: int, count: int, exclude_ids: Optional[list] = None, db_path: Optional[str] = None,
+                   rng: Optional[random.Random] = None) -> list:
+    """Up to *count* puzzles of different motifs within WARMUP_RATING_SPREAD of *rating*, none of *exclude_ids*:
+    the families in a random order, one puzzle from each (its motif picked at random inside the family). When the
+    set has fewer families at this rating than puzzles asked for, the rest are other puzzles of the families that
+    do have them. [] when the puzzle database is not installed or has nothing near the rating."""
+    if not db_available(db_path):
+        return []
+    rng = rng or random
+    count = max(1, min(int(count or 1), MAX_COUNT))
+    seen = {str(x) for x in (exclude_ids or []) if x}
+    families = [list(f) for f in WARMUP_FAMILIES]
+    rng.shuffle(families)
+    picked: list = []
+
+    def take(theme: str) -> bool:
+        found = find_puzzles(theme=theme, rating=rating, exclude_ids=sorted(seen), count=3, db_path=db_path, rng=rng)
+        for puzzle in found:
+            if abs(int(puzzle.get("rating") or 0) - rating) <= WARMUP_RATING_SPREAD:
+                seen.add(str(puzzle["puzzle_id"]))
+                picked.append({**puzzle, "warmup_theme": theme})
+                return True
+        return False
+
+    alive: list = []  # the motifs the set has at this rating, for a second round
+    for family in families:
+        if len(picked) >= count:
+            break
+        rng.shuffle(family)
+        for theme in family:
+            if take(theme):
+                alive.append(theme)
+                break
+    while len(picked) < count and alive:
+        alive = [theme for theme in alive if len(picked) < count and take(theme)]
+    return picked
+
+
+def warmup_result(puzzles: list, rating: int) -> dict:
+    """A get_puzzle-shaped result for a warm-up set: the first puzzle on the board, the rest for the queue."""
+    first = puzzles[0]
+    shown = SetPuzzle(fen=first["fen"], solution=first["solution"], puzzle_id=first["puzzle_id"])
+    themes = ", ".join(str(p.get("warmup_theme")) for p in puzzles)
+    left = len(puzzles) - 1
+    return {
+        "theme": None,
+        "rating": rating,
+        "count": len(puzzles),
+        "source": "warmup",
+        "warmup": True,
+        "puzzles": puzzles,
+        "on_board": first["puzzle_id"],
+        "how_to_show": (
+            f"This is the WARM-UP the student asked for: {len(puzzles)} puzzle{'s' if len(puzzles) != 1 else ''} of "
+            f"different themes ({themes}, in this order) around their level (rating about {rating}), from the puzzle "
+            "set — not the programme's next set. The first is already on the student's board — do not call "
+            "board_control or get_puzzle for it. Say it is a warm-up of that many different puzzles, whose move it "
+            "is and what to look for, never the solution."
+            + (f" The other {left} {'is' if left == 1 else 'are'} lined up: when the student solves the one on the "
+               "board or gives up, they say «дальше» and the next one goes up (get_puzzle with no arguments does the "
+               "same) — never set one up yourself." if left else "")
+        ),
+        "board_actions": [shown.model_dump(by_alias=True)],
+    }
+
+
 def _handle_get_puzzle(args: dict, **kwargs) -> str:
     from src.identity import resolve_user_id
     from src.session_persistence import SessionLoadError
@@ -472,6 +590,22 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
         # «Дай три задачи на связку», «несколько задач»: the words name the number when the model does not.
         count = count_in_words(words) or 1
     theme = args.get("theme")
+    # The warm-up card, or «разминка: дай пять разных задач» in the student's own words: a mixed set at their level
+    # (17.11) — a new set even when an older queue is waiting. Without the puzzle database, or with nothing near
+    # the rating, the request goes on as any other (the programme's next tasks).
+    if not theme and not args.get("opening"):
+        from src.board_lock import asks_warmup
+
+        if asks_warmup(words):
+            from src.daily_plan import PUZZLES_PER_CARD
+
+            rating = student_rating(user_id)
+            picked = warmup_puzzles(rating, count if count > 1 else PUZZLES_PER_CARD, exclude_ids=sorted(exclude))
+            if picked:
+                if session is not None:
+                    session.note_puzzles_shown([str(p["puzzle_id"]) for p in picked])
+                    session.set_puzzle_queue(picked[1:], theme="")
+                return json.dumps(warmup_result(picked, rating), indent=2, ensure_ascii=False)
     # «Дальше», «ещё задачу» after «дай три задачи»: the next one of those, from the session's queue — no
     # new lookup, no repeat (21.10).
     if session is not None and session.puzzle_queue and not theme and not args.get("any") and not args.get("opening"):

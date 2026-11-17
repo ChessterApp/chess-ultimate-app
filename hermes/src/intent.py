@@ -113,7 +113,7 @@ def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = No
     famous_game (key), opening (name), board (a question about the position in front of the student —
     nothing replaces it), concept (topic), none.
     """
-    from src.board_lock import _WANTS_NEW_PUZZLE, _board_lock_level
+    from src.board_lock import _board_lock_level, wants_new_puzzle
     from src.game_intent import game_command, game_request, game_wish, is_idea
 
     t = (text or "").strip()
@@ -173,7 +173,7 @@ def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = No
         # memory ends before Gukesh (Alexander's screenshot, 20.10).
         return {"kind": "fact"}
     theme_m = _PUZZLE_ON.search(t) or _POSITION_ON.search(t)
-    if _WANTS_NEW_PUZZLE.search(t) or theme_m or (_SOLVE.search(t) and not puzzle_on_board):
+    if wants_new_puzzle(t) or theme_m or (_SOLVE.search(t) and not puzzle_on_board):
         return {"kind": "puzzle", "theme": theme_m["theme"].strip() if theme_m else None}
     if puzzle_queue:
         from src.tools.puzzles import NEXT_IN_QUEUE

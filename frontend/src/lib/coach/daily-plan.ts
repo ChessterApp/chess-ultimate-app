@@ -67,7 +67,11 @@ export function planAction(card: DailyPlanCard, t: Translate): PlanAction {
       return { kind: 'send', text: t('planReviewPrompt'), reviewGameId: card.game_id };
     case 'weak_spot': {
       const { themeKey } = weakSpotView(card);
-      return { kind: 'send', text: themeKey ? t('planSpotPrompt', { theme: t(themeKey) }) : t('promptPuzzle') };
+      // Without a theme the card is the warm-up («Разминка: тактика»). It asks for the warm-up in its own words:
+      // the generic «Дай мне тактическую задачу» is the next task of the student's programme, and a beginner got
+      // five near-identical rook mates of one set (tester, 16.11). Hermes reads these words as a mixed set at the
+      // student's level (hermes/src/board_lock.py asks_warmup — the three texts are pinned by its tests).
+      return { kind: 'send', text: themeKey ? t('planSpotPrompt', { theme: t(themeKey) }) : t('promptWarmup') };
     }
     case 'opening_lesson':
       return { kind: 'send', text: t('planOpeningPrompt', { name: card.name, eco: card.eco }) };

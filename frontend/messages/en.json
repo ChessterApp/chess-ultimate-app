@@ -2067,6 +2067,7 @@
     "promptAnalyze": "Analyze this position",
     "promptSicilian": "Show me the Sicilian Defense",
     "promptPuzzle": "Give me a tactical puzzle",
+    "promptWarmup": "Warm-up: give me 5 different tactical puzzles at my level.",
     "promptPawnStructures": "Explain pawn structures",
     "inputPlaceholder": "Ask your coach...",
     "stopTooltip": "Stop",

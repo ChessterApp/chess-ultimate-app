@@ -1148,7 +1148,7 @@ _POSITION_ACTIONS = frozenset({"set_fen", "set_puzzle", "load_pgn", "clear_board
 from src.question_position import endgame_block, hidden_note_block  # noqa: E402
 from src.board_lock import (  # noqa: E402,F401 — the names tests and callers use
     _ABOUT_POSITION, _ABOUT_THIS_BOARD, _DEFAULT_BOARDS, _WANTS_NEW_BOARD, _WANTS_NEW_PUZZLE,
-    _board_lock_for_turn, _board_lock_level,
+    _board_lock_for_turn, _board_lock_level, wants_new_puzzle,
 )
 
 
@@ -2536,7 +2536,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # Shilling position). Not for a new-puzzle request, a live game or a board the tools already marked.
     site_puzzle_note = trap_note = ""
     site_puzzle_hit = None  # the lesson task itself: its solution is a solution line for the answer check
-    wants_puzzle_now = bool(_WANTS_NEW_PUZZLE.search(body.message or ""))
+    wants_puzzle_now = wants_new_puzzle(body.message or "")
     if session.board_state and not live_game and review_future is None and not wants_puzzle_now and not hidden_fen:
         if config.COACH_SITE_PUZZLE_LOOKUP and not puzzle_note:
             try:
@@ -2600,7 +2600,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # A request for a new puzzle is not about the board in front of the student: its line
     # only misleads — «Дай мне тактическую задачу» on the start position was answered with
     # «сыграй d4, на Nf6 — c4» about the puzzle just put up (stand, 2026-10-09).
-    wants_puzzle = bool(_WANTS_NEW_PUZZLE.search(body.message or ""))
+    wants_puzzle = wants_new_puzzle(body.message or "")
     note_fen = hidden_fen or session.board_state  # the hidden board's position when the question is about it
     if (config.COACH_ENGINE_NOTE and (body.fen or opening_plan or endgame or hidden_fen) and note_fen
             and not live_game and review_future is None and not wants_puzzle):
@@ -5075,6 +5075,19 @@ def _get_voice_profile(user_id: str) -> UserProfile:
         with _voice_profile_lock:
             _voice_profile_cache[user_id] = (now, profile)
     return profile
+
+
+def _cached_profile_rating(user_id: str) -> Optional[int]:
+    """The student's rating from the profile the turn already holds (no Supabase round trip on the way to a
+    puzzle), or None when the profile cannot be read now."""
+    profile = _get_voice_profile(user_id)
+    return None if getattr(profile, "load_failed", False) else profile.rating
+
+
+# The warm-up's puzzles are picked around this rating (src/tools/puzzles.student_rating, 17.11).
+import src.tools.puzzles as _puzzle_tools  # noqa: E402
+
+_puzzle_tools.profile_rating = _cached_profile_rating
 
 
 def _refresh_profile_in_background(user_id: str) -> None:

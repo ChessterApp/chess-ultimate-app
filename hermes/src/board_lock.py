@@ -36,6 +36,39 @@ _WANTS_NEW_PUZZLE = re.compile(
     rf"(?:\s+{_PUZZLE_SKIP_WORD}){{0,3}}?\s+{_NEW_PUZZLE_NOUN}(?![\w-])"
     rf"|(?<![\w-]){_NEW_PUZZLE_NOUN}(?:\s+{_PUZZLE_SKIP_WORD}){{0,2}}?\s+бер\w*",
     re.IGNORECASE)
+# The daily plan's warm-up card (17.11): «Разминка: дай мне 5 разных тактических задач по моему уровню.», "Warm-up:
+# give me 5 different tactical puzzles at my level.", «Жаттығу: маған деңгейіме сай 5 түрлі тактикалық есеп бер.» —
+# a warm-up word, a word that asks and the puzzles themselves, in any order. The card used to send the generic
+# «Дай мне тактическую задачу», which is the next task of the student's programme: a beginner got five near-identical
+# rook mates of one set (tester, 16.11). The warm-up is a mixed set at the student's level instead
+# (src/tools/puzzles.warmup_puzzles). «Жаттығу» is also Kazakh for an exercise, so here the puzzle word is another
+# one («есеп»): «маған жаттығу бер» stays the plain request. Not a hint or the solution of the puzzle in front of
+# the student («дай подсказку к этой задаче из разминки»).
+_WARMUP_WORD = re.compile(r"(?<![\w-])(?:разминк\w*|warm[\s-]?ups?|жаттығу\w*)(?![\w-])", re.IGNORECASE)
+_WARMUP_PUZZLES = re.compile(r"(?<![\w-])(?:задач\w*|задани\w*|упражнени\w*|пазл\w*|головоломк\w*|puzzles?|exercises?|"
+                             r"tasks?|есеп\w*)(?![\w-])", re.IGNORECASE)
+_WARMUP_ASKS = re.compile(r"(?<![\w-])(?:дай\w*|давай(?:те)?|хочу|хотел\w*|подбери\w*|предложи\w*|найди\w*|пришли\w*|"
+                          r"покажи\w*|нужн\w+|можно|give|want|find|send|show|need|let'?s|бер\w*|керек)(?![\w-])",
+                          re.IGNORECASE)
+_WARMUP_NOT = re.compile(r"(?<![\w-])(?:подсказк\w*|нам[её]к\w*|hints?|решени\w*|ответ\w*|solutions?|answers?|шешім\w*|"
+                         r"жауа\w*|(?:эт\w*|ту|той|this|that|осы)\s+(?:задач\w*|задани\w*|упражнени\w*|puzzle|task|"
+                         r"exercise|есеп\w*))(?![\w-])", re.IGNORECASE)
+
+
+def asks_warmup(text: str) -> bool:
+    """The student asks for a warm-up of puzzles — the daily plan's card, or the same in their own words."""
+    t = text or ""
+    return bool(_WARMUP_WORD.search(t) and _WARMUP_PUZZLES.search(t) and _WARMUP_ASKS.search(t)) \
+        and not _WARMUP_NOT.search(t)
+
+
+def wants_new_puzzle(text: str) -> bool:
+    """The words ask for a puzzle that is not on the board yet: a new one (``_WANTS_NEW_PUZZLE``) or a warm-up of
+    them. One reading for the intent, the board lock and the turn's puzzle step."""
+    t = text or ""
+    return bool(_WANTS_NEW_PUZZLE.search(t)) or asks_warmup(t)
+
+
 # The default board is nothing of the student's to keep: the start position, an empty board.
 _DEFAULT_BOARDS = frozenset({chess.STARTING_BOARD_FEN, "8/8/8/8/8/8/8/8"})
 # The question points at the board in front of the student — then nothing replaces it, not even a
@@ -115,11 +148,11 @@ def _board_lock_level(message: str, has_fen: bool, live_game: bool, fen: Optiona
     if not has_fen or fen.split()[0] in _DEFAULT_BOARDS:
         return None, False, ""
     text = re.sub(r"«[^»]*»|\"[^\"]*\"|“[^”]*”", " ", message or "")  # «Пример 5» is a lesson's name
-    if _asks_result(text) and not (_WANTS_NEW_BOARD.search(text) or _WANTS_NEW_PUZZLE.search(text)):
+    if _asks_result(text) and not (_WANTS_NEW_BOARD.search(text) or wants_new_puzzle(text)):
         return fen, True, "asked"
-    if _ABOUT_POSITION.search(text) and not (_WANTS_NEW_BOARD.search(text) or _WANTS_NEW_PUZZLE.search(text)):
+    if _ABOUT_POSITION.search(text) and not (_WANTS_NEW_BOARD.search(text) or wants_new_puzzle(text)):
         return fen, bool(_ABOUT_THIS_BOARD.search(text)), "asked"
-    if owned and not _WANTS_NEW_PUZZLE.search(text):
+    if owned and not wants_new_puzzle(text):
         from src.question_position import wants_shown
 
         if not wants_shown(text):
