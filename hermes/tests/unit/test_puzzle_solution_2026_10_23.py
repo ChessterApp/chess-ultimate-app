@@ -71,7 +71,9 @@ def test_the_solution_line_from_the_start_and_part_way():
 
 def test_the_tool_shows_the_solution_with_arrows_and_the_exact_line():
     session, _ = _puzzle_session("solution-tool")
-    out = json.loads(_handle_puzzle_solution({}, session_id=session.id, user_id="solution-tool"))
+    # The student's words ask for it — without them the tool is closed (tests/unit/test_hint_no_solution_1117.py).
+    out = json.loads(_handle_puzzle_solution({}, session_id=session.id, user_id="solution-tool",
+                                             student_message="Сдаюсь, покажи решение"))
     assert out["ok"] and out["line"] == "24...Qf3+ 25.Kg1 Nh3#" and out["moves"] == SOLUTION
     arrows = out["board_actions"][0]
     assert arrows["type"] == "draw_arrows" and [a["from"] + a["to"] for a in arrows["arrows"]] == ["f6f3", "g2g1", "f2h3"]

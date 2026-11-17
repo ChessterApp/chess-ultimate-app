@@ -590,7 +590,14 @@ def numbered_line(fen: str, sans: list) -> str:
 
 
 def _handle_puzzle_solution(args: dict, **kwargs) -> str:
+    """The solution is shown only when the student gave up or asked for it (17.11): their own words say so
+    (``asks_solution``), or the site made the call for the words the server read as that (the voice page, caller
+    "site" after /api/coach/voice/intent), or the solution of this puzzle was shown already. The model calling the
+    tool on «подскажи идею, не называя ход» gets no arrows and no line — the sibling of the arrow it drew itself
+    (src/solution_guard.py). With no words of the student at all the server cannot tell, and the solution stays
+    hidden."""
     from src.sessions import session_for
+    from src.solution_guard import is_revealed, reveal
 
     session = session_for(kwargs)
     board_rec = None
@@ -605,6 +612,15 @@ def _handle_puzzle_solution(args: dict, **kwargs) -> str:
     if not sol["next"]:
         return json.dumps({"ok": True, "solved": True, "line": numbered_line(sol["fen"], sol["sans"]),
                            "note": "The puzzle is already solved on the board: say so and offer the next one."})
+    words = str(kwargs.get("student_message") or kwargs.get("utterance") or "")
+    if not (asks_solution(words) or kwargs.get("caller") == "site" or is_revealed(board_rec)):
+        return json.dumps({
+            "ok": False, "withheld": True,
+            "note": "The student has NOT asked for the solution and has not given up: it stays hidden, nothing was "
+                    "drawn. Give a hint in words — the idea, the target or the piece to look at — and name no move "
+                    "of the solution. When they say they give up or ask for the solution, the system shows it.",
+        }, ensure_ascii=False)
+    reveal(session, board_rec)  # from here on the solution's moves may be drawn (src/solution_guard.py)
     whole = numbered_line(sol["fen"], sol["sans"])
     arrows = [{"from": u[:2], "to": u[2:4], "brush": "green" if i % 2 == 0 else "blue"}
               for i, u in enumerate(sol["ucis"][sol["reached"]:])]
@@ -622,7 +638,8 @@ registry.register(
     name="puzzle_solution",
     toolset="chess",
     schema={"name": "puzzle_solution", "description": "Show the verified solution of the puzzle on the board "
-            "(the student gave up or asked for it): arrows on the board and the exact line to say.",
+            "— ONLY when the student gave up or asked for the solution (never for a hint: the call is then refused): "
+            "arrows on the board and the exact line to say.",
             "parameters": {"type": "object", "properties": {}}},
     handler=_handle_puzzle_solution,
     description="The verified solution of the puzzle on the board, shown with arrows.",

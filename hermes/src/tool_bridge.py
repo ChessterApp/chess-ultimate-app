@@ -470,9 +470,30 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
                           "arrows_note": "These arrows were NOT drawn — the piece on the square cannot move that way, "
                                          "or the move was made on another position of the game than the board shows. "
                                          "Do not describe them as attacks or threats, nor as drawn."}
+            # …and a move of the solution of the puzzle the student is still solving is not drawn either — the text
+            # turn's rule again (src/solution_guard.py, 17.11: a hint asked for, the solution's arrow on the board).
+            # The puzzle_solution tool, when the student did ask, has marked the solution as shown before this.
+            board_actions, withheld = _withhold_solution(board_actions, session)
+            if withheld and isinstance(parsed, dict):
+                parsed = {**parsed, "solution_withheld": withheld,
+                          "solution_note": "These marks were NOT drawn: they show the solution of the puzzle the "
+                                           "student is still solving. Hint in words only — the idea, the target or "
+                                           "the piece — and do not say they were drawn."}
             _sync_session_board(session, board_actions)
 
     return {"result": parsed, "board_actions": board_actions}
+
+
+def _withhold_solution(actions: list, session) -> tuple[list, list]:
+    """(the actions without the marks that draw the solution of the unsolved puzzle on the session's board, the
+    moves withheld) — src/solution_guard.withhold_solution, judged on the board before these actions change it."""
+    try:
+        from src.solution_guard import withhold_solution
+
+        return withhold_solution(actions, session.active_board())
+    except Exception:  # noqa: BLE001 — bookkeeping never breaks a tool call
+        logger.debug("solution guard failed", exc_info=True)
+        return list(actions), []
 
 
 def _prune_voice_arrows(actions: list, session, shown_fen: Optional[str] = None) -> tuple[list, list]:

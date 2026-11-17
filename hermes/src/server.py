@@ -1209,6 +1209,36 @@ def _shown_game(session, board_id: Optional[str]) -> tuple:
     return None, None
 
 
+def _puzzle_secret(session, board_id: Optional[str] = None) -> list:
+    """The solution moves of the unsolved puzzle on the session's board *board_id* (the active one by default) that
+    no mark may draw now — src/solution_guard.py, 17.11. Read from the session at every call: a tool may have put
+    another puzzle up, or the solution may have been shown, since the turn began."""
+    try:
+        from src.solution_guard import secret_moves
+
+        board = (session.get_board(board_id) if board_id else None) or session.active_board()
+        return secret_moves(board) if board is not None else []
+    except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
+        return []
+
+
+def _hint_safe(actions: list, session, board_id: Optional[str] = None) -> list:
+    """*actions* without the arrows and highlights that draw the solution of the puzzle the student is still solving
+    (src/solution_guard.withhold_solution): the last stop of every board action of a chat turn, whatever wrote it —
+    an inline mark, board_control, any other tool."""
+    try:
+        from src.solution_guard import withhold_solution
+
+        board = (session.get_board(board_id) if board_id else None) or session.active_board()
+        kept, withheld = withhold_solution(actions, board)
+    except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
+        logger.debug("solution guard failed", exc_info=True)
+        return actions
+    if withheld:
+        logger.info("solution guard: withheld from the board (the puzzle is unsolved): %s", ", ".join(withheld))
+    return kept
+
+
 def _student_side_note(ctx) -> str:
     """Whose side «ты» is, for the rewrite: the student's colour in a game, else
     the side to move (production, 2026-10-05: the rewrite told a student playing
@@ -2044,8 +2074,10 @@ async def _bestofn_event_stream(
     # and so could the framework's stream notices.
     for notice in _FRAMEWORK_STREAM_NOTICES:
         response_text = re.sub(re.escape(notice) + r"[^\n]*", "", response_text)
-    response_text, mark_actions = strip_markup(response_text, getattr(session, 'board_state', None))
+    response_text, mark_actions = strip_markup(response_text, getattr(session, 'board_state', None),
+                                               secret=lambda: _puzzle_secret(session))
     response_text = response_text.strip() or response_text
+    mark_actions = _hint_safe(mark_actions, session)  # a hint never draws the puzzle's solution (17.11)
     if mark_actions:
         board = session.ensure_board()
         for action in mark_actions:
@@ -2125,7 +2157,7 @@ async def _bestofn_event_stream(
 
     envelope = wrap_response(response_text, tool_results=tool_results)
 
-    board_actions = envelope.get("board_actions", [])
+    board_actions = _hint_safe(envelope.get("board_actions", []), session)
     if board_actions:
         yield _sse({"board_actions": board_actions})
 
@@ -2482,7 +2514,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             from src.tools.puzzles import _handle_puzzle_solution, asks_solution
 
             if asks_solution(body.message):
-                sol = json.loads(_handle_puzzle_solution({}, session_id=session.id, user_id=user_id))
+                sol = json.loads(_handle_puzzle_solution({}, session_id=session.id, user_id=user_id,
+                                                         student_message=body.message))
                 if sol.get("ok") and sol.get("board_actions"):
                     solution_step = {
                         "actions": sol["board_actions"],
@@ -2942,7 +2975,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         tool_starts: dict = {}
         partial_parts: list[str] = []
         answer_parts: list[str] = []  # the answer stage's deltas, as streamed
-        markup = MarkupFilter(session.board_state)  # an arrow mark standing for the move is written out
+        # An arrow mark standing for the move is written out — never the solution of the puzzle being solved (17.11).
+        markup = MarkupFilter(session.board_state, secret=lambda: _puzzle_secret(session, active_board.id))
         streamed_chars = 0
 
         # The answer check (src/answer_check.py): the positions a written move may
@@ -3038,7 +3072,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # The rewrite's sentences go out whole, each once it is checked and proven (src/rewrite_proof.py): no start of
         # one is released before it is judged, whatever COACH_STREAM_SENTENCE_STARTS says (fix1102 K6).
         fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK), hold_promises=True, release_starts=False)
-        fix_markup = MarkupFilter(session.board_state)
+        fix_markup = MarkupFilter(session.board_state, secret=lambda: _puzzle_secret(session, active_board.id))
         # The coach's recommendation («сыграй Rg1») is checked by the engine
         # before the sentence is shown (src/hypothetical.verify_recommendation).
         verify_state = {"left": config.COACH_MOVE_VERIFY_PER_TURN if config.COACH_MOVE_VERIFY else 0,
@@ -3449,6 +3483,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             another position than the one it shows (board_markup.prune_board_actions; live run 04.11: f3→e5 for 6.Nxe5
             drawn on the final position)."""
             actions, _ = prune_board_actions(actions, session.board_state, *_shown_game(session, active_board.id))
+            # …and so is a move of the solution of the puzzle the student is still solving: «Подскажи идею, не
+            # называя ход» got the answer in words and the solution's arrow a1→a8 on the board (tester, 16.11).
+            actions = _hint_safe(actions, session, active_board.id)
             if not actions:
                 return ""
             gate.board_changed()  # a promise to show it on the board («Покажу на доске.») is kept
@@ -4265,7 +4302,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # turn), fall back to emitting the completed text as a single delta so the
         # concatenated deltas always reconstruct the full assistant message.
         if not streamed_any:
-            answer_text, mark_actions = strip_markup(answer_text, session.board_state)
+            answer_text, mark_actions = strip_markup(answer_text, session.board_state,
+                                                     secret=lambda: _puzzle_secret(session, active_board.id))
             for action in mark_actions:
                 yield _board_frame([action])
             yield _sse({"delta": answer_text})

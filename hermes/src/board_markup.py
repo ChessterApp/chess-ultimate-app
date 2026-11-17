@@ -16,7 +16,7 @@ Voice keeps board_control: a spoken answer cannot carry marks.
 """
 
 import re
-from typing import Optional
+from typing import Callable, Iterable, Optional
 
 import chess
 
@@ -49,7 +49,14 @@ MAX_MARK_CHARS = 400
 class MarkupFilter:
     """Streaming filter for one answer: ``feed`` text deltas, get clean text and board actions."""
 
-    def __init__(self, fen: Optional[str] = None) -> None:
+    def __init__(self, fen: Optional[str] = None, secret: Optional[Callable[[], Iterable]] = None) -> None:
+        # The moves not to be drawn now, as (from, to) squares — the solution of the puzzle the student is solving
+        # (src/solution_guard.secret_moves, 17.11). Asked at every mark: a tool may put a puzzle up mid-answer. Such
+        # an arrow is cut with its mark and never joins the answer's arrows, so it is not written out as the move
+        # either (``_words_for``): «Подскажи идею, не называя ход» drew a1→a8, and a mark standing where the move's
+        # words were due would have named it.
+        self._secret = secret
+        self.withheld: list[str] = []  # the arrows cut for that reason, as 'a1a8'
         self._pending = ""
         self._arrows: list[dict] = []
         self._squares: list[str] = []
@@ -217,6 +224,14 @@ class MarkupFilter:
         self._pending = ""
         return "".join(out)
 
+    def _secret_moves(self) -> set:
+        if self._secret is None:
+            return set()
+        try:
+            return {(str(a).lower(), str(b).lower()) for a, b in self._secret()}
+        except Exception:  # noqa: BLE001 — the board actions are still judged on their way out
+            return set()
+
     def _parse(self, mark: str) -> Optional[dict]:
         """A board action for *mark*; {} for a mark of ours with nothing usable; None if not ours.
 
@@ -251,7 +266,11 @@ class MarkupFilter:
             return None
         if kind.startswith("arrow"):
             added = False
+            secret = self._secret_moves()
             for a, b, color in _ARROW.findall(body):
+                if (a.lower(), b.lower()) in secret:
+                    self.withheld.append(a.lower() + b.lower())
+                    continue
                 arrow = {"from": a.lower(), "to": b.lower(), "brush": (color or "green").lower()}
                 if a.lower() != b.lower() and arrow not in self._arrows:
                     self._arrows.append(arrow)
@@ -266,9 +285,10 @@ class MarkupFilter:
         return {"type": "highlight_squares", "squares": list(self._squares), "color": color}
 
 
-def strip_markup(text: str, fen: Optional[str] = None) -> tuple[str, list[dict]]:
+def strip_markup(text: str, fen: Optional[str] = None,
+                 secret: Optional[Callable[[], Iterable]] = None) -> tuple[str, list[dict]]:
     """Whole-text version of the filter (for an answer that was not streamed)."""
-    f = MarkupFilter(fen)
+    f = MarkupFilter(fen, secret)
     clean, actions = f.feed(text)
     return clean + f.flush(), actions
 
