@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 18.11-2 («Разобрать» после партии с тренером разбирает эту партию; дебют в разборе называется по справочнику) — включает всё из версий 06.10 … 18.11
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 18.11-3 (распознавание речи в голосовом режиме идёт через OpenRouter, без Google) — включает всё из версий 06.10 … 18.11-2
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -7,8 +7,9 @@
 > обновление: всё, что уже сделано в прошлый раз (миграции, база задач, переменные), Claude
 > проверит и пропустит, так что займёт 10–15 минут. В конце Claude пришлёт отчёт.
 >
-> **Это небольшое обновление поверх версии 18.11**, которая уже стоит: только код (две правки, найденные проверкой на
-> проде 18.11), без новых переменных, миграций и ключей. Модель, голос и голосовой режим не меняются.
+> **Это небольшое обновление поверх версии 18.11-2**, которая уже стоит. Оно возвращает голос: распознавание речи
+> переведено с Google на OpenRouter (на проекте Google закончилась предоплата, и с 18.11 голос не подключался). Только
+> код, без новых ключей, миграций и обязательных переменных: используется тот же ключ OpenRouter, что уже стоит.
 
 ---
 
@@ -32,6 +33,71 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 18.11-3 (голос; код — `hermes/src/` и тесты. Миграций, пакетов и обязательных переменных нет; подшаг 5а не
+выполняется. Если сервер на 18.11-2 — шаги 0, 1, 2, 3, 4, 8 и проверки 1, 3, 87 и «живая» проверка под ней; если раньше —
+все шаги):
+- **Что было.** 18.11 голос перестал подключаться у всех (сайт, приложения): страница отправляла звук микрофона прямо в
+  Google (модель распознавания Live, одноразовый токен выдавал сайт ключом команды), а Google закрывал каждое соединение с
+  текстом «Your prepayment credits are depleted» — на проекте закончилась предоплата. Решение Александра: «подключи его
+  через OpenRouter».
+- **Слова ученика распознаёт этот сервер через OpenRouter** (`src/voice_stt.py`, новый адрес `POST /api/coach/voice/stt`).
+  Страница сама вырезает фразу из звука микрофона (по тишине) и присылает её сюда; сервер отправляет запись в OpenRouter
+  (`/api/v1/audio/transcriptions`) ключом `OPENROUTER_API_KEY`, с названным языком и шахматными словами-подсказками, и
+  возвращает текст. Google в этом пути нет. Модель — `openai/gpt-transcribe` (переменная `COACH_VOICE_STT_MODEL`, задавать
+  не нужно). Замер 18.11 на 90 записях (русский / казахский, доля неверных слов; время запроса; цена минуты звука):
+  `openai/gpt-transcribe` 0,4 % / 11,9 %, 1,2 с, $0,0054; `google/gemini-3.5-transcribe` 1,3 % / 10,8 %, 3,0 с, $0,0061;
+  `elevenlabs/scribe-v2` 0,4 % / 17,0 %, 1,5 с, $0,0045; остальные хуже на казахском.
+- **Кто распознаёт, говорит сервер.** `GET /api/coach/voice/mode` теперь отвечает ещё и `"stt"`: `"server"` — страница
+  присылает фразы сюда; `"google"` — страница, как раньше, шлёт звук в Google (так отвечает сервер без ключа OpenRouter или
+  с `COACH_VOICE_STT=off` в `.env` — выключатель нового пути). Сайт уже выложен и переключится сам после этого обновления.
+- **Чего это не возвращает.** Старый голосовой режим Gemini Live (ссылка `?voice=live` на сайте и голос в мобильном
+  приложении) по-прежнему идёт в Google и заработает только после пополнения проекта Google.
+- **Чем проверено.** Тесты `tests/unit/test_voice_stt_1118.py`, весь набор проходит. Вживую на стенде: голосовой разговор
+  с подставным микрофоном целиком без Google — три фразы распознаны точно, распознавание 1,4–2,2 с.
+- Проверка 87 (без модели, без сервера и без сети — вызов наружу в команде подменён):
+
+```bash
+cd /root/hermes-chess && SUPABASE_URL= .venv/bin/python - <<'EOF'
+import asyncio, json, os
+from src import config, voice_stt
+ready, model = voice_stt.stt_ready(), voice_stt.stt_model()
+calls = []
+class Resp:
+    status_code, headers, text = 200, {}, ""
+    def json(self):
+        return {"text": " Конь эф три. "}
+async def ask(key, model, audio, fmt, language):
+    calls.append((model, fmt, language, len(audio))); return Resp()
+voice_stt.ask = ask
+os.environ.setdefault("OPENROUTER_API_KEY", "check")
+audio = b"RIFF" + b"\0" * 8000
+heard = json.loads(asyncio.run(voice_stt.transcribe(audio, "audio/wav", "kk")).body)
+noise = json.loads(asyncio.run(voice_stt.transcribe(b"RIFF" + b"\0" * 100, "audio/wav", "ru")).body)
+ok = heard.get("text") == "Конь эф три." and calls == [(model, "wav", "kk", len(audio))] and noise.get("text") == "" \
+    and "рокировка" in voice_stt.KEYTERMS and "уәзір" in voice_stt.KEYTERMS
+print("ОК" if ok else "ПРОВЕРЬ", "| фраза:", heard.get("text"), "| запрос:", calls, "| щелчок без запроса:", noise.get("text") == "",
+      "| сейчас: слушает сервер", ready, ", модель", model)
+EOF
+```
+
+  → `ОК | фраза: Конь эф три. | запрос: [('openai/gpt-transcribe', 'wav', 'kk', 8004)] | щелчок без запроса: True | сейчас:
+  слушает сервер True , модель openai/gpt-transcribe`. До обновления — `ImportError: cannot import name 'voice_stt'`.
+  `слушает сервер False` — в `.env` нет `OPENROUTER_API_KEY` или стоит `COACH_VOICE_STT=off`: напиши человеку.
+- «Живая» проверка после шага 8 (один платный запрос распознавания, доли цента: секунда тишины):
+
+```bash
+cd /root/hermes-chess && .venv/bin/python -c "
+import wave
+w = wave.open('/tmp/hermes-stt-check.wav', 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(b'\0\0' * 16000); w.close()"
+curl -s --max-time 10 -H 'X-User-Id: deploy-check' localhost:8642/api/coach/voice/mode; echo
+curl -s --max-time 40 -X POST localhost:8642/api/coach/voice/stt -H 'X-User-Id: deploy-check' -H 'Content-Type: audio/wav' \
+  -H 'X-Voice-Locale: ru' --data-binary @/tmp/hermes-stt-check.wav -w ' HTTP %{http_code} %{time_total}s\n'; rm -f /tmp/hermes-stt-check.wav
+```
+
+  → `{"mode":"pipeline","stt":"server"}` и `{"text":"","model":"openai/gpt-transcribe","ms":<около 1000–2500>} HTTP 200
+  <секунды>` (в тишине слов нет — текст пустой, это правильно). `HTTP 502` — OpenRouter отказал: пришли человеку
+  `pm2 logs hermes-chess --lines 60 --nostream | grep 'voice stt'`; `HTTP 402` — на OpenRouter кончились деньги.
 
 Новое в версии 18.11-2 (найдено проверкой на проде 18.11; код — `hermes/src/` и тесты. Миграций, пакетов и переменных нет;
 подшаг 5а не выполняется. Если сервер на 18.11 — шаги 0, 1, 2, 3, 4, 8 и проверки 1, 3, 86; если раньше — все шаги):
@@ -2511,6 +2577,16 @@ grep -q 'def _our_game_board' chess-ultimate-app/hermes/src/server.py \
 
 Если «НЕТ версии 18.11-2»: **СТОП** — версия 18.11-2 ещё не влита в `main`; напиши Александру, ничего не обновляй.
 
+Версия 18.11-3 в main:
+
+```bash
+test -f chess-ultimate-app/hermes/src/voice_stt.py \
+  && grep -q 'api/coach/voice/stt' chess-ultimate-app/hermes/src/server.py \
+  && echo "версия 18.11-3 в main есть" || echo "НЕТ версии 18.11-3"
+```
+
+Если «НЕТ версии 18.11-3»: **СТОП** — версия 18.11-3 ещё не влита в `main`; напиши Александру, ничего не обновляй.
+
 ## Шаг 2. Резервная копия
 
 ```bash
@@ -3189,6 +3265,10 @@ for s in $(cat sid-after sid-before); do
   Если убираешь голос ElevenLabs, а режим оставляешь — «связка» будет говорить голосом `google/gemini-3.8-flash-tts`
   (первый звук ответа примерно на 3 с позже).
 
+Вернуть распознавание речи в Google (18.11-3; имеет смысл только после пополнения проекта Google): добавить в `.env` строку
+`COACH_VOICE_STT=off` и `pm2 restart hermes-chess` — страница снова шлёт звук в Google; убрать строку — снова через этот
+сервер и OpenRouter.
+
 У защиты решения задачи, ссылок на уроки и разминки (17.11), а также у счёта и конца разминки, строки разбора и правила одной партии (18.11) выключателей в `.env` нет — они убираются только откатом кода.
 
 Откатить настройки скорости, без отката кода (строки в `.env`, потом `pm2 restart hermes-chess`):
@@ -3310,6 +3390,7 @@ COACH_REASONING_MANDATORY, COACH_REASONING_EFFORT, COACH_LESSON_LINK=<значе
   84 18.11 — разминка: места <[1, 2, 3, 4, 5]/…>, после пятой <текст>, база задач <True/False>
   85 18.11 — разбор: строка сервера с числом и ходами карточки <True/False>
   86 18.11-2 — «Разобрать» берёт сданную партию <[True, True, True]/…>, дебют по справочнику <True True/…>
+  87 18.11-3 — распознавание через OpenRouter <ОК/ПРОВЕРЬ>, слушает сервер <True/False>, модель <…>; живая: /voice/mode <…>, /voice/stt HTTP <200/…> за <…> с
 Бэкенд (фото доски): <обновлён, коммит …, grep PHOTO_FEN_ATTEMPTS = … / не обновлён — почему>
 Что нужно от людей: <список или «ничего»>
 ```
