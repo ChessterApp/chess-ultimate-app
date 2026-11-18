@@ -1,9 +1,16 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useCoachBoard, resolveSolutionMove } from '../useCoachBoard';
+import {
+  useCoachBoard,
+  resolveSolutionMove,
+  puzzleReplyDue,
+  puzzleStudentColor,
+  puzzleStudentMoves,
+  PUZZLE_REPLY_DELAY_MS,
+} from '../useCoachBoard';
 
 const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -326,19 +333,96 @@ describe('useCoachBoard', () => {
     expect(result.current.fen).toContain('r1bqkb1r/pppp1Qpp');
   });
 
-  it('walks a multi-move SAN solution', () => {
-    const { result } = renderHook(() => useCoachBoard());
-    const puzzleFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  describe('a multi-move puzzle: the board plays the opponent (tester, 18.11)', () => {
+    // Student, reply, student — Black to move, as in the tester's warm-up.
+    const BLACK_FEN = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2';
+    const LINE = ['Nc6', 'Bb5', 'a6'];
 
-    act(() => {
-      result.current.applyBoardAction({ type: 'set_puzzle', fen: puzzleFen, solution: ['e4', 'e5'] });
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
     });
 
-    let r: string;
-    act(() => { r = result.current.validatePuzzleMove('e2', 'e4'); });
-    expect(r!).toBe('correct');
-    act(() => { r = result.current.validatePuzzleMove('e7', 'e5'); });
-    expect(r!).toBe('solved');
+    it('plays the reply after a pause, then waits for the student again', () => {
+      const { result } = renderHook(() => useCoachBoard());
+      act(() => {
+        result.current.applyBoardAction({ type: 'set_puzzle', fen: BLACK_FEN, solution: LINE });
+      });
+      expect(result.current.orientation).toBe('black');
+
+      let r: string;
+      act(() => { r = result.current.validatePuzzleMove('b8', 'c6'); });
+      expect(r!).toBe('correct');
+      expect(puzzleReplyDue(result.current.puzzleState)).toBe(true);
+      // The opponent's move is not the student's to make while the reply is due.
+      act(() => { r = result.current.validatePuzzleMove('f1', 'b5'); });
+      expect(r!).toBe('wrong');
+      expect(result.current.fens).toHaveLength(2);
+
+      act(() => { vi.advanceTimersByTime(PUZZLE_REPLY_DELAY_MS - 1); });
+      expect(result.current.fens).toHaveLength(2);
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(result.current.fens).toHaveLength(3);
+      expect(result.current.fen).toMatch(/\/1B2p3\/.* b /);
+      expect(result.current.moveIndex).toBe(2);
+      expect(result.current.puzzleState).toMatchObject({ currentMoveIndex: 2, solved: false });
+      expect(puzzleReplyDue(result.current.puzzleState)).toBe(false);
+
+      act(() => { r = result.current.validatePuzzleMove('a7', 'a6'); });
+      expect(r!).toBe('solved');
+      expect(result.current.puzzleState).toMatchObject({ currentMoveIndex: 3, solved: true });
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(result.current.fens).toHaveLength(4); // nothing played after the student's last move
+    });
+
+    it('plays the reply at once when asked (an early «Дальше»), and only once', () => {
+      const { result } = renderHook(() => useCoachBoard());
+      act(() => {
+        result.current.applyBoardAction({ type: 'set_puzzle', fen: BLACK_FEN, solution: LINE });
+      });
+      act(() => { result.current.validatePuzzleMove('b8', 'c6'); });
+      act(() => { result.current.playPuzzleReply(); });
+      expect(result.current.fens).toHaveLength(3);
+      act(() => { result.current.playPuzzleReply(); vi.advanceTimersByTime(2000); });
+      expect(result.current.fens).toHaveLength(3);
+      expect(result.current.puzzleState?.currentMoveIndex).toBe(2);
+    });
+
+    it('a new puzzle cancels a reply still waiting', () => {
+      const { result } = renderHook(() => useCoachBoard());
+      act(() => {
+        result.current.applyBoardAction({ type: 'set_puzzle', fen: BLACK_FEN, solution: LINE });
+      });
+      act(() => { result.current.validatePuzzleMove('b8', 'c6'); });
+      act(() => {
+        result.current.applyBoardAction({ type: 'set_puzzle', fen: DEFAULT_FEN, solution: ['e4'] });
+      });
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(result.current.fens).toEqual([DEFAULT_FEN]);
+      expect(result.current.orientation).toBe('white');
+    });
+
+    it('a line that ends on a reply is solved by the last student move, the reply still played', () => {
+      const { result } = renderHook(() => useCoachBoard());
+      act(() => {
+        result.current.applyBoardAction({ type: 'set_puzzle', fen: DEFAULT_FEN, solution: ['e4', 'e5'] });
+      });
+      let r: string;
+      act(() => { r = result.current.validatePuzzleMove('e2', 'e4'); });
+      expect(r!).toBe('solved');
+      act(() => { vi.advanceTimersByTime(PUZZLE_REPLY_DELAY_MS); });
+      expect(result.current.fen).toMatch(/^rnbqkbnr\/pppp1ppp\/8\/4p3\/4P3/);
+      expect(result.current.puzzleState).toMatchObject({ currentMoveIndex: 2, solved: true });
+    });
+  });
+
+  it('counts the student moves of a solution', () => {
+    expect(puzzleStudentMoves(['Qxf7#'])).toBe(1);
+    expect(puzzleStudentMoves(['Bc5+', 'Ne7', 'Qxf7#'])).toBe(2);
+    expect(puzzleStudentMoves(['a', 'b', 'c', 'd', 'e'])).toBe(3);
+    expect(puzzleStudentColor('8/8/8/8/8/8/8/K6k b - - 0 1')).toBe('black');
   });
 
   it('applies load_pgn followed by navigate in the same batch', () => {

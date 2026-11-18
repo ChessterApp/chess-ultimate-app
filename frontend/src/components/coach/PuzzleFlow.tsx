@@ -2,9 +2,10 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Chess } from 'chess.js';
+import { Chess, type Square } from 'chess.js';
 import type { PuzzleState } from '@/types/coach';
 import { useHaptic } from '@/hooks/useHaptic';
+import { puzzleReplyDue, puzzleStudentColor, puzzleStudentMoves } from '@/hooks/useCoachBoard';
 import { creditStepXp, useStepFlow, type StepComplete, type StepFlowControls } from '@/hooks/useStepFlow';
 import StepFlow, { type StepFeedback } from './StepFlow';
 
@@ -20,7 +21,7 @@ export interface PuzzleStepControls {
   flow: StepFlowControls;
   /** The position to show: the puzzle's, or the not-yet-checked move. */
   boardFen: string;
-  /** Lock the board while a move waits for «Проверить» or its result is shown. */
+  /** Lock the board while a move waits for «Проверить», its result is shown or the opponent's reply is due. */
   boardLocked: boolean;
   flash: { result: 'correct' | 'wrong'; key: number } | null;
   /** The move played on the board (not checked yet). */
@@ -28,17 +29,22 @@ export interface PuzzleStepControls {
   undo: () => void;
   check: () => void;
   retry: () => void;
+  /** «Дальше» on a right move: the opponent's reply first (at once if its pause has not run out), then the next step. */
+  next: () => void;
   feedback: StepFeedback | null;
 }
 
 /**
  * Puzzle solving on StepFlow: a move is held until «Проверить», then checked
  * with the board hook's own solution check (useCoachBoard.validatePuzzleMove).
+ * The steps are the student's moves only; the opponent's replies between them
+ * are played by the board hook (useCoachBoard.playPuzzleReply, tester 18.11).
  */
 export function usePuzzleStep(
   puzzle: PuzzleState | null,
   fen: string,
   validate: (from: string, to: string) => 'correct' | 'wrong' | 'solved',
+  playReply?: () => void,
 ): PuzzleStepControls {
   const haptic = useHaptic();
   const [pending, setPending] = useState<PendingMove | null>(null);
@@ -47,13 +53,16 @@ export function usePuzzleStep(
 
   // XP goes through the one credit path (creditStepXp); it credits nothing yet, so none is shown.
   const onStepComplete = useCallback((result: StepComplete) => void creditStepXp(result), []);
-  const flow = useStepFlow(puzzle?.solution.length ?? 0, onStepComplete);
+  // «Шаг N из M» counts the student's moves, not the opponent's replies (tester, 18.11).
+  const total = puzzle ? puzzleStudentMoves(puzzle.solution) : 0;
+  const flow = useStepFlow(total, onStepComplete);
+  const replyDue = puzzleReplyDue(puzzle);
 
   // A new puzzle (the coach sent one, or a session was restored): start over.
   const puzzleKey = puzzle ? `${puzzle.fen}|${puzzle.solution.join(' ')}` : '';
   const { restart } = flow;
   useEffect(() => {
-    restart(puzzle?.solution.length ?? 0);
+    restart(total);
     setPending(null);
     setLastSan(null);
     setFlash(null);
@@ -64,8 +73,12 @@ export function usePuzzleStep(
     (from: string, to: string, promotion?: 'q' | 'r' | 'b' | 'n') => {
       const phase = flow.state.phase;
       if (phase !== 'idle' && phase !== 'moved') return;
+      // The opponent's pieces are the board's to move (their reply), never the student's.
+      if (!puzzle || replyDue) return;
       try {
         const chess = new Chess(fen);
+        const piece = chess.get(from as Square);
+        if (!piece || (piece.color === 'w' ? 'white' : 'black') !== puzzleStudentColor(puzzle.fen)) return;
         const m = chess.move({ from, to, promotion: promotion ?? 'q' });
         setPending({ from, to, san: m.san, fen: chess.fen() });
         flow.move();
@@ -73,7 +86,7 @@ export function usePuzzleStep(
         // Illegal: the board snaps back.
       }
     },
-    [fen, flow],
+    [fen, flow, puzzle, replyDue],
   );
 
   const check = useCallback(() => {
@@ -100,16 +113,22 @@ export function usePuzzleStep(
     flow.retry();
   }, [flow]);
 
+  const next = useCallback(() => {
+    if (replyDue) playReply?.();
+    flow.next();
+  }, [flow, replyDue, playReply]);
+
   const phase = flow.state.phase;
   return {
     flow,
     boardFen: pending?.fen ?? fen,
-    boardLocked: phase !== 'idle',
+    boardLocked: phase !== 'idle' || replyDue,
     flash,
     move,
     undo,
     check,
     retry,
+    next,
     feedback: phase === 'correct' || phase === 'wrong' ? { san: lastSan ?? undefined } : null,
   };
 }
@@ -148,7 +167,7 @@ export default function PuzzleFlow({ controls, puzzle, onAsk, onNextPuzzle, onEx
       onUndo={controls.undo}
       onCheck={controls.check}
       onRetry={controls.retry}
-      onNext={solved ? onNextPuzzle : flow.next}
+      onNext={solved ? onNextPuzzle : controls.next}
       onFollowUp={onAsk}
       onClose={onExit}
     />

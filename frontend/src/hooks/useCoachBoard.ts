@@ -46,6 +46,36 @@ export function resolveSolutionMove(
   return null;
 }
 
+/**
+ * A coach puzzle's solution alternates the student's moves and the opponent's
+ * replies — student, reply, student, … (Hermes takes Lichess puzzles, which
+ * end on the student's move: src/tools/puzzles.py counts the solver's moves as
+ * every other one from the first). The board plays the replies itself, after
+ * this pause so the student sees their own move land first; the student is
+ * never asked to make the opponent's move (tester, 18.11: in a three-move
+ * warm-up puzzle «Дальше» left Black to move and only Black's pieces moved).
+ */
+export const PUZZLE_REPLY_DELAY_MS = 500;
+
+function sideToMove(fen: string): 'white' | 'black' {
+  return fen.split(' ')[1] === 'b' ? 'black' : 'white';
+}
+
+/** The side the student plays in a puzzle: the side to move in its starting position. */
+export function puzzleStudentColor(puzzleFen: string): 'white' | 'black' {
+  return sideToMove(puzzleFen);
+}
+
+/** The student's own moves in a solution — what «Шаг N из M» counts (tester, 18.11). */
+export function puzzleStudentMoves(solution: string[]): number {
+  return Math.ceil(solution.length / 2);
+}
+
+/** The solution's next move is the opponent's reply: the board plays it, the student waits. */
+export function puzzleReplyDue(puzzle: PuzzleState | null): boolean {
+  return !!puzzle && puzzle.currentMoveIndex % 2 === 1 && puzzle.currentMoveIndex < puzzle.solution.length;
+}
+
 interface UseCoachBoardReturn extends CoachBoardState {
   /** The positions of the loaded history; `moveIndex` points into it. */
   fens: string[];
@@ -56,6 +86,8 @@ interface UseCoachBoardReturn extends CoachBoardState {
   firstMove: () => void;
   lastMove: () => void;
   validatePuzzleMove: (from: string, to: string) => 'correct' | 'wrong' | 'solved';
+  /** Play the opponent's reply now if one is due (it is also played on its own after PUZZLE_REPLY_DELAY_MS). */
+  playPuzzleReply: () => void;
   resetBoard: () => void;
   setFenFromMove: (from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => void;
   /** Jump to a ply of the loaded history (0 = start position). */
@@ -85,11 +117,20 @@ export function useCoachBoard(): UseCoachBoardReturn {
   const fenRef = useRef(fen);
   const pgnFensRef = useRef(pgnFens);
   const moveIndexRef = useRef(moveIndex);
+  const puzzleStateRef = useRef(puzzleState);
   useEffect(() => {
     fenRef.current = fen;
     pgnFensRef.current = pgnFens;
     moveIndexRef.current = moveIndex;
-  }, [fen, pgnFens, moveIndex]);
+    puzzleStateRef.current = puzzleState;
+  }, [fen, pgnFens, moveIndex, puzzleState]);
+
+  // The puzzle's state through the ref first, as commitHistory does for the position: the reply's timer and an
+  // early «Дальше» may both reach playPuzzleReply, and the second must see the reply already played.
+  const commitPuzzle = useCallback((next: PuzzleState) => {
+    puzzleStateRef.current = next;
+    setPuzzleState(next);
+  }, []);
 
   // Set position + history through the refs first: the coach's actions arrive
   // as one batch per turn (e.g. load_pgn followed by navigate), and the later
@@ -144,7 +185,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
       case 'set_puzzle': {
         commitHistory([action.fen], 0);
         setPuzzleMode(true);
-        setPuzzleState({
+        commitPuzzle({
           fen: action.fen,
           solution: action.solution,
           currentMoveIndex: 0,
@@ -152,6 +193,8 @@ export function useCoachBoard(): UseCoachBoardReturn {
         });
         setArrows([]);
         setHighlights([]);
+        // The board faces the side the student plays (tester, 18.11: Black's puzzles were shown from White's side).
+        setOrientation(puzzleStudentColor(action.fen));
         break;
       }
 
@@ -209,7 +252,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
         break;
       }
     }
-  }, [commitHistory]);
+  }, [commitHistory, commitPuzzle]);
 
   const applyBoardActions = useCallback(
     (actions: BoardAction[]) => {
@@ -260,6 +303,10 @@ export function useCoachBoard(): UseCoachBoardReturn {
   const validatePuzzleMove = useCallback(
     (from: string, to: string): 'correct' | 'wrong' | 'solved' => {
       if (!puzzleState || puzzleState.solved) return 'wrong';
+      // Only the student's own moves are checked: never while the opponent's reply is due, never a move of the
+      // opponent's side (tester, 18.11: «Кe7» for Black was taken as the student's second move).
+      if (puzzleReplyDue(puzzleState)) return 'wrong';
+      if (sideToMove(fen) !== puzzleStudentColor(puzzleState.fen)) return 'wrong';
 
       const expected = resolveSolutionMove(
         fen,
@@ -267,8 +314,9 @@ export function useCoachBoard(): UseCoachBoardReturn {
       );
       if (!expected || expected.from !== from || expected.to !== to) return 'wrong';
 
+      // Solved once no move of the student's is left: a reply that ends the line is still played by the board.
       const nextIndex = puzzleState.currentMoveIndex + 1;
-      const isSolved = nextIndex >= puzzleState.solution.length;
+      const isSolved = nextIndex >= puzzleState.solution.length - 1;
 
       // Apply the resolved move (SAN carries the promotion piece, if any).
       try {
@@ -280,7 +328,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
         // Unreachable: the move was just resolved against this position.
       }
 
-      setPuzzleState({
+      commitPuzzle({
         ...puzzleState,
         currentMoveIndex: nextIndex,
         solved: isSolved,
@@ -288,8 +336,44 @@ export function useCoachBoard(): UseCoachBoardReturn {
 
       return isSolved ? 'solved' : 'correct';
     },
-    [puzzleState, fen, commitHistory]
+    [puzzleState, fen, commitHistory, commitPuzzle]
   );
+
+  /**
+   * The opponent's reply (tester, 18.11): the solution's next move, played on the position the student's move
+   * produced — the tip of the history, whatever ‹ › show meanwhile — and appended to the history, so the move strip
+   * lists it and the page saves the position it leads to (the study board's debounced PATCH) as it does a move of
+   * the student's. A reply that does not resolve is passed over rather than left for the student to play.
+   */
+  const playPuzzleReply = useCallback(() => {
+    const puzzle = puzzleStateRef.current;
+    if (!puzzle || !puzzleReplyDue(puzzle)) return;
+    const fens = pgnFensRef.current;
+    const tip = fens.length ? fens[fens.length - 1] : fenRef.current;
+    const reply =
+      sideToMove(tip) !== puzzleStudentColor(puzzle.fen)
+        ? resolveSolutionMove(tip, puzzle.solution[puzzle.currentMoveIndex])
+        : null;
+    if (reply) {
+      try {
+        const chess = new Chess(tip);
+        chess.move(reply.san);
+        const next = [...(fens.length ? fens : [tip]), chess.fen()];
+        commitHistory(next, next.length - 1);
+      } catch {
+        // Unreachable: the move was just resolved against this position.
+      }
+    }
+    commitPuzzle({ ...puzzle, currentMoveIndex: puzzle.currentMoveIndex + 1 });
+  }, [commitHistory, commitPuzzle]);
+
+  // The reply is played on its own after a short pause; a new puzzle, a reset or an early play cancels the timer.
+  const replyDue = puzzleReplyDue(puzzleState);
+  useEffect(() => {
+    if (!replyDue) return;
+    const timer = setTimeout(playPuzzleReply, PUZZLE_REPLY_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [replyDue, puzzleState, playPuzzleReply]);
 
   const resetBoard = useCallback(() => {
     commitHistory([DEFAULT_FEN], 0);
@@ -354,6 +438,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
     firstMove,
     lastMove,
     validatePuzzleMove,
+    playPuzzleReply,
     resetBoard,
     setFenFromMove,
     goToMove,

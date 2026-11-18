@@ -483,7 +483,9 @@ export default function CoachPage() {
         } else if (study.fen) {
           board.applyBoardAction({ type: 'set_fen', fen: study.fen });
         }
-        board.setOrientation(study.orientation);
+        // A puzzle faces the side the student plays (set_puzzle turns the board, tester 18.11); the board's stored
+        // orientation is for everything else.
+        if (!(study.puzzle?.solution && study.puzzle.fen)) board.setOrientation(study.orientation);
         if (study.annotations?.arrows?.length) {
           board.applyBoardAction({ type: 'draw_arrows', arrows: study.annotations.arrows });
         }
@@ -935,7 +937,7 @@ export default function CoachPage() {
   useEffect(() => {
     dispatchMode({ type: board.puzzleMode ? 'puzzle_started' : 'puzzle_ended' });
   }, [board.puzzleMode]);
-  const puzzle = usePuzzleStep(board.puzzleState, board.fen, board.validatePuzzleMove);
+  const puzzle = usePuzzleStep(board.puzzleState, board.fen, board.validatePuzzleMove, board.playPuzzleReply);
 
   const startMoments = useCallback((summary: ReviewMomentsSummary) => {
     setReview(summary);

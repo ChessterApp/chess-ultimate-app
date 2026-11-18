@@ -150,6 +150,7 @@ export interface CoachMessage {
 export interface PuzzleState {
   fen: string;
   solution: string[];
+  /** Moves of the solution on the board — the student's and the opponent's replies (useCoachBoard.playPuzzleReply). */
   currentMoveIndex: number;
   solved: boolean;
 }
