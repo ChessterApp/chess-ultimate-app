@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 18.11-3 (распознавание речи в голосовом режиме идёт через OpenRouter, без Google) — включает всё из версий 06.10 … 18.11-2
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 18.11-4 (голос тренера — один постоянный мужской) — включает всё из версий 06.10 … 18.11-3
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -7,9 +7,9 @@
 > обновление: всё, что уже сделано в прошлый раз (миграции, база задач, переменные), Claude
 > проверит и пропустит, так что займёт 10–15 минут. В конце Claude пришлёт отчёт.
 >
-> **Это небольшое обновление поверх версии 18.11-2**, которая уже стоит. Оно возвращает голос: распознавание речи
-> переведено с Google на OpenRouter (на проекте Google закончилась предоплата, и с 18.11 голос не подключался). Только
-> код, без новых ключей, миграций и обязательных переменных: используется тот же ключ OpenRouter, что уже стоит.
+> **Это небольшое обновление поверх версии 18.11-3**, которая уже стоит: одна строка кода и замена голоса в `.env`
+> (женский голос ElevenLabs «Sarah» → мужской «Will»). Ключ ElevenLabs тот же, что уже стоит, присылать ничего не нужно.
+> Миграций и новых переменных нет.
 
 ---
 
@@ -33,6 +33,51 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 18.11-4 (голос; если сервер на 18.11-3 — шаги 0, 1, 2, 3, 4, подшаг 5б ниже, шаг 8 и проверки 1, 3, 88 и
+«живая» проверка под ней; если раньше — все шаги, подшаг 5а пропусти, если он уже выполнен, и выполни 5б):
+- **Что было.** Просьба 18.11: голос тренера — мужской, приветливый, один и тот же. Голос же менялся по ходу ответа:
+  ответ читал женский голос ElevenLabs «Sarah», короткие фразы «Сейчас посмотрю» — голос Gemini «Kore» (тоже женский,
+  другой), а кусок, который ElevenLabs не озвучил, читал запасной голос — снова «Kore».
+- **Голос тренера — ElevenLabs «Will»** (`bIHbv24MWmeRgasZH58o`, «Relaxed Optimist», мужской, разговорный) для русского
+  и казахского: меняются значения `COACH_TTS_VOICE` и `COACH_TTS_VOICE_KK` в `.env` (подшаг 5б). Выбран из мужских голосов
+  ElevenLabs по замеру основного тона (самый низкий на обоих языках: 136 Гц по-русски, 160 Гц по-казахски).
+- **Запасной голос — мужской** (`src/voice_tts.py`, `DEFAULT_VOICE = "Achird"` вместо `"Kore"`): если ElevenLabs не
+  озвучил кусок, тренер дочитывает мужским голосом Gemini «Achird» («Friendly»), а не женским.
+- **Короткие фразы «Сейчас посмотрю» и т. п.** перезаписаны голосом «Will» — это файлы сайта, они уже выложены вместе с
+  сайтом; на сервере для них делать ничего не нужно.
+- **Чем проверено.** Тест `tests/unit/test_voice_tts_2026_10_25.py`, весь набор проходит; образцы голосов прослушаны.
+- Проверка 88 (без модели, без сервера и без сети; после подшага 5б):
+
+```bash
+cd /root/hermes-chess && SUPABASE_URL= .venv/bin/python - <<'EOF'
+import os
+from src import config, voice_tts
+WILL, SARAH = "bIHbv24MWmeRgasZH58o", "EXAVITQu4vr4xnSDxMaL"
+now = {"ru": voice_tts.model_and_voice("ru"), "kk": voice_tts.model_and_voice("kk")}
+spare = (voice_tts.DEFAULT_MODEL, voice_tts.DEFAULT_VOICE)
+key = bool(os.environ.get("ELEVENLABS_API_KEY", "").strip())
+same = now["ru"] == now["kk"] == ("elevenlabs/eleven_v4_turbo", WILL)
+ok = spare == ("google/gemini-3.8-flash-tts", "Achird") and same and key
+print("ОК" if ok else "ПРОВЕРЬ", "| запасной голос:", spare, "| сейчас в .env: ru", now["ru"], "kk", now["kk"],
+      "| ключ ElevenLabs:", key, "| женский Sarah ещё стоит:", SARAH in (now["ru"][1], now["kk"][1]))
+EOF
+```
+
+  → `ОК | запасной голос: ('google/gemini-3.8-flash-tts', 'Achird') | сейчас в .env: ru ('elevenlabs/eleven_v4_turbo',
+  'bIHbv24MWmeRgasZH58o') kk ('elevenlabs/eleven_v4_turbo', 'bIHbv24MWmeRgasZH58o') | ключ ElevenLabs: True | женский
+  Sarah ещё стоит: False`. `женский Sarah ещё стоит: True` — подшаг 5б не выполнен. `запасной голос: (…, 'Kore')` — код
+  не обновлён (шаг 4).
+- «Живая» проверка после шага 8 (два коротких платных запроса озвучки, доли цента):
+
+```bash
+for L in ru kk; do curl -s -o /dev/null -D - --max-time 30 -X POST localhost:8642/api/coach/voice/tts -H 'Content-Type: application/json' \
+  -H 'X-User-Id: deploy-check' -d '{"text":"Хороший ход.","locale":"'$L'"}' | tr -d '\r' | grep -iE '^HTTP|^x-tts-model' | tr '\n' ' '; echo "($L)"; done
+```
+
+  → `HTTP/1.1 200 OK x-tts-model: elevenlabs/eleven_v4_turbo (ru)` и такая же строка с `(kk)`. Если в заголовке
+  `google/gemini-3.8-flash-tts` — ElevenLabs отказал и говорит запасной голос: пришли человеку
+  `pm2 logs hermes-chess --lines 60 --nostream | grep 'voice tts'`.
 
 Новое в версии 18.11-3 (голос; код — `hermes/src/` и тесты. Миграций, пакетов и обязательных переменных нет; подшаг 5а не
 выполняется. Если сервер на 18.11-2 — шаги 0, 1, 2, 3, 4, 8 и проверки 1, 3, 87 и «живая» проверка под ней; если раньше —
@@ -546,26 +591,26 @@ def say(locale, **env):
         os.environ.pop(k, None)
     os.environ.update(env); os.environ.setdefault("OPENROUTER_API_KEY", "check")
     return asyncio.run(voice_tts.speak("Хороший ход.", locale)).headers.get("x-tts-model")
-EL = {"COACH_TTS_MODEL": "elevenlabs/eleven_v4_turbo", "COACH_TTS_VOICE": "EXAVITQu4vr4xnSDxMaL",
-      "COACH_TTS_MODEL_KK": "elevenlabs/eleven_v4_turbo", "COACH_TTS_VOICE_KK": "EXAVITQu4vr4xnSDxMaL"}
+EL = {"COACH_TTS_MODEL": "elevenlabs/eleven_v4_turbo", "COACH_TTS_VOICE": "bIHbv24MWmeRgasZH58o",
+      "COACH_TTS_MODEL_KK": "elevenlabs/eleven_v4_turbo", "COACH_TTS_VOICE_KK": "bIHbv24MWmeRgasZH58o"}
 heads = [say("ru"), say("ru", ELEVENLABS_API_KEY="check", **EL), say("kk", ELEVENLABS_API_KEY="check", **EL), say("ru", **EL)]
-ok = calls == [("OpenRouter", "google/gemini-3.8-flash-tts", "Kore"), ("ElevenLabs", "eleven_v4_turbo", "EXAVITQu4vr4xnSDxMaL", "ru"),
-               ("ElevenLabs", "eleven_v4_turbo", "EXAVITQu4vr4xnSDxMaL", "kk"), ("OpenRouter", "elevenlabs/eleven_v4_turbo", "EXAVITQu4vr4xnSDxMaL")] \
+ok = calls == [("OpenRouter", "google/gemini-3.8-flash-tts", "Achird"), ("ElevenLabs", "eleven_v4_turbo", "bIHbv24MWmeRgasZH58o", "ru"),
+               ("ElevenLabs", "eleven_v4_turbo", "bIHbv24MWmeRgasZH58o", "kk"), ("OpenRouter", "elevenlabs/eleven_v4_turbo", "bIHbv24MWmeRgasZH58o")] \
     and heads == ["google/gemini-3.8-flash-tts"] + ["elevenlabs/eleven_v4_turbo"] * 3
 print("ОК" if ok else "ПРОВЕРЬ", "| без переменных:", calls[0], "| с ключом, ru:", calls[1], "| с ключом, kk:", calls[2],
       "| модель ElevenLabs без ключа уходит в:", calls[3][0], "| X-Tts-Model:", heads, "| сейчас в .env:", now)
 EOF
 ```
 
-  → `ОК | без переменных: ('OpenRouter', 'google/gemini-3.8-flash-tts', 'Kore') | с ключом, ru: ('ElevenLabs',
-  'eleven_v4_turbo', 'EXAVITQu4vr4xnSDxMaL', 'ru') | с ключом, kk: ('ElevenLabs', 'eleven_v4_turbo', 'EXAVITQu4vr4xnSDxMaL',
+  → `ОК | без переменных: ('OpenRouter', 'google/gemini-3.8-flash-tts', 'Achird') | с ключом, ru: ('ElevenLabs',
+  'eleven_v4_turbo', 'bIHbv24MWmeRgasZH58o', 'ru') | с ключом, kk: ('ElevenLabs', 'eleven_v4_turbo', 'bIHbv24MWmeRgasZH58o',
   'kk') | модель ElevenLabs без ключа уходит в: OpenRouter | X-Tts-Model: ['google/gemini-3.8-flash-tts',
   'elevenlabs/eleven_v4_turbo', 'elevenlabs/eleven_v4_turbo', 'elevenlabs/eleven_v4_turbo'] | сейчас в .env: {'ru':
-  ('google/gemini-3.8-flash-tts', 'Kore'), 'kk': ('google/gemini-3.8-flash-tts', 'Kore'), 'ключ ElevenLabs': False}`. До
-  обновления — `ПРОВЕРЬ | … | с ключом, ru: ('OpenRouter', 'elevenlabs/eleven_v4_turbo', 'EXAVITQu4vr4xnSDxMaL') | …` (ключ
+  ('google/gemini-3.8-flash-tts', 'Achird'), 'kk': ('google/gemini-3.8-flash-tts', 'Achird'), 'ключ ElevenLabs': False}`. До
+  обновления — `ПРОВЕРЬ | … | с ключом, ru: ('OpenRouter', 'elevenlabs/eleven_v4_turbo', 'bIHbv24MWmeRgasZH58o') | …` (ключ
   ElevenLabs не читался, всё шло в OpenRouter). Ключи и переменные в команде — подставные, только внутри неё: ни одного запроса
   наружу нет, `.env` не меняется. Хвост `сейчас в .env` показывает настоящую настройку сервера: такой, как здесь, — если
-  подшаг 5а (голос) не выполнялся; после него — `elevenlabs/eleven_v4_turbo`, голос `EXAVITQu4vr4xnSDxMaL` и `'ключ ElevenLabs':
+  подшаг 5а (голос) не выполнялся; после него — `elevenlabs/eleven_v4_turbo`, голос `bIHbv24MWmeRgasZH58o` и `'ключ ElevenLabs':
   True` (сам ключ не печатается). Пара `elevenlabs/…` при `'ключ ElevenLabs': False` — ошибка настройки: озвучка «связки»
   уходит в OpenRouter, где этой модели нет; напиши человеку.
 - Проверка 82 (без модели, без сервера и без сети; редакция 17.11-2: режим голоса, запасной голос при отказе ElevenLabs,
@@ -599,9 +644,9 @@ async def router(key, model, voice, text):
 async def eleven(key, model, voice, text, language):
     calls.append(("ElevenLabs", model)); return Client(), Resp(401)
 voice_tts.open_stream, voice_tts.open_elevenlabs_stream = router, eleven
-os.environ.update(ELEVENLABS_API_KEY="check", OPENROUTER_API_KEY="check", COACH_TTS_MODEL="elevenlabs/eleven_v4_turbo", COACH_TTS_VOICE="EXAVITQu4vr4xnSDxMaL")
+os.environ.update(ELEVENLABS_API_KEY="check", OPENROUTER_API_KEY="check", COACH_TTS_MODEL="elevenlabs/eleven_v4_turbo", COACH_TTS_VOICE="bIHbv24MWmeRgasZH58o")
 heads = [asyncio.run(voice_tts.speak("Хороший ход.", "ru")).headers.get("x-tts-model") for _ in range(2)]
-spare = ("OpenRouter", "google/gemini-3.8-flash-tts", "Kore")
+spare = ("OpenRouter", "google/gemini-3.8-flash-tts", "Achird")
 card = _warmup_card()
 ok = modes == ["live", "pipeline", "live", "live"] and calls == [("ElevenLabs", "eleven_v4_turbo"), spare, spare] \
     and heads == ["google/gemini-3.8-flash-tts"] * 2 and card.get("warmup") is True
@@ -613,7 +658,7 @@ EOF
   → две служебные строки `voice tts: upstream 401 …` и `voice tts: ElevenLabs did not read the chunk (502) — … reads for 60s`
   (так и должно быть: отказ в команде подставной), потом `ОК | режим без переменной / pipeline / live / мусор: ['live',
   'pipeline', 'live', 'live'] | отказ ElevenLabs: [('ElevenLabs', 'eleven_v4_turbo'), ('OpenRouter',
-  'google/gemini-3.8-flash-tts', 'Kore'), ('OpenRouter', 'google/gemini-3.8-flash-tts', 'Kore')] | X-Tts-Model:
+  'google/gemini-3.8-flash-tts', 'Achird'), ('OpenRouter', 'google/gemini-3.8-flash-tts', 'Achird')] | X-Tts-Model:
   ['google/gemini-3.8-flash-tts', 'google/gemini-3.8-flash-tts'] | карточка разминки: {'type': 'weak_spot', 'puzzles': 5,
   'warmup': True} | сейчас в .env режим: live`. Читается так: первый кусок ElevenLabs не озвучил — его прочитал запасной
   голос; второй кусок в ElevenLabs уже не ходил (пауза 60 с). Хвост `сейчас в .env режим` — настоящая настройка сервера:
@@ -1568,7 +1613,7 @@ main сам; миграций, переменных и изменений бэк
   100 озвучек в сутки на проект (стенд потратил их за полчаса). Теперь новый маршрут `POST /api/coach/voice/tts`
   ({text, locale}) ходит в OpenRouter (`/api/v1/audio/speech`, та же Gemini Flash TTS) с ключом `OPENROUTER_API_KEY`
   этого сервера и отдаёт сырой PCM потоком; сайту ключ не нужен. Переменные необязательные: `COACH_TTS_MODEL` /
-  `COACH_TTS_VOICE` (по умолчанию google/gemini-3.8-flash-tts, Kore), `COACH_TTS_MODEL_KK` / `COACH_TTS_VOICE_KK` для
+  `COACH_TTS_VOICE` (по умолчанию google/gemini-3.8-flash-tts, Achird), `COACH_TTS_MODEL_KK` / `COACH_TTS_VOICE_KK` для
   казахского. Пока сервер старый, сайт получает 404 и читает через Google, как раньше. Код `hermes/src/voice_tts.py`,
   `hermes/src/server.py`.
 - Проверка 51 (без базы и модели):
@@ -2587,6 +2632,15 @@ test -f chess-ultimate-app/hermes/src/voice_stt.py \
 
 Если «НЕТ версии 18.11-3»: **СТОП** — версия 18.11-3 ещё не влита в `main`; напиши Александру, ничего не обновляй.
 
+Версия 18.11-4 в main:
+
+```bash
+grep -q 'DEFAULT_VOICE = "Achird"' chess-ultimate-app/hermes/src/voice_tts.py \
+  && echo "версия 18.11-4 в main есть" || echo "НЕТ версии 18.11-4"
+```
+
+Если «НЕТ версии 18.11-4»: **СТОП** — версия 18.11-4 ещё не влита в `main`; напиши Александру, ничего не обновляй.
+
 ## Шаг 2. Резервная копия
 
 ```bash
@@ -2861,9 +2915,9 @@ pm2 logs hermes-chess --lines 400 --nostream | grep 'turn timings' | tail -3
 ```
 ELEVENLABS_API_KEY=<ключ передаст Асан>
 COACH_TTS_MODEL=elevenlabs/eleven_v4_turbo
-COACH_TTS_VOICE=EXAVITQu4vr4xnSDxMaL
+COACH_TTS_VOICE=bIHbv24MWmeRgasZH58o
 COACH_TTS_MODEL_KK=elevenlabs/eleven_v4_turbo
-COACH_TTS_VOICE_KK=EXAVITQu4vr4xnSDxMaL
+COACH_TTS_VOICE_KK=bIHbv24MWmeRgasZH58o
 ```
 
 Посмотри, что уже задано (печатаются только имена):
@@ -2880,13 +2934,13 @@ cd /root/hermes-chess && for v in ELEVENLABS_API_KEY COACH_TTS_MODEL COACH_TTS_V
 ```bash
 cd /root/hermes-chess && grep -q '^ELEVENLABS_API_KEY=.' .env \
   && { [ -z "$(tail -c1 .env)" ] || echo >> .env; } \
-  && printf '%s\n' 'COACH_TTS_MODEL=elevenlabs/eleven_v4_turbo' 'COACH_TTS_VOICE=EXAVITQu4vr4xnSDxMaL' \
-     'COACH_TTS_MODEL_KK=elevenlabs/eleven_v4_turbo' 'COACH_TTS_VOICE_KK=EXAVITQu4vr4xnSDxMaL' >> .env \
+  && printf '%s\n' 'COACH_TTS_MODEL=elevenlabs/eleven_v4_turbo' 'COACH_TTS_VOICE=bIHbv24MWmeRgasZH58o' \
+     'COACH_TTS_MODEL_KK=elevenlabs/eleven_v4_turbo' 'COACH_TTS_VOICE_KK=bIHbv24MWmeRgasZH58o' >> .env \
   && echo "голос: четыре переменные добавлены" || echo "КЛЮЧА НЕТ — переменные голоса не добавлены"
 ```
 
 Без сети настройку показывает хвост проверки 80: `сейчас в .env: {'ru': ('elevenlabs/eleven_v4_turbo',
-'EXAVITQu4vr4xnSDxMaL'), 'kk': ('elevenlabs/eleven_v4_turbo', 'EXAVITQu4vr4xnSDxMaL'), 'ключ ElevenLabs': True}`.
+'bIHbv24MWmeRgasZH58o'), 'kk': ('elevenlabs/eleven_v4_turbo', 'bIHbv24MWmeRgasZH58o'), 'ключ ElevenLabs': True}`.
 
 Какой голос отвечает на самом деле — после шага 8, по заголовку ответа `X-Tts-Model` (два коротких платных запроса озвучки,
 доли цента; запускай, только если часть 2 выполнена):
@@ -2938,6 +2992,30 @@ curl -s --max-time 10 -H 'X-User-Id: deploy-check' localhost:8642/api/coach/dail
 
 Вернуть Gemini Live всем ученикам: убрать строку `COACH_VOICE_MODE=pipeline` и `pm2 restart hermes-chess` (раздел «Откат»);
 сайт переключится сам при следующем открытии страницы тренера.
+
+### 5б. Голос тренера — мужской «Will» (18.11-4, по решению Асана)
+
+Это единственное место, где правило «строки `.env` только добавлять» нарушается сознательно: меняются значения двух
+строк, которые подшаг 5а добавил 17.11. Сначала посмотри, что стоит сейчас (ключ не печатается):
+
+```bash
+cd /root/hermes-chess && for v in COACH_TTS_MODEL COACH_TTS_VOICE COACH_TTS_MODEL_KK COACH_TTS_VOICE_KK; do
+  grep -q "^$v=" .env && echo "$v=$(grep "^$v=" .env | tail -1 | cut -d= -f2-)" || echo "$v: нет"; done
+```
+
+- Обе строки голоса равны `EXAVITQu4vr4xnSDxMaL` (женский «Sarah», так их поставили 17.11) — замени их командой ниже.
+- Строк голоса нет (подшаг 5а не выполнялся, ключа ElevenLabs нет) — 5б не выполняй, в отчёте «5б: голос ElevenLabs не
+  включён». Запасной голос и так станет мужским после шага 4.
+- Там другое значение — ничего не меняй, выпиши его в отчёт и спроси человека.
+
+```bash
+cd /root/hermes-chess && cp .env /root/hermes-update/env-before-5b && chmod 600 /root/hermes-update/env-before-5b \
+  && sed -i -E 's/^(COACH_TTS_VOICE(_KK)?)=EXAVITQu4vr4xnSDxMaL$/\1=bIHbv24MWmeRgasZH58o/' .env \
+  && grep -E '^COACH_TTS_VOICE(_KK)?=' .env
+```
+
+→ `COACH_TTS_VOICE=bIHbv24MWmeRgasZH58o` и `COACH_TTS_VOICE_KK=bIHbv24MWmeRgasZH58o`. Процесс подхватит их на шаге 8.
+Вернуть прежний голос: `cp /root/hermes-update/env-before-5b /root/hermes-chess/.env && pm2 restart hermes-chess`.
 
 ## Шаг 6. Миграции Supabase
 
@@ -3391,6 +3469,8 @@ COACH_REASONING_MANDATORY, COACH_REASONING_EFFORT, COACH_LESSON_LINK=<значе
   85 18.11 — разбор: строка сервера с числом и ходами карточки <True/False>
   86 18.11-2 — «Разобрать» берёт сданную партию <[True, True, True]/…>, дебют по справочнику <True True/…>
   87 18.11-3 — распознавание через OpenRouter <ОК/ПРОВЕРЬ>, слушает сервер <True/False>, модель <…>; живая: /voice/mode <…>, /voice/stt HTTP <200/…> за <…> с
+  88 18.11-4 — голос: запасной <Achird/…>, в .env ru/kk <bIHbv24MWmeRgasZH58o/…>, Sarah ещё стоит <False/True>; живая: X-Tts-Model ru <…> / kk <…>
+5б: <голос заменён на Will / не выполнялся — почему>
 Бэкенд (фото доски): <обновлён, коммит …, grep PHOTO_FEN_ATTEMPTS = … / не обновлён — почему>
 Что нужно от людей: <список или «ничего»>
 ```
