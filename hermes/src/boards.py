@@ -43,6 +43,35 @@ def position_key(fen: str) -> str:
     return " ".join((fen or "").split()[:3])
 
 
+def line_key(fen: Optional[str]) -> str:
+    """Pieces and side to move: what tells a position of a puzzle's line (castling, en passant and the clocks
+    differ between the puzzle set, the page and the server)."""
+    return " ".join((fen or "").split()[:2])
+
+
+def puzzle_line_keys(fen: Optional[str], solution) -> list[str]:
+    """The positions of a puzzle from its start to the end of its solution (SAN or UCI moves), as ``line_key``s;
+    the keys up to the first move that does not fit."""
+    try:
+        board = chess.Board(fen)
+    except (ValueError, TypeError):
+        return []
+    keys = [line_key(board.fen())]
+    for token in solution or []:
+        try:
+            move = board.parse_san(str(token))
+        except ValueError:
+            try:
+                move = chess.Move.from_uci(str(token))
+            except ValueError:
+                break
+            if move not in board.legal_moves:
+                break
+        board.push(move)
+        keys.append(line_key(board.fen()))
+    return keys
+
+
 class Board(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     session_id: str
@@ -109,6 +138,13 @@ class Board(BaseModel):
             self.puzzle = None
         self.touch()
 
+    def on_puzzle_line(self, fen: Optional[str]) -> bool:
+        """*fen* is a position of the solution line of the puzzle on this board (its start, any move of it, its end)."""
+        pz = self.puzzle or {}
+        if self.kind != "puzzle" or not pz.get("fen") or not fen:
+            return False
+        return line_key(fen) in puzzle_line_keys(pz["fen"], pz.get("solution") or [])
+
     def load_pgn(self, pgn: str, ply: Optional[int] = None) -> None:
         fens = _fens_from_pgn(pgn)
         self._forget_db_game(fens)
@@ -123,9 +159,21 @@ class Board(BaseModel):
         self.touch()
 
     def set_position(self, fen: str) -> None:
-        """Show *fen*: a navigation when it is a position of the loaded game,
-        otherwise a fresh study position that replaces the history."""
+        """Show *fen*: a navigation when it is a position of the loaded game, the student's progress when it is a
+        position of the puzzle's own solution line, otherwise a fresh study position that replaces the history."""
         chess.Board(fen)  # validates
+        if self.on_puzzle_line(fen):
+            # The page reports its board after every change (PATCH …/boards/{id} {position}, and the turn's `fen`):
+            # the puzzle's start right after it went up, then every move of its solution — the student's and, since
+            # 18.11, the opponent's reply the page plays itself. That is the puzzle being solved, not a new position:
+            # it stays a puzzle, and its progress is read off the position (src/tools/puzzles.solution_line). It
+            # turned into a study board on the first save, so the solution block, the hint guard
+            # (src/solution_guard.secret_moves) and «сдаюсь» lost the puzzle in the middle of it (18.11).
+            if line_key(fen) != line_key(self.fen):
+                self.annotations = {}
+            self.fen = fen
+            self.touch()
+            return
         if self.pgn:
             try:
                 keys = [position_key(f) for f in _fens_from_pgn(self.pgn)]

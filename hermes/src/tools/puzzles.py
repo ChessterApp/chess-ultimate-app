@@ -123,6 +123,15 @@ def _set_link_hint(puzzle: dict, lead: str = "give the set") -> str:
             "the bare address (spoken aloud: the set's name only)")
 
 
+def _with_place(action: dict, place: Optional[dict]) -> dict:
+    """A warm-up puzzle's command to the board carries its place in the set («Задача 2 из 5»): the clients show it on
+    the puzzle panel, where the coach's words are hidden while the puzzle is on (tester, 18.11: «номер задачи нигде
+    не видно»). Absent outside a warm-up — the command is as before."""
+    if place and place.get("n") and place.get("of"):
+        action["place"] = {"n": int(place["n"]), "of": int(place["of"])}
+    return action
+
+
 def queued_puzzle_result(puzzle: dict, left: int, place: Optional[dict] = None) -> dict:
     """A get_puzzle-shaped result for the next task of the student's queue («дай три задачи» → «дальше»). *place*:
     {"n", "of"} when the queue is a warm-up's (src/warmup.py, 18.11) — the server's count, said with the puzzle."""
@@ -148,7 +157,7 @@ def queued_puzzle_result(puzzle: dict, left: int, place: Optional[dict] = None) 
             "never the solution" + _set_link_hint(puzzle) + "."
         ),
         **({"place": place, "say_place": warmup.say_place(place)} if place else {}),
-        "board_actions": [shown.model_dump(by_alias=True)],
+        "board_actions": [_with_place(shown.model_dump(by_alias=True), place)],
     }
 
 
@@ -563,7 +572,7 @@ def warmup_result(puzzles: list, rating: int, place: Optional[dict] = None) -> d
                f"{len(puzzles)} puzzles, the system sets no more." if place else "")
         ),
         **({"place": place, "say_place": warmup.say_place(place)} if place else {}),
-        "board_actions": [shown.model_dump(by_alias=True)],
+        "board_actions": [_with_place(shown.model_dump(by_alias=True), place)],
     }
 
 

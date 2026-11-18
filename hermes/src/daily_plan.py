@@ -2,7 +2,8 @@
 
 Composed from what is already stored, with no model call and no engine:
 
-* the student's latest saved game (``user_games``) → «review my last game»; its number of
+* the student's latest saved game (``user_games``) that is not known to be someone else's — a game saved from the
+  Database section is not their «last game» (src/game_owner.py, 18.11) → «review my last game»; its number of
   key moments is the engine-verified mistakes of that game's review (``coach_game_insights``),
   sent only when such a review exists;
 * the engine-measured focus theme (``coach_curriculum``), else the theme with the most
@@ -71,8 +72,17 @@ def _puzzle_theme(value: Any) -> Optional[str]:
     return resolve_theme(str(value)) if isinstance(value, str) and value.strip() else None
 
 
-def _review_card(games: list, insights: list) -> Optional[dict]:
-    game = next((g for g in games if isinstance(g, dict)), None)
+def _own_games(games: list, names: Optional[set]) -> list:
+    """The rows of *games* not known to be someone else's: a game opened in the Database section and saved to «Мои
+    партии» is a row like any other, and the card offered DrNykterstein – Night-King96 as «your last game» (tester,
+    18.11). Whose a game is: src/game_owner.py."""
+    from src.game_owner import offered
+
+    return [g for g in games if isinstance(g, dict) and offered(g, names)]
+
+
+def _review_card(games: list, insights: list, names: Optional[set] = None) -> Optional[dict]:
+    game = next(iter(_own_games(games, names)), None)
     if not game or game.get("id") in (None, "") or _plies(game.get("pgn")) < MIN_REVIEW_PLIES:
         return None
     white, black = _clip(game.get("white")) or "?", _clip(game.get("black")) or "?"
@@ -116,8 +126,8 @@ def _weak_spot_card(focus: list, insights: list) -> dict:
     return card
 
 
-def _opening_card(games: list) -> Optional[dict]:
-    for g in games:
+def _opening_card(games: list, names: Optional[set] = None) -> Optional[dict]:
+    for g in _own_games(games, names):
         if not isinstance(g, dict):
             continue
         eco, name = _clip(g.get("eco")), _clip(g.get("opening_name"))
@@ -130,14 +140,17 @@ def build_daily_plan(
     games: Optional[list] = None,
     insights: Optional[list] = None,
     focus: Optional[list] = None,
+    names: Optional[set] = None,
 ) -> dict:
-    """The plan from the student's rows (each source may be None: not read in time / failed)."""
+    """The plan from the student's rows (each source may be None: not read in time / failed). *names*: the student's
+    linked Lichess / Chess.com usernames (src/game_owner.linked_names), None when not known."""
     games = games if isinstance(games, list) else []
+    names = names if isinstance(names, set) else None
     insights = insights if isinstance(insights, list) else []
     focus = focus if isinstance(focus, list) else []
     cards: list[dict] = []
-    for build in (lambda: _review_card(games, insights), lambda: _weak_spot_card(focus, insights),
-                  lambda: _opening_card(games)):
+    for build in (lambda: _review_card(games, insights, names), lambda: _weak_spot_card(focus, insights),
+                  lambda: _opening_card(games, names)):
         try:
             card = build()
         except Exception:  # noqa: BLE001 — one bad source never empties the plan
@@ -153,6 +166,7 @@ def build_daily_plan(
 
 def _sources(user_id: str) -> dict[str, Callable[[], Any]]:
     from src.curriculum import get_cached_curriculum
+    from src.game_owner import linked_names
     from src.tools.game_insights import get_game_insights
     from src.tools.user_data import _query_user_games
 
@@ -160,6 +174,8 @@ def _sources(user_id: str) -> dict[str, Callable[[], Any]]:
         "games": lambda: _query_user_games(user_id, limit=RECENT_GAMES),
         "insights": lambda: get_game_insights(user_id, limit=RECENT_INSIGHTS),
         "focus": lambda: get_cached_curriculum(user_id),
+        # The linked accounts: whose a saved game is (src/game_owner.py). Late or failed — the origin decides alone.
+        "names": lambda: linked_names(user_id),
     }
 
 
@@ -181,7 +197,7 @@ def load_daily_plan(user_id: str, budget_s: float = BUDGET_S) -> dict:
             rows[name] = future.result(timeout=0)
         except (FutureTimeout, Exception):  # noqa: BLE001
             logger.debug("daily plan source %s failed", name, exc_info=True)
-    plan = build_daily_plan(rows.get("games"), rows.get("insights"), rows.get("focus"))
+    plan = build_daily_plan(rows.get("games"), rows.get("insights"), rows.get("focus"), rows.get("names"))
     _offer_review_game(user_id, plan, rows.get("games"))
     return plan
 

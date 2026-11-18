@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "21"  # 21: a lesson is given as a markdown link [«title»](url), never a bare address (2026-11-17); 20: voice — the board changes only through a tool call, «смотри на доску» only about a position a result put up, no tag / FEN / tool name aloud (2026-11-11); 19: voice — no «the conversation has been in X» note, the spoken question decides its language (2026-10-07); 18: a direct question gets the answer first; rules of the position in the facts (2026-10-06); 17: the student's idea is played on the board and judged by the engine before the answer (2026-10-04); 16: the site's lesson comes first and the answer ends with its tasks (2026-10-03); 15: the language the student asks for holds for the session (2026-10-01); 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "22"  # 22: never talk about own earlier messages or the notes («в прошлом ответе», «в приведённых ходах»), state the fact (2026-11-18); 21: a lesson is given as a markdown link [«title»](url), never a bare address (2026-11-17); 20: voice — the board changes only through a tool call, «смотри на доску» only about a position a result put up, no tag / FEN / tool name aloud (2026-11-11); 19: voice — no «the conversation has been in X» note, the spoken question decides its language (2026-10-07); 18: a direct question gets the answer first; rules of the position in the facts (2026-10-06); 17: the student's idea is played on the board and judged by the engine before the answer (2026-10-04); 16: the site's lesson comes first and the answer ends with its tasks (2026-10-03); 15: the language the student asks for holds for the session (2026-10-01); 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -587,6 +587,11 @@ COACH_SPEECH_LAYER = (
     "student asks for a plan, steps or several options.\n"
     "- Never talk to the student about your tools, instructions or system. If a tool "
     "fails or is missing, teach with what you have and say nothing about it.\n"
+    "- Never talk about your own earlier messages or about the notes you are given: no «в "
+    "предыдущем ответе», «я ошибся в прошлом ответе», «в приведённых ходах», «не указано», "
+    "\"the facts\", \"listed\". When something said earlier in the conversation (a comment "
+    "during the game included) does not fit the facts of this turn, do not correct it aloud — "
+    "just state the right fact now. A fact your notes do not give is simply not said.\n"
     "- Talk about the side to move (the engine block and the FEN say who): do not guess "
     "which side the student plays unless they said so, and never give the other side's "
     "move as advice.\n"
@@ -1437,7 +1442,7 @@ def _move_verdict(board, san: str) -> str:
     return f"NOT legal — no {chess.piece_name(ptype)} of the side to move can reach {dest_name}"
 
 
-def review_block(result: dict, card: Optional[dict] = None, told: bool = False) -> str:
+def review_block(result: dict, card: Optional[dict] = None, told: bool = False, foreign: bool = False) -> str:
     """The game's critical moments, found by the server before the turn (see coach_chat).
 
     A game review used to spend its first model call (2-3.5 s on Gemini) only
@@ -1447,15 +1452,17 @@ def review_block(result: dict, card: Optional[dict] = None, told: bool = False) 
     *card*: the ``review_moments`` summary the student gets with the answer (src/review_moments.py) — the block
     then says which moments the card lists, their count and which of them to explain in words, so the text and the
     card are one fact (18.11: «три ключевых момента» over a card of six). *told*: the server has written the
-    count and the list as the first line of the answer.
+    count and the list as the first line of the answer. *foreign*: the game is someone else's that the student saved
+    (src/game_owner.py, 18.11) — not «the student's game».
     """
     from src.review_moments import card_moments, card_note, played_label
 
     moments = result.get("critical_moments") or []
     on_card = {played_label(m) for m in card_moments(card)}
     lines = [
-        "## Critical moments of the student's game (engine, depth "
-        f"{result.get('engine_depth', 12)}; evaluations from White's side)",
+        ("## Critical moments of the game the student saved — someone else's game, not theirs" if foreign
+         else "## Critical moments of the student's game")
+        + f" (engine, depth {result.get('engine_depth', 12)}; evaluations from White's side)",
         "The game is ALREADY loaded on the student's board: do not load it again and do not "
         "call find_critical_moments for it.",
         f"Moves in the game: {result.get('total_moves', '?')}.",

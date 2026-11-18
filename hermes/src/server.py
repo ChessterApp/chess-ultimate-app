@@ -899,8 +899,12 @@ def _puzzle_prestep(session, active_board, message: str, user_id: Optional[str],
     puzzles = result.get("puzzles") or []
     actions = result.get("board_actions") or []
     if result.get("warmup_over") and not result.get("error"):
-        # The next puzzle asked for after the last one of the warm-up: its ending, and nothing goes on the board.
-        return {"result": result, "summary": None, "actions": [], "block": (
+        # The next puzzle asked for after the last one of the warm-up: its ending, and no puzzle goes on the board —
+        # only the board's own position again, which ends the puzzle mode on the page (src/warmup._close_actions).
+        closing = [a for a in actions if isinstance(a, dict) and a.get("type") == "set_fen"]
+        if closing:
+            session.apply_board_actions(closing, board_id=active_board.id)
+        return {"result": result, "summary": None, "actions": closing, "block": (
             "## The warm-up is OVER — the system ended it and put NO new puzzle on the board\n"
             f"{result.get('note', '')}\n"
             "The system has ALREADY written the first line of your answer for the student — that the warm-up is over"
@@ -2450,12 +2454,19 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # that (2-3.5 s). COACH_REVIEW_PRESTEP=0 leaves it to the model.
     review_pgn = None
     review_future = None
+    review_row, review_who = None, None   # the saved game asked for by id, and whose it is (src/game_owner.py)
     if config.COACH_REVIEW_PRESTEP and not live_game:
         from src.model_router import extract_game_pgn
         from src.tools.user_data import get_user_game_pgn
 
         if body.review_game_id:
-            review_pgn = await asyncio.to_thread(get_user_game_pgn, user_id, body.review_game_id)
+            # …and whose game it is (src/game_owner.py, 18.11): a game saved from the Database section is reviewed as
+            # someone else's — the card's «Разбери мою последнюю партию» was told «нападением на твоего ферзя».
+            from src.game_owner import review_owner
+
+            review_pgn, (review_row, review_who) = await asyncio.gather(
+                asyncio.to_thread(get_user_game_pgn, user_id, body.review_game_id),
+                asyncio.to_thread(review_owner, user_id, body.review_game_id))
         elif route.get("reason") == "pgn_in_message":
             review_pgn = extract_game_pgn(body.message)
     # «Разбери эту партию», «где я ошибся?» about the game ON the board — a finished game with the coach, a database
@@ -2758,7 +2769,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     try:
         side_decided = _side.decide(body.message, session.board_state, pgn=active_board.pgn,
                                     game_state=active_board.game_state if live_game else None,
-                                    master_game=bool((active_board.source or {}).get("twic_game_id")))
+                                    master_game=bool((active_board.source or {}).get("twic_game_id"))
+                                    or bool(review_who is not None and review_who.foreign))
         side_pinned = _side.legacy_moves(named_moves)
         student_side = _side.applied(side_decided, side_legacy, pinned_moves=side_pinned)
         if side_decided.exact or side_legacy is not None:
@@ -3089,6 +3101,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 from src.answer_check_db import note_board_game
 
                 note_board_game(check_ctx, active_board.pgn)
+            elif review_who is not None and review_who.foreign and review_pgn:
+                # Someone else's game saved to «Мои партии» (src/game_owner.py, 18.11): nobody's side is «ты», as for
+                # a database game on the board — the rewrite of a wrong sentence is told so too.
+                from src.answer_check_db import note_board_game
+
+                note_board_game(check_ctx, review_pgn)
         except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
             logger.debug("board game note failed", exc_info=True)
         try:
@@ -3501,7 +3519,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     summary = build_summary("find_critical_moments", {"pgn": review_pgn}, review,
                                             language=turn_language)
                     card = summary if card_moments(summary) else None
-                    message = f"{message}\n\n{review_block(review, card=card, told=bool(card))}"
+                    foreign_game = bool(review_who is not None and review_who.foreign)
+                    message = f"{message}\n\n{review_block(review, card=card, told=bool(card), foreign=foreign_game)}"
                     _lead(moments_line(card, turn_language, spoken=bool(body.speech)))
                     review_state["from_board"] = review_from_board
                     if config.COACH_REVIEW_NO_RESCAN:
@@ -3515,6 +3534,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if summary:
                         loop.call_soon_threadsafe(queue.put_nowait, ("tool_result", {
                             "tool": "find_critical_moments", "ok": True, "summary": summary}))
+                # Whose game the saved game under review is (src/game_owner.py, 18.11): someone else's game the student
+                # saved from the Database section is not told as theirs — the card's review said «твоего ферзя» of
+                # DrNykterstein – Night-King96.
+                if review_row is not None and review_who is not None:
+                    from src.game_owner import review_block as owner_block
+
+                    owner_note = owner_block(review_row, review_who)
+                    if owner_note:
+                        message = f"{message}\n\n{owner_note}"
                 # A review names the game's opening only as the ECO book does — whichever way the game came (pasted,
                 # loaded on the board, played with the coach) and with or without the scan above
                 # (src/opening_knowledge.game_opening_note, 18.11: the Blackburne Shilling trap was «гамбит Блэкберна —

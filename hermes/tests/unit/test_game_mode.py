@@ -265,7 +265,7 @@ class TestPrompts:
         assert "Live game" in ctx and "Student plays white" in ctx and "1200 Elo" in ctx
         assert "Moves so far: 1.h4 e5" in ctx and "the student to move" in ctx
         assert "give a HINT" in ctx and "Never make a move for the student" in ctx
-        assert "1. h4 (blunder" in ctx or "1. h4 (mistake" in ctx
+        assert "1.h4 (blunder" in ctx or "1.h4 (mistake" in ctx
         assert game_context(s.ensure_board()) == "" or board.kind == "game"
 
     def test_game_context_when_finished(self, engine):
@@ -288,7 +288,7 @@ class TestPrompts:
         resign(s, board)
         end = comment_prompt(board, "en", event="end")
         assert "The game is over" in end[0]["content"] and "Result: 0-1 (resign)" in end[1]["content"]
-        assert "Student's mistakes: 1. h4 (blunder, better e4)" in end[1]["content"]
+        assert "Student's mistakes: 1.h4 (blunder, better e4)" in end[1]["content"]
 
     def test_comment_prompt_in_kazakh_carries_the_terms(self, engine):
         board, _ = start_game(Session(user_id="u"), "white")

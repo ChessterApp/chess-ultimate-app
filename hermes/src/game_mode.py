@@ -886,6 +886,66 @@ def _moves_text(moves: list[str], last_n: Optional[int] = None) -> str:
     return " ".join(out)
 
 
+def move_label(ply: int, san: str) -> str:
+    """«2.Nf3» / «2...d6» for the move that made the game *ply* half-moves long. An annotation's ply was written
+    «3. Nf3» — the ply read as a move number, so 2.Nf3 became «the third move» (production, 18.11: «Я ошибся в
+    прошлом ответе, назвав Кf3 третьим ходом»)."""
+    ply = max(1, int(ply or 1))
+    number = (ply + 1) // 2
+    return f"{number}.{san}" if ply % 2 == 1 else f"{number}...{san}"
+
+
+def _mistake_text(a: dict, with_cp: bool = False) -> str:
+    return (f"{move_label(a['ply'], a['san'])} ({a['verdict']}" + (f", -{a['cp_loss']} cp" if with_cp else "")
+            + (f", better {a['best']}" if a.get("best") else "") + ")")
+
+
+def resigned_early(state: dict) -> bool:
+    """The student resigned with no mistake or blunder in the game and the position not bad by the engine's last
+    look at it (or no look at all): nothing was lost on the board."""
+    annotations = state.get("annotations") or []
+    if state.get("termination") != "resign" or any(a.get("verdict") in ("mistake", "blunder") for a in annotations):
+        return False
+    evaluation = (annotations[-1] if annotations else {}).get("eval_after")
+    return not (isinstance(evaluation, (int, float)) and evaluation <= -150)
+
+
+def decisive_moment(state: dict) -> str:
+    """The moment that decided a finished game, as the server knows it — told to the model as a fact, so that the
+    comment states it and never reasons aloud about what the facts do or do not list (18.11: «Решающий момент — твоя
+    сдача: ошибок в приведённых ходах не указано» after 1.e4 c5 2.Nf3 d6 and a resignation)."""
+    annotations = state.get("annotations") or []
+    bad = [a for a in annotations if a.get("verdict") in ("mistake", "blunder")]
+    winner = state.get("winner")
+    termination = state.get("termination")
+    moves = len(state.get("moves") or [])
+    full = (moves + 1) // 2
+    if winner == "student":
+        return ("The student WON. The decisive moment was not a mistake of theirs: praise what they did; name a move "
+                "only from the game's record above, with its number as written there.")
+    if bad:
+        worst = max(bad, key=lambda a: int(a.get("cp_loss") or 0))
+        tail = " Then the student resigned." if termination == "resign" else ""
+        return f"Decisive moment: {_mistake_text(worst)} — the student's costliest mistake in this game.{tail}"
+    last = annotations[-1] if annotations else None
+    evaluation = (last or {}).get("eval_after")
+    if termination == "resign":
+        where = f"after {full} move{'s' if full != 1 else ''}" if moves else "before making a move"
+        if not resigned_early(state):   # the same fact the plain-words fallback tells
+            return (f"There was NO single decisive mistake: no move of the student's was a mistake or a blunder by the "
+                    f"engine, yet the position had slipped to {evaluation / 100:+.1f} for them through small "
+                    f"inaccuracies when they resigned {where}. Say exactly that, plainly.")
+        state_words = (f"the engine rated the position {evaluation / 100:+.1f} for them — still a game"
+                       if isinstance(evaluation, (int, float)) else "the position was still a game")
+        return (f"There was NO decisive mistake: no move of the student's was a mistake or a blunder by the engine; "
+                f"they resigned {where}, and {state_words}. Say plainly that nothing was lost on the board and that "
+                "resigning was early — the game could have gone on.")
+    if winner == "engine":
+        return ("No move of the student's was a mistake or a blunder by the engine's measure: the game was lost "
+                "gradually, by small inaccuracies. Say exactly that, without naming a decisive move.")
+    return "No move of the student's was a mistake or a blunder by the engine's measure."
+
+
 def game_context(board_rec: Board) -> str:
     """The live game as text for a chat turn (goes into the turn context)."""
     state = board_rec.game_state or {}
@@ -904,6 +964,7 @@ def game_context(board_rec: Board) -> str:
     if state.get("status") == "finished":
         lines.append(f"The game is over: {state.get('result')} ({state.get('termination')}); "
                      f"winner: {state.get('winner') or 'nobody'}. A full review is welcome now.")
+        lines.append(decisive_moment(state))
     else:
         lines.append(f"It is {who} to move." + (" The student is in check." if board.is_check() else ""))
         lines.append("Rules for this turn: if the student asks for a hint, give a HINT (a theme, a piece to look at, "
@@ -916,10 +977,7 @@ def game_context(board_rec: Board) -> str:
     annotations = state.get("annotations") or []
     bad = [a for a in annotations if a.get("verdict") in ("mistake", "blunder")]
     if bad:
-        lines.append("Student's mistakes so far: " + "; ".join(
-            f"{a['ply']}. {a['san']} ({a['verdict']}, -{a['cp_loss']} cp" + (f", better {a['best']}" if a.get("best") else "") + ")"
-            for a in bad[-5:]
-        ))
+        lines.append("Student's mistakes so far: " + "; ".join(_mistake_text(a, with_cp=True) for a in bad[-5:]))
     return "\n".join(lines)
 
 
@@ -929,7 +987,10 @@ COMMENT_SYSTEM = (
     "copy their language), in the second person, like a coach sitting beside the board. "
     "Reply with at most {max_sentences} short sentences, no markdown, no lists, no move numbers "
     "you are not given. Never invent moves: mention only the moves and the better move listed in "
-    "the facts. Do not reveal your own plan for the next move."
+    "the facts, each with the number it has there. Do not reveal your own plan for the next move. "
+    "The facts are your private notes, not something the student sees: never mention them or what they list or "
+    "do not list («в приведённых ходах», «не указано», «в данных», \"the facts\", \"listed\"), and never refer to "
+    "your own earlier messages or correct them («в прошлом ответе», «я ошибся») — state the chess itself."
 )
 
 COMMENT_RULES = {
@@ -939,21 +1000,25 @@ COMMENT_RULES = {
                 "question; you may name the better move."),
     "inaccuracy": "A small inaccuracy: one sentence, gently, and one question about the plan.",
     "ok": "The move was fine. One short encouraging sentence about the idea behind it, or about the plan ahead.",
-    "finished": ("The game is over. Give the result in one sentence, name the moment that decided it "
-                 "(from the mistakes listed, if any), and offer a full review in one sentence."),
+    "finished": ("The game is over. Give the result in one sentence, then the moment that decided it exactly as the "
+                 "facts state it (the «Decisive moment» line, or that there was none), and offer a full review in "
+                 "one sentence."),
 }
 
 
 _FALLBACK = {
     "ru": {"blunder": "Ход {san} — грубая ошибка, он отдаёт слишком много.", "mistake": "Ход {san} — ошибка.",
            "inaccuracy": "Ход {san} — неточность.", "ok": "Ход {san} — нормальный ход, продолжаем.",
-           "finished": "Партия окончена: {result}.", "better": " Сильнее было {best}."},
+           "finished": "Партия окончена: {result}.", "better": " Сильнее было {best}.",
+           "early": " Решающей ошибки не было: сдаваться было рано, партия продолжалась."},
     "kk": {"blunder": "{san} жүрісі — өрескел қате, ол тым көп береді.", "mistake": "{san} жүрісі — қате.",
            "inaccuracy": "{san} жүрісі — дәл емес.", "ok": "{san} — қалыпты жүріс, жалғастырамыз.",
-           "finished": "Партия аяқталды: {result}.", "better": " {best} күштірек болар еді."},
+           "finished": "Партия аяқталды: {result}.", "better": " {best} күштірек болар еді.",
+           "early": " Шешуші қате болған жоқ: берілуге әлі ерте еді, ойын жалғасатын."},
     "en": {"blunder": "{san} is a blunder — it gives up too much.", "mistake": "{san} is a mistake.",
            "inaccuracy": "{san} is an inaccuracy.", "ok": "{san} is a fine move, let's go on.",
-           "finished": "The game is over: {result}.", "better": " {best} was stronger."},
+           "finished": "The game is over: {result}.", "better": " {best} was stronger.",
+           "early": " There was no decisive mistake: resigning was early, the game was still on."},
 }
 
 
@@ -965,7 +1030,10 @@ def fallback_comment(board_rec: Board, locale: Optional[str], event: str = "move
     words = _FALLBACK.get("kk" if lang in ("kk", "kz") else lang, _FALLBACK["ru"])
     finished = state.get("status") == "finished" or event == "end"
     if finished:
-        return words["finished"].format(result=state.get("result") or "")
+        text = words["finished"].format(result=state.get("result") or "")
+        if resigned_early(state):
+            text += words["early"]
+        return text
     last = (state.get("annotations") or [{}])[-1] if state.get("annotations") else {}
     verdict = last.get("verdict") or "ok"
     text = words.get(verdict, words["ok"]).format(san=last.get("san") or "")
@@ -991,10 +1059,13 @@ def comment_prompt(board_rec: Board, locale: Optional[str], event: str = "move",
     last = (state.get("annotations") or [{}])[-1] if state.get("annotations") else {}
     verdict = "finished" if finished else (last.get("verdict") or "ok")
     max_sentences = 3 if verdict in ("blunder", "mistake", "finished") else 2
-    facts = [
-        f"Student plays {state.get('student_color')}; engine strength about {state.get('engine_elo')} Elo.",
-        f"Last moves: {_moves_text(state.get('moves', []), last_n=8) or '(none)'}",
-    ]
+    facts = [f"Student plays {state.get('student_color')}; engine strength about {state.get('engine_elo')} Elo."]
+    if finished:
+        # The whole record with its numbers: a finished game is told whole, and a move the comment names is one of
+        # these (the last eight alone left the opening to the model's memory, numbers included).
+        facts.append(f"The game's moves (the whole record): {_moves_text(state.get('moves', [])) or '(none)'}")
+    else:
+        facts.append(f"Last moves: {_moves_text(state.get('moves', []), last_n=8) or '(none)'}")
     if not finished and last:
         facts.append(f"Student's move: {last.get('san')} — verdict {last.get('verdict')}, "
                      f"lost {last.get('cp_loss', 0)} centipawns; evaluation now {last.get('eval_after', 0) / 100:+.1f} "
@@ -1007,9 +1078,8 @@ def comment_prompt(board_rec: Board, locale: Optional[str], event: str = "move",
         facts.append(f"Result: {state.get('result')} ({state.get('termination')}), winner: {state.get('winner') or 'nobody'}.")
         bad = [a for a in (state.get("annotations") or []) if a.get("verdict") in ("mistake", "blunder")]
         if bad:
-            facts.append("Student's mistakes: " + "; ".join(
-                f"{a['ply']}. {a['san']} ({a['verdict']}" + (f", better {a['best']}" if a.get("best") else "") + ")"
-                for a in bad[-5:]))
+            facts.append("Student's mistakes: " + "; ".join(_mistake_text(a) for a in bad[-5:]))
+        facts.append(decisive_moment(state))
     facts.append(f"FEN: {board.fen()}")
     spoken_rule = ("\nThe student has just HEARD both moves read out by the system («…, отвечаю …»): do not restate them — "
                    "begin with the comment itself, short, for the ear." if spoken else "")

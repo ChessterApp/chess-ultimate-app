@@ -16,7 +16,9 @@ The session now keeps the warm-up itself (``Session.warmup``, not serialized —
 * its end: the next request for a puzzle after the last one of the set — «дальше», the panel's button — sets no
   puzzle; the answer is the ending (``over_result``), with the count of solved ones when every puzzle of the set is
   accounted for (solved on the board, or its solution shown). A puzzle answered only in words, or skipped, leaves
-  the count unknown: the server did not see the answer, so the coach says only that the warm-up of N is over.
+  the count unknown: the server did not see the answer, so the coach says only that the warm-up of N is over. The
+  ending also sets the board's own position again (``_close_actions``): the page leaves its puzzle mode, so the
+  ending is seen and the puzzle panel's «Дальше» is not left to bring a sixth puzzle (the Android app, 18.11).
 
 A request that names a theme, «любую», a new warm-up or anything else that lines up other puzzles drops the frame
 (``Session.set_puzzle_queue``); so does a warm-up the student has left — its last puzzle no longer on the board and
@@ -27,8 +29,6 @@ from __future__ import annotations
 
 import time
 from typing import Optional
-
-import chess
 
 # The ending is said for a request that comes while the warm-up is still what the student is doing: its last puzzle
 # is on the board (anywhere along its solution), or went up at most this many of their messages ago.
@@ -66,30 +66,17 @@ def _lang(language: Optional[str]) -> str:
 
 def _key(fen: Optional[str]) -> str:
     """Pieces and side to move: what tells a position of a puzzle's line (clocks and en passant differ by source)."""
-    return " ".join((fen or "").split()[:2])
+    from src.boards import line_key
+
+    return line_key(fen)
 
 
 def line_keys(fen: str, solution: list) -> list:
     """The positions of a puzzle from its start to the end of its solution (SAN or UCI moves), as keys; the keys up
     to the first move that does not fit."""
-    try:
-        board = chess.Board(fen)
-    except (ValueError, TypeError):
-        return []
-    keys = [_key(board.fen())]
-    for token in solution or []:
-        try:
-            move = board.parse_san(str(token))
-        except ValueError:
-            try:
-                move = chess.Move.from_uci(str(token))
-            except ValueError:
-                break
-            if move not in board.legal_moves:
-                break
-        board.push(move)
-        keys.append(_key(board.fen()))
-    return keys
+    from src.boards import puzzle_line_keys
+
+    return puzzle_line_keys(fen, solution)
 
 
 def start(session, puzzles: list) -> Optional[dict]:
@@ -219,13 +206,33 @@ def over_result(session, words: Optional[str], caller: Optional[str] = None) -> 
         return None
     if not ending_due(session):
         return None
-    note_board(session, session.active_board() if getattr(session, "boards", None) else None)
-    result = _result(state)
+    board = session.active_board() if getattr(session, "boards", None) else None
+    note_board(session, board)
+    result = _result(state, _close_actions(state, board))
     state["over"] = True
     return remember(session, words, result, caller)
 
 
-def _result(state: dict) -> dict:
+def _close_actions(state: dict, board) -> list:
+    """The puzzle mode ends with the warm-up (tester, 18.11): the board's own position set again (``set_fen``) —
+    the site and the app leave their puzzle panel on it, so the ending is what the student sees, and the panel's
+    «Дальше», still on the solved fifth puzzle, is not there to bring a sixth one.
+
+    The Android app hid the ending behind that panel: at its smallest the sheet shows the panel instead of the coach's
+    last line, the ending changed nothing on the board, and «Дальше» pressed once more — the warm-up over by then —
+    was the programme's next task: «после пятой нажал "Дальше" и пришла шестая», «итога разминки нет».
+
+    Only while the board shows a position of one of the warm-up's puzzles: a board the student has put something
+    else on (a game in its tab) is left alone."""
+    if board is None or getattr(board, "kind", None) == "game":
+        return []
+    key = _key(getattr(board, "fen", None))
+    if not any(key in keys for keys in state["lines"].values()):
+        return []
+    return [{"type": "set_fen", "fen": board.fen}]
+
+
+def _result(state: dict, actions: Optional[list] = None) -> dict:
     total = len(state["ids"])
     shown = len(state["shown"])
     solved = len(state["solved"] - state["shown"])
@@ -246,15 +253,16 @@ def _result(state: dict) -> dict:
         "solution_shown": shown if known else None,
         "solved_on_board": solved,
         "puzzles": [],
-        "board_actions": [],
+        # No puzzle: at most the board's own position set again, which closes the puzzle panel (_close_actions).
+        "board_actions": list(actions or []),
         "note": (
             f"The WARM-UP is OVER: the student asked for the next puzzle after the last one of the set of {total}. "
-            "NO new puzzle was put on the board — do not call get_puzzle or board_control now and set none "
-            f"yourself. Tell the student the warm-up is over: {facts}. Then offer, in one or two short sentences, "
-            "what they can do next — only what exists: go on with the puzzles of their own programme (the «Дальше» "
-            "button of the puzzle panel, or the words «дай задачу», now give the programme's next task), another "
-            "warm-up («ещё разминку»), a game against you, or a review of one of their games. No list, no new "
-            "buttons."
+            "NO new puzzle was put on the board (the system closed the puzzle mode; the last position stays) — do "
+            "not call get_puzzle or board_control now and set none yourself. Tell the student the warm-up is over: "
+            f"{facts}. Then offer, in one or two short sentences, what they can do next — only what exists: go on "
+            "with the puzzles of their own programme (the words «дай задачу» now give the programme's next task), "
+            "another warm-up («ещё разминку»), a game against you, or a review of one of their games. No list, no "
+            "new buttons."
         ),
     }
 

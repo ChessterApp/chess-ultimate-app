@@ -143,6 +143,16 @@ class TestPlace:
         assert all("never count the puzzles yourself" in r["how_to_show"] for r in results)
         assert "puzzle 3 of 5 of the warm-up" in results[2]["how_to_show"]
 
+    def test_the_board_command_of_each_puzzle_carries_its_place(self):
+        """18.11: the app hides the coach's words while a puzzle is on — «номер задачи нигде не видно». The set_puzzle
+        command itself carries the place, for the puzzle panel; outside a warm-up the command has none."""
+        session = session_store.create("end-cmd-place")
+        results = _through(session, _ask(session, RU))
+        assert [r["board_actions"][0]["place"] for r in results] == [{"n": n, "of": 5} for n in range(1, 6)]
+        assert all(r["board_actions"][0]["type"] == "set_puzzle" for r in results)
+        plain = _ask(session_store.create("end-cmd-none"), "Дай мне задачу на вилку")
+        assert all("place" not in a for a in plain.get("board_actions") or [])
+
     def test_the_last_one_is_told_to_be_the_last(self):
         """The model must not promise a sixth: the fifth result says «дальше» will end the warm-up."""
         session = session_store.create("end-last")
@@ -199,7 +209,9 @@ class TestEnding:
         _through(session, _ask(session, RU))
         shown = set(session.puzzles_shown)
         over = _ask(session, "дальше")
-        assert over["warmup_over"] and over["count"] == 5 and over["puzzles"] == [] and over["board_actions"] == []
+        assert over["warmup_over"] and over["count"] == 5 and over["puzzles"] == []
+        # No puzzle goes up — only the board's own position again, which ends the puzzle mode (18.11, the app).
+        assert [a["type"] for a in over["board_actions"]] == ["set_fen"]
         assert "NO new puzzle" in over["note"] and session.puzzles_shown == shown
 
     def test_the_puzzle_panels_button_ends_it_too_and_then_gives_the_programme(self):
@@ -518,7 +530,7 @@ class TestVoice:
         intent = client.post("/api/coach/voice/intent", headers=user, json={"text": "дальше", "session_id": sid}).json()
         assert intent == {"kind": "puzzle", "theme": None}        # «дальше» is still about the puzzles
         over = self._tool(client, user, sid, "дальше")
-        assert over["result"]["warmup_over"] and over["board_actions"] == []
+        assert over["result"]["warmup_over"] and [a["type"] for a in over["board_actions"]] == ["set_fen"]
         assert over["result"]["solved"] is None                   # answered aloud: the server saw no board
 
     def test_the_voice_model_putting_the_next_puzzle_up_itself_keeps_the_count(self):

@@ -278,6 +278,19 @@ def _handle_get_user_games(args: dict, **kwargs) -> str:
     if games is None:
         result = {"error": "Could not fetch the student's games (Supabase unavailable)."}
     else:
+        # A game saved from the Database section is a row like the student's own (tester, 18.11: DrNykterstein –
+        # Night-King96 told as «твоя партия»): such a row says it is someone else's (src/game_owner.py).
+        try:
+            from src.game_owner import linked_names, owner
+
+            names = linked_names(user_id)
+            for game in games:
+                who = owner(game, names) if isinstance(game, dict) else None
+                if who is not None and who.foreign:
+                    game["whose"] = ("someone else's game the student saved from the database — not one they "
+                                     "played: never «твоя партия», «ты» for a side of it")
+        except Exception:  # noqa: BLE001 — the list goes out as before
+            pass
         result = {"user_id": user_id, "count": len(games), "games": games}
     return json.dumps(result, indent=2, ensure_ascii=False)
 

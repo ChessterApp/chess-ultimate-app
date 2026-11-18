@@ -8101,6 +8101,8 @@ def _check_sentence(sentence: str, ctx: CheckContext) -> list[str]:
     previous_line, ctx._line_end = ctx._line_end, None
     if is_meta(sentence):
         return [META_ISSUE]
+    if is_self_reference(sentence):
+        return [SELF_REF_ISSUE]
     if _echoes_question(sentence, ctx):
         return [ECHO_ISSUE]
     wrong_language = language_issue(sentence, ctx.language) or foreign_word_issue(sentence, ctx.language, ctx.question_raw)
@@ -8285,6 +8287,44 @@ META_ISSUE = "this is the coach's private planning (tools, instructions, the stu
 def is_meta(text: str) -> bool:
     """*text* narrates the coach's instructions or tools instead of answering."""
     return bool(_META_RE.search((text or "").replace("ё", "е")))
+
+
+# The coach talking about its own messages or about the facts it was given, in front of the student (18.11): after a
+# resignation with no mistake the comment said «Решающий момент — твоя сдача: ошибок в приведённых ходах не указано»,
+# and the review that followed opened with «В предыдущем ответе были приведены ходы, которых в нашей партии не было» —
+# «Я ошибся в прошлом ответе, назвав Кf3 третьим ходом» on production the same day. The facts are the server's notes
+# to the coach; an earlier message that was wrong is not discussed — the right fact is simply said. The server gives the
+# facts that make such a sentence needless (src/game_mode.decisive_moment, prompt_builder's rule); this catches the
+# sentence that still comes, as any other wrong one: it is left out, and the text turn's rewrite says the fact itself.
+_SELF_REF_RE = re.compile(
+    r"(?<![а-яa-z])(?:в|из|по)\s+(?:мо[её]м\s+|сво[её]м\s+|нашем\s+)?(?:предыдущ|прошл|прежн|предшествующ|"
+    r"последн)\w*\s+(?:ответ|сообщени|реплик|комментари)\w*"
+    r"|(?<![а-яa-z])я\s+(?:ошибся|ошиблась|ошибался|ошибалась|был\s+неправ|была\s+неправа|неверно\s+(?:назвал|указал|"
+    r"написал|сказал))\w*(?:\s+(?:в\s+(?:предыдущ|прошл)\w*|раньше|ранее|выше)|,?\s+(?:назвав|сказав|написав|указав|"
+    r"когда\s+(?:назвал|сказал|написал)))"
+    r"|(?<![а-яa-z])(?:в\s+)?приведенн\w*\s+(?:ход|данн|факт|запис|списк)\w*"
+    # «ошибок … не указано», «не указано ни одной ошибки» — a mistake is never «not listed» to the student: it was not
+    # made. («Этот ход не указан в книге» is a fact of the book and stays.)
+    r"|(?<![а-яa-z])(?:ошиб\w*|данн\w*|информаци\w*)\s+(?:\S+\s+){0,3}не\s+(?:указан|перечислен|приведен)\w*"
+    r"|(?<![а-яa-z])не\s+(?:указан|перечислен|приведен)\w*\s+(?:ни\s+)?(?:одн\w+\s+)?ошиб\w*"
+    r"|\b(?:in|from)\s+(?:my|the)\s+(?:previous|last|earlier|prior)\s+(?:answer|message|reply|response|comment)"
+    r"|\bi\s+(?:was\s+wrong|made\s+a\s+mistake|misspoke|got\s+it\s+wrong)\s+(?:in\s+my|earlier|before|when|about)"
+    r"|\b(?:moves|mistakes|data)\s+(?:given|listed|provided)\b|\bnot\s+(?:listed|given|provided)\s+in\s+the\b"
+    r"|\b(?:in|from)\s+the\s+(?:facts|data)\s+(?:given|provided|listed|i\s+have)"
+    r"|алдыңғы\s+(?:жауаб|хабарлама)\w*",
+    re.IGNORECASE)
+# Held, not released early, while the sentence so far may be one of them: «В предыдущем » alone is not yet judged.
+_SELF_REF_HOLD = re.compile(r"предыдущ|прошл\w*\s+(?:отв|сооб)|приведенн|не\s+указ|ошиб(?:ся|лась|алс)|previous|"
+                            r"\b(?:listed|provided)\b|алдыңғы", re.IGNORECASE)
+
+SELF_REF_ISSUE = ("this talks about the coach's own earlier message or the notes it was given («в прошлом ответе», «в "
+                  "приведённых ходах», «не указано») — the student must not see that: state the right fact itself, "
+                  "without a word about earlier answers or the notes")
+
+
+def is_self_reference(text: str) -> bool:
+    """*text* refers to the coach's own earlier messages or to the facts given to it instead of stating them."""
+    return bool(_SELF_REF_RE.search((text or "").replace("ё", "е")))
 
 
 # Where a chess claim can begin: a piece word, a square, a move number, a
@@ -8526,7 +8566,8 @@ class SentenceGate:
         # The claim-free start of the unfinished sentence goes out now — unless
         # the sentence so far reads like the coach's planning: that is held
         # whole and checked (a released «Студент спрашивает» cannot be recalled).
-        safe = "" if is_meta(self._released + self._buf) else self._safe_prefix(self._buf)
+        so_far = (self._released + self._buf).replace("ё", "е")
+        safe = "" if is_meta(so_far) or _SELF_REF_HOLD.search(so_far) else self._safe_prefix(self._buf)
         start_so_far = re.sub(r"\s+", " ", self._released + safe).strip().lower()
         if safe and len(start_so_far) >= 6 and re.sub(r"\s+", " ", self._prev).strip().lower().startswith(start_so_far):
             safe = ""  # it may be the last sentence again: held until it is whole
