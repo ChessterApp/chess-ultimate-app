@@ -50,6 +50,38 @@ RU_NAMED = {
 }
 
 
+def game_opening_note(pgn: Optional[str]) -> str:
+    """The opening of the game in *pgn* by the ECO book, as the one name the coach may give it — '' when the book
+    knows no line of the game. A review named the opening from memory and re-spelled the people in it: the
+    Blackburne Shilling trap was «гамбит Блэкберна — Клостермана» on production and «— Стэйнтона» on the stand
+    (18.11). The book's name is told with its Russian name where the table has one (RU_NAMED, RU_FAMILY); a name
+    the table does not have is said as the book writes it, never translated or transliterated anew."""
+    try:
+        hit = get_book().identify(pgn or "")
+    except Exception:  # noqa: BLE001 — no book, no note
+        return ""
+    if not hit or not hit.get("name"):
+        return ""
+    name = hit["name"]
+    family = name.split(":")[0].strip()
+    ru_line = RU_NAMED.get(name)
+    ru_family = RU_FAMILY.get(family)
+    title = f"{hit.get('eco') or ''} {name}".strip()
+    if ru_line:
+        title += f" — по-русски: {ru_line}"
+        how = "In Russian say exactly this Russian name."
+    elif ru_family:
+        title += f" — по-русски: {ru_family}" + ("" if name == family else f" (the family; the line «{name.split(':', 1)[1].strip()}» has no Russian name here)")
+        how = ("In Russian say the family's Russian name; a line's own name, if you give it at all, is written as "
+               "the book writes it, in Latin letters.")
+    else:
+        how = "This name has no Russian form here: if you give it, write it as the book does, in Latin letters."
+    return ("## The opening of this game (ECO book, verified — not from memory)\n" + title + "\n"
+            "If you name the opening of the game, name it only so. " + how + " Give it no other name, and never a "
+            "person's or a place's name for a gambit, a trap or a variation that is not written in this block — "
+            "such names recalled from memory come out wrong.")
+
+
 @dataclass
 class OpeningPlan:
     name: str

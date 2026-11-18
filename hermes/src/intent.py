@@ -32,7 +32,7 @@ _SOLVE = re.compile(r"(?<![\w-])(?:реши\w*\s+(?:мне\s+)?задач\w*|д�
                     r"есеп\s+шығар\w*)(?![\w-])", re.IGNORECASE)
 _REVIEW = re.compile(
     r"(?<![\w-])(?:разбер[иё]\w*|разбор|проанализир\w*\s+(?:мою\s+|эту\s+)?парти\w*|где\s+я\s+ошиб\w*|мои\s+ошибк\w*|"
-    r"что\s+я\s+сделал\s+не\s+так|ойынымды\s+талда\w*|review\s+(?:my\s+|the\s+|this\s+)?game|"
+    r"что\s+я\s+сделал\s+не\s+так|(?:ойын|парти)\w*\s+талда\w*|review\s+(?:my\s+|the\s+|this\s+)?game|"
     r"analy[sz]e\s+(?:my\s+|the\s+|this\s+)?game|where\s+did\s+i\s+go\s+wrong|my\s+mistakes)", re.IGNORECASE)
 _REVIEW_SIDE = re.compile(r"(?P<black>ч[её]рными|за\s+ч[её]рных|as\s+black|with\s+black)|"
                           r"(?P<white>белыми|за\s+белых|as\s+white|with\s+white)", re.IGNORECASE)

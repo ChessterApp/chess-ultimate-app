@@ -48,6 +48,15 @@ def review_game(pgn: str, side: Optional[str] = None) -> dict:
     note = review_block(result, card=build_review_moments(result, pgn=pgn, side=side))
     if side:
         note += f"\nThe student played {side}: judge the student's moves, and the opponent's only where they matter."
+    # The opening's name is the ECO book's, not the model's memory of it (src/opening_knowledge.game_opening_note).
+    try:
+        from src.opening_knowledge import game_opening_note
+
+        opening = game_opening_note(pgn)
+        if opening:
+            note += f"\n\n{opening}"
+    except Exception:  # noqa: BLE001 — never fail a review on the opening's name
+        pass
     return {
         "moments": result.get("critical_moments") or [],
         "total_moves": result.get("total_moves"),

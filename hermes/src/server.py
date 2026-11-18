@@ -1353,6 +1353,36 @@ def _drop_tools(agent, names, model: str = "") -> list:
     return sorted(drop)
 
 
+# «Разбери нашу партию», "review our game", «партиямызды талда»: the game the student played with the coach, by name.
+_OUR_GAME = re.compile(r"(?<![\w-])(?:наш\w*\s+(?:парти|игр)\w*|our\s+game|(?:партия|ойын)\w*мыз\w*)", re.IGNORECASE)
+
+
+def _our_game_board(session, active_board, message: str):
+    """The finished game with the coach that a review request is about, when the page sent another board with it —
+    else None. The «Разобрать» button under a finished game sends «Разбери нашу партию…» with the page's study
+    board: the page names the game's board only while the game is on. The turn then had no game on its board — the
+    coach answered «полную запись партии я не вижу, пришли PGN», or advised a move «сейчас» as in a game still on
+    (prod and stand, 18.11). The words name the game («нашу партию»), or the game has just ended and the board the
+    page sent holds no game of its own (a game the student loaded there is the one they look at — it is reviewed,
+    10.11). A game in progress is never reviewed: the coach hints there."""
+    from src.intent import asks_game_review
+    from src.tools.game_play import last_game_board, live_game_board
+
+    if active_board is None or not asks_game_review(message):
+        return None
+    last = last_game_board(session)
+    state = (last.game_state or {}) if last is not None else {}
+    if last is None or last.id == active_board.id or state.get("status") != "finished" or not state.get("moves"):
+        return None
+    if live_game_board(session) is not None:
+        return None
+    named = bool(_OUR_GAME.search(message or ""))
+    own_game = getattr(active_board, "kind", None) != "study" or bool((getattr(active_board, "pgn", None) or "").strip())
+    if named or (not own_game and _after_the_game(session, active_board, last)):
+        return last
+    return None
+
+
 def _board_review_pgn(active_board, message: str) -> Optional[str]:
     """The game on *active_board* when *message* asks for its review (src/intent.asks_game_review), else None — never
     a game in progress (the coach hints there), never a board without a game of REVIEW_MIN_PLIES."""
@@ -2363,6 +2393,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         except ValueError:
             pass  # ignore invalid FEN, use existing board state
     active_board = session.ensure_board()
+    # «Разобрать» after a game with the coach comes with the page's study board: the review is of that game — its
+    # record, its facts, its scan (src/server._our_game_board, 18.11).
+    try:
+        our_game = _our_game_board(session, active_board, body.message)
+    except Exception:  # noqa: BLE001 — the turn goes on with the board the page sent
+        logger.debug("our game board failed", exc_info=True)
+        our_game = None
+    if our_game is not None:
+        session.set_active_board(our_game.id)
+        active_board = our_game
     # A game asked for in words, or a move written on its own in the game: done here (src/game_intent.py).
     game_step = None
     if config.COACH_GAME_PRESTEP:
@@ -3475,6 +3515,21 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if summary:
                         loop.call_soon_threadsafe(queue.put_nowait, ("tool_result", {
                             "tool": "find_critical_moments", "ok": True, "summary": summary}))
+                # A review names the game's opening only as the ECO book does — whichever way the game came (pasted,
+                # loaded on the board, played with the coach) and with or without the scan above
+                # (src/opening_knowledge.game_opening_note, 18.11: the Blackburne Shilling trap was «гамбит Блэкберна —
+                # Клостермана» on production, «— Стэйнтона» and «— Стокфиша» on the stand).
+                try:
+                    from src.intent import asks_game_review
+                    from src.opening_knowledge import game_opening_note
+
+                    opening_pgn = review_pgn if review else (
+                        (active_board.pgn or "") if asks_game_review(body.message) else "")
+                    opening_note = game_opening_note(opening_pgn) if (opening_pgn or "").strip() else ""
+                    if opening_note:
+                        message = f"{message}\n\n{opening_note}"
+                except Exception:  # noqa: BLE001 — never block a turn on the opening's name
+                    logger.debug("game opening note failed", exc_info=True)
                 message = f"{message}\n\n{lang_note}"
                 turn_msg["message"] = message
                 result = _chat_in_session(agent, message, session.id, stream_callback=_on_delta,
