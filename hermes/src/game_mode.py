@@ -303,6 +303,28 @@ def _verdict(cp_loss: int) -> str:
 # ── operations ─────────────────────────────────────────────────────────────
 
 
+def _close_unfinished(session) -> None:
+    """One game in progress in a session. A game still «playing» when another is started was left behind: the
+    page lost the start (its restore closed the game it had just begun), or the student began anew elsewhere.
+    Left on, it is the session's live game again as soon as the newer one ends — the game tools then played on it
+    and the page showed its moves with «Ваш ход» in the review of the game just resigned (tester, 17.11). A game
+    the student never moved in is dropped; one with their moves is closed as resigned, as «давай ещё раз» during a
+    game closes the one it restarts, and stays among the session's boards."""
+    for rec in list(getattr(session, "boards", None) or []):
+        state = rec.game_state or {}
+        if rec.kind != "game" or state.get("status") != "playing":
+            continue
+        opened_by_engine = 1 if state.get("student_color") == "black" else 0
+        if len(state.get("moves") or []) <= opened_by_engine:
+            session.remove_board(rec.id)
+            continue
+        try:
+            with board_lock(rec):
+                _resign_locked(session, rec)
+        except GameError:
+            logger.warning("game start: the unfinished game %s could not be closed", rec.id)
+
+
 def start_game(session, color: str = "white", elo: int = 1500,
                comment_mode: str = DEFAULT_COMMENT_MODE) -> tuple[Board, dict]:
     """Create the game board (active) and, if the student is Black, make the
@@ -312,6 +334,7 @@ def start_game(session, color: str = "white", elo: int = 1500,
         color = random.choice(("white", "black"))
     if color not in ("white", "black"):
         raise GameError("color must be white, black or random")
+    _close_unfinished(session)
     state = new_game_state(color, elo, comment_mode)
     board_rec = session.add_board(activate=True, kind="game", title="", orientation=color)
     board = chess.Board()

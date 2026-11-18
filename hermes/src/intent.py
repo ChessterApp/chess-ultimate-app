@@ -179,7 +179,8 @@ def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = No
         from src.tools.puzzles import NEXT_IN_QUEUE
 
         if NEXT_IN_QUEUE.search(t):
-            # «Дальше» after «дай три задачи»: the next one of the queue (src/tools/puzzles, 21.10).
+            # «Дальше» after «дай три задачи»: the next one of the queue (src/tools/puzzles, 21.10) — or, after the
+            # last puzzle of a warm-up, its ending (Session.next_puzzle_due, src/warmup.py, 18.11).
             return {"kind": "puzzle", "theme": None}
     if puzzle_on_board:
         from src.tools.puzzles import asks_solution

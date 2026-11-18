@@ -41,7 +41,11 @@ def review_game(pgn: str, side: Optional[str] = None) -> dict:
     result = find_critical_moments(pgn)
     if not isinstance(result, dict) or "error" in result:
         return {"error": (result or {}).get("error", "could not review the game") if isinstance(result, dict) else "could not review the game"}
-    note = review_block(result)
+    # The card the student gets with this review (src/tool_summaries.build_summary builds the same one from the
+    # result): the note names its moments and their count, so the coach's words and the card are one fact (18.11).
+    from src.review_moments import build_review_moments
+
+    note = review_block(result, card=build_review_moments(result, pgn=pgn, side=side))
     if side:
         note += f"\nThe student played {side}: judge the student's moves, and the opponent's only where they matter."
     return {

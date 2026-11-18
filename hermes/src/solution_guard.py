@@ -45,6 +45,13 @@ def reveal(session, board_rec) -> None:
         return
     board_rec.puzzle = {**pz, REVEALED: True}
     try:
+        # A puzzle of the warm-up whose solution was shown is not one the student solved (src/warmup.py, 18.11).
+        from src import warmup
+
+        warmup.note_shown(session, pz.get("puzzle_id"))
+    except Exception:  # noqa: BLE001 — bookkeeping never keeps the solution from the student
+        pass
+    try:
         session.save_board(board_rec)
     except Exception:  # noqa: BLE001 — the flag still holds for this process
         pass

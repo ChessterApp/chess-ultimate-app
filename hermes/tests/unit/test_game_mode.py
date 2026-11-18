@@ -200,6 +200,60 @@ class TestGameFlow:
 
 
 @pytest.mark.unit
+class TestOneGameInProgress:
+    """18.11 (tester, 17.11): the «Сыграть с тренером» button started a game beside one still on. The older one
+    stayed «playing», became the session's live game again when the newer ended, and came back to the board —
+    with «Ваш ход» — in the review of the game just resigned."""
+
+    @staticmethod
+    def _playing(session):
+        return [b for b in session.boards if b.kind == "game" and (b.game_state or {}).get("status") == "playing"]
+
+    def test_a_game_never_moved_in_is_dropped_when_another_starts(self, engine):
+        session = _session()
+        orphan, _ = start_game(session, "white", 1200)
+        fresh, _ = start_game(session, "white", 1200)
+        assert [b.id for b in self._playing(session)] == [fresh.id]
+        assert session.get_board(orphan.id) is None
+        assert session.active_board_id == fresh.id
+
+    def test_as_black_the_engines_opening_move_alone_is_not_a_game_played(self, engine):
+        session = _session()
+        orphan, _ = start_game(session, "black", 1200)
+        assert len(orphan.game_state["moves"]) == 1
+        fresh, _ = start_game(session, "white", 1200)
+        assert session.get_board(orphan.id) is None and [b.id for b in self._playing(session)] == [fresh.id]
+
+    def test_a_game_with_the_students_moves_is_closed_as_resigned_and_kept(self, engine):
+        from src.tools.game_play import live_game_board
+
+        session = _session()
+        old, _ = start_game(session, "white", 1200)
+        play_move(session, old, "e4")
+        fresh, _ = start_game(session, "black", 1500)
+        assert [b.id for b in self._playing(session)] == [fresh.id]
+        kept = session.get_board(old.id)
+        assert kept is not None and kept.game_state["status"] == "finished"
+        assert (kept.game_state["termination"], kept.game_state["result"], kept.game_state["winner"]) == ("resign", "0-1", "engine")
+        assert kept.game_state["moves"][0] == "e4"
+        # The newer game over, no older one is «live» again.
+        resign(session, fresh)
+        assert live_game_board(session) is None
+
+    def test_a_session_already_holding_several_is_healed_by_the_next_start(self, engine):
+        """What the tester's session holds: games started before this rule."""
+        session = _session()
+        first, _ = start_game(session, "white", 1200)
+        play_move(session, first, "d4")
+        stale = session.add_board(activate=False, kind="game", title="", orientation="white")
+        stale.game_state = game_mode.new_game_state("white", 1200, "quiet")
+        session.save_board(stale)
+        assert len(self._playing(session)) == 2
+        fresh, _ = start_game(session, "white", 1200)
+        assert [b.id for b in self._playing(session)] == [fresh.id]
+        assert session.get_board(stale.id) is None and session.get_board(first.id).game_state["status"] == "finished"
+
+
 class TestPrompts:
     def test_game_context_mentions_rules_and_mistakes(self, engine):
         s = _session()

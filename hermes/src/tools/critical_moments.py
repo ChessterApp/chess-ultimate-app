@@ -488,7 +488,15 @@ def _handle_find_critical_moments(args: dict, **kwargs) -> str:
             pgn=args.get("pgn", ""),
             threshold=args.get("threshold", DEFAULT_THRESHOLD),
         )
-    return json.dumps(result, indent=2)
+    if isinstance(result, dict) and "error" not in result:
+        # The card the student gets with this result (src/tool_summaries.build_summary): the model is told its
+        # moments and their count with the moments themselves — «три ключевых момента» over a card of six (18.11).
+        from src.review_moments import build_review_moments, card_note
+
+        note = card_note(build_review_moments(result, pgn=args.get("pgn")), found=result.get("moments_found"))
+        if note:
+            result = {**result, "card_note": note}
+    return json.dumps(result, indent=2, ensure_ascii=False)
 
 
 registry.register(

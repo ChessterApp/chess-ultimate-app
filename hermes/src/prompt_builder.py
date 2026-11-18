@@ -1437,14 +1437,22 @@ def _move_verdict(board, san: str) -> str:
     return f"NOT legal — no {chess.piece_name(ptype)} of the side to move can reach {dest_name}"
 
 
-def review_block(result: dict) -> str:
+def review_block(result: dict, card: Optional[dict] = None, told: bool = False) -> str:
     """The game's critical moments, found by the server before the turn (see coach_chat).
 
     A game review used to spend its first model call (2-3.5 s on Gemini) only
     deciding to load the game and call find_critical_moments; the server does
     both the moment the message arrives.
+
+    *card*: the ``review_moments`` summary the student gets with the answer (src/review_moments.py) — the block
+    then says which moments the card lists, their count and which of them to explain in words, so the text and the
+    card are one fact (18.11: «три ключевых момента» over a card of six). *told*: the server has written the
+    count and the list as the first line of the answer.
     """
+    from src.review_moments import card_moments, card_note, played_label
+
     moments = result.get("critical_moments") or []
+    on_card = {played_label(m) for m in card_moments(card)}
     lines = [
         "## Critical moments of the student's game (engine, depth "
         f"{result.get('engine_depth', 12)}; evaluations from White's side)",
@@ -1460,6 +1468,8 @@ def review_block(result: dict) -> str:
             line += f". Better: {m['best_move']} (line {m.get('best_line', m['best_move'])})"
         if m.get("fen_before"):
             line += f". Position before the move: {m['fen_before']}"
+        if on_card and f"{m.get('move_number')}{dots}{m.get('move')}" not in on_card:
+            line += ". NOT on the student's card — not one of the review's moments: do not count it"
         lines.append(line)
     if not moments:
         lines.append("- The engine found no swing of 1.5 pawns or more: a clean game.")
@@ -1467,10 +1477,17 @@ def review_block(result: dict) -> str:
         # «Главная ошибка — 4.Nxe5» was told with 5.Nxf7 (-0.3 → -6.1) the first move listed (bench 15.11).
         lines.append("Every move of the game that is not listed lost less than 1.5 pawns by the engine: none of them "
                      "is the main mistake or a blunder — at most an inaccuracy, and only if you can say why.")
-    lines.append(
-        "Explain the turning points that matter most, in your own words: what went wrong and "
-        "what was better. Set a position on the board only when you walk through one of them."
-    )
+    if on_card:
+        lines.append(
+            "Explain in your own words what went wrong and what was better. Set a position on the board only when "
+            "you walk through one of the moments."
+        )
+        lines.append(card_note(card, told=told, found=result.get("moments_found")))
+    else:
+        lines.append(
+            "Explain the turning points that matter most, in your own words: what went wrong and "
+            "what was better. Set a position on the board only when you walk through one of them."
+        )
     return "\n".join(lines)
 
 

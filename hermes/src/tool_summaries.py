@@ -275,6 +275,12 @@ def _puzzle(data: Any) -> Optional[dict]:
     queued = len([p for p in puzzles if p.get("puzzle_id") not in (None, "", on_board)])
     if queued and len(puzzles) > 1:
         out["queued"] = queued  # «дай три задачи»: the others lined up after this one (20.10)
+    elif data.get("from_queue") and _int(data.get("left_in_queue")):
+        out["queued"] = _int(data.get("left_in_queue"))  # the next one of them: what is still lined up (18.11)
+    place = data.get("place")
+    if isinstance(place, dict) and _int(place.get("n")) and _int(place.get("of")):
+        # The puzzle's place in a warm-up (src/warmup.py, 18.11) — the answer's first line says it; here for a card.
+        out["place"] = {"n": _int(place.get("n")), "of": _int(place.get("of"))}
     rating = _int(shown.get("rating"))
     if rating:
         out["rating"] = rating

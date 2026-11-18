@@ -123,8 +123,11 @@ def _set_link_hint(puzzle: dict, lead: str = "give the set") -> str:
             "the bare address (spoken aloud: the set's name only)")
 
 
-def queued_puzzle_result(puzzle: dict, left: int) -> dict:
-    """A get_puzzle-shaped result for the next task of the student's queue («дай три задачи» → «дальше»)."""
+def queued_puzzle_result(puzzle: dict, left: int, place: Optional[dict] = None) -> dict:
+    """A get_puzzle-shaped result for the next task of the student's queue («дай три задачи» → «дальше»). *place*:
+    {"n", "of"} when the queue is a warm-up's (src/warmup.py, 18.11) — the server's count, said with the puzzle."""
+    from src import warmup
+
     shown = SetPuzzle(fen=puzzle["fen"], solution=puzzle.get("solution") or [], puzzle_id=puzzle.get("puzzle_id"))
     where = (f"the site's set «{puzzle.get('lesson')}»" + (f" (course «{puzzle.get('course')}»)" if puzzle.get("course") else "")
              if puzzle.get("lesson") else "the puzzles asked for")
@@ -139,10 +142,12 @@ def queued_puzzle_result(puzzle: dict, left: int) -> dict:
         "on_board": puzzle.get("puzzle_id"),
         "how_to_show": (
             f"The next task of what the student asked for is already on the board — do not call board_control for it. "
+            + (warmup.place_note(place) + " " if place else "")
             + (f"It is task {puzzle.get('n')} of {puzzle.get('of')} of {where}. " if puzzle.get("n") else "")
             + f"{left} more {'is' if left == 1 else 'are'} lined up after it. Say whose move it is and what to look for, "
             "never the solution" + _set_link_hint(puzzle) + "."
         ),
+        **({"place": place, "say_place": warmup.say_place(place)} if place else {}),
         "board_actions": [shown.model_dump(by_alias=True)],
     }
 
@@ -528,8 +533,11 @@ def warmup_puzzles(rating: int, count: int, exclude_ids: Optional[list] = None, 
     return picked
 
 
-def warmup_result(puzzles: list, rating: int) -> dict:
-    """A get_puzzle-shaped result for a warm-up set: the first puzzle on the board, the rest for the queue."""
+def warmup_result(puzzles: list, rating: int, place: Optional[dict] = None) -> dict:
+    """A get_puzzle-shaped result for a warm-up set: the first puzzle on the board, the rest for the queue. *place*:
+    the first puzzle's place in the set (src/warmup.start) — None for a set of one."""
+    from src import warmup
+
     first = puzzles[0]
     shown = SetPuzzle(fen=first["fen"], solution=first["solution"], puzzle_id=first["puzzle_id"])
     themes = ", ".join(str(p.get("warmup_theme")) for p in puzzles)
@@ -551,7 +559,10 @@ def warmup_result(puzzles: list, rating: int) -> dict:
             + (f" The other {left} {'is' if left == 1 else 'are'} lined up: when the student solves the one on the "
                "board or gives up, they say «дальше» and the next one goes up (get_puzzle with no arguments does the "
                "same) — never set one up yourself." if left else "")
+            + (" " + warmup.place_note(place) + f" After the last one «дальше» ends the warm-up: it is exactly "
+               f"{len(puzzles)} puzzles, the system sets no more." if place else "")
         ),
+        **({"place": place, "say_place": warmup.say_place(place)} if place else {}),
         "board_actions": [shown.model_dump(by_alias=True)],
     }
 
@@ -590,30 +601,56 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
         # «Дай три задачи на связку», «несколько задач»: the words name the number when the model does not.
         count = count_in_words(words) or 1
     theme = args.get("theme")
+    from src import warmup
+
+    plain = not theme and not args.get("any") and not args.get("opening")
+    if session is not None and plain:
+        # The same request again — the model's own call for words the server's step has just answered: the same
+        # answer, not the next puzzle of the warm-up, a new set or a puzzle after its ending (18.11).
+        again = warmup.same_request(session, words, kwargs.get("caller"))
+        if again:
+            return json.dumps(again, indent=2, ensure_ascii=False)
     # The warm-up card, or «разминка: дай пять разных задач» in the student's own words: a mixed set at their level
     # (17.11) — a new set even when an older queue is waiting. Without the puzzle database, or with nothing near
-    # the rating, the request goes on as any other (the programme's next tasks).
+    # the rating, the request goes on as any other (the programme's next tasks) — still a warm-up of that many.
+    warm_asked = False
     if not theme and not args.get("opening"):
         from src.board_lock import asks_warmup
 
         if asks_warmup(words):
             from src.daily_plan import PUZZLES_PER_CARD
 
+            warm_asked = True
+            count = count if count > 1 else PUZZLES_PER_CARD   # the number the words name, else the card's five
             rating = student_rating(user_id)
-            picked = warmup_puzzles(rating, count if count > 1 else PUZZLES_PER_CARD, exclude_ids=sorted(exclude))
+            picked = warmup_puzzles(rating, count, exclude_ids=sorted(exclude))
             if picked:
+                place = None
                 if session is not None:
                     session.note_puzzles_shown([str(p["puzzle_id"]) for p in picked])
-                    session.set_puzzle_queue(picked[1:], theme="")
-                return json.dumps(warmup_result(picked, rating), indent=2, ensure_ascii=False)
+                    place = warmup.start(session, picked)
+                result = warmup_result(picked, rating, place)
+                if session is not None:
+                    warmup.remember(session, words, result, kwargs.get("caller"))
+                return json.dumps(result, indent=2, ensure_ascii=False)
+    # The next puzzle asked for after the LAST one of a warm-up — «дальше», the puzzle panel's button (it sends the
+    # plain request): the warm-up is over, no puzzle goes up (18.11; the tester got a sixth and a seventh).
+    if session is not None and plain and not warm_asked:
+        over = warmup.over_result(session, words, kwargs.get("caller"))
+        if over:
+            return json.dumps(over, indent=2, ensure_ascii=False)
     # «Дальше», «ещё задачу» after «дай три задачи»: the next one of those, from the session's queue — no
-    # new lookup, no repeat (21.10).
-    if session is not None and session.puzzle_queue and not theme and not args.get("any") and not args.get("opening"):
+    # new lookup, no repeat (21.10). In a warm-up it comes with its place in the set.
+    if session is not None and session.puzzle_queue and plain and not warm_asked:
         nxt = session.pop_puzzle()
         if nxt:
             session.note_puzzles_shown([str(nxt.get("puzzle_id"))])
-            return json.dumps(queued_puzzle_result(nxt, len(session.puzzle_queue)), indent=2, ensure_ascii=False)
-    if not theme and session is not None and session.last_puzzle_theme and _MORE.search(words):
+            warmup.put_up(session, nxt.get("puzzle_id"), nxt.get("fen"))
+            result = queued_puzzle_result(nxt, len(session.puzzle_queue),
+                                          place=warmup.place_of(session, nxt.get("puzzle_id")))
+            return json.dumps(warmup.remember(session, words, result, kwargs.get("caller")), indent=2,
+                              ensure_ascii=False)
+    if not theme and not warm_asked and session is not None and session.last_puzzle_theme and _MORE.search(words):
         theme = session.last_puzzle_theme  # «ещё задачу» after «задачу на вилку»: the same theme
     piece = None
     try:  # «задачку на вилку конём»: the fork by the knight, not any fork (live run 04.11)
@@ -639,7 +676,17 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
     if session is not None and isinstance(result, dict):
         puzzles = result.get("puzzles") or []
         session.note_puzzles_shown([str(p.get("puzzle_id")) for p in puzzles if p.get("puzzle_id")])
-        if puzzles:
+        if puzzles and warm_asked:
+            # The warm-up served from the programme (no puzzle database, nothing near the rating): the same frame.
+            place = warmup.start(session, puzzles)
+            if place:
+                result = {**result, "warmup": True, "place": place, "say_place": warmup.say_place(place),
+                          "how_to_show": f"{result.get('how_to_show', '')} This is the WARM-UP the student asked "
+                                         f"for, {len(puzzles)} tasks of their programme. {warmup.place_note(place)} "
+                                         "In the warm-up the system puts the next one up when they say «дальше» "
+                                         "— leave it to the system; after the last one «дальше» ends the warm-up."}
+                warmup.remember(session, words, result, kwargs.get("caller"))
+        elif puzzles:
             session.set_puzzle_queue(puzzles[1:], theme=theme or "")
     # A puzzle is what the student asked for: only a strict board lock keeps it off the board,
     # and the model then hears so (src/board_truth.py, for every tool).

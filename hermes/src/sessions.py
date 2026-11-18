@@ -108,6 +108,9 @@ class Session(BaseModel):
     # asked for — «дальше» / «ещё задачу» continue them on the server, not on the model's goodwill (21.10).
     _puzzle_queue: list = PrivateAttr(default_factory=list)
     _last_puzzle_theme: Optional[str] = PrivateAttr(default=None)
+    # The warm-up the queue belongs to, when it is one (src/warmup.py, 18.11): its puzzles in their order, the one
+    # put up last, which were solved on the board and which had their solution shown. Not serialized, as the queue.
+    _warmup: Optional[dict] = PrivateAttr(default=None)
     # The number of the student's messages when a database tool (search_master_games, get_game_pgn,
     # find_games_by_position) last ran: the next turns keep those tools — «загрузи вторую» after a search
     # (src/tool_selector.game_context_tools, review 03.11). Not serialized: after a restart the messages and the
@@ -180,12 +183,38 @@ class Session(BaseModel):
         return list(self._puzzle_queue)
 
     def set_puzzle_queue(self, puzzles: list, theme: Optional[str] = None) -> None:
+        """Other puzzles are lined up: a warm-up that framed the old queue is over without a word (src/warmup.start
+        lines its own set up through here and then sets the frame)."""
         self._puzzle_queue = [p for p in (puzzles or []) if isinstance(p, dict) and p.get("fen")]
+        self._warmup = None
         if theme is not None:
             self._last_puzzle_theme = theme or None
 
     def pop_puzzle(self) -> Optional[dict]:
         return self._puzzle_queue.pop(0) if self._puzzle_queue else None
+
+    def trim_puzzle_queue(self, puzzle_ids) -> None:
+        """The puzzles *puzzle_ids* are on the board or behind it: they leave the queue (the frame stays)."""
+        gone = {str(x) for x in (puzzle_ids or [])}
+        self._puzzle_queue = [p for p in self._puzzle_queue if str(p.get("puzzle_id")) not in gone]
+
+    @property
+    def warmup(self) -> Optional[dict]:
+        """The state of the warm-up now running (src/warmup.py owns its shape), or None."""
+        return self._warmup
+
+    def set_warmup(self, state: Optional[dict]) -> None:
+        self._warmup = state
+
+    @property
+    def next_puzzle_due(self) -> bool:
+        """«Дальше» is about puzzles: more of them are lined up, or a warm-up has shown its last one and waits for
+        its ending (src/warmup.ending_due — a sixth puzzle never follows the fifth, tester 17.11)."""
+        if self._puzzle_queue:
+            return True
+        from src import warmup
+
+        return warmup.ending_due(self)
 
     @property
     def last_puzzle_theme(self) -> Optional[str]:
@@ -281,6 +310,11 @@ class Session(BaseModel):
                 self._persistence.update_board_state(self.id, board.fen)
         if self._persistence is not None:
             self._persistence.persist_board(board.to_public())
+        if self._warmup is not None:
+            # The final position of a warm-up puzzle on a board: solved (src/warmup.note_board, 18.11).
+            from src import warmup
+
+            warmup.note_board(self, board)
         _board_changed(self, board)
 
     def remove_board(self, board_id: str) -> bool:
@@ -318,6 +352,12 @@ class Session(BaseModel):
                     if action.get("type") == "load_pgn" and isinstance(action.get("game_id"), int):
                         source["twic_game_id"] = action["game_id"]
                     target.source = source or None
+                if action.get("type") == "set_puzzle" and self._warmup is not None:
+                    # A puzzle of the warm-up put up by anyone — the server's step, the model's own board_control:
+                    # the warm-up is at it now (src/warmup.put_up).
+                    from src import warmup
+
+                    warmup.put_up(self, action.get("puzzle_id"), action.get("fen"))
                 self.save_board(target)
                 changed = target
         return changed

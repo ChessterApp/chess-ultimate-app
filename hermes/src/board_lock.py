@@ -55,11 +55,23 @@ _WARMUP_NOT = re.compile(r"(?<![\w-])(?:подсказк\w*|нам[её]к\w*|hi
                          r"exercise|есеп\w*))(?![\w-])", re.IGNORECASE)
 
 
+# «Ещё разминку», «давай новую разминку», "another warm-up, please" (18.11): the coach offers it when a warm-up ends
+# (src/warmup.py), so the answer to the offer is read as one. The word that says «one more» stands right by the
+# warm-up word and is the request itself: «разминка — это полезно, дай ещё совет» asks for none. Not in Kazakh:
+# «тағы бір жаттығу бер» is «one more exercise» — the plain request, as «маған жаттығу бер».
+_WARMUP_AGAIN = re.compile(
+    r"(?<![\w-])(?:(?:ещ[её]|снова|опять|нов(?:ую|ая)|втор(?:ую|ая)|повтори\w*|another|new|one\s+more)"
+    r"(?:\s+(?:одн[ау]|раз|a))?\s+(?:разминк\w*|warm[\s-]?ups?)"
+    r"|(?:разминк\w*|warm[\s-]?ups?)\s+(?:ещ[её]\s+раз|снова|заново|again))(?![\w-])", re.IGNORECASE)
+
+
 def asks_warmup(text: str) -> bool:
-    """The student asks for a warm-up of puzzles — the daily plan's card, or the same in their own words."""
+    """The student asks for a warm-up of puzzles — the daily plan's card, or the same in their own words; or for one
+    more warm-up («ещё разминку»)."""
     t = text or ""
-    return bool(_WARMUP_WORD.search(t) and _WARMUP_PUZZLES.search(t) and _WARMUP_ASKS.search(t)) \
-        and not _WARMUP_NOT.search(t)
+    if not _WARMUP_WORD.search(t) or _WARMUP_NOT.search(t):
+        return False
+    return bool(_WARMUP_PUZZLES.search(t) and _WARMUP_ASKS.search(t)) or bool(_WARMUP_AGAIN.search(t))
 
 
 def wants_new_puzzle(text: str) -> bool:

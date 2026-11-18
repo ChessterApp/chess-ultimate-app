@@ -866,7 +866,11 @@ def _puzzle_prestep(session, active_board, message: str, user_id: Optional[str],
     """A puzzle asked for in words — «дай задачу на связку», «ещё задачу», «дай три задачи», «дальше» after
     them — put on the board here, before the model answers (src/tools/puzzles._handle_get_puzzle does the
     choosing: the site's sets, no repeats, the queue). Production 21.10: «Ещё задачу» left to the model got
-    a hint at the old task and no get_puzzle call at all. {"result", "block", "summary"} or None."""
+    a hint at the old task and no get_puzzle call at all. {"result", "block", "summary", "actions"} or None.
+
+    In a warm-up (src/warmup.py, 18.11) the result carries the puzzle's place in the set, and after the last puzzle
+    it is the warm-up's ending with no puzzle at all: the turn then writes the server's own first line of the answer
+    (``warmup.lead_line`` — «Задача 2 из 5.», «Разминка окончена: решено 4 из 5.») and the model goes on from it."""
     from src.intent import read_intent
     from src.tools.game_play import live_game_board
 
@@ -874,7 +878,7 @@ def _puzzle_prestep(session, active_board, message: str, user_id: Optional[str],
         return None
     intent = read_intent(message, fen=getattr(active_board, "fen", None), pgn=getattr(active_board, "pgn", None),
                          puzzle_on_board=getattr(active_board, "kind", None) == "puzzle",
-                         puzzle_queue=bool(session.puzzle_queue))
+                         puzzle_queue=session.next_puzzle_due)
     if intent.get("kind") != "puzzle":
         return None
     from src.tools.puzzles import _handle_get_puzzle
@@ -885,18 +889,31 @@ def _puzzle_prestep(session, active_board, message: str, user_id: Optional[str],
     if locale:
         # The lesson/course names and hints in the student's interface language (seam audit 28.10: dropped here).
         args["locale"] = locale
-    raw = _handle_get_puzzle(args, session_id=session.id, user_id=user_id, student_message=message)
+    # caller "turn": the system's own call for the student's words — the model's get_puzzle call for the same words
+    # later in the turn gets the same answer (src/warmup.same_request).
+    raw = _handle_get_puzzle(args, session_id=session.id, user_id=user_id, student_message=message, caller="turn")
     try:
         result = json.loads(raw)
     except ValueError:
         return None
     puzzles = result.get("puzzles") or []
     actions = result.get("board_actions") or []
+    if result.get("warmup_over") and not result.get("error"):
+        # The next puzzle asked for after the last one of the warm-up: its ending, and nothing goes on the board.
+        return {"result": result, "summary": None, "actions": [], "block": (
+            "## The warm-up is OVER — the system ended it and put NO new puzzle on the board\n"
+            f"{result.get('note', '')}\n"
+            "The system has ALREADY written the first line of your answer for the student — that the warm-up is over"
+            + (", with the count of solved puzzles" if result.get("solved") is not None else "")
+            + ". Do not write that line again and give no other number: go on from it with a word about how it went "
+              "and the offer."
+        )}
     if not puzzles or not actions or result.get("error"):
         return None
     session.apply_board_actions(actions, board_id=active_board.id)
     first = puzzles[0]
     queued = len(puzzles) - 1 if not result.get("from_queue") else int(result.get("left_in_queue") or 0)
+    place = result.get("place") if isinstance(result.get("place"), dict) else None
     block = (
         "## The puzzle the student asked for is ALREADY on the board (the system put it there)\n"
         f"{result.get('how_to_show', '')}\n"
@@ -904,6 +921,9 @@ def _puzzle_prestep(session, active_board, message: str, user_id: Optional[str],
         f"it out unless the student gives up): {' '.join(str(m) for m in first.get('solution') or [])}. "
         + (f"{queued} more {'is' if queued == 1 else 'are'} lined up: when the student solves this one or gives up, tell them "
            "to say «дальше» and the system puts the next one up. " if queued else "")
+        + (f"The system has ALREADY written the first line of your answer for the student — the place of this puzzle "
+           f"in the warm-up, «{place.get('n')} of {place.get('of')}» in their language. Do not write the place again "
+           "and never number the puzzles yourself: go on from that line. " if place else "")
         + "Do not call get_puzzle or board_control for this request."
     )
     summary = None
@@ -3158,6 +3178,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             if text:
                 loop.call_soon_threadsafe(queue.put_nowait, ("delta", text))
 
+        # The server's own first line of the answer (18.11): a count the server holds and the student sees elsewhere
+        # too — the place of a warm-up puzzle in its set, the warm-up's ending, the number of moments on the review's
+        # card. It is written here, before the model's first word, and the turn's block tells the model it is there;
+        # left to the model, the sixth puzzle of five and «три момента» over a card of six were told (tester, 17.11).
+        lead_shown: list[str] = []
+
+        def _lead(text: str) -> None:
+            if text:
+                loop.call_soon_threadsafe(queue.put_nowait, ("lead", text))
+
         def _on_quick_delta(text):
             if text and not quick["abort"]:
                 loop.call_soon_threadsafe(queue.put_nowait, ("quick", text))
@@ -3308,6 +3338,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message = f"{message}\n\n{game_step['block']}"
                 if puzzle_step:
                     message = f"{message}\n\n{puzzle_step['block']}"
+                    # A puzzle of a warm-up, or the warm-up's ending: its place / its count is the server's to say —
+                    # the first line of the answer, before the model's first word (src/warmup.py, 18.11).
+                    from src import warmup
+
+                    _lead(warmup.lead_line(puzzle_step["result"], turn_language))
                     if puzzle_step.get("summary"):
                         # The puzzle card: the choosing ran here, not as a tool, so its frame is sent from here.
                         loop.call_soon_threadsafe(queue.put_nowait, ("tool_result", {
@@ -3418,7 +3453,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     review_future, engine_started, review_state, job=review_job,
                     on_late=lambda: engine_precompute.review_soon(f"{session_id}/review", review_pgn))
                 if review:
-                    message = f"{message}\n\n{review_block(review)}"
+                    # The «Моменты» card of the review (src/review_moments.py) is built first and the words follow
+                    # it: the block names the card's moments and the answer opens with the server's own line — their
+                    # count and moves (18.11: the text told «три ключевых момента» over a card of six).
+                    from src.review_moments import card_moments, moments_line
+
+                    summary = build_summary("find_critical_moments", {"pgn": review_pgn}, review,
+                                            language=turn_language)
+                    card = summary if card_moments(summary) else None
+                    message = f"{message}\n\n{review_block(review, card=card, told=bool(card))}"
+                    _lead(moments_line(card, turn_language, spoken=bool(body.speech)))
                     review_state["from_board"] = review_from_board
                     if config.COACH_REVIEW_NO_RESCAN:
                         # The moments are in the message: the scan tools are not offered for this turn (the prompt's
@@ -3427,10 +3471,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     review_note = _ready_result(review_note_future, REVIEW_NOTE_GRACE_S)
                     if isinstance(review_note, dict) and review_note.get("note"):
                         message = f"{message}\n\n{_review_final_block(review_note)}"
-                    # The «Моменты» card of the review (src/review_moments.py): the scan ran
-                    # here, not as a tool, so its tool_result frame is sent from here.
-                    summary = build_summary("find_critical_moments", {"pgn": review_pgn}, review,
-                                            language=turn_language)
+                    # The card's frame: the scan ran here, not as a tool, so its tool_result is sent from here.
                     if summary:
                         loop.call_soon_threadsafe(queue.put_nowait, ("tool_result", {
                             "tool": "find_critical_moments", "ok": True, "summary": summary}))
@@ -4062,6 +4103,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         continue
                     async for frame in _fix_done_frames(payload):
                         yield frame
+                elif kind == "lead":
+                    before = len(answer_parts)
+                    for frame in _answer_frames(payload + "\n\n"):
+                        yield frame
+                    lead_shown.extend(answer_parts[before:])
                 elif kind == "tool_call":
                     if fix["running"] and not fix["emitted"]:
                         # The wrong sentence came before a tool call («I'll search the…»): the answer may go on after
@@ -4080,7 +4126,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     error_exc = payload
             for frame in _answer_frames("", final=True):  # the end of the answer: nothing stays held
                 yield frame
-            if fix["mode"] in ("draft", "end") and error_exc is None and not "".join(answer_parts).strip():
+            if fix["mode"] in ("draft", "end") and error_exc is None \
+                    and not "".join(p for p in answer_parts if p not in lead_shown).strip():
                 # The rewrite was abandoned and nothing of the draft is left to show: a plain line that the coach will
                 # not guess — never an empty answer (a lone «давай разберёмся» of the rewrite would promise what never comes).
                 for frame in _answer_frames(_CHECK_EMPTY_TEXT.get(turn_language, _CHECK_EMPTY_TEXT["ru"]), final=True):
@@ -4338,6 +4385,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         streamed_answer = re.sub(r"<think>.*?</think>\s*", "", "".join(answer_parts), flags=re.DOTALL).strip()
         if streamed_any and streamed_answer:
             answer_text = streamed_answer
+        elif lead_shown:
+            # The server's first line went out and the model's text came as one piece: the stored message has both.
+            answer_text = "".join(lead_shown) + answer_text
         response_text = f"{quick_text}\n\n{answer_text}" if quick_text else answer_text
 
         # Record real token usage for this turn (fire-and-forget; never blocks)
@@ -5606,7 +5656,7 @@ async def coach_voice_intent(body: VoiceIntentRequest, request: Request):
                     fen = fen or board.fen
                     pgn = pgn or board.pgn
         return read_intent(body.text[:600], fen=fen, pgn=pgn, live_game=live, finished_game=finished,
-                           puzzle_on_board=puzzle, puzzle_queue=bool(session is not None and session.puzzle_queue),
+                           puzzle_on_board=puzzle, puzzle_queue=bool(session is not None and session.next_puzzle_due),
                            just_played=just_played)
 
     return await asyncio.to_thread(_read)

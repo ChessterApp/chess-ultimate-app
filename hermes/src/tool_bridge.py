@@ -215,6 +215,12 @@ def _sync_session_board(session, board_actions: list[dict]) -> None:
             board = session.get_board(session.active_board_id)
             if board is not None:
                 board.mark_coach(str(atype))  # a tool's position, not the student's own (2026-10-20)
+            if atype == ActionType.SET_PUZZLE.value and session.warmup is not None:
+                # A puzzle of the warm-up put up in voice — the page's get_puzzle call or the model's own
+                # board_control: the warm-up is at it now, as in the text turn (src/warmup.put_up, 18.11).
+                from src import warmup
+
+                warmup.put_up(session, action.get("puzzle_id"), fen)
         except (ValueError, TypeError):
             logger.debug("Skipping board sync for invalid FEN: %s", fen)
 
