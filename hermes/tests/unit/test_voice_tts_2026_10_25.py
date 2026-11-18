@@ -63,7 +63,7 @@ def test_a_chunk_is_read_through_openrouter_and_the_bytes_stream_back(upstream):
     assert resp.headers["content-type"].startswith("application/octet-stream")
     assert resp.headers["x-sample-rate"] == "24000" and resp.headers["x-tts-model"] == "google/gemini-3.8-flash-tts"
     assert resp.content == b"\x01\x00\x02\x00\x03\x00"
-    assert calls == [{"key": "sk-or-test", "model": "google/gemini-3.8-flash-tts", "voice": "Kore", "text": "Конь эф три нападает на пешку."}]
+    assert calls == [{"key": "sk-or-test", "model": "google/gemini-3.8-flash-tts", "voice": "Achird", "text": "Конь эф три нападает на пешку."}]
 
 
 def test_kazakh_has_its_own_model_and_voice_and_the_main_pair_is_a_setting(upstream, monkeypatch):
@@ -72,7 +72,7 @@ def test_kazakh_has_its_own_model_and_voice_and_the_main_pair_is_a_setting(upstr
     monkeypatch.setenv("COACH_TTS_VOICE", "21m00Tcm4TlvDq8ikWAM")
     assert _post({"text": "Жақсы жүріс!", "locale": "kk"}).status_code == 200
     assert _post({"text": "Хороший ход.", "locale": "ru"}).status_code == 200
-    assert (calls[0]["model"], calls[0]["voice"]) == ("google/gemini-3.8-flash-tts", "Kore")
+    assert (calls[0]["model"], calls[0]["voice"]) == ("google/gemini-3.8-flash-tts", "Achird")
     assert (calls[1]["model"], calls[1]["voice"]) == ("elevenlabs/eleven-flash-v2.5", "21m00Tcm4TlvDq8ikWAM")
 
 
@@ -155,7 +155,7 @@ def test_a_chunk_elevenlabs_does_not_read_is_read_by_the_default_voice(upstream,
     resp = _post({"text": "Первый кусок.", "locale": "ru"})
     assert resp.status_code == 200 and resp.content == b"\x01\x00\x02\x00\x03\x00"
     assert resp.headers["x-tts-model"] == "google/gemini-3.8-flash-tts"
-    assert (calls[0]["model"], calls[0]["voice"], calls[0]["key"]) == ("google/gemini-3.8-flash-tts", "Kore", "sk-or-test")
+    assert (calls[0]["model"], calls[0]["voice"], calls[0]["key"]) == ("google/gemini-3.8-flash-tts", "Achird", "sk-or-test")
     # Within the pause the next chunk does not wait on ElevenLabs at all.
     assert _post({"text": "Второй кусок.", "locale": "ru"}).headers["x-tts-model"] == "google/gemini-3.8-flash-tts"
     assert direct == ["Первый кусок."] and len(calls) == 2
@@ -198,3 +198,9 @@ def test_the_server_names_the_default_voice_mode(monkeypatch):
     monkeypatch.setenv("COACH_VOICE_MODE", "something")
     assert get().json()["mode"] == "live"
     assert TestClient(app).get("/api/coach/voice/mode").status_code == 401
+
+
+def test_the_spare_voice_is_a_mans_like_the_coachs_own():
+    """18.11: «мужской приветливый голос, и чтобы не менялся». The default — and the voice that reads a chunk
+    ElevenLabs did not — is Gemini's Achird, not Kore: the coach does not turn into a woman for a sentence."""
+    assert voice_tts.DEFAULT_VOICE == "Achird"

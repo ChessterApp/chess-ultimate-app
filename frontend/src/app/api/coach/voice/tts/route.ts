@@ -17,7 +17,9 @@ const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
  * 100 such calls a day on Tier 1, which is why the reading moved.
  */
 const GOOGLE_TTS_MODEL = () => process.env.COACH_TTS_MODEL_GOOGLE || 'gemini-3.8-flash-tts';
-const GOOGLE_TTS_VOICE = () => process.env.COACH_TTS_VOICE_GOOGLE || 'Kore';
+// A man's voice, as the coach's own is since 18.11 («мужской приветливый голос, и чтобы не менялся»); Achird is
+// Google's «Friendly». This road reads only when the coach server has no reading route (an older Hermes).
+const GOOGLE_TTS_VOICE = () => process.env.COACH_TTS_VOICE_GOOGLE || 'Achird';
 const MAX_CHARS = 600;
 const TIMEOUT_MS = 20000;
 

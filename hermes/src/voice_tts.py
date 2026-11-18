@@ -32,7 +32,11 @@ _LANGUAGES = ("kk", "ru", "en")
 MAX_CHARS = 600
 TIMEOUT_S = 20.0
 DEFAULT_MODEL = "google/gemini-3.8-flash-tts"
-DEFAULT_VOICE = "Kore"
+# The voice of Gemini's TTS — what speaks when no other voice is set, and what reads a chunk ElevenLabs did not
+# (the spare voice in speak()). A man's, as the coach's own is since 18.11 («мужской приветливый голос, и чтобы не
+# менялся»): with Kore, a woman, a chunk read by the spare voice changed the coach's sex mid-answer. Achird is
+# Google's «Friendly»; measured median pitch 141 Hz against Kore's 174.
+DEFAULT_VOICE = "Achird"
 # After ElevenLabs fails a chunk, the default voice reads for this long before ElevenLabs is asked again.
 DIRECT_PAUSE_S = 60.0
 _direct_down_until = 0.0
