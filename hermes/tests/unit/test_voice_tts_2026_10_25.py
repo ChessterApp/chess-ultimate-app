@@ -192,9 +192,9 @@ def test_the_server_names_the_default_voice_mode(monkeypatch):
     else (and nothing) is Gemini Live."""
     get = lambda: TestClient(app).get("/api/coach/voice/mode", headers={"X-User-Id": "tts-user"})
     monkeypatch.delenv("COACH_VOICE_MODE", raising=False)
-    assert get().json() == {"mode": "live"}
+    assert get().json()["mode"] == "live"
     monkeypatch.setenv("COACH_VOICE_MODE", " Pipeline ")
-    assert get().json() == {"mode": "pipeline"}
+    assert get().json()["mode"] == "pipeline"
     monkeypatch.setenv("COACH_VOICE_MODE", "something")
-    assert get().json() == {"mode": "live"}
+    assert get().json()["mode"] == "live"
     assert TestClient(app).get("/api/coach/voice/mode").status_code == 401

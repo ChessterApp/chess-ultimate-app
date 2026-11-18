@@ -194,6 +194,10 @@
    "session_id"
   ]
  },
+ "POST /api/coach/voice/stt": {
+  "model": null,
+  "fields": null
+ },
  "POST /api/coach/voice/tts": {
   "model": "VoiceTtsRequest",
   "fields": [

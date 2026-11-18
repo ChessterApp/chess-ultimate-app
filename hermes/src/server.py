@@ -5369,9 +5369,29 @@ async def coach_voice_mode(request: Request):
     coach's model and voice says it — COACH_VOICE_MODE in its .env — so the mode changes with this server's
     settings and goes back without a site release (17.11)."""
     _get_user_id(request)
+    from src.voice_stt import stt_ready
     from src.voice_tts import voice_mode
 
-    return {"mode": voice_mode()}
+    # `stt`: who turns the student's words into text in the pipeline — "server" (the page sends each utterance
+    # to POST /api/coach/voice/stt, src/voice_stt.py, 18.11) or "google" (the page streams to Google's
+    # transcription with a token of the site, as before; an older page reads no `stt` and does the same).
+    return {"mode": voice_mode(), "stt": "server" if stt_ready() else "google"}
+
+
+@app.post("/api/coach/voice/stt")
+async def coach_voice_stt(request: Request):
+    """One utterance of the student for the site's voice pipeline (src/voice_stt.py): the body is the audio the
+    page recorded (WAV, 16 kHz mono), `X-Voice-Locale` the language to expect. Answers {"text", "model", "ms"}.
+    The OpenRouter key stays on this server; a spoken minute is a dozen calls, counted with the reading's (18.11)."""
+    _get_user_id(request)
+    await enforce_rate_limit(request, limiter=voice_tts_rate_limiter)
+    from src.voice_stt import MAX_BYTES, transcribe
+
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Audio too long")
+    audio = await request.body()
+    return await transcribe(audio, request.headers.get("content-type"), request.headers.get("x-voice-locale"))
 
 
 @app.post("/api/coach/voice/check")
