@@ -24,6 +24,8 @@ export interface SetPuzzleAction {
   solution: string[];
   /** Lichess puzzle id when the puzzle came from the puzzle database. */
   puzzle_id?: string;
+  /** A warm-up puzzle's place in its set (Hermes, 18.11): «Задача 2 из 5» on the puzzle panel. */
+  place?: { n: number; of: number };
 }
 
 export interface DrawArrowsAction {
@@ -153,6 +155,8 @@ export interface PuzzleState {
   /** Moves of the solution on the board — the student's and the opponent's replies (useCoachBoard.playPuzzleReply). */
   currentMoveIndex: number;
   solved: boolean;
+  /** A warm-up puzzle's place in its set: «Задача 2 из 5» on the panel (tester, 18.11). */
+  place?: { n: number; of: number };
 }
 
 // ─── Coach Board State ───────────────────────────────────────────────────

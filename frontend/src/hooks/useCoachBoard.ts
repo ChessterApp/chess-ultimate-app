@@ -99,6 +99,14 @@ interface UseCoachBoardReturn extends CoachBoardState {
  * Hook to manage the coach board state.
  * Handles board actions from the AI, move navigation, and puzzle validation.
  */
+/** The place the server gave a warm-up puzzle, when it is a sane one; else none. */
+export function puzzlePlace(place: unknown): { n: number; of: number } | undefined {
+  const p = place as { n?: unknown; of?: unknown } | null | undefined;
+  const n = Number(p?.n);
+  const of = Number(p?.of);
+  return Number.isInteger(n) && Number.isInteger(of) && n >= 1 && of >= 2 && n <= of ? { n, of } : undefined;
+}
+
 export function useCoachBoard(): UseCoachBoardReturn {
   const [fen, setFen] = useState(DEFAULT_FEN);
   const [pgn, setPgn] = useState('');
@@ -185,11 +193,13 @@ export function useCoachBoard(): UseCoachBoardReturn {
       case 'set_puzzle': {
         commitHistory([action.fen], 0);
         setPuzzleMode(true);
+        const place = puzzlePlace(action.place);
         commitPuzzle({
           fen: action.fen,
           solution: action.solution,
           currentMoveIndex: 0,
           solved: false,
+          ...(place ? { place } : {}),
         });
         setArrows([]);
         setHighlights([]);

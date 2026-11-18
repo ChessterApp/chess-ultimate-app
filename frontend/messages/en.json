@@ -2273,6 +2273,7 @@
     "stepChecking": "Checking…",
     "stepProgress": "Progress",
     "puzzleTitle": "Puzzle",
+    "puzzlePlace": "Puzzle {n} of {of}",
     "puzzleWhiteToWin": "White to play and win",
     "puzzleBlackToWin": "Black to play and win",
     "puzzleKeepGoing": "Right — now the next move",

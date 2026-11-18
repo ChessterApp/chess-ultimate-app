@@ -9,6 +9,7 @@ import {
   puzzleReplyDue,
   puzzleStudentColor,
   puzzleStudentMoves,
+  puzzlePlace,
   PUZZLE_REPLY_DELAY_MS,
 } from '../useCoachBoard';
 
@@ -75,6 +76,20 @@ describe('useCoachBoard', () => {
       currentMoveIndex: 0,
       solved: false,
     });
+  });
+
+  it('keeps a warm-up puzzle\'s place in its set (tester, 18.11)', () => {
+    const { result } = renderHook(() => useCoachBoard());
+    const fen = '6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1';
+    act(() => {
+      result.current.applyBoardAction({ type: 'set_puzzle', fen, solution: ['Ra8#'], place: { n: 2, of: 5 } });
+    });
+    expect(result.current.puzzleState?.place).toEqual({ n: 2, of: 5 });
+    act(() => {
+      result.current.applyBoardAction({ type: 'set_puzzle', fen, solution: ['Ra8#'] });
+    });
+    expect(result.current.puzzleState?.place).toBeUndefined();
+    expect([puzzlePlace({ n: 0, of: 5 }), puzzlePlace({ n: 6, of: 5 }), puzzlePlace({ n: 1, of: 1 }), puzzlePlace('x')]).toEqual([undefined, undefined, undefined, undefined]);
   });
 
   it('applies draw_arrows action', () => {

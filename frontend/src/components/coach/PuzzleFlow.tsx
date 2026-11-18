@@ -155,7 +155,8 @@ export default function PuzzleFlow({ controls, puzzle, onAsk, onNextPuzzle, onEx
 
   return (
     <StepFlow
-      title={t('puzzleTitle')}
+      // A warm-up puzzle says its place in the set (tester, 18.11: «номер задачи нигде не видно»).
+      title={puzzle.place ? t('puzzlePlace', { n: puzzle.place.n, of: puzzle.place.of }) : t('puzzleTitle')}
       state={flow.state}
       prompt={prompt}
       feedback={
