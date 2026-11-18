@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 18.11-4 (голос тренера — один постоянный мужской) — включает всё из версий 06.10 … 18.11-3
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 18.11-5 (третий отчёт тестировщика: разминка заканчивается на экране приложения, задача не «забывается» на середине, слова после сдачи, чужая партия не «моя») — включает всё из версий 06.10 … 18.11-4
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -7,9 +7,8 @@
 > обновление: всё, что уже сделано в прошлый раз (миграции, база задач, переменные), Claude
 > проверит и пропустит, так что займёт 10–15 минут. В конце Claude пришлёт отчёт.
 >
-> **Это небольшое обновление поверх версии 18.11-3**, которая уже стоит: одна строка кода и замена голоса в `.env`
-> (женский голос ElevenLabs «Sarah» → мужской «Will»). Ключ ElevenLabs тот же, что уже стоит, присылать ничего не нужно.
-> Миграций и новых переменных нет.
+> **Это обновление поверх версии 18.11-4**, которая уже стоит: только код, без новых переменных, ключей и миграций.
+> Модель, голос и голосовой режим не меняются, `.env` не трогается.
 
 ---
 
@@ -33,6 +32,100 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 18.11-5 (отчёт тестировщика от 18.11 по приложению; код — `hermes/src/` и тесты. Миграций, пакетов и
+переменных нет; подшаги 5а и 5б не выполняются. Если сервер на 18.11-4 — шаги 0, 1, 2, 3, 4, 8 и проверки 1, 3, 89;
+если раньше — все шаги):
+- **Разминка кончается и на экране приложения** (`src/warmup.py`, `src/tools/puzzles.py`, `src/server.py`). Сервер и
+  раньше говорил «Разминка окончена» после пятой задачи, но приложение во время задачи прячет слова тренера, а панель
+  решённой пятой задачи с её кнопкой «Дальше» оставалась — следующее нажатие приносило очередную задачу программы.
+  Теперь конец разминки вместе со словами ставит на доску её же позицию (`set_fen`): сайт и приложение закрывают
+  панель задачи и показывают итог. Команда «поставь задачу» каждой задачи разминки несёт её место (`place`: n из N) —
+  сайт и приложение показывают на панели «Задача 2 из 5».
+- **Задача не «забывается» на середине** (`src/boards.py`, `set_position`). Страница сохраняет доску после каждого хода;
+  сервер на это превращал доску задачи в обычную, и посреди многоходовой задачи переставали работать подсказка без
+  решения и «сдаюсь, покажи решение». Позиция на линии решения задачи теперь оставляет доску задачей и двигает её
+  прогресс; позиция не с линии — как раньше, новая позиция.
+- **Слова после сдачи** (`src/game_mode.py`, `src/prompt_builder.py`, `src/answer_check.py`). Было: «Решающий момент — твоя
+  сдача: ошибок в приведённых ходах не указано», а в разборе — «В предыдущем ответе были приведены ходы, которых в нашей
+  партии не было». Теперь решающий момент партии называет сервер (сдача без ошибок — «решающей ошибки не было, сдаваться
+  было рано»), ходы пишутся с правильными номерами («2.Nf3»), а фразы тренера о своих прошлых ответах и о «приведённых»
+  данных проверка ответа задерживает. Версия шаблона подсказки — 22.
+- **Чужая партия не «моя»** (`src/game_owner.py` новый, `src/daily_plan.py`, `src/server.py`, `src/tools/user_data.py`).
+  Партия, сохранённая из «Базы партий» (Lichess, Chess.com, TWIC), больше не предлагается как «последняя партия» ученика;
+  если её разбирают, тренер называет стороны по цвету и именам игроков, без «твой».
+- **Сайт и приложение** уже обновлены и выложены вместе с этим (ход соперника в задаче делается сам, «Задача N из 5» на
+  панели); со старым сервером они работают как раньше.
+- **Чем проверено.** Новые тесты `test_warmup_app_1118.py`, `test_finished_game_words_1118.py`, `test_game_owner_1118.py`,
+  дополнены `test_warmup_end_1118.py`, `test_game_mode.py`; весь набор проходит.
+- Проверка 89 (без модели, без сервера и без сети — база задач нужна):
+
+```bash
+cd /root/hermes-chess && SUPABASE_URL= .venv/bin/python - <<'EOF'
+import json
+import chess
+from src import game_mode, game_owner
+from src.answer_check import is_self_reference
+from src.boards import new_board
+from src.sessions import session_store
+from src.tools import puzzles as pz
+
+# --- 89a: the warm-up's commands carry the place; after the fifth the ending closes the puzzle panel
+CARD = "Разминка: дай мне 5 разных тактических задач по моему уровню."
+s = session_store.create("deploy-check")
+def ask(words):
+    s.add_message("user", words)
+    return json.loads(pz._handle_get_puzzle({}, session_id=s.id, user_id="deploy-check", student_message=words))
+def solve(result):
+    s.ensure_board(); s.apply_board_actions(result["board_actions"])
+    p = result["puzzles"][0]; b = chess.Board(p["fen"])
+    for san in p["solution"]:
+        b.push_san(san)
+    s.set_board_state(b.fen())
+results = [ask(CARD)]
+db = bool(results[0].get("puzzles")) and results[0].get("source") == "warmup"
+places, closed = [], None
+if db:
+    for n in range(1, 6):
+        solve(results[-1])
+        if n < 5:
+            results.append(ask("Дай мне тактическую задачу"))
+    places = [(r.get("board_actions") or [{}])[0].get("place") for r in results]
+    end = ask("Дай мне тактическую задачу")
+    closed = [a.get("type") for a in end.get("board_actions") or []]
+warm = places == [{"n": n, "of": 5} for n in range(1, 6)] and closed == ["set_fen"]
+
+# --- 89b: a position along the puzzle's own line keeps the board a puzzle
+b = new_board("deploy-check")
+b.apply_action({"type": "set_puzzle", "fen": "6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1", "solution": ["Ra8#"], "puzzle_id": "chk"})
+start_kept = (b.set_position("6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1"), b.kind)[1] == "puzzle" and bool(b.puzzle)
+b.set_position("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+puzzle_kept = start_kept and b.kind != "puzzle"
+
+# --- 89c: a resignation without a mistake, told by the server; the coach never talks about its earlier answer
+st = {"status": "finished", "result": "0-1", "termination": "resign", "winner": "engine", "student_color": "white",
+      "moves": ["e4", "c5", "Nf3", "d6"], "annotations": []}
+moment = game_mode.decisive_moment(st)
+words = (bool(moment) and "указано" not in moment and is_self_reference("В предыдущем ответе были приведены ходы, которых в нашей партии не было.")
+         and not is_self_reference("Ты ошибся на 12-м ходу: конь остался без защиты."))
+
+# --- 89d: a game saved from the database is not offered as the student's own
+foreign = {"source": "lichess", "white": "DrNykterstein", "black": "Night-King96", "pgn": "1. e4 e5 *"}
+mine = {"source": "coach_game", "pgn": "1. e4 e5 *"}
+owner = (not game_owner.offered(foreign, None)) and game_owner.offered(mine, None)
+
+ok = warm and puzzle_kept and words and owner
+print("ОК" if ok else "ПРОВЕРЬ", "| 89a разминка: места", [(p or {}).get("n") for p in places], "конец закрывает задачу", closed, "(база задач", db, ")",
+      "| 89b задача держится на своей линии:", puzzle_kept, "| 89c сдача без ошибки:", repr(moment[:60]), "фразы о прошлом ответе ловятся:", words,
+      "| 89d чужая партия из базы не «моя»:", owner)
+EOF
+```
+
+  → две служебные строки про Supabase и `ОК | 89a разминка: места [1, 2, 3, 4, 5] конец закрывает задачу ['set_fen'] (база
+  задач True ) | 89b задача держится на своей линии: True | 89c сдача без ошибки: "There was NO decisive mistake: …" фразы о
+  прошлом ответе ловятся: True | 89d чужая партия из базы не «моя»: True`. До обновления — `ImportError: cannot import name
+  'game_owner'`. `ПРОВЕРЬ` с `база задач False` — база не собрана (шаг 7), это не СТОП. Любое другое `ПРОВЕРЬ` — пришли
+  вывод человеку. Команда ничего не пишет в базу и `.env` не меняет.
 
 Новое в версии 18.11-4 (голос; если сервер на 18.11-3 — шаги 0, 1, 2, 3, 4, подшаг 5б ниже, шаг 8 и проверки 1, 3, 88 и
 «живая» проверка под ней; если раньше — все шаги, подшаг 5а пропусти, если он уже выполнен, и выполни 5б):
@@ -2641,6 +2734,17 @@ grep -q 'DEFAULT_VOICE = "Achird"' chess-ultimate-app/hermes/src/voice_tts.py \
 
 Если «НЕТ версии 18.11-4»: **СТОП** — версия 18.11-4 ещё не влита в `main`; напиши Александру, ничего не обновляй.
 
+Версия 18.11-5 в main:
+
+```bash
+test -f chess-ultimate-app/hermes/src/game_owner.py \
+  && grep -q 'def _close_actions' chess-ultimate-app/hermes/src/warmup.py \
+  && grep -q 'def is_self_reference' chess-ultimate-app/hermes/src/answer_check.py \
+  && echo "версия 18.11-5 в main есть" || echo "НЕТ версии 18.11-5"
+```
+
+Если «НЕТ версии 18.11-5»: **СТОП** — версия 18.11-5 ещё не влита в `main`; напиши Александру, ничего не обновляй.
+
 ## Шаг 2. Резервная копия
 
 ```bash
@@ -3470,6 +3574,7 @@ COACH_REASONING_MANDATORY, COACH_REASONING_EFFORT, COACH_LESSON_LINK=<значе
   86 18.11-2 — «Разобрать» берёт сданную партию <[True, True, True]/…>, дебют по справочнику <True True/…>
   87 18.11-3 — распознавание через OpenRouter <ОК/ПРОВЕРЬ>, слушает сервер <True/False>, модель <…>; живая: /voice/mode <…>, /voice/stt HTTP <200/…> за <…> с
   88 18.11-4 — голос: запасной <Achird/…>, в .env ru/kk <bIHbv24MWmeRgasZH58o/…>, Sarah ещё стоит <False/True>; живая: X-Tts-Model ru <…> / kk <…>
+  89 18.11-5 — разминка: места <[1..5]>, конец закрывает задачу <['set_fen']/…>; задача на своей линии <True/False>; сдача без ошибки и фразы о прошлом ответе <True/False>; чужая партия <True/False>
 5б: <голос заменён на Will / не выполнялся — почему>
 Бэкенд (фото доски): <обновлён, коммит …, grep PHOTO_FEN_ATTEMPTS = … / не обновлён — почему>
 Что нужно от людей: <список или «ничего»>
