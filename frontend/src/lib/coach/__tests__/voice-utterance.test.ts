@@ -54,8 +54,10 @@ describe('the utterance cut out of the microphone', () => {
   it('takes a click or a cough for nothing', () => {
     const cutter = new UtteranceCutter();
     feed(cutter, QUIET, 400);
-    expect(feed(cutter, LOUD, START_MS - FRAME_MS)).toEqual([]);     // too short to be speech at all
-    feed(cutter, QUIET, 400);
+    // Too short to be speech at all (the level is judged over 40 ms, so a burst lasts that much longer).
+    expect(feed(cutter, LOUD, START_MS - 3 * FRAME_MS)).toEqual([]);
+    expect(feed(cutter, QUIET, 400)).toEqual([]);
+    expect(cutter.speaking).toBe(false);
     expect(feed(cutter, LOUD, START_MS)).toHaveLength(1);           // noticed…
     expect(cutter.speaking).toBe(true);
     expect(feed(cutter, QUIET, END_SILENCE_MS + 60)).toEqual([]);    // …but less than MIN_SPEECH_MS of it: not sent
@@ -90,6 +92,37 @@ describe('the utterance cut out of the microphone', () => {
     const ECHO = { pcm: () => frame(400), rms: 0.035 };              // the coach's own voice in the microphone
     expect(feed(cutter, ECHO, 1500, 0.05)).toEqual([]);              // the host's threshold while it plays
     expect(feed(cutter, LOUD, 400, 0.05).some((s) => s.started)).toBe(true);
+  });
+
+  it('hears a real voice: frames of one audio quantum, every other one under the threshold', () => {
+    // The capture's frames are 128 samples of 48 kHz — 2.7 ms — and between the pulses of a voice single frames
+    // are quiet. Judged frame by frame, the speech never lasted START_MS (the emulator's real microphone, 18.11).
+    const cutter = new UtteranceCutter();
+    const quantum = (value: number) => new Int16Array(43).fill(value);
+    const steps = [];
+    const say = (ms: number, levels: number[]) => {
+      for (let t = 0, i = 0; t < ms; t += 43 / 16, i++) {
+        const rms = levels[i % levels.length];
+        const step = cutter.push(quantum(rms > 0.02 ? 900 : 1), rms, THRESHOLD);
+        if (step.started || step.utterance) steps.push(step);
+      }
+    };
+    say(500, [0.003]);
+    say(1500, [0.09, 0.012, 0.07, 0.008, 0.11, 0.015]);   // a voice at an ordinary level: half its frames «quiet»
+    expect(steps.map((s) => s.started)).toEqual([true]);
+    say(END_SILENCE_MS + 100, [0.003]);
+    expect(steps).toHaveLength(2);
+    expect(lengthMs(steps[1].utterance!)).toBeGreaterThan(1500 + END_SILENCE_MS - 100);
+  });
+
+  it('does not take one loud frame for speech', () => {
+    const cutter = new UtteranceCutter();
+    const quantum = (value: number) => new Int16Array(43).fill(value);
+    const out = [];
+    for (let i = 0; i < 400; i++) out.push(cutter.push(quantum(1), 0.003, THRESHOLD));
+    out.push(cutter.push(quantum(20000), 0.6, THRESHOLD), cutter.push(quantum(20000), 0.6, THRESHOLD));   // a knock: 5 ms
+    for (let i = 0; i < 400; i++) out.push(cutter.push(quantum(1), 0.003, THRESHOLD));
+    expect(out.some((s) => s.started || s.utterance)).toBe(false);
   });
 
   it('starts over on reset', () => {

@@ -6,7 +6,7 @@
  * OpenRouter's transcription, which takes a recording, not a stream), the page decides: speech begins when the
  * level has stayed above the threshold for START_MS, and ends after END_SILENCE_MS without it. What is sent is
  * the speech with PRE_ROLL_MS before it (the first consonant is quieter than the threshold) and the closing
- * silence. Pure: fed with the capture worklet's frames (16 kHz mono 16-bit, with their RMS), no timers.
+ * silence. Pure: fed with the capture worklet's frames (16 kHz mono 16-bit, each with its RMS), no timers.
  */
 
 export const SAMPLE_RATE = 16000;
@@ -22,8 +22,18 @@ export const MIN_SPEECH_MS = 250;
 export const MAX_UTTERANCE_MS = 30000;
 /** A frame counts as speech when it is this many times louder than the room's own noise (and above the threshold). */
 export const NOISE_FACTOR = 2.5;
-/** The room's noise is the quietest frame of this long: speech has gaps between its words, a fan's hum has none. */
+/** The room's noise is the quietest stretch of this long: speech has gaps between its words, a fan's hum has none. */
 export const NOISE_WINDOW_MS = 5000;
+/**
+ * The level that is judged is the RMS over this long, not one frame's. The capture hands over frames of 2.7 ms
+ * (one audio quantum), and in a real voice single frames fall under any threshold between the pulses of the
+ * sound — judged one by one, speech never «stayed» loud for START_MS and no utterance ever began (the app on the
+ * emulator with a real microphone, 18.11; the stand's fake microphone plays a file at full level and hid it).
+ * A click a few milliseconds long, spread over this window, does not last START_MS.
+ */
+export const LEVEL_WINDOW_MS = 40;
+/** The noise window is kept in steps of this long (their quietest level), not frame by frame. */
+const NOISE_STEP_MS = 100;
 
 export interface CutterStep {
   /** Speech has just been noticed (once per utterance). */
@@ -52,21 +62,44 @@ export class UtteranceCutter {
   private quietMs = 0;
   private speechMs = 0;
   private totalMs = 0;
-  /** The levels of the last NOISE_WINDOW_MS of frames, oldest first: their minimum is the room's own noise. */
-  private levels: { rms: number; ms: number }[] = [];
-  private levelsMs = 0;
+  /** The frames of the last LEVEL_WINDOW_MS (their energy and length): the level judged is their RMS. */
+  private recent: { energy: number; ms: number }[] = [];
+  private recentMs = 0;
+  private recentEnergy = 0;
+  /** The quietest level of each past NOISE_STEP_MS, oldest first, NOISE_WINDOW_MS of them: the room's own noise. */
+  private steps: number[] = [];
+  private stepMin = Infinity;
+  private stepMs = 0;
 
-  /** The room's noise before this frame; 0 until a frame has been heard. */
+  /** The level now: the RMS of the last LEVEL_WINDOW_MS, this frame included. */
+  private level(rms: number, ms: number): number {
+    const energy = rms * rms * ms;
+    this.recent.push({ energy, ms });
+    this.recentMs += ms;
+    this.recentEnergy += energy;
+    while (this.recent.length > 1 && this.recentMs - this.recent[0].ms >= LEVEL_WINDOW_MS) {
+      const old = this.recent.shift()!;
+      this.recentMs -= old.ms;
+      this.recentEnergy -= old.energy;
+    }
+    return Math.sqrt(Math.max(0, this.recentEnergy) / this.recentMs);
+  }
+
+  /** The room's noise before this frame; 0 until a step has been heard. */
   private noiseFloor(): number {
-    let min = Infinity;
-    for (const l of this.levels) if (l.rms < min) min = l.rms;
+    let min = this.stepMin;
+    for (const l of this.steps) if (l < min) min = l;
     return min === Infinity ? 0 : min;
   }
 
-  private remember(rms: number, ms: number): void {
-    this.levels.push({ rms, ms });
-    this.levelsMs += ms;
-    while (this.levels.length > 1 && this.levelsMs - this.levels[0].ms >= NOISE_WINDOW_MS) this.levelsMs -= this.levels.shift()!.ms;
+  private remember(level: number, ms: number): void {
+    if (level < this.stepMin) this.stepMin = level;
+    this.stepMs += ms;
+    if (this.stepMs < NOISE_STEP_MS) return;
+    this.steps.push(this.stepMin);
+    if (this.steps.length > NOISE_WINDOW_MS / NOISE_STEP_MS) this.steps.shift();
+    this.stepMin = Infinity;
+    this.stepMs = 0;
   }
 
   /** True while an utterance is being collected. */
@@ -80,8 +113,9 @@ export class UtteranceCutter {
    */
   push(pcm: Int16Array, rms: number, threshold: number): CutterStep {
     const ms = frameMs(pcm);
-    const loud = rms > Math.max(threshold, this.noiseFloor() * NOISE_FACTOR);
-    this.remember(rms, ms);
+    const level = this.level(rms, ms);
+    const loud = level > Math.max(threshold, this.noiseFloor() * NOISE_FACTOR);
+    this.remember(level, ms);
     if (this.parts === null) {
       this.pre.push(pcm);
       this.preMs += ms;

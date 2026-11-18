@@ -654,6 +654,8 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
       push: (buffer, rms) => {
         if (closed) return;
         const step = cutter.push(new Int16Array(buffer), rms, statusRef.current === 'speaking' ? BARGE_IN_RMS : SPEECH_RMS);
+        // The student talks over the coach: his turn ends (Google's stream said so with its voice activity).
+        if (step.started && statusRef.current === 'speaking') endTurn();
         if (step.utterance) {
           const pcm = step.utterance;
           queue = queue.then(() => hear(pcm));
@@ -662,7 +664,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
       sendRealtimeInput: () => { /* the frames come through push */ },
       close: () => { closed = true; cutter.reset(); },
     };
-  }, []);
+  }, [endTurn]);
 
   // A fresh connection takes over before this one's lifetime ends: opened first, swapped in, the old one
   // closed. «hard» (overdue, the student still talking): the words heard so far go to the coach first.
