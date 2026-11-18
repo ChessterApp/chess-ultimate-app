@@ -19,6 +19,7 @@ import {
   type PipelineLocale,
 } from '@/lib/coach/voice-pipeline';
 import { gameFromActions } from '@/lib/coach/voice-game';
+import { UtteranceCutter, wavBytes } from '@/lib/coach/voice-utterance';
 import { getMicrophone } from '@/lib/audio-session';
 
 export type VoiceMode = 'live' | 'pipeline';
@@ -51,15 +52,35 @@ export function readVoiceMode(): VoiceMode {
  *  that holds the coach's model and voice turns the pipeline on, and off again, without a site release. Null —
  *  an older server, no answer in time, a failure: the page stays as it is. */
 export async function fetchServerVoiceMode(): Promise<VoiceMode | null> {
+  return (await fetchServerVoice())?.mode ?? null;
+}
+
+/** Who turns the student's words into text in the pipeline: the coach server (each utterance goes to
+ *  POST /api/coach/voice/stt — Hermes src/voice_stt.py, OpenRouter) or Google (the microphone streamed to its
+ *  transcription model with a token of the site, as before 18.11). */
+export type SttTransport = 'server' | 'google';
+
+/** The coach server's voice settings: the default mode and who hears. Null — an older server, no answer, a failure. */
+export async function fetchServerVoice(): Promise<{ mode: VoiceMode | null; stt: SttTransport } | null> {
   try {
     const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(5000) : undefined;
     const res = await fetch('/api/coach/voice/mode', { signal });
     if (!res.ok) return null;
-    const mode = ((await res.json()) as { mode?: unknown })?.mode;
-    return mode === 'pipeline' || mode === 'live' ? mode : null;
+    const body = (await res.json()) as { mode?: unknown; stt?: unknown };
+    return {
+      mode: body?.mode === 'pipeline' || body?.mode === 'live' ? body.mode : null,
+      stt: body?.stt === 'server' ? 'server' : 'google',
+    };
   } catch {
     return null;
   }
+}
+
+/** `?stt=server|google` in the address chooses the hearing for this page (to compare the two); else null. */
+export function chosenSttTransport(): SttTransport | null {
+  if (typeof window === 'undefined') return null;
+  const q = new URLSearchParams(window.location.search).get('stt');
+  return q === 'server' || q === 'google' ? q : null;
 }
 
 export interface PipelineFrame {
@@ -120,7 +141,12 @@ interface Turn {
 interface LiveSessionLike {
   sendRealtimeInput: (input: { audio: { data: string; mimeType: string } }) => void;
   close: () => void;
+  /** The page's own hearing (the words go through the coach server): takes the captured frames as they are. */
+  push?: (pcm: ArrayBuffer, rms: number) => void;
 }
+
+/** Utterances the server failed to hear in a row before the microphone stops with a message. */
+const STT_FAILURES_MAX = 2;
 
 function toBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
@@ -450,7 +476,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
   const tick = useCallback(() => {
     const now = performance.now();
     const transcript = transcriptRef.current;
-    if (sessionRef.current && !rotatingRef.current) {
+    if (sessionRef.current && !sessionRef.current.push && !rotatingRef.current) {
       const due = rotationDue(now, openedAtRef.current, lastSpeechAtRef.current, newWords(transcript, baselineRef.current) !== '', goAwayRef.current);
       if (due) rotateRef.current(due);
     }
@@ -502,6 +528,9 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     setIsActive(false);
     try { optionsRef.current.onError?.(msg); } catch { /* fine */ }
   }, [cleanup, setStatus]);
+
+  const failRef = useRef(fail);
+  failRef.current = fail;
 
   const prepare = useCallback(async () => {
     try {
@@ -589,6 +618,52 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     return session;
   }, [endTurn]);
 
+  // The page's own hearing (18.11): no connection to keep — the capture's frames go through the utterance cutter,
+  // each utterance to the coach server (POST /api/coach/voice/stt → Hermes → OpenRouter), its text to the coach.
+  // Utterances are heard in the order they were said; the language named is the talk's (a wrong one costs
+  // accuracy: Kazakh without its name was 23 % wrong words against 12 %).
+  const openServerStt = useCallback((): LiveSessionLike => {
+    const cutter = new UtteranceCutter();
+    let closed = false;
+    let failures = 0;
+    let queue: Promise<void> = Promise.resolve();
+    const hear = async (pcm: Int16Array) => {
+      if (closed) return;
+      const locale = talkLocaleRef.current ?? ((optionsRef.current.locale?.() as PipelineLocale) || 'ru');
+      try {
+        const res = await fetch('/api/coach/voice/stt', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'audio/wav', 'X-Voice-Locale': locale },
+          body: wavBytes(pcm),
+        });
+        if (closed) return;
+        if (!res.ok) throw new Error(`stt ${res.status}`);
+        failures = 0;
+        const text = String(((await res.json()) as { text?: unknown })?.text ?? '').trim();
+        if (text && !closed) sendUtteranceRef.current(text);
+      } catch (err) {
+        if (closed) return;
+        failures += 1;
+        console.warn('[pipeline] the utterance was not heard', err);
+        if (failures >= STT_FAILURES_MAX || /stt 402/.test(String(err))) failRef.current('Распознавание речи сейчас недоступно — продолжайте текстом.');
+      }
+    };
+    openedAtRef.current = performance.now();
+    goAwayRef.current = false;
+    return {
+      push: (buffer, rms) => {
+        if (closed) return;
+        const step = cutter.push(new Int16Array(buffer), rms, statusRef.current === 'speaking' ? BARGE_IN_RMS : SPEECH_RMS);
+        if (step.utterance) {
+          const pcm = step.utterance;
+          queue = queue.then(() => hear(pcm));
+        }
+      },
+      sendRealtimeInput: () => { /* the frames come through push */ },
+      close: () => { closed = true; cutter.reset(); },
+    };
+  }, []);
+
   // A fresh connection takes over before this one's lifetime ends: opened first, swapped in, the old one
   // closed. «hard» (overdue, the student still talking): the words heard so far go to the coach first.
   const rotate = useCallback(async (reason: 'soft' | 'hard') => {
@@ -649,7 +724,10 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     setStatus('connecting');
     try {
       await acquireMedia();
-      sessionRef.current = await openStt();
+      // Who hears is the coach server's to say (GET /api/coach/voice/mode), unless the address chose.
+      const transport = chosenSttTransport() ?? (await fetchServerVoice())?.stt ?? 'google';
+      sessionRef.current = transport === 'server' ? openServerStt() : await openStt();
+      console.info('[pipeline] hearing through', transport);
 
       const ctx = captureCtxRef.current!;
       const stream = streamRef.current!;
@@ -674,8 +752,13 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
             bargeLoudMsRef.current = 0;
           }
         }
+        const session = sessionRef.current;
+        if (session?.push) {
+          session.push(data.pcm, data.rms);
+          return;
+        }
         try {
-          sessionRef.current?.sendRealtimeInput({ audio: { data: toBase64(data.pcm), mimeType: 'audio/pcm;rate=16000' } });
+          session?.sendRealtimeInput({ audio: { data: toBase64(data.pcm), mimeType: 'audio/pcm;rate=16000' } });
         } catch { /* closing */ }
       };
       source.connect(node);
@@ -687,7 +770,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
       console.error('[pipeline] connect failed', err);
       fail('Голосовой режим сейчас недоступен — продолжайте текстом.');
     }
-  }, [acquireMedia, fail, setStatus, tick, endTurn, openStt]);
+  }, [acquireMedia, fail, setStatus, tick, endTurn, openStt, openServerStt]);
 
   const disconnect = useCallback(() => {
     cleanup();

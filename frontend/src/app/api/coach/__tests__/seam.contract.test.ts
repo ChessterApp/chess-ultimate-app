@@ -153,6 +153,7 @@ const SITE_NOT_ROWS: Record<string, string> = {
   'metrics POST': 'passes the body through whole; Hermes reads a raw dict',
   'profile PUT': 'passes the body through whole; Hermes reads a raw dict',
   'review-cache POST': 'does not call Hermes',
+  'voice/stt POST': 'the body is the recorded utterance itself (WAV bytes), passed through whole; the language goes in X-Voice-Locale',
 };
 
 /** Hermes body endpoints with no row, and why. */
@@ -163,6 +164,7 @@ const HERMES_NOT_ROWS: Record<string, string> = {
   'POST /api/coach/analysis/stream': 'raw dict, see SITE_NOT_ROWS',
   'POST /api/coach/metrics': 'raw dict, see SITE_NOT_ROWS',
   'PUT /api/coach/profile': 'raw dict, see SITE_NOT_ROWS',
+  'POST /api/coach/voice/stt': 'raw audio body, see SITE_NOT_ROWS',
   'POST /api/coach/create-checkout-session': 'no site caller',
   'POST /api/coach/whop-webhook': 'called by Whop, not by the site',
 };

@@ -1,0 +1,118 @@
+import { describe, expect, it } from 'vitest';
+import {
+  END_SILENCE_MS, MAX_UTTERANCE_MS, MIN_SPEECH_MS, PRE_ROLL_MS, SAMPLE_RATE, START_MS, UtteranceCutter, wavBytes,
+} from '../voice-utterance';
+
+/** 18.11: the page cuts the student's utterance itself — the words go through the coach server and OpenRouter,
+ *  which take a recording, not a stream (the Google project that heard the stream ran out of credit). */
+
+const FRAME_MS = 20;
+const THRESHOLD = 0.02;
+const frame = (value: number) => new Int16Array((SAMPLE_RATE * FRAME_MS) / 1000).fill(value);
+const QUIET = { pcm: () => frame(1), rms: 0.003 };
+const LOUD = { pcm: () => frame(900), rms: 0.08 };
+
+/** Feed *ms* of one level; the steps that reported something. */
+function feed(cutter: UtteranceCutter, level: { pcm: () => Int16Array; rms: number }, ms: number, threshold = THRESHOLD) {
+  const out = [];
+  for (let t = 0; t < ms; t += FRAME_MS) {
+    const step = cutter.push(level.pcm(), level.rms, threshold);
+    if (step.started || step.utterance) out.push(step);
+  }
+  return out;
+}
+const lengthMs = (pcm: Int16Array) => (pcm.length / SAMPLE_RATE) * 1000;
+
+describe('the utterance cut out of the microphone', () => {
+  it('begins after sustained speech and ends after the closing silence, with the lead-in kept', () => {
+    const cutter = new UtteranceCutter();
+    expect(feed(cutter, QUIET, 1000)).toEqual([]);
+    const started = feed(cutter, LOUD, 1200);
+    expect(started).toHaveLength(1);
+    expect(started[0].started).toBe(true);
+    expect(cutter.speaking).toBe(true);
+    const ended = feed(cutter, QUIET, END_SILENCE_MS + 100);
+    expect(ended).toHaveLength(1);
+    const utterance = ended[0].utterance!;
+    // The speech, the lead-in before it and the closing silence — and nothing of the second of quiet before.
+    expect(lengthMs(utterance)).toBeGreaterThanOrEqual(1200 + PRE_ROLL_MS + END_SILENCE_MS - FRAME_MS);
+    expect(lengthMs(utterance)).toBeLessThanOrEqual(1200 + PRE_ROLL_MS + END_SILENCE_MS + 2 * FRAME_MS);
+    expect(cutter.speaking).toBe(false);
+  });
+
+  it('keeps a pause inside the phrase', () => {
+    const cutter = new UtteranceCutter();
+    feed(cutter, QUIET, 400);
+    feed(cutter, LOUD, 600);
+    expect(feed(cutter, QUIET, END_SILENCE_MS - 200)).toEqual([]);   // «конь… эф три»
+    feed(cutter, LOUD, 600);
+    const ended = feed(cutter, QUIET, END_SILENCE_MS + 60);
+    expect(ended).toHaveLength(1);
+    expect(lengthMs(ended[0].utterance!)).toBeGreaterThan(600 + (END_SILENCE_MS - 200) + 600);
+  });
+
+  it('takes a click or a cough for nothing', () => {
+    const cutter = new UtteranceCutter();
+    feed(cutter, QUIET, 400);
+    expect(feed(cutter, LOUD, START_MS - FRAME_MS)).toEqual([]);     // too short to be speech at all
+    feed(cutter, QUIET, 400);
+    expect(feed(cutter, LOUD, START_MS)).toHaveLength(1);           // noticed…
+    expect(cutter.speaking).toBe(true);
+    expect(feed(cutter, QUIET, END_SILENCE_MS + 60)).toEqual([]);    // …but less than MIN_SPEECH_MS of it: not sent
+    expect(cutter.speaking).toBe(false);
+    expect(START_MS).toBeLessThan(MIN_SPEECH_MS);
+  });
+
+  it('cuts an utterance that never ends', () => {
+    // Words with the short gaps between them, for longer than any phrase said to a coach.
+    const cutter = new UtteranceCutter();
+    const done = [];
+    for (let t = 0; t < MAX_UTTERANCE_MS + 2000; t += 500) {
+      done.push(...feed(cutter, LOUD, 400).filter((s) => s.utterance), ...feed(cutter, QUIET, 100).filter((s) => s.utterance));
+    }
+    expect(done).toHaveLength(1);
+    expect(lengthMs(done[0].utterance!)).toBeLessThanOrEqual(MAX_UTTERANCE_MS + FRAME_MS);
+    expect(lengthMs(done[0].utterance!)).toBeGreaterThan(MAX_UTTERANCE_MS - 1000);
+  });
+
+  it('follows the room: a steady hum is not speech, a voice over it is', () => {
+    const cutter = new UtteranceCutter();
+    const HUM = { pcm: () => frame(300), rms: 0.03 };                // above the fixed threshold, but it is the room
+    expect(feed(cutter, HUM, 6000)).toEqual([]);
+    expect(cutter.speaking).toBe(false);
+    const VOICE = { pcm: () => frame(2000), rms: 0.15 };
+    expect(feed(cutter, VOICE, 500).some((s) => s.started)).toBe(true);
+  });
+
+  it('hears only a raised voice while the coach is talking', () => {
+    const cutter = new UtteranceCutter();
+    feed(cutter, QUIET, 400);
+    const ECHO = { pcm: () => frame(400), rms: 0.035 };              // the coach's own voice in the microphone
+    expect(feed(cutter, ECHO, 1500, 0.05)).toEqual([]);              // the host's threshold while it plays
+    expect(feed(cutter, LOUD, 400, 0.05).some((s) => s.started)).toBe(true);
+  });
+
+  it('starts over on reset', () => {
+    const cutter = new UtteranceCutter();
+    feed(cutter, QUIET, 200);
+    feed(cutter, LOUD, 600);
+    cutter.reset();
+    expect(cutter.speaking).toBe(false);
+    expect(feed(cutter, QUIET, END_SILENCE_MS + 100)).toEqual([]);
+  });
+});
+
+describe('wavBytes', () => {
+  it('writes a 16 kHz mono 16-bit WAV', () => {
+    const pcm = new Int16Array([0, 1, -1, 32767, -32768]);
+    const wav = wavBytes(pcm);
+    const view = new DataView(wav.buffer);
+    const text = (at: number, n: number) => String.fromCharCode(...wav.subarray(at, at + n));
+    expect(wav.length).toBe(44 + pcm.length * 2);
+    expect([text(0, 4), text(8, 4), text(12, 4), text(36, 4)]).toEqual(['RIFF', 'WAVE', 'fmt ', 'data']);
+    expect(view.getUint32(4, true)).toBe(36 + pcm.length * 2);
+    expect([view.getUint16(20, true), view.getUint16(22, true), view.getUint32(24, true), view.getUint16(34, true)]).toEqual([1, 1, 16000, 16]);
+    expect(view.getUint32(40, true)).toBe(pcm.length * 2);
+    expect([0, 1, 2, 3, 4].map((i) => view.getInt16(44 + i * 2, true))).toEqual([0, 1, -1, 32767, -32768]);
+  });
+});
