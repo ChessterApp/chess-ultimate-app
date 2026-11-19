@@ -9,7 +9,7 @@
  * server-side.
  *
  * The design is a faithful port of the vanilla public schedule
- * (chess-empire-database/tournaments.js): branches (excluding НИШ / Zhandosova)
+ * (chess-empire-database/tournaments.js): branches (excluding EXCLUDED_BRANCHES)
  * with upcoming counts, per-tournament full-name rosters, capacity meters.
  */
 import 'server-only';
@@ -29,7 +29,7 @@ import {
 } from '@/lib/chess-empire-client';
 
 /** Branches hidden from the public schedule (mirrors the vanilla page). */
-export const EXCLUDED_BRANCHES = ['НИШ', 'Zhandosova', 'Online', 'Детский Дом'];
+export const EXCLUDED_BRANCHES = ['НИШ', 'Online', 'Детский Дом'];
 
 export interface CETournamentCard {
   id: string;
@@ -212,7 +212,7 @@ export async function loadCETournamentSnapshot(): Promise<CETournamentSnapshot> 
   // Branch accordion. Prefer the full CE branch directory so empty branches
   // still render (with a "No tournaments" badge) like the vanilla page; fall
   // back to branches derived from the tournament rows if the directory is
-  // unavailable. Excludes НИШ / Zhandosova either way.
+  // unavailable. Excludes EXCLUDED_BRANCHES either way.
   let branchRows: Awaited<ReturnType<typeof listBranches>> = [];
   try {
     branchRows = await listBranches();

@@ -278,7 +278,7 @@ describe('loadCETournamentSnapshot — family snapshot', () => {
 describe('loadCETournamentSnapshot — hidden branches', async () => {
   const ce = await import('@/lib/chess-empire-client');
 
-  it('hides Online and Детский Дом (plus НИШ / Zhandosova) from the branch list', async () => {
+  it('hides Online, Детский Дом and НИШ but shows Zhandosova', async () => {
     vi.mocked(ce.listBranches).mockResolvedValueOnce([
       { id: 'br-1', name: 'Almaty Arena' },
       { id: 'br-online', name: 'Online' },
@@ -287,6 +287,31 @@ describe('loadCETournamentSnapshot — hidden branches', async () => {
       { id: 'br-zh', name: 'Zhandosova' },
     ]);
     const snap = await loadCETournamentSnapshot();
-    expect(snap.branches.map((b) => b.name)).toEqual(['Almaty Arena']);
+    expect(snap.branches.map((b) => b.name)).toEqual(['Almaty Arena', 'Zhandosova']);
+  });
+
+  it('shows tournaments at Zhandosova but drops ones at hidden branches', async () => {
+    const base = {
+      info: null,
+      tournament_date: '2026-11-21',
+      start_time: '10:00:00',
+      time_format: 'Rapid',
+      registration_fee: 0,
+      rounds: 7,
+      capacity: 20,
+      status: 'open',
+      registered_count: 0,
+    };
+    vi.mocked(ce.listTournaments).mockResolvedValueOnce([
+      { ...base, id: 't-zh', name: 'League C — Zhandosova', branch_id: 'br-zh', branch: { id: 'br-zh', name: 'Zhandosova' } },
+      { ...base, id: 't-on', name: 'Online Cup', branch_id: 'br-online', branch: { id: 'br-online', name: 'Online' } },
+    ] as Awaited<ReturnType<typeof ce.listTournaments>>);
+    vi.mocked(ce.listBranches).mockResolvedValueOnce([
+      { id: 'br-zh', name: 'Zhandosova' },
+      { id: 'br-online', name: 'Online' },
+    ]);
+    const snap = await loadCETournamentSnapshot();
+    expect(snap.tournaments.map((t) => t.id)).toEqual(['t-zh']);
+    expect(snap.branches.map((b) => b.name)).toEqual(['Zhandosova']);
   });
 });
