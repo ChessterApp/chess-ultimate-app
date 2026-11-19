@@ -727,7 +727,10 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     try {
       await acquireMedia();
       // Who hears is the coach server's to say (GET /api/coach/voice/mode), unless the address chose.
-      const transport = chosenSttTransport() ?? (await fetchServerVoice())?.stt ?? 'google';
+      // No answer about who hears (slow, failed): the server — Google is the way back only when the server says so
+      // (COACH_VOICE_STT=off). Defaulting to Google sent a slow answer into a Google that has no credit: «Голосовой
+      // режим сейчас недоступен» on the first tap (tester, 19.11).
+      const transport = chosenSttTransport() ?? (await fetchServerVoice())?.stt ?? 'server';
       sessionRef.current = transport === 'server' ? openServerStt() : await openStt();
       console.info('[pipeline] hearing through', transport);
 

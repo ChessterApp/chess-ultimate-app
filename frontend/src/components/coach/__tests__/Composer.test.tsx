@@ -6,7 +6,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { NextIntlClientProvider } from 'next-intl';
 import en from '../../../../messages/en.json';
-import Composer, { composerButton, type ComposerVoice } from '../Composer';
+import Composer, { composerButton, sendBesideMic, type ComposerVoice } from '../Composer';
 
 const coach = en.coach;
 
@@ -20,6 +20,12 @@ describe('composerButton', () => {
   });
   it('keeps the mic while voice is on (to end it), even with text', () => {
     expect(composerButton({ ...base, hasText: true, voiceActive: true })).toBe('mic');
+  });
+  it('text typed while voice is on gets a send button beside the mic (tester, 19.11)', () => {
+    expect(sendBesideMic({ hasText: true, streaming: false, voiceActive: true })).toBe(true);
+    expect(sendBesideMic({ hasText: false, streaming: false, voiceActive: true })).toBe(false);
+    expect(sendBesideMic({ hasText: true, streaming: true, voiceActive: true })).toBe(false);
+    expect(sendBesideMic({ hasText: true, streaming: false, voiceActive: false })).toBe(false);
   });
   it('without voice support an empty field shows send', () => {
     expect(composerButton({ ...base, voiceSupported: false })).toBe('send');

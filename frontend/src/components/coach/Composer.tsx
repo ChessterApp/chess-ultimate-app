@@ -29,6 +29,12 @@ export function composerButton({
   return 'send';
 }
 
+/** While voice is on the right-hand button ends it; text typed meanwhile gets its own send button beside it —
+ * without one it could not be sent at all in the app, where Enter makes a new line (tester, 19.11). */
+export function sendBesideMic({ hasText, streaming, voiceActive }: { hasText: boolean; streaming: boolean; voiceActive: boolean }): boolean {
+  return voiceActive && hasText && !streaming;
+}
+
 export interface ComposerVoice {
   supported: boolean;
   status: LiveStatus;
@@ -203,6 +209,19 @@ export default function Composer({
             <ArrowUp size={20} aria-hidden />
           </button>
         ) : (
+          <>
+          {sendBesideMic({ hasText: !!input.trim(), streaming: isStreaming, voiceActive: voice.active }) && (
+            <button
+              type="button"
+              onClick={onSend}
+              title={t('sendTooltip')}
+              aria-label={t('sendTooltip')}
+              data-testid="composer-send"
+              className={`${iconButton} bg-(--coach-text) text-(--coach-bg) hover:opacity-90`}
+            >
+              <ArrowUp size={20} aria-hidden />
+            </button>
+          )}
           <button
             type="button"
             onClick={voice.onToggle}
@@ -226,6 +245,7 @@ export default function Composer({
           >
             {voice.status === 'connecting' ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <Mic size={18} aria-hidden />}
           </button>
+          </>
         )}
       </div>
     </div>
