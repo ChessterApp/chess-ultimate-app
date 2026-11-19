@@ -1442,7 +1442,8 @@ def _move_verdict(board, san: str) -> str:
     return f"NOT legal — no {chess.piece_name(ptype)} of the side to move can reach {dest_name}"
 
 
-def review_block(result: dict, card: Optional[dict] = None, told: bool = False, foreign: bool = False) -> str:
+def review_block(result: dict, card: Optional[dict] = None, told: bool = False, foreign: bool = False,
+                 saved: bool = False) -> str:
     """The game's critical moments, found by the server before the turn (see coach_chat).
 
     A game review used to spend its first model call (2-3.5 s on Gemini) only
@@ -1453,7 +1454,8 @@ def review_block(result: dict, card: Optional[dict] = None, told: bool = False, 
     then says which moments the card lists, their count and which of them to explain in words, so the text and the
     card are one fact (18.11: «три ключевых момента» over a card of six). *told*: the server has written the
     count and the list as the first line of the answer. *foreign*: the game is someone else's that the student saved
-    (src/game_owner.py, 18.11) — not «the student's game».
+    (src/game_owner.py, 18.11) — not «the student's game». *saved*: a Lichess / Chess.com game the student saved, not
+    known to be theirs (19.11).
     """
     from src.review_moments import card_moments, card_note, played_label
 
@@ -1461,6 +1463,7 @@ def review_block(result: dict, card: Optional[dict] = None, told: bool = False, 
     on_card = {played_label(m) for m in card_moments(card)}
     lines = [
         ("## Critical moments of the game the student saved — someone else's game, not theirs" if foreign
+         else "## Critical moments of the game the student saved — not known whether they played it" if saved
          else "## Critical moments of the student's game")
         + f" (engine, depth {result.get('engine_depth', 12)}; evaluations from White's side)",
         "The game is ALREADY loaded on the student's board: do not load it again and do not "

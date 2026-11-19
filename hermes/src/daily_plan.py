@@ -87,6 +87,12 @@ def _review_card(games: list, insights: list, names: Optional[set] = None) -> Op
         return None
     white, black = _clip(game.get("white")) or "?", _clip(game.get("black")) or "?"
     card: dict = {"type": "review_last_game", "game_id": str(game["id"]), "title": f"{white} – {black}"[:MAX_TITLE]}
+    # A Lichess / Chess.com game with no linked account: whose it is is not known (src/game_owner.py, 19.11). The site
+    # and the app then ask for «the last saved game», not «my last game»; without the mark they ask as before.
+    from src.game_owner import owner
+
+    if owner(game, names).verdict == "saved":
+        card["whose"] = "saved"
     review = next((r for r in insights if isinstance(r, dict) and str(r.get("game_ref")) == str(game["id"])), None)
     if review is not None:
         card["moments_count"] = len(_blunders(review))
@@ -127,7 +133,10 @@ def _weak_spot_card(focus: list, insights: list) -> dict:
 
 
 def _opening_card(games: list, names: Optional[set] = None) -> Optional[dict]:
-    for g in _own_games(games, names):
+    from src.game_owner import owner
+
+    # «The opening of your latest game»: a saved Lichess / Chess.com game not known to be theirs is not «your game».
+    for g in [g for g in _own_games(games, names) if not owner(g, names).neutral]:
         if not isinstance(g, dict):
             continue
         eco, name = _clip(g.get("eco")), _clip(g.get("opening_name"))

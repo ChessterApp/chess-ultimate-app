@@ -289,6 +289,9 @@ def _handle_get_user_games(args: dict, **kwargs) -> str:
                 if who is not None and who.foreign:
                     game["whose"] = ("someone else's game the student saved from the database — not one they "
                                      "played: never «твоя партия», «ты» for a side of it")
+                elif who is not None and who.verdict == "saved":
+                    game["whose"] = ("a game the student saved from the database, not known whether they played it: "
+                                     "name its sides by colour or players, never «ты» for a side, until they say which")
         except Exception:  # noqa: BLE001 — the list goes out as before
             pass
         result = {"user_id": user_id, "count": len(games), "games": games}

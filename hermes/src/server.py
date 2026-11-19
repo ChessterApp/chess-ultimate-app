@@ -2770,7 +2770,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         side_decided = _side.decide(body.message, session.board_state, pgn=active_board.pgn,
                                     game_state=active_board.game_state if live_game else None,
                                     master_game=bool((active_board.source or {}).get("twic_game_id"))
-                                    or bool(review_who is not None and review_who.foreign))
+                                    or bool(review_who is not None and review_who.neutral))
         side_pinned = _side.legacy_moves(named_moves)
         student_side = _side.applied(side_decided, side_legacy, pinned_moves=side_pinned)
         if side_decided.exact or side_legacy is not None:
@@ -3101,7 +3101,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 from src.answer_check_db import note_board_game
 
                 note_board_game(check_ctx, active_board.pgn)
-            elif review_who is not None and review_who.foreign and review_pgn:
+            elif review_who is not None and review_who.neutral and review_pgn:
                 # Someone else's game saved to «Мои партии» (src/game_owner.py, 18.11): nobody's side is «ты», as for
                 # a database game on the board — the rewrite of a wrong sentence is told so too.
                 from src.answer_check_db import note_board_game
@@ -3520,7 +3520,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                                             language=turn_language)
                     card = summary if card_moments(summary) else None
                     foreign_game = bool(review_who is not None and review_who.foreign)
-                    message = f"{message}\n\n{review_block(review, card=card, told=bool(card), foreign=foreign_game)}"
+                    saved_game = bool(review_who is not None and review_who.verdict == "saved")
+                    message = f"{message}\n\n{review_block(review, card=card, told=bool(card), foreign=foreign_game, saved=saved_game)}"
                     _lead(moments_line(card, turn_language, spoken=bool(body.speech)))
                     review_state["from_board"] = review_from_board
                     if config.COACH_REVIEW_NO_RESCAN:

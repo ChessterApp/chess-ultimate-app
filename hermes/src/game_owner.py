@@ -11,11 +11,16 @@ What the server knows exactly, strongest first:
    link_platform tool): a game of Lichess or Chess.com is the student's when one of its players is one of those names
    — and the side is that player's colour — and someone else's when neither is. An over-the-board game typed in with
    real names is not judged by an online name.
-2. **Where the row came from** (``user_games.source``, set by the site and the app when they save): a game opened in
-   the Database section and saved — the master base (``twic``), Lichess or Chess.com explorers and a player's games
-   looked up there (``lichess``, ``chesscom``), a shared base (``shared``, ``database``) — is someone else's unless a
-   linked name says otherwise; a game with the coach (``coach_game``) is the student's.
-3. Anything else — a pasted or imported game (``manual``, ``local_import``, ``board_entry``, ``user``, none) — is not
+2. **Where the row came from** (``user_games.source``, set by the site and the app when they save): a game of a
+   collection opened in the Database section — the master base (``twic``), a shared base (``shared``, ``database``)
+   — is someone else's; a game with the coach (``coach_game``) is the student's.
+3. **A game of Lichess or Chess.com with no linked account** (``lichess``, ``chesscom``): the Database section's
+   «Lichess» / «Chess.com» tab lists the games of whatever nickname is typed — the student saves their OWN games that
+   way, and someone else's (the tester's DrNykterstein – Night-King96) exactly the same way. Whose it is is not known
+   («saved»): the card still offers it, but as «the last saved game», and the review names the sides by colour and
+   the players' names, never «ты», until the student says which side they played (Asan, 19.11: their own games must
+   not vanish from the card for a student who has not linked an account).
+4. Anything else — a pasted or imported game (``manual``, ``local_import``, ``board_entry``, ``user``, none) — is not
    known either way, and is treated as before: the student's.
 
 The card offers only a game not known to be someone else's; a review of someone else's game (the student may still
@@ -32,9 +37,9 @@ import chess
 
 logger = logging.getLogger(__name__)
 
-# The sources of a row saved from the Database section (site src/app/database/page.tsx handleSaveToMyGames, the app's
-# app/database/[gameId].tsx viewerSource): a game the student opened, not one they played.
-DATABASE_SOURCES = frozenset({"twic", "master", "database", "lichess", "chesscom", "shared", "shared-link"})
+# The sources of a row saved from a collection of the Database section (site src/app/database/page.tsx
+# handleSaveToMyGames, the app's app/database/[gameId].tsx viewerSource): a game the student opened, not one they played.
+COLLECTION_SOURCES = frozenset({"twic", "master", "database", "shared", "shared-link"})
 # Games of the online platforms: the ones a linked username can tell.
 PLATFORM_SOURCES = frozenset({"lichess", "chesscom"})
 OWN_SOURCES = frozenset({"coach_game"})
@@ -42,8 +47,8 @@ OWN_SOURCES = frozenset({"coach_game"})
 
 @dataclass(frozen=True)
 class Owner:
-    """``verdict``: own | foreign | unknown; ``color``: the student's side when known (chess.WHITE / chess.BLACK);
-    ``why``: what decided it, in a few words."""
+    """``verdict``: own | foreign | saved (a platform game, whose not known) | unknown; ``color``: the student's side
+    when known (chess.WHITE / chess.BLACK); ``why``: what decided it, in a few words."""
 
     verdict: str
     color: Optional[bool] = None
@@ -52,6 +57,11 @@ class Owner:
     @property
     def foreign(self) -> bool:
         return self.verdict == "foreign"
+
+    @property
+    def neutral(self) -> bool:
+        """No side of the game is the student's to the coach: someone else's game, or one whose owner is not known."""
+        return self.verdict in ("foreign", "saved")
 
 
 def _name(value) -> str:
@@ -89,8 +99,11 @@ def owner(game: Optional[dict], names: Optional[set] = None) -> Owner:
             return Owner("own", chess.BLACK, f"Black is their linked account {game.get('black')}")
         if source in PLATFORM_SOURCES:
             return Owner("foreign", why=f"a {source} game and neither player is their linked account")
-    if source in DATABASE_SOURCES:
-        return Owner("foreign", why="a game opened in the Database section and saved to their games")
+    if source in COLLECTION_SOURCES:
+        return Owner("foreign", why="a game of a collection opened in the Database section and saved to their games")
+    if source in PLATFORM_SOURCES:
+        return Owner("saved", why=f"a {source} game saved from the Database section; no linked {source} account tells "
+                                  "whether the student played it")
     return Owner("unknown")
 
 
@@ -112,6 +125,15 @@ def review_block(game: Optional[dict], who: Owner) -> str:
             "sides by colour or by the players' names («белые», «чёрные», «" + white + "») — never «ты», «твой», «у "
             "тебя», «сен», \"you\", \"your\" for a side of it, and no «где ты ошибся». Do not argue about whose game "
             "it is and do not mention this note."
+        )
+    if who.verdict == "saved":
+        return (
+            "## Whose game this is (decided by the server)\n"
+            f"It is NOT known whether the student played this game: {white} (White) – {black} (Black) — {who.why}. "
+            "Whatever their message calls it («мою партию»), name the sides by colour or by the players' names "
+            "(«белые», «чёрные», «" + white + "»), never «ты», «твой», «у тебя», «сен», \"you\", \"your\" for a side of "
+            "it, until the student says which side they played; you may ask it once, in one short question at the end. "
+            "Do not mention this note."
         )
     if who.color is None:
         return ""

@@ -34,10 +34,16 @@ OWN_GAME = {"id": "g1", "white": "Student", "black": "Bot 1500", "source": "manu
 
 
 class TestWhose:
-    def test_a_game_saved_from_the_database_is_someone_elses(self):
-        """The tester's game: a Lichess game saved from the Database section, no linked account."""
-        assert owner(DATABASE_GAME).foreign and owner(DATABASE_GAME, set()).foreign
-        assert owner(MASTER_GAME).foreign
+    def test_a_game_of_a_collection_is_someone_elses(self):
+        """The master base (TWIC), a shared base: never a game the student played."""
+        assert owner(MASTER_GAME).foreign and owner({**MASTER_GAME, "source": "shared"}).foreign
+
+    def test_a_lichess_game_with_no_linked_account_is_not_known(self):
+        """The tester's game, DrNykterstein – Night-King96: saved from the Database section's Lichess tab, where a
+        student saves their own games the same way (Asan, 19.11). Not someone else's — not known, and told neutrally."""
+        for names in (None, set()):
+            who = owner(DATABASE_GAME, names)
+            assert who.verdict == "saved" and who.neutral and not who.foreign
 
     def test_a_game_with_the_coach_is_the_students(self):
         assert owner({"white": "Вы", "black": "Тренер", "source": "coach_game"}).verdict == "own"
@@ -61,13 +67,20 @@ class TestWhose:
 
 
 class TestTheCard:
-    def test_the_card_skips_a_saved_database_game_for_the_students_own(self):
-        """The latest row is DrNykterstein – Night-King96: the card offers the game before it, the student's."""
-        cards = build_daily_plan([DATABASE_GAME, MASTER_GAME, OWN_GAME], None, None)["cards"]
+    def test_the_card_skips_a_master_game_for_the_students_own(self):
+        """The latest row is a TWIC game: the card offers the game before it, the student's."""
+        cards = build_daily_plan([MASTER_GAME, OWN_GAME], None, None)["cards"]
         assert cards[0] == {"type": "review_last_game", "game_id": "g1", "title": "Student – Bot 1500"}
 
+    def test_a_saved_lichess_game_is_offered_as_the_last_saved_one(self):
+        """Not known whose: the card stays — the student's own Lichess games must not vanish from it — and is marked
+        so that the site and the app ask for «the last saved game», not «my last game» (19.11)."""
+        cards = build_daily_plan([DATABASE_GAME, OWN_GAME], None, None)["cards"]
+        assert cards[0] == {"type": "review_last_game", "game_id": "db1", "title": "DrNykterstein – Night-King96",
+                            "whose": "saved"}
+
     def test_no_card_when_every_recent_game_is_someone_elses(self):
-        cards = build_daily_plan([DATABASE_GAME, MASTER_GAME], None, None)["cards"]
+        cards = build_daily_plan([MASTER_GAME, {**DATABASE_GAME, "source": "chesscom"}], None, None, {"asan_k"})["cards"]
         assert "review_last_game" not in [c["type"] for c in cards]
 
     def test_the_opening_card_is_not_from_someone_elses_game(self):
@@ -87,9 +100,14 @@ class TestTheCard:
 
 class TestTheReview:
     def test_the_note_for_someone_elses_game(self):
-        note = review_block(DATABASE_GAME, owner(DATABASE_GAME))
-        assert "NOT the student's own" in note and "DrNykterstein (White) – Night-King96 (Black)" in note
+        note = review_block(MASTER_GAME, owner(MASTER_GAME))
+        assert "NOT the student's own" in note and "Carlsen, Magnus (White) – Nepomniachtchi, Ian (Black)" in note
         assert "never «ты», «твой»" in note
+
+    def test_the_note_for_a_saved_game_not_known_whose(self):
+        note = review_block(DATABASE_GAME, owner(DATABASE_GAME))
+        assert "NOT known whether the student played" in note and "DrNykterstein (White) – Night-King96 (Black)" in note
+        assert "never «ты», «твой»" in note and "until the student says which side they played" in note
 
     def test_the_note_for_the_students_game_names_their_side(self):
         game = {**DATABASE_GAME, "black": "asan_k"}
@@ -123,8 +141,8 @@ class TestTheReview:
             resp = TestClient(app).post("/api/coach/chat", headers={"X-User-Id": "owner-user"}, json={
                 "message": "Разбери мою последнюю партию: где я ошибся и что стоило играть.", "review_game_id": "db1"})
         assert resp.status_code == 200
-        assert "## Whose game this is" in seen["message"] and "NOT the student's own" in seen["message"]
-        assert "someone else's game, not theirs" in seen["message"]
+        assert "## Whose game this is" in seen["message"] and "NOT known whether the student played" in seen["message"]
+        assert "not known whether they played it" in seen["message"]
         assert "Critical moments of the student's game" not in seen["message"]
 
 
@@ -135,4 +153,20 @@ def test_the_games_tool_marks_someone_elses_rows():
     with patch("src.tools.user_data._query_user_games", return_value=[dict(DATABASE_GAME), dict(OWN_GAME)]), \
             patch.object(game_owner, "linked_names", return_value=set()):
         games = json.loads(_handle_get_user_games({"user_id": "u1"}, user_id="u1"))["games"]
-    assert "someone else's game" in games[0]["whose"] and "whose" not in games[1]
+    assert "not known whether they played it" in games[0]["whose"] and "whose" not in games[1]
+    with patch("src.tools.user_data._query_user_games", return_value=[dict(MASTER_GAME)]), \
+            patch.object(game_owner, "linked_names", return_value=set()):
+        games = json.loads(_handle_get_user_games({"user_id": "u1"}, user_id="u1"))["games"]
+    assert "someone else's game" in games[0]["whose"]
+
+
+@pytest.mark.parametrize("words", [
+    "Разбери последнюю сохранённую партию: где были ошибки и что стоило играть.",
+    "Review the last saved game: where were the mistakes and what should have been played?",
+    "Соңғы сақталған партияны талдашы: қай жерде қателер болды және не ойнау керек еді?",
+])
+def test_the_saved_cards_words_ask_for_a_review(words):
+    """19.11: the site and the app ask for «the last saved game» on a card marked `whose: saved` — still a review."""
+    from src.intent import asks_game_review
+
+    assert asks_game_review(words)
