@@ -256,6 +256,11 @@ _GAME_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 
 def get_user_game_pgn(user_id: str, game_id: str) -> Optional[str]:
     """The PGN of one of the user's own saved (not deleted) games, or None."""
+    from src.coach_games import game as coach_game, is_coach_game_id
+
+    if is_coach_game_id(game_id):  # a finished game against the coach, offered by the plan's card (19.11)
+        row = coach_game(user_id, game_id)
+        return row["pgn"] if row else None
     if not user_id or not isinstance(game_id, str) or not _GAME_ID_RE.match(game_id):
         return None
     rows = _supabase_query("user_games", {

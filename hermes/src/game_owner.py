@@ -90,7 +90,8 @@ def owner(game: Optional[dict], names: Optional[set] = None) -> Owner:
         return Owner("unknown")
     source = _name(game.get("source"))
     if source in OWN_SOURCES:
-        return Owner("own", why="a game the student played with the coach")
+        side = {"white": chess.WHITE, "black": chess.BLACK}.get(_name(game.get("student_color")))
+        return Owner("own", side, "a game the student played with the coach")
     white, black = _name(game.get("white")), _name(game.get("black"))
     if names:
         if white and white in names:
@@ -148,6 +149,10 @@ def review_block(game: Optional[dict], who: Owner) -> str:
 def game_row(user_id: Optional[str], game_id: Optional[str]) -> Optional[dict]:
     """The players and the origin of one of the student's saved games, or None."""
     try:
+        from src.coach_games import game as coach_game, is_coach_game_id
+
+        if is_coach_game_id(game_id):  # a game against the coach: the student's, from their side (19.11)
+            return coach_game(user_id, game_id)
         from src.tools.user_data import _GAME_ID_RE, _supabase_query
 
         if not user_id or not isinstance(game_id, str) or not _GAME_ID_RE.match(game_id):

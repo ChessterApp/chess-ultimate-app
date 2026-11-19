@@ -35,6 +35,7 @@ PUZZLES_PER_CARD = 5
 MIN_STAT_GAMES = 3
 RECENT_GAMES = 5
 RECENT_INSIGHTS = 10
+RECENT_COACH_GAMES = 3
 # The fewest plies a game needs for a review (as model_router.extract_game_pgn).
 MIN_REVIEW_PLIES = 8
 MAX_TITLE = 80
@@ -81,12 +82,27 @@ def _own_games(games: list, names: Optional[set]) -> list:
     return [g for g in games if isinstance(g, dict) and offered(g, names)]
 
 
-def _review_card(games: list, insights: list, names: Optional[set] = None) -> Optional[dict]:
-    game = next(iter(_own_games(games, names)), None)
-    if not game or game.get("id") in (None, "") or _plies(game.get("pgn")) < MIN_REVIEW_PLIES:
+def _review_candidates(games: list, names: Optional[set], coach_games: Optional[list]) -> list:
+    """The games the card may offer, latest first: the saved ones not known to be someone else's and the finished
+    games against the coach (src/coach_games.py) — those are not in ``user_games``, and a game opened in the Database
+    a day before stood for «the last game» right after a game with the coach (tester, 19.11)."""
+    from src.coach_games import latest_first
+
+    if not coach_games:
+        return _own_games(games, names)
+    return latest_first(coach_games, _own_games(games, names))
+
+
+def _review_card(games: list, insights: list, names: Optional[set] = None,
+                 coach_games: Optional[list] = None) -> Optional[dict]:
+    # The latest game long enough to review: a game resigned on the second move has nothing to go through.
+    game = next((g for g in _review_candidates(games, names, coach_games)
+                 if g.get("id") not in (None, "") and _plies(g.get("pgn")) >= MIN_REVIEW_PLIES), None)
+    if not game:
         return None
-    white, black = _clip(game.get("white")) or "?", _clip(game.get("black")) or "?"
-    card: dict = {"type": "review_last_game", "game_id": str(game["id"]), "title": f"{white} – {black}"[:MAX_TITLE]}
+    white, black = _clip(game.get("white")), _clip(game.get("black"))
+    name = f"{white or '?'} – {black or '?'}" if (white or black) else (_clip(game.get("title")) or "?")
+    card: dict = {"type": "review_last_game", "game_id": str(game["id"]), "title": name[:MAX_TITLE]}
     # A Lichess / Chess.com game with no linked account: whose it is is not known (src/game_owner.py, 19.11). The site
     # and the app then ask for «the last saved game», not «my last game»; without the mark they ask as before.
     from src.game_owner import owner
@@ -150,15 +166,18 @@ def build_daily_plan(
     insights: Optional[list] = None,
     focus: Optional[list] = None,
     names: Optional[set] = None,
+    coach_games: Optional[list] = None,
 ) -> dict:
     """The plan from the student's rows (each source may be None: not read in time / failed). *names*: the student's
-    linked Lichess / Chess.com usernames (src/game_owner.linked_names), None when not known."""
+    linked Lichess / Chess.com usernames (src/game_owner.linked_names), None when not known. *coach_games*: their
+    finished games against the coach (src/coach_games.recent)."""
+    coach_games = coach_games if isinstance(coach_games, list) else None
     games = games if isinstance(games, list) else []
     names = names if isinstance(names, set) else None
     insights = insights if isinstance(insights, list) else []
     focus = focus if isinstance(focus, list) else []
     cards: list[dict] = []
-    for build in (lambda: _review_card(games, insights, names), lambda: _weak_spot_card(focus, insights),
+    for build in (lambda: _review_card(games, insights, names, coach_games), lambda: _weak_spot_card(focus, insights),
                   lambda: _opening_card(games, names)):
         try:
             card = build()
@@ -175,6 +194,7 @@ def build_daily_plan(
 
 def _sources(user_id: str) -> dict[str, Callable[[], Any]]:
     from src.curriculum import get_cached_curriculum
+    from src.coach_games import recent as recent_coach_games
     from src.game_owner import linked_names
     from src.tools.game_insights import get_game_insights
     from src.tools.user_data import _query_user_games
@@ -185,6 +205,8 @@ def _sources(user_id: str) -> dict[str, Callable[[], Any]]:
         "focus": lambda: get_cached_curriculum(user_id),
         # The linked accounts: whose a saved game is (src/game_owner.py). Late or failed — the origin decides alone.
         "names": lambda: linked_names(user_id),
+        # Games against the coach live as boards of their sessions, not in user_games (src/coach_games.py, 19.11).
+        "coach_games": lambda: recent_coach_games(user_id, limit=RECENT_COACH_GAMES),
     }
 
 
@@ -206,8 +228,10 @@ def load_daily_plan(user_id: str, budget_s: float = BUDGET_S) -> dict:
             rows[name] = future.result(timeout=0)
         except (FutureTimeout, Exception):  # noqa: BLE001
             logger.debug("daily plan source %s failed", name, exc_info=True)
-    plan = build_daily_plan(rows.get("games"), rows.get("insights"), rows.get("focus"), rows.get("names"))
-    _offer_review_game(user_id, plan, rows.get("games"))
+    plan = build_daily_plan(rows.get("games"), rows.get("insights"), rows.get("focus"), rows.get("names"),
+                            rows.get("coach_games"))
+    _offer_review_game(user_id, plan, [g for k in ("coach_games", "games") if isinstance(rows.get(k), list)
+                                       for g in rows[k]])
     return plan
 
 
