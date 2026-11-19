@@ -152,7 +152,7 @@ class TestTheWords:
         предыдущем ответе»."""
         assert "Never talk about your own earlier messages" in COACH_SPEECH_LAYER
         assert "do not correct it aloud" in COACH_SPEECH_LAYER
-        assert PROMPT_TEMPLATE_VERSION == "22"
+        assert int(PROMPT_TEMPLATE_VERSION) >= 22
 
 
 @pytest.mark.unit

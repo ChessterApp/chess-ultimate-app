@@ -3253,7 +3253,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         def _run_quick():
             reply = None
             try:
-                from src.quick_reply import stream_quick_reply
+                from src.quick_reply import stream_quick_reply, withhold_off_topic
 
                 reply = stream_quick_reply(
                     model=quick_model_id,
@@ -3261,7 +3261,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message=body.message,
                     locale=turn_language,
                     board_fen=session.board_state if body.fen else None,
-                    on_delta=_on_quick_delta,
+                    on_delta=withhold_off_topic(_on_quick_delta),  # nothing for a message not about chess
                     timeout_s=max(0.5, config.COACH_QUICK_BUDGET_MS / 1000.0),
                     max_tokens=config.COACH_QUICK_MAX_TOKENS,
                     should_abort=lambda: quick["abort"],

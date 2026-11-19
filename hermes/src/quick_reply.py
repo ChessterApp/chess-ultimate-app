@@ -51,11 +51,19 @@ QUICK_SYSTEM_PROMPT = (
     "- NEVER promise to do anything but look or check: no «откачу ход», «начну партию», «покажу на доске», "
     "«поставлю задачу» — whether it can be done is decided after you.\n"
     "- NEVER refuse, agree or say what you can or cannot do («стихи я не пишу», «конечно, сделаю»).\n"
+    "- When the message has nothing to do with chess, learning chess or this coach — homework, an essay, "
+    "maths, a recipe, another school subject, code, news, general knowledge — write only the word {mark} "
+    "and nothing else: the answer that follows turns the student back to chess, and a reaction "
+    "«Посмотрю, что можно сказать о рецепте драников» would promise the opposite (tester, 19.11).\n"
     "- NEVER ask the student a question.\n"
     "- No markdown, no lists, no emoji, no greeting, no quotes.\n"
     "- Speak naturally, like a coach thinking out loud, not like a system message.\n"
     "Write the sentence only."
 )
+
+# The reaction to a message that is not about chess (19.11): the model writes this word alone and the
+# caller shows nothing (see withhold_off_topic) — the answer itself turns the student back to chess.
+OFF_TOPIC_MARK = "OFFTOPIC"
 
 # Reactions that would read as a non-answer are dropped by the caller; this is
 # the floor below which a reaction is considered garbage (e.g. a lone "OK").
@@ -156,6 +164,35 @@ def build_small_talk_messages(
     return out
 
 
+def withhold_off_topic(on_delta: Callable[[str], None]) -> Callable[[str], None]:
+    """*on_delta* behind a gate that holds the reaction's first characters until it is clear they are not
+    OFF_TOPIC_MARK: the mark never reaches the student, a real reaction goes out whole and in order."""
+    state = {"buf": "", "open": False, "off": False}
+
+    def feed(text: str) -> None:
+        if not text or state["off"]:
+            return
+        if state["open"]:
+            on_delta(text)
+            return
+        state["buf"] += text
+        head = state["buf"].lstrip().upper()
+        if head.startswith(OFF_TOPIC_MARK):
+            state["off"] = True
+            return
+        if len(head) < len(OFF_TOPIC_MARK) and OFF_TOPIC_MARK.startswith(head):
+            return  # still could be the mark
+        state["open"] = True
+        on_delta(state["buf"])
+
+    return feed
+
+
+def is_off_topic_reaction(text: Optional[str]) -> bool:
+    """The reaction the model gave for a message that is not about chess."""
+    return (text or "").strip().upper().startswith(OFF_TOPIC_MARK)
+
+
 def build_quick_messages(message: str, locale: Optional[str], board_fen: Optional[str]) -> list[dict]:
     """The two-message prompt for the reaction call.
 
@@ -170,7 +207,7 @@ def build_quick_messages(message: str, locale: Optional[str], board_fen: Optiona
 
     language = _LANGUAGE.get((locale or "").lower(), "the student's language")
     terms = kazakh_terms_note(locale)
-    system = QUICK_SYSTEM_PROMPT.format(language=language) + (f"\n{terms}" if terms else "")
+    system = QUICK_SYSTEM_PROMPT.format(language=language, mark=OFF_TOPIC_MARK) + (f"\n{terms}" if terms else "")
     user = message.strip()
     if board_fen:
         # The coach page sends its board with every message, so this is only a
