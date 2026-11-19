@@ -21,10 +21,13 @@ export type StepFlowEvent =
   | { type: 'result'; correct: boolean }
   | { type: 'retry' }
   | { type: 'next' }
-  | { type: 'restart'; total: number };
+  | { type: 'restart'; total: number; start?: number };
 
-export function initialStepFlow(total: number): StepFlowState {
-  return { phase: total > 0 ? 'idle' : 'done', index: 0, total, attempts: 0 };
+/** *start*: the steps already done (a puzzle restored part-way, 19.11) — the last one done shows as just solved. */
+export function initialStepFlow(total: number, start = 0): StepFlowState {
+  if (total <= 0) return { phase: 'done', index: 0, total, attempts: 0 };
+  if (start >= total) return { phase: 'correct', index: total - 1, total, attempts: 1 };
+  return { phase: 'idle', index: Math.max(0, start), total, attempts: 0 };
 }
 
 export function stepFlow(state: StepFlowState, event: StepFlowEvent): StepFlowState {
@@ -49,7 +52,7 @@ export function stepFlow(state: StepFlowState, event: StepFlowEvent): StepFlowSt
         : { ...state, phase: 'idle', index, attempts: 0 };
     }
     case 'restart':
-      return initialStepFlow(event.total);
+      return initialStepFlow(event.total, event.start);
   }
 }
 

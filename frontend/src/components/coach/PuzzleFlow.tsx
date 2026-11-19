@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Chess, type Square } from 'chess.js';
 import type { PuzzleState } from '@/types/coach';
 import { useHaptic } from '@/hooks/useHaptic';
-import { puzzleReplyDue, puzzleStudentColor, puzzleStudentMoves } from '@/hooks/useCoachBoard';
+import { puzzleReplyDue, puzzleStudentColor, puzzleStudentMoves, puzzleStudentMovesDone } from '@/hooks/useCoachBoard';
 import { creditStepXp, useStepFlow, type StepComplete, type StepFlowControls } from '@/hooks/useStepFlow';
 import StepFlow, { type StepFeedback } from './StepFlow';
 
@@ -62,9 +62,10 @@ export function usePuzzleStep(
   const puzzleKey = puzzle ? `${puzzle.fen}|${puzzle.solution.join(' ')}` : '';
   const { restart } = flow;
   useEffect(() => {
-    restart(total);
+    // A puzzle restored part-way starts at the student's next move, its last move shown (19.11).
+    restart(total, puzzleStudentMovesDone(puzzle));
     setPending(null);
-    setLastSan(null);
+    setLastSan(restoredSan(puzzle));
     setFlash(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [puzzleKey, restart]);
@@ -173,4 +174,11 @@ export default function PuzzleFlow({ controls, puzzle, onAsk, onNextPuzzle, onEx
       onClose={onExit}
     />
   );
+}
+
+/** The student's last move of a puzzle restored part-way (its panel opens on that step solved, 19.11). */
+function restoredSan(puzzle: PuzzleState | null): string | null {
+  if (!puzzle || puzzle.currentMoveIndex <= 0) return null;
+  const last = puzzle.currentMoveIndex - 1 - ((puzzle.currentMoveIndex - 1) % 2);
+  return puzzle.solution[last] ?? null;
 }

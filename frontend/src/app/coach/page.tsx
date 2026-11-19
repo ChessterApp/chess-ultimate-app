@@ -477,6 +477,8 @@ export default function CoachPage() {
         board.resetBoard();
         if (study.puzzle?.solution && study.puzzle.fen) {
           board.applyBoardAction({ type: 'set_puzzle', fen: study.puzzle.fen, solution: study.puzzle.solution });
+          // …and goes on where it was: the moves made are played again up to the position the session kept.
+          board.restorePuzzleTo(study.fen);
         } else if (study.pgn) {
           board.applyBoardAction({ type: 'load_pgn', pgn: study.pgn });
           board.goToMove(study.ply);

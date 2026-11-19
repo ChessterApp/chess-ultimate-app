@@ -72,6 +72,42 @@ export function puzzleStudentMoves(solution: string[]): number {
 }
 
 /** The solution's next move is the opponent's reply: the board plays it, the student waits. */
+/** Placement, side to move and castling — what two FENs of one position share. */
+function samePosition(a: string, b: string): boolean {
+  return a.split(' ').slice(0, 3).join(' ') === b.split(' ').slice(0, 3).join(' ');
+}
+
+/** The positions from *puzzle*'s start to *target* along its solution and the puzzle's progress there, or null when
+ *  *target* is the start or off the line (useCoachBoard.restorePuzzleTo; the app's coach-board `replayPuzzleTo`). */
+export function replayPuzzle(puzzle: PuzzleState | null, target: string | null | undefined):
+  { fens: string[]; puzzle: PuzzleState } | null {
+  if (!puzzle || !target || samePosition(target, puzzle.fen)) return null;
+  try {
+    const chess = new Chess(puzzle.fen);
+    const fens = [chess.fen()];
+    for (let i = 0; i < puzzle.solution.length; i++) {
+      const move = resolveSolutionMove(chess.fen(), puzzle.solution[i]);
+      if (!move) return null;
+      chess.move(move.san);
+      fens.push(chess.fen());
+      if (samePosition(chess.fen(), target)) {
+        const played = i + 1;
+        // Solved once no move of the student's is left (theirs are the even ones).
+        const lastStudent = puzzle.solution.length - 1 - ((puzzle.solution.length - 1) % 2);
+        return { fens, puzzle: { ...puzzle, currentMoveIndex: played, solved: played > lastStudent } };
+      }
+    }
+  } catch {
+    /* an unreadable solution: the puzzle as it was set */
+  }
+  return null;
+}
+
+/** The student's moves already played in *puzzle* — where its «Шаг N из M» starts. */
+export function puzzleStudentMovesDone(puzzle: PuzzleState | null): number {
+  return puzzle ? Math.ceil(puzzle.currentMoveIndex / 2) : 0;
+}
+
 export function puzzleReplyDue(puzzle: PuzzleState | null): boolean {
   return !!puzzle && puzzle.currentMoveIndex % 2 === 1 && puzzle.currentMoveIndex < puzzle.solution.length;
 }
@@ -88,6 +124,8 @@ interface UseCoachBoardReturn extends CoachBoardState {
   validatePuzzleMove: (from: string, to: string) => 'correct' | 'wrong' | 'solved';
   /** Play the opponent's reply now if one is due (it is also played on its own after PUZZLE_REPLY_DELAY_MS). */
   playPuzzleReply: () => void;
+  /** A puzzle restored with its session goes on from the position the session kept. */
+  restorePuzzleTo: (target: string | null | undefined) => void;
   resetBoard: () => void;
   setFenFromMove: (from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => void;
   /** Jump to a ply of the loaded history (0 = start position). */
@@ -377,6 +415,19 @@ export function useCoachBoard(): UseCoachBoardReturn {
     commitPuzzle({ ...puzzle, currentMoveIndex: puzzle.currentMoveIndex + 1 });
   }, [commitHistory, commitPuzzle]);
 
+  /**
+   * A puzzle restored with its session goes on where it was (tester, 19.11: a course puzzle solved, the page opened
+   * again — the board back at the start and «Ходов пока нет»): the solution is played from the puzzle's position up
+   * to *target*, the position the session kept, so the moves are in the strip and the steps go on from there. A
+   * position off the line, or the start: the puzzle as it was set. Call it right after the puzzle's set_puzzle.
+   */
+  const restorePuzzleTo = useCallback((target: string | null | undefined) => {
+    const next = replayPuzzle(puzzleStateRef.current, target);
+    if (!next) return;
+    commitHistory(next.fens, next.fens.length - 1);
+    commitPuzzle(next.puzzle);
+  }, [commitHistory, commitPuzzle]);
+
   // The reply is played on its own after a short pause; a new puzzle, a reset or an early play cancels the timer.
   const replyDue = puzzleReplyDue(puzzleState);
   useEffect(() => {
@@ -441,6 +492,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
     orientation,
     puzzleMode,
     puzzleState,
+    restorePuzzleTo,
     applyBoardAction,
     applyBoardActions,
     nextMove,

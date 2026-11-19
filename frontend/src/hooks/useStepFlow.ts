@@ -17,7 +17,7 @@ export interface StepFlowControls {
   check: (verify: () => boolean | Promise<boolean>) => Promise<boolean>;
   retry: () => void;
   next: () => void;
-  restart: (total: number) => void;
+  restart: (total: number, start?: number) => void;
 }
 
 /**
@@ -35,7 +35,7 @@ export function creditStepXp(_result: StepComplete): number {
 
 /** The StepFlow state machine as a hook, with the XP hook on every checked answer. */
 export function useStepFlow(total: number, onStepComplete?: (result: StepComplete) => void): StepFlowControls {
-  const [state, dispatch] = useReducer(stepFlow, total, initialStepFlow);
+  const [state, dispatch] = useReducer(stepFlow, total, (n: number) => initialStepFlow(n));
   const stateRef = useRef(state);
   stateRef.current = state;
   const completeRef = useRef(onStepComplete);
@@ -62,6 +62,6 @@ export function useStepFlow(total: number, onStepComplete?: (result: StepComplet
     check,
     retry: useCallback(() => dispatch({ type: 'retry' }), []),
     next: useCallback(() => dispatch({ type: 'next' }), []),
-    restart: useCallback((n: number) => dispatch({ type: 'restart', total: n }), []),
+    restart: useCallback((n: number, start?: number) => dispatch({ type: 'restart', total: n, start }), []),
   };
 }
