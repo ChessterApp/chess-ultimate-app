@@ -51,9 +51,12 @@
   партии не было». Теперь решающий момент партии называет сервер (сдача без ошибок — «решающей ошибки не было, сдаваться
   было рано»), ходы пишутся с правильными номерами («2.Nf3»), а фразы тренера о своих прошлых ответах и о «приведённых»
   данных проверка ответа задерживает. Версия шаблона подсказки — 22.
-- **Чужая партия не «моя»** (`src/game_owner.py` новый, `src/daily_plan.py`, `src/server.py`, `src/tools/user_data.py`).
-  Партия, сохранённая из «Базы партий» (Lichess, Chess.com, TWIC), больше не предлагается как «последняя партия» ученика;
-  если её разбирают, тренер называет стороны по цвету и именам игроков, без «твой».
+- **Чужая партия не «моя»** (`src/game_owner.py` новый, `src/daily_plan.py`, `src/server.py`, `src/tools/user_data.py`,
+  `src/intent.py`). Партия из общей базы (TWIC, мастерские) больше не предлагается как «последняя партия» ученика.
+  Партия Lichess / Chess.com, сохранённая из «Базы партий», — по привязанному нику ученика, если он привязан; если нет —
+  неизвестно, чья: карточка остаётся (свои партии учеников не пропадают), но помечена `whose: "saved"`, сайт и
+  приложение просят «Разбери последнюю сохранённую партию», а тренер называет стороны по цвету и именам игроков, без
+  «твой», пока ученик не скажет, за кого играл.
 - **Сайт и приложение** уже обновлены и выложены вместе с этим (ход соперника в задаче делается сам, «Задача N из 5» на
   панели); со старым сервером они работают как раньше.
 - **Чем проверено.** Новые тесты `test_warmup_app_1118.py`, `test_finished_game_words_1118.py`, `test_game_owner_1118.py`,
@@ -109,21 +112,23 @@ moment = game_mode.decisive_moment(st)
 words = (bool(moment) and "указано" not in moment and is_self_reference("В предыдущем ответе были приведены ходы, которых в нашей партии не было.")
          and not is_self_reference("Ты ошибся на 12-м ходу: конь остался без защиты."))
 
-# --- 89d: a game saved from the database is not offered as the student's own
-foreign = {"source": "lichess", "white": "DrNykterstein", "black": "Night-King96", "pgn": "1. e4 e5 *"}
+# --- 89d: a master game is never «mine»; a saved Lichess game with no linked account is «saved» — offered, told neutrally
+master = {"source": "twic", "white": "Carlsen, Magnus", "black": "Nepomniachtchi, Ian", "pgn": "1. e4 e5 *"}
+saved = {"source": "lichess", "white": "DrNykterstein", "black": "Night-King96", "pgn": "1. e4 e5 *"}
 mine = {"source": "coach_game", "pgn": "1. e4 e5 *"}
-owner = (not game_owner.offered(foreign, None)) and game_owner.offered(mine, None)
+owner = ((not game_owner.offered(master, None)) and game_owner.offered(saved, None)
+         and game_owner.owner(saved, set()).verdict == "saved" and game_owner.offered(mine, None))
 
 ok = warm and puzzle_kept and words and owner
 print("ОК" if ok else "ПРОВЕРЬ", "| 89a разминка: места", [(p or {}).get("n") for p in places], "конец закрывает задачу", closed, "(база задач", db, ")",
       "| 89b задача держится на своей линии:", puzzle_kept, "| 89c сдача без ошибки:", repr(moment[:60]), "фразы о прошлом ответе ловятся:", words,
-      "| 89d чужая партия из базы не «моя»:", owner)
+      "| 89d партия из базы не «моя»:", owner)
 EOF
 ```
 
   → две служебные строки про Supabase и `ОК | 89a разминка: места [1, 2, 3, 4, 5] конец закрывает задачу ['set_fen'] (база
   задач True ) | 89b задача держится на своей линии: True | 89c сдача без ошибки: "There was NO decisive mistake: …" фразы о
-  прошлом ответе ловятся: True | 89d чужая партия из базы не «моя»: True`. До обновления — `ImportError: cannot import name
+  прошлом ответе ловятся: True | 89d партия из базы не «моя»: True`. До обновления — `ImportError: cannot import name
   'game_owner'`. `ПРОВЕРЬ` с `база задач False` — база не собрана (шаг 7), это не СТОП. Любое другое `ПРОВЕРЬ` — пришли
   вывод человеку. Команда ничего не пишет в базу и `.env` не меняет.
 
