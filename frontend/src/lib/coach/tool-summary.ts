@@ -283,7 +283,8 @@ export function numberedLine(fen: string, san: string[]): string {
 }
 
 export type DailyPlanCard =
-  | { type: 'review_last_game'; game_id: string; title: string; moments_count?: number }
+  /** `whose: 'saved'`: a game the student saved from the Database, not known to be theirs (Hermes, 19.11). */
+  | { type: 'review_last_game'; game_id: string; title: string; moments_count?: number; whose?: 'saved' }
   /** No theme: puzzles on any theme. `stat`: reviewed games with a blunder on the theme, of how many.
    *  `warmup`: the coach server reads the warm-up's own request (Hermes of 17.11 on). */
   | { type: 'weak_spot'; puzzles: number; theme?: string; stat?: { games_with: number; games: number }; warmup?: true }
@@ -307,6 +308,7 @@ function planCard(c: Obj): DailyPlanCard | null {
         game_id: c.game_id,
         title: c.title,
         moments_count: isNum(c.moments_count) && c.moments_count >= 0 ? c.moments_count : undefined,
+        whose: c.whose === 'saved' ? ('saved' as const) : undefined,
       });
     case 'weak_spot': {
       if (!isNum(c.puzzles) || c.puzzles < 1) return null;

@@ -35,6 +35,8 @@ describe('weakSpotView', () => {
 describe('planAction', () => {
   it('each card does its one thing', () => {
     expect(planAction(REVIEW, t)).toEqual({ kind: 'send', text: 'planReviewPrompt', reviewGameId: 'g1' });
+    // A saved game not known to be the student's: «the last saved game», not «my last game» (19.11).
+    expect(planAction({ ...REVIEW, whose: 'saved' }, t)).toEqual({ kind: 'send', text: 'planReviewSavedPrompt', reviewGameId: 'g1' });
     expect(planAction(SPOT, t)).toEqual({ kind: 'send', text: 'planSpotPrompt{"theme":"planThemeEndgame"}' });
     // The warm-up card (no theme, or one without a label) asks for the warm-up, not for «a puzzle» — of a server
     // that marks the card as one it reads the warm-up words on (Hermes of 17.11); an older server keeps «a puzzle».

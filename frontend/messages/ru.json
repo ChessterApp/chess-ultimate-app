@@ -2309,6 +2309,7 @@
     "planReviewTitle": "Разбор последней партии",
     "planReviewMoments": "{count, plural, one {# ключевой момент} few {# ключевых момента} many {# ключевых моментов} other {# ключевого момента}}",
     "planReviewPrompt": "Разбери мою последнюю партию: где я ошибся и что стоило играть.",
+    "planReviewSavedPrompt": "Разбери последнюю сохранённую партию: где были ошибки и что стоило играть.",
     "planSpotTitle": "Слабое место: {theme}",
     "planSpotAnyTitle": "Разминка: тактика",
     "planSpotChip": "Задачи: {theme}",

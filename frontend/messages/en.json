@@ -2309,6 +2309,7 @@
     "planReviewTitle": "Review your last game",
     "planReviewMoments": "{count, plural, one {# key moment} other {# key moments}}",
     "planReviewPrompt": "Review my last game: where did I go wrong and what should I have played?",
+    "planReviewSavedPrompt": "Review the last saved game: where were the mistakes and what should have been played?",
     "planSpotTitle": "Weak spot: {theme}",
     "planSpotAnyTitle": "Warm-up: tactics",
     "planSpotChip": "Puzzles: {theme}",

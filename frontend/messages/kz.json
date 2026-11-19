@@ -2309,6 +2309,7 @@
     "planReviewTitle": "Соңғы партияны талдау",
     "planReviewMoments": "{count} негізгі сәт",
     "planReviewPrompt": "Соңғы партиямды талдашы: қай жерде қателестім және не ойнау керек еді?",
+    "planReviewSavedPrompt": "Соңғы сақталған партияны талдашы: қай жерде қателер болды және не ойнау керек еді?",
     "planSpotTitle": "Әлсіз тұс: {theme}",
     "planSpotAnyTitle": "Жаттығу: тактика",
     "planSpotChip": "Есептер: {theme}",

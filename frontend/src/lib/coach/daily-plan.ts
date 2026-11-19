@@ -64,7 +64,8 @@ type Translate = (key: string, values?: Record<string, string | number>) => stri
 export function planAction(card: DailyPlanCard, t: Translate): PlanAction {
   switch (card.type) {
     case 'review_last_game':
-      return { kind: 'send', text: t('planReviewPrompt'), reviewGameId: card.game_id };
+      // A saved game not known to be the student's asks for «the last saved game», not «my last game» (19.11).
+      return { kind: 'send', text: t(card.whose === 'saved' ? 'planReviewSavedPrompt' : 'planReviewPrompt'), reviewGameId: card.game_id };
     case 'weak_spot': {
       const { themeKey } = weakSpotView(card);
       // Without a theme the card is the warm-up («Разминка: тактика»). It asks for the warm-up in its own words:
