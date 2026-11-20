@@ -5,7 +5,7 @@ vi.mock('@/lib/personal-subscription', () => ({
   getPersonalSubscription: (...args: unknown[]) => getPersonalSubscription(...args),
 }));
 
-import { resolveUserTier } from '../subscription-tier';
+import { resetTierCache, resolveUserTier } from '../subscription-tier';
 
 const NO_SUB = { active: false, plan: null, status: 'none', currentPeriodEnd: null };
 
@@ -13,6 +13,7 @@ describe('resolveUserTier', () => {
   const original = process.env.COACH_DEFAULT_TIER;
 
   beforeEach(() => {
+    resetTierCache();
     getPersonalSubscription.mockReset();
     getPersonalSubscription.mockResolvedValue(NO_SUB);
   });
@@ -31,6 +32,7 @@ describe('resolveUserTier', () => {
     process.env.COACH_DEFAULT_TIER = 'premium';
     expect(await resolveUserTier('user_1')).toBe('premium');
     process.env.COACH_DEFAULT_TIER = 'PRO';
+    resetTierCache(); // a tier is kept for a minute
     expect(await resolveUserTier('user_1')).toBe('pro');
   });
 
@@ -76,5 +78,17 @@ describe('resolveUserTier', () => {
     delete process.env.COACH_DEFAULT_TIER;
     getPersonalSubscription.mockRejectedValue(new Error('db down'));
     expect(await resolveUserTier('user_1')).toBe('free');
+  });
+});
+
+describe('resolveUserTier keeps a tier for a minute (20.11: a round trip on every step of a voice turn)', () => {
+  it('asks Supabase once for the same user within the minute', async () => {
+    resetTierCache();
+    getPersonalSubscription.mockReset();
+    getPersonalSubscription.mockResolvedValue(NO_SUB);
+    await resolveUserTier('user_cached');
+    await resolveUserTier('user_cached');
+    await resolveUserTier('user_cached');
+    expect(getPersonalSubscription).toHaveBeenCalledTimes(1);
   });
 });

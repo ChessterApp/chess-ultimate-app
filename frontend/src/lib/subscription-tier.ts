@@ -46,14 +46,34 @@ function defaultTier(): SubscriptionTier {
 export async function resolveUserTier(
   userId: string,
 ): Promise<SubscriptionTier> {
+  const now = Date.now();
+  const kept = tierCache.get(userId);
+  if (kept && kept.until > now) return kept.tier;
   try {
     // getPersonalSubscription constructs its Supabase client lazily and never
     // throws (errors resolve to inactive → default tier).
     const sub = await getPersonalSubscription(userId);
-    if (sub.active && sub.plan?.toLowerCase() === VIP_PLAN) return 'pro';
     // TODO(billing): map paid Whop plans to tiers once billing tiers are defined.
-    return defaultTier();
+    const tier: SubscriptionTier = sub.active && sub.plan?.toLowerCase() === VIP_PLAN ? 'pro' : defaultTier();
+    if (tierCache.size >= TIER_CACHE_MAX) tierCache.clear();
+    tierCache.set(userId, { tier, until: now + TIER_TTL_MS });
+    return tier;
   } catch {
     return 'free';
   }
+}
+
+/**
+ * The tier of a user, kept for a minute in this server instance (20.11): every step of a voice turn — the words
+ * heard, each sentence read aloud, the chat — asked Supabase again before going to Hermes, a round trip each on
+ * the voice's critical path. The coach's access is kept the same way (coach-access.ts, ALLOWED_TTL_MS); a plan
+ * granted meanwhile shows within the minute. A failed lookup is not kept.
+ */
+const TIER_TTL_MS = 60_000;
+const TIER_CACHE_MAX = 5_000;
+const tierCache = new Map<string, { tier: SubscriptionTier; until: number }>();
+
+/** Tests only: forget every kept tier. */
+export function resetTierCache(): void {
+  tierCache.clear();
 }
