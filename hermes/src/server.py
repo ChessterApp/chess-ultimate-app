@@ -5917,6 +5917,14 @@ def _session_summary(s) -> dict:
     # coach's last words («Let me find a good tactical puzzle for you…» over a puzzle, Alexander's screenshot 23.10).
     first_question = next((m for m in s.messages if getattr(m, "role", "") == "user" and (m.content or "").strip()), None)
     named_by = first_question or last
+    preview = named_by.content[:120] if named_by else ""
+    if first_question is None:
+        # A session of a game against the coach with no question in it is named by the game, not by the coach's last
+        # comment — which renamed it on every move («Ход 5...d6 немного неточен…»), and «Без названия, 0 сообщ.» while
+        # the game had 13 moves (tester 20.11). The game's opening and result read the same in every language.
+        game = _session_game_label(s)
+        if game:
+            preview = game
     return {
         "id": s.id,
         "title": s.title,
@@ -5926,8 +5934,20 @@ def _session_summary(s) -> dict:
         "board_state": s.board_state,
         "active_board_id": s.active_board_id,
         "board_count": len(s.boards),
-        "preview": (named_by.content[:120] if named_by else ""),
+        "preview": preview,
     }
+
+
+def _session_game_label(s) -> str:
+    """«1.e4 e5 2.Nf3 Nc6 … 1-0» of the session's latest game against the coach, or ""."""
+    games = [b for b in (getattr(s, "boards", None) or []) if getattr(b, "kind", None) == "game"
+             and (getattr(b, "pgn", None) or "").strip()]
+    if not games:
+        return ""
+    from src.coach_games import title
+
+    board = max(games, key=lambda b: getattr(b, "updated_at", 0) or 0)
+    return title(board.pgn, (getattr(board, "game_state", None) or {}).get("result"))[:120]
 
 
 @app.get("/api/coach/sessions")
