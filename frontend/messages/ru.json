@@ -2389,7 +2389,9 @@
     "urlVariant": "Это партия в другой вариант шахмат ({variant}) — тренер пока разбирает только обычные шахматы, и доска такие партии не показывает.",
     "chess960": "шахматы Фишера, 960",
     "puzzleShowSolution": "Показать решение",
-    "puzzleShowSolutionMessage": "Сдаюсь, покажи решение этой задачи."
+    "puzzleShowSolutionMessage": "Сдаюсь, покажи решение этой задачи.",
+    "newSessionDuringGame": "Партия ещё идёт",
+    "newSessionDuringGameText": "Начать новую сессию? Эта партия закончится."
   },
   "gameEnd": {
     "winTitle": "Мат! Ты победил!",

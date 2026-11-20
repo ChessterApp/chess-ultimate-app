@@ -2389,7 +2389,9 @@
     "urlVariant": "This is a game of another chess variant ({variant}) — the coach reviews only standard chess for now, and the board does not show such games.",
     "chess960": "Fischer Random, Chess960",
     "puzzleShowSolution": "Show the solution",
-    "puzzleShowSolutionMessage": "I give up — show me the solution of this puzzle."
+    "puzzleShowSolutionMessage": "I give up — show me the solution of this puzzle.",
+    "newSessionDuringGame": "The game is still on",
+    "newSessionDuringGameText": "Start a new session? This game will end."
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",

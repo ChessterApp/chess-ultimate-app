@@ -11,6 +11,7 @@ import useOnScreenKeyboard from '@/hooks/useOnScreenKeyboard';
 import useMediaQuery from '@/hooks/useMediaQuery';
 import { useChromeVisibility } from '@/components/ChromeVisibilityContext';
 import CoachBoard from '@/components/coach/CoachBoard';
+import CoachDialog from '@/components/coach/CoachDialog';
 import CoachChat, { type CoachChatHandle } from '@/components/coach/CoachChat';
 import LoadingScreen from '@/components/LoadingScreen';
 import UpgradePrompt from '@/components/UpgradePrompt';
@@ -810,6 +811,13 @@ export default function CoachPage() {
     if (userId) clearSessionId(userId);
   }, [board, userId]);
 
+  // «Новая сессия» during a game asks first: the game ends with it (tester 20.11 — it was gone without a word).
+  const [confirmNewSession, setConfirmNewSession] = useState(false);
+  const requestNewSession = useCallback(() => {
+    if (gameRef.current?.status === 'playing') setConfirmNewSession(true);
+    else handleNewSession();
+  }, [handleNewSession]);
+
   // Active game derived from state
   const activeGame = useMemo(
     () => openedGames.find((g) => g.id === activeGameId) ?? null,
@@ -1324,7 +1332,7 @@ export default function CoachPage() {
                 onImport: () => chatRef.current?.openAttach(),
                 onFlip: () => board.applyBoardAction({ type: 'flip_board' }),
                 onBoardTabs: openedGames.length > 0 ? () => setTabsOpen(true) : null,
-                onNewSession: handleNewSession,
+                onNewSession: requestNewSession,
               }}
             />
           }
@@ -1343,7 +1351,7 @@ export default function CoachPage() {
             variant="sheet"
             currentSessionId={sessionId}
             onSelect={handleSelectSession}
-            onNew={handleNewSession}
+            onNew={requestNewSession}
             onClose={() => setSessionsOpen(false)}
           />
         )}
@@ -1354,6 +1362,18 @@ export default function CoachPage() {
 
   return (
     <div className="h-screen supports-[height:100dvh]:h-[100dvh] flex flex-col" data-testid="coach-page" data-mode={mode}>
+      <CoachDialog
+        open={confirmNewSession}
+        title={t('newSessionDuringGame')}
+        message={t('newSessionDuringGameText')}
+        confirmLabel={t('newSession')}
+        danger
+        onConfirm={() => {
+          setConfirmNewSession(false);
+          handleNewSession();
+        }}
+        onCancel={() => setConfirmNewSession(false)}
+      />
       {/* Header */}
       <header className="flex items-center justify-between gap-2 px-2 sm:px-4 py-1.5 sm:py-2 border-b border-white/10">
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -1393,7 +1413,7 @@ export default function CoachPage() {
             {t('sessions')}
           </button>
           <button
-            onClick={handleNewSession}
+            onClick={requestNewSession}
             className="text-xs sm:text-sm whitespace-nowrap text-gray-400 hover:text-white transition-colors"
           >
             {t('newSession')}
@@ -1402,7 +1422,7 @@ export default function CoachPage() {
             <CoachSessions
               currentSessionId={sessionId}
               onSelect={handleSelectSession}
-              onNew={handleNewSession}
+              onNew={requestNewSession}
               onClose={() => setSessionsOpen(false)}
             />
           )}
