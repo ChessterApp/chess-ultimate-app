@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 19.11 (четвёртый отчёт тестировщика: тренер только про шахматы, «Разбор последней партии» видит партии с тренером) — включает всё из версий 06.10 … 18.11-5
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 19.11 (четвёртый отчёт тестировщика: тренер только про шахматы, «Разбор последней партии» видит партии с тренером, голосом отвечает быстрее) — включает всё из версий 06.10 … 18.11-5
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -48,7 +48,14 @@
   открытую в «Базе партий» накануне. Теперь карточка берёт самую свежую партию из обоих мест (не короче 8 полуходов);
   её разбор загружает партию с тренером и говорит о ней со стороны ученика. Чтение — через связь `coach_boards` →
   `coach_sessions` (она есть с миграции 018), новых таблиц и миграций нет. Если чтение не удалось — план как раньше.
-- **Сайт и приложение** обновлены вместе с этим (отправка текста в голосовом режиме, распознавание речи по умолчанию
+- **Голосом тренер отвечает быстрее** (`src/tool_selector.py`, `src/server.py`, `src/config.py`). Замер на проде 20.11:
+  от конца фразы до голоса ответа ~10 с, из них 3–4 с уходили на поиск урока перед общим вопросом («как отвечать на
+  e4», «как перестать зевать», «что такое связка») и ещё ~1 с — на быструю первую фразу, которую голос всё равно не
+  читает. Теперь голосовой вопрос (`speech: true`) без просьбы об уроке, примере, показе на доске, задаче или партии
+  отвечается сразу: без поиска урока, без расстановки на доске и без быстрой первой фразы; движок и факты о позиции
+  остаются. На стенде медиана 9,1 → 5,3 с. В партии и в задачах — как раньше. Выключатель: `COACH_SPOKEN_QUICK=0` в
+  `.env` (по умолчанию включено, в `.env` ничего добавлять не нужно).
+- **Сайт и приложение** обновлены вместе с этим (плашка состояния голоса над полем ввода, отправка текста в голосовом режиме, распознавание речи по умолчанию
   через сервер, восстановленная задача продолжается с того места, где была, «Реванш» без обрезки); со старым сервером
   они работают как раньше.
 - **Чем проверено.** Новые тесты `test_off_topic_1119.py`, `test_coach_games_1119.py`; весь набор проходит. Ответы
@@ -57,7 +64,8 @@
 
 ```bash
 cd /root/hermes-chess && .venv/bin/python - <<'EOF'
-from src import coach_games, daily_plan, prompt_builder
+from src import coach_games, config, daily_plan, prompt_builder
+from src.tool_selector import spoken_lookup_skipped
 from src.quick_reply import withhold_off_topic
 
 # --- 90a: only chess — the rule in the text and the voice prompts; the reaction for a message not about chess is shown never
@@ -82,14 +90,18 @@ saved = {"id": "b1", "source": "lichess", "white": "DrNykterstein", "black": "Ni
 card = daily_plan.build_daily_plan([saved], [], [], set(), [coach])["cards"][0]
 last = card.get("game_id") == coach["id"]
 
-ok = chess_only and read and last
+# --- 90d: a spoken question is answered at once (no lesson lookup); a lesson, a puzzle or a game keeps everything
+quick = (config.COACH_SPOKEN_QUICK and spoken_lookup_skipped("Как перестать зевать фигуры?")
+         and not spoken_lookup_skipped("Какой урок мне пройти дальше?") and not spoken_lookup_skipped("Давай сыграем, я белыми."))
+
+ok = chess_only and read and last and quick
 print("ОК" if ok else "ПРОВЕРЬ", "| 90a только шахматы:", chess_only, "| 90b партии с тренером читаются из базы:", read,
-      "| 90c партия с тренером — последняя:", last)
+      "| 90c партия с тренером — последняя:", last, "| 90d голосом отвечает сразу:", bool(quick))
 EOF
 ```
 
   → `ОК | 90a только шахматы: True | 90b партии с тренером читаются из базы: True | 90c партия с тренером — последняя:
-  True`. До обновления — `ImportError: cannot import name 'coach_games'`. `90b … False` — запрос к `coach_boards` не
+  True | 90d голосом отвечает сразу: True`. До обновления — `ImportError: cannot import name 'coach_games'`. `90b … False` — запрос к `coach_boards` не
   прошёл: это не СТОП (карточка плана в этом случае работает как раньше), но пришли человеку вывод и
   `pm2 logs hermes-chess --lines 80 --nostream | grep -i "supabase\|coach_boards"`. Любое другое `ПРОВЕРЬ` — пришли
   вывод человеку. Команда ничего не пишет в базу и `.env` не меняет.
@@ -3651,7 +3663,7 @@ COACH_REASONING_MANDATORY, COACH_REASONING_EFFORT, COACH_LESSON_LINK=<значе
   87 18.11-3 — распознавание через OpenRouter <ОК/ПРОВЕРЬ>, слушает сервер <True/False>, модель <…>; живая: /voice/mode <…>, /voice/stt HTTP <200/…> за <…> с
   88 18.11-4 — голос: запасной <Achird/…>, в .env ru/kk <bIHbv24MWmeRgasZH58o/…>, Sarah ещё стоит <False/True>; живая: X-Tts-Model ru <…> / kk <…>
   89 18.11-5 — разминка: места <[1..5]>, конец закрывает задачу <['set_fen']/…>; задача на своей линии <True/False>; сдача без ошибки и фразы о прошлом ответе <True/False>; чужая партия <True/False>
-  90 19.11 — только шахматы <True/False>; партии с тренером читаются <True/False>; партия с тренером последняя <True/False>
+  90 19.11 — только шахматы <True/False>; партии с тренером читаются <True/False>; партия с тренером последняя <True/False>; голосом сразу <True/False>
 5б: <голос заменён на Will / не выполнялся — почему>
 Бэкенд (фото доски): <обновлён, коммит …, grep PHOTO_FEN_ATTEMPTS = … / не обновлён — почему>
 Что нужно от людей: <список или «ничего»>
