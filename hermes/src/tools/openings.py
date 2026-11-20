@@ -141,6 +141,9 @@ def get_opening_stats(
         ],
         "lines_in_book": len(lines),
         **stats,
+        # The numbers are the whole ECO group's, not this line's (tester 20.11: «Пингвин» 3.Rg1 has no master game, A09
+        # has 10 070): never told as games of the line.
+        "games_scope": f"all master games with ECO {', '.join(eco_codes if opening_name else [main[0]])} — not this exact line",
     }
 
 

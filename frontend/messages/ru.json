@@ -2116,7 +2116,7 @@
     "cardWhiteWins": "Белые",
     "cardDraws": "Ничья",
     "cardBlackWins": "Чёрные",
-    "cardGamesCount": "{count, plural, one {# партия мастеров} few {# партии мастеров} many {# партий мастеров} other {# партии мастеров}}",
+    "cardGamesCount": "{count, plural, one {# партия мастеров} few {# партии мастеров} many {# партий мастеров} other {# партии мастеров}} во всей группе {eco}",
     "cardPuzzleTitle": "Задача",
     "cardPuzzleRating": "Рейтинг {rating}",
     "cardPuzzleSolve": "Решить",

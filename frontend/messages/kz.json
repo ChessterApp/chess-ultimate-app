@@ -2116,7 +2116,7 @@
     "cardWhiteWins": "Ақтар",
     "cardDraws": "Тең",
     "cardBlackWins": "Қаралар",
-    "cardGamesCount": "{count} шебер партиясы",
+    "cardGamesCount": "{count} шебер партиясы, бүкіл {eco} тобында",
     "cardPuzzleTitle": "Есеп",
     "cardPuzzleRating": "Рейтинг {rating}",
     "cardPuzzleSolve": "Шешу",

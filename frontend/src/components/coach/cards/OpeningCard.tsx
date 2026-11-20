@@ -54,7 +54,9 @@ export default function OpeningCard({ summary, onLearn, disabled }: OpeningCardP
               </div>
             ))}
           </dl>
-          <p className="mt-1 text-[12px] text-(--coach-muted)">{t('cardGamesCount', { count: stats.games })}</p>
+          <p className="mt-1 text-[12px] text-(--coach-muted)">{/* The numbers are the whole ECO group's (Hermes openings._get_stats_from_db), not the line's: «Пингвин»
+              3.Rg1 has no master game, A09 has 10 070 (tester 20.11). */}
+            {t('cardGamesCount', { count: stats.games, eco: summary.eco })}</p>
         </div>
       )}
       {onLearn && (

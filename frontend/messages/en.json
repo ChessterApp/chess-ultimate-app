@@ -2116,7 +2116,7 @@
     "cardWhiteWins": "White",
     "cardDraws": "Draw",
     "cardBlackWins": "Black",
-    "cardGamesCount": "{count, plural, one {# master game} other {# master games}}",
+    "cardGamesCount": "{count, plural, one {# master game} other {# master games}} in the whole {eco} group",
     "cardPuzzleTitle": "Puzzle",
     "cardPuzzleRating": "Rating {rating}",
     "cardPuzzleSolve": "Solve",
