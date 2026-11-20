@@ -138,6 +138,8 @@ export interface CoachChatHandle {
   announceGame: (view: GameStateView, replyOnly?: boolean) => number | undefined;
   /** Whether the voice pipeline is listening: a hand-made move then gets the coach's spoken comment. */
   voicePipelineOn: () => boolean;
+  /** A line of the coach's own in the chat (not sent to the coach). */
+  notice: (text: string) => void;
   /** Whether the pipeline can read aloud now (on, and the TTS not out of quota): the server then keeps answers short. */
   voiceSpeaks: () => boolean;
 }
@@ -1040,10 +1042,12 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         const phrase = movePhrase(view, (lang === 'kk' || lang === 'kz' ? 'kk' : lang === 'en' ? 'en' : 'ru') as PipelineLocale, replyOnly);
         return phrase ? pipelineRef.current.announce(phrase, true) : pipelineRef.current.currentTurnId();
       },
+      // A line of the coach's own in the chat (20.11: «Начать» on a review's card during a game did nothing).
+      notice: (text: string) => { addLocalLine(text); },
       voicePipelineOn: () => pipelineRef.current.isActive,
       voiceSpeaks: () => pipelineRef.current.isActive && pipelineRef.current.ttsState === 'ok',
     }),
-    [sendMessage, streamAssistant],
+    [sendMessage, streamAssistant, addLocalLine],
   );
 
   const handleKeyDown = useCallback(

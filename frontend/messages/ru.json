@@ -2382,7 +2382,8 @@
     "voiceHintHearing": "Договорите — отправлю, когда замолчите",
     "voiceHintRecognizing": "Превращаю речь в текст",
     "voiceHintThinking": "Ответ скоро",
-    "voiceHintSpeaking": "Можно перебить — просто говорите"
+    "voiceHintSpeaking": "Можно перебить — просто говорите",
+    "momentsAfterGame": "Разбор откроется после партии: доиграй её или закрой."
   },
   "gameEnd": {
     "winTitle": "Мат! Ты победил!",

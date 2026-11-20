@@ -942,9 +942,15 @@ export default function CoachPage() {
   const puzzle = usePuzzleStep(board.puzzleState, board.fen, board.validatePuzzleMove, board.playPuzzleReply);
 
   const startMoments = useCallback((summary: ReviewMomentsSummary) => {
+    // A live game owns the board (coach-mode «moments_started»): say so instead of a button that does nothing
+    // (tester 20.11, «Начать» on the card of the game just reviewed, during the rematch).
+    if (mode === 'play') {
+      chatRef.current?.notice(t('momentsAfterGame'));
+      return;
+    }
     setReview(summary);
     dispatchMode({ type: 'moments_started' });
-  }, []);
+  }, [mode, t]);
   const exitMoments = useCallback(() => dispatchMode({ type: 'moments_ended' }), []);
   // Phones: a verdict opens the sheet to half so the feedback panel fits; the next moment drops it to peek.
   const momentPhase = momentsOn ? moments.state.step.phase : null;

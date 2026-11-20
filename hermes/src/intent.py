@@ -33,7 +33,10 @@ _SOLVE = re.compile(r"(?<![\w-])(?:реши\w*\s+(?:мне\s+)?задач\w*|д�
 _REVIEW = re.compile(
     r"(?<![\w-])(?:разбер[иё]\w*|разбор|проанализир\w*\s+(?:мою\s+|эту\s+)?парти\w*|где\s+я\s+ошиб\w*|мои\s+ошибк\w*|"
     r"что\s+я\s+сделал\s+не\s+так|(?:ойын|парти)\w*\s+талда\w*|review\s+(?:my\s+|the\s+|this\s+|our\s+)?(?:last\s+|latest\s+)?(?:saved\s+)?game|"
-    r"analy[sz]e\s+(?:my\s+|the\s+|this\s+)?game|where\s+did\s+i\s+go\s+wrong|my\s+mistakes)", re.IGNORECASE)
+    r"analy[sz]e\s+(?:my\s+|the\s+|this\s+)?game|where\s+did\s+i\s+go\s+wrong|my\s+mistakes|"
+    # the chip after a review, «Главная ошибка» (tester 20.11: after «Реванш» the coach asked for the game's record)
+    r"главн\w*\s+ошибк\w*|решающ\w*\s+ошибк\w*|(?:biggest|main|decisive)\s+mistake|басты\s+қате\w*|ең\s+үлкен\s+қате\w*)",
+    re.IGNORECASE)
 _REVIEW_SIDE = re.compile(r"(?P<black>ч[её]рными|за\s+ч[её]рных|as\s+black|with\s+black)|"
                           r"(?P<white>белыми|за\s+белых|as\s+white|with\s+white)", re.IGNORECASE)
 REVIEW_MIN_PLIES = 10

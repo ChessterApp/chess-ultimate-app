@@ -2382,7 +2382,8 @@
     "voiceHintHearing": "Finish — it goes when you pause",
     "voiceHintRecognizing": "Turning speech into text",
     "voiceHintThinking": "The answer is on its way",
-    "voiceHintSpeaking": "Interrupt any time — just speak"
+    "voiceHintSpeaking": "Interrupt any time — just speak",
+    "momentsAfterGame": "The review opens after the game: finish it or close it."
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",

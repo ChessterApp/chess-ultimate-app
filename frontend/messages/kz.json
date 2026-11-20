@@ -2382,7 +2382,8 @@
     "voiceHintHearing": "Сөзіңізді аяқтаңыз — тоқтағанда жіберемін",
     "voiceHintRecognizing": "Сөзді мәтінге айналдырып жатырмын",
     "voiceHintThinking": "Жауап жақында",
-    "voiceHintSpeaking": "Кез келген уақытта сөйлей беріңіз"
+    "voiceHintSpeaking": "Кез келген уақытта сөйлей беріңіз",
+    "momentsAfterGame": "Талдау партиядан кейін ашылады: оны аяқта немесе жап."
   },
   "gameEnd": {
     "winTitle": "Мат! Сен жеңдің!",

@@ -1396,22 +1396,37 @@ def _our_game_board(session, active_board, message: str):
     return None
 
 
-def _board_review_pgn(active_board, message: str) -> Optional[str]:
+def _board_review_pgn(active_board, message: str, session=None) -> Optional[str]:
     """The game on *active_board* when *message* asks for its review (src/intent.asks_game_review), else None — never
-    a game in progress (the coach hints there), never a board without a game of REVIEW_MIN_PLIES."""
+    a game in progress (the coach hints there), never a board without a game of REVIEW_MIN_PLIES.
+
+    A game in progress asked for its review («Главная ошибка» after «Реванш», tester 20.11) means the game that has
+    just ended: the session's latest finished game is reviewed — the coach answered «пришли запись партии», with its
+    own review of that game just above in the chat."""
     try:
         from src.intent import asks_game_review
 
-        pgn = getattr(active_board, "pgn", None) or ""
-        if not pgn.strip():
-            return None
         state = getattr(active_board, "game_state", None) or {}
         if getattr(active_board, "kind", None) == "game" and state and state.get("status") == "playing":
+            last = _last_finished_game(session, getattr(active_board, "id", None))
+            return last if last and asks_game_review(message, last) else None
+        pgn = getattr(active_board, "pgn", None) or ""
+        if not pgn.strip():
             return None
         return pgn if asks_game_review(message, pgn) else None
     except Exception:  # noqa: BLE001 — the model can still call find_critical_moments
         logger.debug("board review pgn failed", exc_info=True)
         return None
+
+
+def _last_finished_game(session, but: Optional[str] = None) -> Optional[str]:
+    """The PGN of the session's latest finished game against the coach other than the board *but*, or None."""
+    boards = [b for b in (getattr(session, "boards", None) or []) if getattr(b, "id", None) != but
+              and getattr(b, "kind", None) == "game" and (getattr(b, "game_state", None) or {}).get("status") == "finished"
+              and (getattr(b, "pgn", None) or "").strip()]
+    if not boards:
+        return None
+    return max(boards, key=lambda b: getattr(b, "updated_at", 0) or 0).pgn
 
 
 # A game on the board is reviewed by the server's step only when its scan fits in this share of COACH_REVIEW_WAIT_MS
@@ -2488,7 +2503,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     review_from_board = False
     review_state = {"used": False, "ms": None, "moments": None}
     if review_pgn is None and config.COACH_REVIEW_PRESTEP and config.COACH_REVIEW_BOARD and not body.review_game_id:
-        review_pgn = _board_review_pgn(active_board, body.message)
+        review_pgn = _board_review_pgn(active_board, body.message, session)
         if review_pgn:
             # Only when its scan fits in the wait (mostly the background's cache): a game with most of it still to
             # search goes as on main — the model and its tools — and is finished in the background for the next ask.
