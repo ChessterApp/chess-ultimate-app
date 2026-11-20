@@ -6,9 +6,20 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { NextIntlClientProvider } from 'next-intl';
 import en from '../../../../messages/en.json';
-import Composer, { composerButton, sendBesideMic, type ComposerVoice } from '../Composer';
+import Composer, { bannerStage, composerButton, sendBesideMic, type ComposerVoice } from '../Composer';
 
 const coach = en.coach;
+
+describe('bannerStage (tester, 19.11: «не видно, включён он или нет»)', () => {
+  it('the pipeline\'s step while voice is on, the status for Live, nothing when off', () => {
+    expect(bannerStage({ stage: 'thinking', status: 'listening', active: true })).toBe('thinking');
+    expect(bannerStage({ stage: 'hearing', status: 'listening', active: true })).toBe('hearing');
+    expect(bannerStage({ status: 'speaking', active: true })).toBe('speaking');
+    expect(bannerStage({ status: 'connecting', active: false })).toBe('connecting');
+    expect(bannerStage({ stage: 'listening', status: 'listening', active: false })).toBeNull();
+    expect(bannerStage({ status: 'error', active: true })).toBeNull();
+  });
+});
 
 describe('composerButton', () => {
   const base = { hasText: false, streaming: false, voiceSupported: true, voiceActive: false };
@@ -87,6 +98,24 @@ describe('Composer', () => {
     render(<Harness streaming onAbort={onAbort} />);
     fireEvent.click(screen.getByTestId('composer-stop'));
     expect(onAbort).toHaveBeenCalledOnce();
+  });
+
+  it('the banner: what was heard while the coach thinks, «Stop» ends the voice (tester, 19.11)', () => {
+    const onToggle = vi.fn();
+    render(<Harness voice={{ status: 'listening', active: true, stage: 'thinking', heard: 'how to answer Nf3', onToggle }} />);
+    expect(screen.getByTestId('voice-banner').getAttribute('data-stage')).toBe('thinking');
+    expect(screen.getByTestId('voice-banner-title').textContent).toBe(coach.voiceStage.thinking);
+    expect(screen.getByText('Heard: “how to answer Nf3”')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('voice-banner-stop'));
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
+
+  it('the banner: a level meter while the mic hears the student', () => {
+    render(<Harness voice={{ status: 'listening', active: true, stage: 'hearing', level: 0.8 }} />);
+    expect(screen.getByTestId('voice-banner-title').textContent).toBe(coach.voiceStage.hearing);
+    const bars = screen.getByTestId('voice-level').querySelectorAll('span');
+    expect(bars).toHaveLength(5);
+    expect(parseInt((bars[2] as HTMLElement).style.height, 10)).toBeGreaterThan(15);
   });
 
   it('the mic toggles voice', () => {

@@ -60,6 +60,16 @@ export async function fetchServerVoiceMode(): Promise<VoiceMode | null> {
  *  transcription model with a token of the site, as before 18.11). */
 export type SttTransport = 'server' | 'google';
 
+/**
+ * What the voice is doing, for the student to see (tester, 19.11): listening — the mic is open, nobody speaks; hearing —
+ * the student is speaking; recognizing — the words are being turned into text; thinking — they went to the coach, no
+ * voice yet; speaking — the coach talks. The app's pipeline-voice.ts has the same.
+ */
+export type VoiceStage = 'idle' | 'connecting' | 'listening' | 'hearing' | 'recognizing' | 'thinking' | 'speaking' | 'error';
+/** The meter: how often it moves, and the level that fills it. */
+export const LEVEL_EVERY_MS = 100;
+export const LEVEL_FULL_RMS = 0.12;
+
 /** The coach server's voice settings: the default mode and who hears. Null — an older server, no answer, a failure. */
 export async function fetchServerVoice(): Promise<{ mode: VoiceMode | null; stt: SttTransport } | null> {
   try {
@@ -161,7 +171,27 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
 
   const [status, setStatusState] = useState<LiveStatus>('idle');
   const statusRef = useRef<LiveStatus>('idle');
-  const setStatus = useCallback((s: LiveStatus) => { statusRef.current = s; setStatusState(s); }, []);
+  // The steps of one exchange, for the banner over the field (tester, 19.11: «не видно, включён он или нет»,
+  // «долго ждёшь»; Asan: «сделай так, чтобы прям видно было»): VoiceStage. The app has the same (pipeline-voice.ts).
+  const [stage, setStage] = useState<VoiceStage>('idle');
+  const [level, setLevel] = useState(0);
+  const [heard, setHeard] = useState<string | null>(null);
+  const cuttingRef = useRef(false);
+  const sttPendingRef = useRef(0);
+  const levelAtRef = useRef(0);
+  const levelRef = useRef(0);
+  const restage = useCallback(() => {
+    const st = statusRef.current;
+    const turn = turnRef.current; // declared below; read only from handlers, after the hook has run
+    setStage(
+      st !== 'listening' ? st
+        : cuttingRef.current ? 'hearing'
+          : sttPendingRef.current > 0 ? 'recognizing'
+            : turn && !turn.done ? 'thinking'
+              : 'listening',
+    );
+  }, []);
+  const setStatus = useCallback((s: LiveStatus) => { statusRef.current = s; setStatusState(s); restage(); }, [restage]);
   const [isActive, setIsActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [timings, setTimings] = useState<PipelineTimings>({ sttMs: null, firstSoundMs: null, firstAnswerMs: null });
@@ -250,7 +280,8 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     turnRef.current = null;
     stopSources();
     if (statusRef.current === 'speaking') setStatus('listening');
-  }, [stopSources, setStatus]);
+    restage();
+  }, [stopSources, setStatus, restage]);
 
   // ── the answer, read aloud ────────────────────────────────────────────────
   // The pieces of a turn are fetched ahead, TTS_IN_FLIGHT at a time (OpenRouter answers a chunk whole, ~3 s
@@ -395,8 +426,9 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     if (frame.done) {
       turn.done = true;
       drain(turn);
+      restage();
     }
-  }, [startFetches, drain]);
+  }, [startFetches, drain, restage]);
 
   const playFiller = useCallback(async (turn: Turn, locale: PipelineLocale) => {
     const path = fillerFor(locale);
@@ -461,6 +493,8 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     const locale = turnLocale(text, (optionsRef.current.locale?.() as PipelineLocale) || 'ru', talkLocaleRef.current);
     if (!looksLikeMove(text)) talkLocaleRef.current = locale;
     turn.spoke = locale;
+    setHeard(text);
+    restage();
     // No «сейчас посмотрю» before a silence (the TTS is down) nor before a move: its own phrase comes within a second.
     if (performance.now() >= ttsBlockedUntilRef.current && !looksLikeMove(text)) void playFiller(turn, locale);
     try {
@@ -468,7 +502,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     } catch (err) {
       console.error('[pipeline] onUtterance failed', err);
     }
-  }, [playFiller, newTurn]);
+  }, [playFiller, newTurn, restage]);
 
   const sendUtteranceRef = useRef(sendUtterance);
   sendUtteranceRef.current = sendUtterance;
@@ -519,6 +553,11 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     }
     transcriptRef.current = '';
     baselineRef.current = '';
+    cuttingRef.current = false;
+    sttPendingRef.current = 0;
+    levelRef.current = 0;
+    setLevel(0);
+    setHeard(null);
   }, [endTurn]);
 
   const fail = useCallback((msg: string) => {
@@ -630,6 +669,8 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     const hear = async (pcm: Int16Array) => {
       if (closed) return;
       const locale = talkLocaleRef.current ?? ((optionsRef.current.locale?.() as PipelineLocale) || 'ru');
+      sttPendingRef.current += 1;
+      restage();
       try {
         const res = await fetch('/api/coach/voice/stt', {
           method: 'POST', credentials: 'include',
@@ -646,6 +687,9 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
         failures += 1;
         console.warn('[pipeline] the utterance was not heard', err);
         if (failures >= STT_FAILURES_MAX || /stt 402/.test(String(err))) failRef.current('Распознавание речи сейчас недоступно — продолжайте текстом.');
+      } finally {
+        sttPendingRef.current = Math.max(0, sttPendingRef.current - 1);
+        if (!closed) restage();
       }
     };
     openedAtRef.current = performance.now();
@@ -654,6 +698,10 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
       push: (buffer, rms) => {
         if (closed) return;
         const step = cutter.push(new Int16Array(buffer), rms, statusRef.current === 'speaking' ? BARGE_IN_RMS : SPEECH_RMS);
+        if (cutter.speaking !== cuttingRef.current) {
+          cuttingRef.current = cutter.speaking;
+          restage();
+        }
         // The student talks over the coach: his turn ends (Google's stream said so with its voice activity).
         if (step.started && statusRef.current === 'speaking') endTurn();
         if (step.utterance) {
@@ -664,7 +712,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
       sendRealtimeInput: () => { /* the frames come through push */ },
       close: () => { closed = true; cutter.reset(); },
     };
-  }, [endTurn]);
+  }, [endTurn, restage]);
 
   // A fresh connection takes over before this one's lifetime ends: opened first, swapped in, the old one
   // closed. «hard» (overdue, the student still talking): the words heard so far go to the coach first.
@@ -745,6 +793,12 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
         const data = ev.data as { pcm: ArrayBuffer; rms: number };
         if (!data?.pcm) return;
         const now = performance.now();
+        // The meter: at most ten times a second, √-scaled so a quiet voice shows too (the app's showLevel).
+        if (now - levelAtRef.current >= LEVEL_EVERY_MS) {
+          levelAtRef.current = now;
+          const next = Math.min(1, Math.sqrt(data.rms / LEVEL_FULL_RMS));
+          if (Math.abs(next - levelRef.current) >= 0.03) { levelRef.current = next; setLevel(next); }
+        }
         if (data.rms > SPEECH_RMS) {
           lastSpeechAtRef.current = now;
           speechEndAtRef.current = now;
@@ -785,5 +839,5 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
 
   useEffect(() => () => cleanup(), [cleanup]);
 
-  return { status, isSupported, isActive, error, timings, ttsState, prepare, connect, disconnect, feedFrame, announce, currentTurnId };
+  return { status, stage, level, heard, isSupported, isActive, error, timings, ttsState, prepare, connect, disconnect, feedFrame, announce, currentTurnId };
 }

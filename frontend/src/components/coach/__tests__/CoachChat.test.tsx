@@ -145,16 +145,18 @@ describe('CoachChat voice mode', () => {
     expect(banner.textContent).toContain('text chat is unlimited');
   });
 
-  it('shows the listening pill when status is listening', () => {
+  // The live state is a wide banner with «Стоп» now, not a small pill (tester, 19.11: «не видно, включён он или нет»).
+  it('shows the listening banner when status is listening', () => {
     live.ret = makeReturn({ status: 'listening', isActive: true });
     renderChat();
-    expect(screen.getByTestId('voice-pill').textContent).toBe(coach.voiceListening);
+    expect(screen.getByTestId('voice-banner-title').textContent).toBe(coach.voiceStage.listening);
+    expect(screen.getByTestId('voice-banner-stop')).toBeTruthy();
   });
 
-  it('shows the speaking pill when status is speaking', () => {
+  it('shows the speaking banner when status is speaking', () => {
     live.ret = makeReturn({ status: 'speaking', isActive: true });
     renderChat();
-    expect(screen.getByTestId('voice-pill').textContent).toBe(coach.voiceSpeaking);
+    expect(screen.getByTestId('voice-banner-title').textContent).toBe(coach.voiceStage.speaking);
   });
 
   it('renders a user bubble from a final transcript', () => {

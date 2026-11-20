@@ -4,6 +4,7 @@ import React from 'react';
 import { useTranslations } from 'next-intl';
 import { ArrowUp, Loader2, Mic, Plus, Square } from 'lucide-react';
 import type { LiveStatus } from '@/hooks/useGeminiLive';
+import type { VoiceStage } from '@/hooks/usePipelineVoice';
 import AttachSheet, { type AttachKind } from './AttachSheet';
 
 export type ComposerButton = 'stop' | 'send' | 'mic';
@@ -46,6 +47,86 @@ export interface ComposerVoice {
   remainingSeconds: number | null;
   onToggle: () => void;
   onPrefetch: () => void;
+  /** The step of the exchange (the pipeline's; Live has only its status) — the banner over the field. */
+  stage?: VoiceStage;
+  /** The mic's level now, 0…1 (the pipeline's meter). */
+  level?: number;
+  /** The words last heard, shown while the coach thinks. */
+  heard?: string | null;
+}
+
+/** The stage the banner shows: the pipeline's own, else the status (Live). */
+export function bannerStage(voice: Pick<ComposerVoice, 'stage' | 'status' | 'active'>): VoiceStage | null {
+  const stage = voice.stage ?? (voice.status as VoiceStage);
+  if (stage === 'connecting') return stage;
+  if (!voice.active) return null;
+  return stage === 'idle' || stage === 'error' ? null : stage;
+}
+
+/** The stages a wait is counted in, seconds on the banner (tester, 19.11: «долго ждёшь»). */
+const COUNTED: VoiceStage[] = ['connecting', 'recognizing', 'thinking'];
+
+/**
+ * The voice's banner over the field (tester, 19.11: «непонятно, когда микрофон слушает … не видно, включён он или нет»;
+ * Asan: «сделай так, чтобы прям видно было»). A wide card coloured by the step: green while the mic listens or hears
+ * the student (a live level meter), the accent while the coach talks, neutral with a seconds count while the words are
+ * recognised and the coach thinks — with the words heard, so a misheard phrase is seen at once. «Стоп» ends the voice.
+ * The app's voice-controls.tsx VoiceBanner is the same.
+ */
+export function VoiceBanner({ voice }: { voice: ComposerVoice }) {
+  const t = useTranslations('coach');
+  const stage = bannerStage(voice);
+  const counted = !!stage && COUNTED.includes(stage);
+  const [count, setCount] = React.useState<{ stage: VoiceStage | null; seconds: number }>({ stage, seconds: 0 });
+  React.useEffect(() => {
+    if (!counted) return;
+    const timer = setInterval(
+      () => setCount((prev) => (prev.stage === stage ? { stage, seconds: prev.seconds + 1 } : { stage, seconds: 1 })),
+      1000,
+    );
+    return () => clearInterval(timer);
+  }, [counted, stage]);
+  if (!stage) return null;
+  const seconds = count.stage === stage ? count.seconds : 0;
+  const green = stage === 'listening' || stage === 'hearing';
+  const tone = green
+    ? 'border-(--coach-success) bg-(--coach-success-soft) text-(--coach-success)'
+    : stage === 'speaking'
+      ? 'border-(--coach-accent) bg-(--coach-accent-soft) text-(--coach-accent-text)'
+      : 'border-(--coach-border) bg-(--coach-surface-2) text-(--coach-text)';
+  const title = t(`voiceStage.${stage}`) + (counted && seconds > 0 ? ` · ${seconds} ${t('voiceSeconds')}` : '');
+  const sub = stage === 'thinking' && voice.heard ? t('voiceHeard', { text: voice.heard }) : t(`voiceStageHint.${stage}`);
+  const level = voice.level ?? 0;
+  return (
+    <div data-testid="voice-banner" data-stage={stage} role="status" aria-live="polite"
+      className={`mb-2 flex items-center gap-3 rounded-2xl border-[1.5px] py-2.5 pr-2.5 pl-3.5 ${tone}`}>
+      <div className="flex h-6 w-7 shrink-0 items-center justify-center" aria-hidden>
+        {green ? (
+          <div className="flex h-6 items-center gap-0.5" data-testid="voice-level">
+            {[0.55, 0.8, 1, 0.8, 0.55].map((k, i) => (
+              <span key={i} className="w-[3px] rounded-sm bg-current transition-[height] duration-100"
+                style={{ height: 4 + Math.round(18 * Math.min(1, level * k * 1.2)) }} />
+            ))}
+          </div>
+        ) : counted ? (
+          <Loader2 size={20} className="animate-spin" />
+        ) : (
+          <Mic size={20} />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div data-testid="voice-banner-title" className="truncate text-base leading-[22px] font-semibold">{title}</div>
+        <div className="line-clamp-2 text-[13px] leading-[18px] text-(--coach-muted)">{sub}</div>
+      </div>
+      {voice.active && (
+        <button type="button" onClick={voice.onToggle} data-testid="voice-banner-stop" aria-label={t('voiceStop')}
+          className="flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl bg-(--coach-danger-soft) px-3 text-sm font-semibold text-(--coach-danger) hover:opacity-90">
+          <Square size={12} fill="currentColor" aria-hidden />
+          {t('voiceStopShort')}
+        </button>
+      )}
+    </div>
+  );
 }
 
 interface ComposerProps {
@@ -101,17 +182,7 @@ export default function Composer({
 
   return (
     <div className={`px-3 pt-2 pb-3 ${hidden && !voice.active ? 'hidden' : ''}`} data-testid="coach-composer">
-      {voiceLive && (
-        <div className="mb-2 flex justify-center">
-          <span data-testid="voice-pill" className="rounded-full bg-(--coach-surface-2) px-3 py-1 text-xs text-(--coach-text)">
-            {voice.status === 'connecting'
-              ? t('voiceConnecting')
-              : voice.status === 'listening'
-                ? t('voiceListening')
-                : t('voiceSpeaking')}
-          </span>
-        </div>
-      )}
+      {voiceLive && <VoiceBanner voice={voice} />}
       {/* The error is shown here, not only in the mic tooltip (invisible on touch). */}
       {voice.status === 'error' && (
         <div className="mb-2 flex justify-center">

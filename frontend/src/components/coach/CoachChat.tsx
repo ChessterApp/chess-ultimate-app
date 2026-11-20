@@ -1239,6 +1239,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           remainingSeconds: null,
           onToggle: () => void togglePipeline(),
           onPrefetch: () => {},
+          stage: pipeline.stage,
+          level: pipeline.level,
+          heard: pipeline.heard,
         } : {
           supported: voiceSupported,
           status: voiceStatus,

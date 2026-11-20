@@ -2367,7 +2367,26 @@
     "gameNav": "Ходы партии",
     "viewingStart": "Просмотр: начальная позиция. Партия продолжается",
     "viewingLine": "Вариант: {line}",
-    "gameNavCounter": "Ход {index} из {total}"
+    "gameNavCounter": "Ход {index} из {total}",
+    "voiceStage": {
+      "connecting": "Включаю микрофон…",
+      "listening": "Слушаю — говорите",
+      "hearing": "Слышу вас…",
+      "recognizing": "Распознаю речь…",
+      "thinking": "Тренер думает…",
+      "speaking": "Тренер говорит"
+    },
+    "voiceStageHint": {
+      "connecting": "Пара секунд",
+      "listening": "Микрофон включён и слышит всё вокруг",
+      "hearing": "Договорите — отправлю, когда замолчите",
+      "recognizing": "Превращаю речь в текст",
+      "thinking": "Ответ скоро",
+      "speaking": "Можно перебить — просто говорите"
+    },
+    "voiceHeard": "Услышал: «{text}»",
+    "voiceSeconds": "с",
+    "voiceStopShort": "Стоп"
   },
   "gameEnd": {
     "winTitle": "Мат! Ты победил!",
