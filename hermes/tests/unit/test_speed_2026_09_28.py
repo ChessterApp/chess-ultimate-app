@@ -146,7 +146,8 @@ def test_only_the_biggest_swings_are_kept_in_game_order():
     pgn = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 1-0"
     # Every move swings: losses of 2, 5, 3, 4, 6, 2.5 pawns for the mover.
     evals = [0, -200, 300, 0, 400, -200, 50]
-    pvs = ["e2e4"] * 7
+    # Not the moves played: the engine's own choice is never a moment (20.11).
+    pvs = ["a2a3"] * 7
     with patch.object(critical_moments, "MAX_MOMENTS", 3):
         result = critical_moments.find_critical_moments(pgn, threshold=1.5, _proc=_scan_proc(evals, pvs))
     assert [m["move"] for m in result["critical_moments"]] == ["e5", "Nc6", "Bc4"]
