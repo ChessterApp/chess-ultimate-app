@@ -231,6 +231,12 @@ def _moments(positions: list, moves_san: list, scanned: list, threshold: float) 
         loss = before - after
         if loss < threshold:
             continue
+        # The engine's own choice is never the mistake: a drop after it is the shallow search's horizon, not the move
+        # (tester 20.11: Morphy's 15.Bxd7+ in the Opera Game, the best move with mate after 16.Qb8+!, came out as
+        # «blunder −6.34» at depth 12 and the coach told a better 15.Bxf6).
+        engine_line = _san_line(positions[i], scanned[i][1])
+        if engine_line and engine_line[0] == moves_san[i]:
+            continue
 
         if before > EVAL_CAP and after <= EVAL_CAP:
             moment_type = "missed_mate"
