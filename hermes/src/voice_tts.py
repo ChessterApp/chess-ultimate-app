@@ -129,9 +129,9 @@ async def _ask(direct: bool, key: str, model: str, voice: str, text: str, locale
     return None, None, JSONResponse({"error": f"TTS failed: {resp.status_code}"}, status_code=status, headers=headers)
 
 
-async def speak(text: str, locale: Optional[str]):
-    """The FastAPI response for one chunk: the PCM stream, or a JSON error — 429 (a rate limit) and 402 (no
-    credit) kept apart from a failure (502), so the browser waits the first out and tells the student.
+async def open_speech(text: str, locale: Optional[str]):
+    """One chunk read: ``(client, response, model, rate, None)`` with the PCM stream open, or ``(None, None, None,
+    None, refusal)`` — the JSON error. The route below and the chat's own first sentence (src/voice_speak.py) share it.
 
     A chunk ElevenLabs does not read (its quota spent, its key refused, the service away) is read by the default
     voice through OpenRouter instead (17.11): the coach changes voice, it does not fall silent. ElevenLabs is then
@@ -142,10 +142,10 @@ async def speak(text: str, locale: Optional[str]):
     spare_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     direct = bool(own_key) and model.startswith(ELEVENLABS_PREFIX)
     if not (own_key if direct else spare_key):
-        return JSONResponse({"error": "TTS not configured"}, status_code=500)
+        return None, None, None, None, JSONResponse({"error": "TTS not configured"}, status_code=500)
     text = (text or "").strip()[:MAX_CHARS]
     if not text:
-        return JSONResponse({"error": "Missing text"}, status_code=400)
+        return None, None, None, None, JSONResponse({"error": "Missing text"}, status_code=400)
     refusal = None
     if direct and (not spare_key or time.monotonic() >= _direct_down_until):
         client, resp, refusal = await _ask(True, own_key, model, voice, text, locale)
@@ -158,9 +158,17 @@ async def speak(text: str, locale: Optional[str]):
             model, voice = DEFAULT_MODEL, DEFAULT_VOICE
         client, resp, refusal = await _ask(False, spare_key, model, voice, text, locale)
     if refusal is not None:
-        return refusal
+        return None, None, None, None, refusal
     rate_m = re.search(r"rate=(\d+)", resp.headers.get("content-type", ""))
-    rate = rate_m.group(1) if rate_m else "24000"
+    return client, resp, model, rate_m.group(1) if rate_m else "24000", None
+
+
+async def speak(text: str, locale: Optional[str]):
+    """The FastAPI response for one chunk: the PCM stream, or a JSON error — 429 (a rate limit) and 402 (no
+    credit) kept apart from a failure (502), so the browser waits the first out and tells the student."""
+    client, resp, model, rate, refusal = await open_speech(text, locale)
+    if refusal is not None:
+        return refusal
 
     async def body():
         try:

@@ -1914,6 +1914,9 @@ class CoachChatRequest(CoachRequest):
     # The answer will be read aloud (the site's voice pipeline, 25.10): kept short, and a move the
     # system has already said («е четыре. Отвечаю е пять.») is not restated.
     speech: Optional[bool] = None
+    # The page plays audio sent in this stream (20.11, src/voice_speak.py): the first sentence of the spoken answer is
+    # read here and its sound comes down the stream — no request of its own through the site. Only with ``speech``.
+    speech_audio: Optional[bool] = None
     # The ply of the game's earlier position the student is looking at (the move panel, 26.10): the coach
     # answers about that position; «продолжим отсюда» cuts the game there; a bare move is not played.
     view_ply: Optional[int] = None
@@ -3070,6 +3073,26 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # event loop via a thread-safe queue so tokens stream out as they arrive.
         queue: asyncio.Queue = asyncio.Queue()
         sentinel = object()
+        # The first sentence of a spoken answer read here, its sound in this stream (src/voice_speak.py, 20.11).
+        speech = {"on": bool(body.speech) and bool(body.speech_audio) and config.COACH_SERVER_SPEECH,
+                  "sent": False, "task": None}
+
+        def _speech_head(text: str) -> list:
+            """Before the answer's first text: the frame naming the sentence read here, its reading started. The
+            first text only — a later sentence read here would come out of order."""
+            if not speech["on"] or speech["sent"] or not text.strip():
+                return []
+            speech["sent"] = True
+            from src import voice_speak
+
+            head = voice_speak.first_sentence(text)
+            if not head:
+                return []
+            speech["task"] = asyncio.get_running_loop().create_task(voice_speak.stream(
+                head, turn_language, lambda kind, payload: queue.put_nowait((kind, payload))))
+            _mark("speech_head")
+            return [_sse({"speech": {"id": 1, "text": head}})]
+
         streamed_any = False  # the ANSWER stage produced at least one delta
         # Per-turn state used by the coach_events instrumentation below.
         tool_starts: dict = {}
@@ -3714,11 +3737,13 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             if quick["finished"]:
                 text = _answer_delta(text)
                 if text:
+                    frames.extend(_speech_head(text))
                     frames.append(_sse({"delta": text}))
             elif not quick["shown"]:
                 # The answer got here first — abandon the reaction.
                 quick["abort"] = True
                 frames.extend(_finish_quick())
+                frames.extend(_speech_head(text))
                 frames.append(_sse({"delta": text}))
             else:
                 held_answer.append(text)
@@ -4170,6 +4195,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if not quick["finished"]:
                         for frame in _finish_quick():
                             yield frame
+                elif kind in ("speech_audio", "speech_done"):
+                    if kind == "speech_done":
+                        _mark("speech_done")
+                    yield _sse({kind: payload})
                 elif kind == "delta":
                     if _is_framework_notice(payload):
                         continue
@@ -4254,6 +4283,20 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 partial_parts.append(cut_note)
                 answer_parts.append(cut_note)
                 yield _sse({"delta": cut_note})
+            # The first sentence's sound still on its way: the stream ends after it (the page plays it).
+            while speech["task"] is not None:
+                if speech["task"].done() and queue.empty():
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=config.COACH_SERVER_SPEECH_WAIT_S)
+                except asyncio.TimeoutError:
+                    speech["task"].cancel()
+                    yield _sse({"speech_done": {"id": 1, "ok": False}})
+                    break
+                if item is sentinel or not isinstance(item, tuple):
+                    continue
+                if item[0] in ("speech_audio", "speech_done"):
+                    yield _sse({item[0]: item[1]})
             await future  # ensure the executor thread has fully unwound
             if quick_future is not None and quick["reply"] is not None:
                 await quick_future
@@ -4261,6 +4304,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             # for it here would delay the terminal frames for nothing.
         except (asyncio.CancelledError, GeneratorExit):
             quick["abort"] = True
+            if speech["task"] is not None:
+                speech["task"].cancel()
             # Client disconnected mid-stream: record what we streamed so far and
             # the partial assistant text, then re-raise so Starlette unwinds.
             log_event(

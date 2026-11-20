@@ -252,6 +252,11 @@ COACH_TWO_STAGE = _env_flag("COACH_TWO_STAGE", True)
 # A spoken turn (the voice pipeline) is answered at once, without looking a lesson up first (20.11: 3-4 s of a ~10 s
 # voice answer went to it); COACH_SPOKEN_QUICK=0 brings the lookup back. tool_selector.SPOKEN_LOOKUP_TOOLS.
 COACH_SPOKEN_QUICK = _env_flag("COACH_SPOKEN_QUICK", True)
+# The first sentence of a spoken answer is read by this server and its sound sent in the chat stream to a page that
+# asks for it (speech_audio; src/voice_speak.py, 20.11); COACH_SERVER_SPEECH=0 leaves all reading to the page.
+COACH_SERVER_SPEECH = _env_flag("COACH_SERVER_SPEECH", True)
+# How long the stream waits for that sound after the answer's text has ended.
+COACH_SERVER_SPEECH_WAIT_S = float(os.environ.get("COACH_SERVER_SPEECH_WAIT_S", "12"))
 COACH_QUICK_BUDGET_MS = int(os.environ.get("COACH_QUICK_BUDGET_MS", "2500"))
 COACH_QUICK_MAX_TOKENS = int(os.environ.get("COACH_QUICK_MAX_TOKENS", "60"))
 

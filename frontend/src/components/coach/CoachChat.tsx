@@ -846,6 +846,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           // The answer will be read aloud (the voice pipeline): the server keeps it short and does not
           // restate a move the system already said.
           speech: pipelineRef.current.isActive && pipelineRef.current.ttsState === 'ok' ? true : undefined,
+          // …and its first sentence's sound may come down this stream, read by the coach server (20.11).
+          speech_audio: pipelineRef.current.isActive && pipelineRef.current.ttsState === 'ok' ? true : undefined,
           // The earlier position of the game on the board, when the student browsed back (26.10).
           view_ply: viewPlyRef.current ?? undefined,
           view_line: viewLineRef.current ?? undefined,

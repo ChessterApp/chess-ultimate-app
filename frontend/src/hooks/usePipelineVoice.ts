@@ -60,6 +60,14 @@ export async function fetchServerVoiceMode(): Promise<VoiceMode | null> {
  *  transcription model with a token of the site, as before 18.11). */
 export type SttTransport = 'server' | 'google';
 
+/** Base64 of 16-bit little-endian PCM (the coach server's speech_audio frames) as samples. */
+export function base64Pcm(b64: string): Int16Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length - (bin.length % 2));
+  for (let i = 0; i < bytes.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Int16Array(bytes.buffer);
+}
+
 /**
  * What the voice is doing, for the student to see (tester, 19.11): listening — the mic is open, nobody speaks; hearing —
  * the student is speaking; recognizing — the words are being turned into text; thinking — they went to the coach, no
@@ -99,6 +107,11 @@ export interface PipelineFrame {
   done?: boolean;
   /** The server's board actions of this frame: a `game` view with the move just played is read out at once. */
   board_actions?: unknown;
+  /** The first sentence of the answer is read by the coach server (speech_audio, 20.11): its exact text, then its
+   *  sound in `speech_audio` frames (base64 16-bit PCM, 24 kHz) and `speech_done` — Hermes src/voice_speak.py. */
+  speech?: { id: number; text: string };
+  speech_audio?: { id: number; pcm: string };
+  speech_done?: { id: number; ok: boolean };
 }
 
 export interface UsePipelineVoiceOptions {
@@ -132,6 +145,7 @@ interface Piece {
   played: number;     // parts already handed to playback
   started: boolean;
   done: boolean;
+  server?: boolean;   // read by the coach server, its sound coming down the chat stream (20.11)
 }
 
 interface Turn {
@@ -146,6 +160,8 @@ interface Turn {
   spokenAnswer: boolean;
   done: boolean;
   spoke?: PipelineLocale;  // the language of the student's words that opened the turn (turnLocale)
+  serverPiece?: Piece;     // the first sentence the coach server reads (PipelineFrame.speech)
+  skip?: number;           // characters of the answer still to come that the server reads: not read here again
 }
 
 interface LiveSessionLike {
@@ -388,7 +404,41 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     if (turnId !== undefined && turn.id !== turnId) return;
     if (frame.stage === 'quick') turn.quiet = true;
     else if (frame.stage === 'answer') turn.quiet = false;
-    if (typeof frame.delta === 'string' && frame.delta && !turn.quiet) turn.buffer += frame.delta;
+    // The first sentence read by the coach server (20.11): a piece of its own, its sound from the stream; its text
+    // is not read here again. Ahead of the text it covers, so nothing of it is in the buffer yet.
+    if (frame.speech && typeof frame.speech.text === 'string' && !turn.quiet && !turn.serverPiece && !turn.firstQueued) {
+      const piece: Piece = {
+        text: frame.speech.text, locale: turn.spoke ?? ((optionsRef.current.locale?.() as PipelineLocale) || 'ru'),
+        parts: [], played: 0, started: true, done: false, server: true,
+      };
+      turn.serverPiece = piece;
+      turn.skip = frame.speech.text.length;
+      turn.pieces.push(piece);
+      turn.firstQueued = true;
+    }
+    if (frame.speech_audio && turn.serverPiece && typeof frame.speech_audio.pcm === 'string') {
+      const pcm = base64Pcm(frame.speech_audio.pcm);
+      if (pcm.length) {
+        turn.serverPiece.parts.push(pcm);
+        drain(turn);
+      }
+    }
+    if (frame.speech_done && turn.serverPiece && !turn.serverPiece.done) {
+      const piece = turn.serverPiece;
+      if (!frame.speech_done.ok && piece.parts.length === 0) piece.started = false;  // not read there: read it here
+      else piece.done = true;
+      startFetches(turn);
+      drain(turn);
+    }
+    if (typeof frame.delta === 'string' && frame.delta && !turn.quiet) {
+      let delta = frame.delta;
+      if (turn.skip) {
+        const cut = Math.min(turn.skip, delta.length);
+        delta = delta.slice(cut);
+        turn.skip -= cut;
+      }
+      turn.buffer += delta;
+    }
     const locale = localeOf(turn.buffer || turn.waiting.join(' '), turn.spoke ?? ((optionsRef.current.locale?.() as PipelineLocale) || 'ru'));
     if (frame.board_actions && !turn.factSpoken) {
       // The server played the move and got the engine's reply before the model spoke: say so now.

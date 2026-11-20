@@ -39,6 +39,7 @@
    "board_id",
    "review_game_id",
    "speech",
+   "speech_audio",
    "view_ply",
    "view_line"
   ]
