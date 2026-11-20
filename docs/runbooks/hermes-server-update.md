@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 19.11 (четвёртый отчёт тестировщика: тренер только про шахматы, «Разбор последней партии» видит партии с тренером, голосом отвечает быстрее) — включает всё из версий 06.10 … 18.11-5
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 20.11 (пятый отчёт тестировщика: разбор не называет ошибкой лучший ход, проверка «какого слона открывает пешка», разбор после реванша, партии Фишера по ссылке) — включает всё из версий 06.10 … 19.11
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -7,7 +7,7 @@
 > обновление: всё, что уже сделано в прошлый раз (миграции, база задач, переменные), Claude
 > проверит и пропустит, так что займёт 10–15 минут. В конце Claude пришлёт отчёт.
 >
-> **Это обновление поверх версии 18.11-5**, которая уже стоит: только код, без новых переменных, ключей и миграций.
+> **Это обновление поверх версии 19.11**, которая уже стоит: только код, без новых переменных, ключей и миграций.
 > Модель, голос и голосовой режим не меняются, `.env` не трогается.
 
 ---
@@ -32,6 +32,89 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 20.11 (отчёт тестировщика от 20.11; код — `hermes/src/` и тесты. Миграций, пакетов и переменных нет;
+подшаги 5а и 5б не выполняются. Если сервер на 19.11 — шаги 0, 1, 2, 3, 4, 8 и проверки 1, 3, 91; если раньше — все
+шаги):
+- **Разбор не называет ошибкой лучший ход** (`src/tools/critical_moments.py`). В «Оперной партии» Морфи разбор назвал
+  грубой ошибкой 15.Сxd7+ — лучший ход с матом после 16.Фb8+! — и тренер посоветовал «сильнее 15.Сxf6». Скан партии на
+  глубине 12 не досчитывал жертву. Ход, который сам движок считал лучшим в позиции перед ним, больше не попадает в
+  моменты разбора.
+- **Какого слона открывает ход пешки** (`src/answer_check_rules.py`). «Лучше было 5.d3: … открывает дорогу белопольному
+  слону» — неправда: d2–d3 открывает чернопольного. Проверка ответа ловит такие фразы (цвет слона = цвет поля, с которого
+  ушла пешка) и тренер переписывает предложение.
+- **Карточка разбора партии с тренером по-русски** (`src/review_moments.py`): «Ты – Тренер (1200)» вместо
+  «Student – Coach (Stockfish 1200)». Итоговый комментарий не склеивает лучший ход и сдачу («лучше было 5.d3, после чего ты
+  сдался» звучало так, будто 5.d3 сыграли) — `src/game_mode.py`.
+- **«Главная ошибка» после «Реванша»** (`src/intent.py`, `src/server.py`). Тренер просил «пришли запись партии», хотя её
+  разбор был выше в чате. Кнопка «Главная ошибка» теперь — просьба о разборе, а разбор во время новой партии берёт
+  последнюю законченную партию этой сессии.
+- **Партия в шахматы Фишера (960) по ссылке** (`src/tools/game_url.py`): на доске оставалась прежняя партия, а тренер
+  разбирал новую по обычным правилам. Партии других вариантов шахмат теперь не загружаются, и страница прямо говорит, что
+  тренер пока разбирает только обычные шахматы.
+- **Карточка дебюта** (`src/tools/openings.py`): числа «партий мастеров» — по всей группе ECO (A09), а не по линии; это
+  сказано и модели, и на карточке («во всей группе A09»).
+- **Названия сессий с партией** (`src/server.py`): сессия называлась последним комментарием тренера и менялась с каждым
+  ходом; теперь — по самой партии («1.e4 e5 2.Nf3 Nc6 … 1-0»).
+- **Сайт и приложение** обновлены вместе с этим (зависание партии после пропажи интернета, доска после задачи за
+  чёрных, кнопка «Показать решение», подтверждение «Новая сессия» во время партии); со старым сервером они работают как
+  раньше.
+- **Фото доски** — правка в бэкенде `api.chesster.io` (`backend/api/photo_to_fen.py`), не в Hermes: его выкладывают
+  отдельно, как обычно выкладывается бэкенд.
+- Проверка 91 (без модели и без сети; Stockfish нужен — тот же, что у сервера):
+
+```bash
+cd /root/hermes-chess && SUPABASE_URL= .venv/bin/python - <<'EOF'
+from types import SimpleNamespace as NS
+from src import server
+from src.answer_check_rules import _pawn_bishop_issues
+from src.intent import asks_game_review
+from src.review_moments import _game
+from src.tools import critical_moments as cm, game_url
+
+# --- 91a: the engine's own move is never «a mistake» (Morphy's 15.Bxd7+ in the Opera Game; needs Stockfish)
+opera = ("1.e4 e5 2.Nf3 d6 3.d4 Bg4 4.dxe5 Bxf3 5.Qxf3 dxe5 6.Bc4 Nf6 7.Qb3 Qe7 8.Nc3 c6 9.Bg5 b5 10.Nxb5 cxb5 "
+         "11.Bxb5+ Nbd7 12.O-O-O Rd8 13.Rxd7 Rxd7 14.Rd1 Qe6 15.Bxd7+ Nxd7 16.Qb8+ Nxb8 17.Rd8# 1-0")
+scan = cm.find_critical_moments(opera)
+opera_ok = "critical_moments" in scan and not any(m["side"] == "white" for m in scan["critical_moments"])
+
+# --- 91b: which bishop a pawn move opens is checked; 91c: the coach game's card says «Ты – Тренер (1200)»
+bishop = bool(_pawn_bishop_issues("лучше было 5.d3: пешка открывает дорогу белопольному слону."))
+coach_pgn = '[Event "Game with the coach"]\n[White "Student"]\n[Black "Coach (Stockfish 1200)"]\n\n1. e4 *'
+names = (_game(coach_pgn, None, "ru")["white"], _game(coach_pgn, None, "ru")["black"]) == ("Ты", "Тренер (1200)")
+
+# --- 91d: «Главная ошибка» during a rematch reviews the game just finished
+done = NS(id="g1", kind="game", game_state={"status": "finished"}, updated_at=1,
+          pgn="1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Ng5 d5 5. exd5 Nxd5 6. Nxf7 Kxf7 1-0")
+live = NS(id="g2", kind="game", game_state={"status": "playing"}, updated_at=2, pgn="")
+rematch = asks_game_review("Главная ошибка") and server._board_review_pgn(live, "Главная ошибка", NS(boards=[done, live])) == done.pgn
+
+# --- 91e: a Chess960 game by its link is refused by name
+game_url._lichess_pgn = lambda gid, client: '[Variant "Chess960"]\n\n1. e4 e5 1-0'
+try:
+    game_url.fetch_game_by_url("https://lichess.org/abcdefgh", client=object())
+    variant = False
+except game_url.GameUrlError as exc:
+    variant = str(exc) == "variant:Chess960"
+
+# --- 91f: a game session with no question is named by its game
+session = NS(id="s", title="", created_at=1.0, board_state=None, active_board_id=None,
+             messages=[NS(role="assistant", content="Ход 2...Nc6 хороший.", timestamp=2.0)],
+             boards=[NS(kind="game", pgn="1. e4 e5 2. Nf3 Nc6 *", game_state={}, updated_at=1)])
+label = server._session_summary(session)["preview"].startswith("1.e4 e5 2.Nf3 Nc6")
+
+ok = opera_ok and bishop and names and rematch and variant and label
+print("ОК" if ok else "ПРОВЕРЬ", "| 91a Морфи без «ошибки» 15.Bxd7+:", opera_ok, "| 91b слон пешки:", bishop,
+      "| 91c «Ты – Тренер»:", names, "| 91d разбор при реванше:", rematch, "| 91e Фишер по ссылке:", variant,
+      "| 91f имя сессии с партией:", label)
+EOF
+```
+
+  → `ОК | 91a Морфи без «ошибки» 15.Bxd7+: True | 91b слон пешки: True | 91c «Ты – Тренер»: True | 91d разбор при
+  реванше: True | 91e Фишер по ссылке: True | 91f имя сессии с партией: True`. До обновления — `ImportError` или
+  `ПРОВЕРЬ` с `False`. `91a … False` при остальных `True` — Stockfish не найден этим запуском (тогда пришли вывод и
+  `grep STOCKFISH /root/hermes-chess/.env`). Любое другое `ПРОВЕРЬ` — пришли вывод человеку. Команда ничего не пишет в
+  базу и `.env` не меняет.
 
 Новое в версии 19.11 (отчёт тестировщика от 19.11; код — `hermes/src/` и тесты. Миграций, пакетов и переменных нет;
 подшаги 5а и 5б не выполняются. Если сервер на 18.11-5 — шаги 0, 1, 2, 3, 4, 8 и проверки 1, 3, 90; если раньше — все
@@ -2848,6 +2931,16 @@ test -f chess-ultimate-app/hermes/src/coach_games.py \
 
 Если «НЕТ версии 19.11»: **СТОП** — версия 19.11 ещё не влита в `main`; напиши Александру, ничего не обновляй.
 
+Версия 20.11 в main:
+
+```bash
+grep -q '_pawn_bishop_issues' chess-ultimate-app/hermes/src/answer_check_rules.py \
+  && grep -q 'STANDARD_VARIANTS' chess-ultimate-app/hermes/src/tools/game_url.py \
+  && echo "версия 20.11 в main есть" || echo "НЕТ версии 20.11"
+```
+
+Если «НЕТ версии 20.11»: **СТОП** — версия 20.11 ещё не влита в `main`; напиши Александру, ничего не обновляй.
+
 ## Шаг 2. Резервная копия
 
 ```bash
@@ -3679,6 +3772,7 @@ COACH_REASONING_MANDATORY, COACH_REASONING_EFFORT, COACH_LESSON_LINK=<значе
   88 18.11-4 — голос: запасной <Achird/…>, в .env ru/kk <bIHbv24MWmeRgasZH58o/…>, Sarah ещё стоит <False/True>; живая: X-Tts-Model ru <…> / kk <…>
   89 18.11-5 — разминка: места <[1..5]>, конец закрывает задачу <['set_fen']/…>; задача на своей линии <True/False>; сдача без ошибки и фразы о прошлом ответе <True/False>; чужая партия <True/False>
   90 19.11 — только шахматы <True/False>; партии с тренером читаются <True/False>; партия с тренером последняя <True/False>; голосом сразу <True/False>; первая фраза на сервере <True/False>
+  91 20.11 — Морфи <True/False>; слон пешки <…>; «Ты – Тренер» <…>; разбор при реванше <…>; Фишер по ссылке <…>; имя сессии <…>
 5б: <голос заменён на Will / не выполнялся — почему>
 Бэкенд (фото доски): <обновлён, коммит …, grep PHOTO_FEN_ATTEMPTS = … / не обновлён — почему>
 Что нужно от людей: <список или «ничего»>
