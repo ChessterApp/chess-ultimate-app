@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  END_SILENCE_MS, MAX_UTTERANCE_MS, MIN_SPEECH_MS, PRE_ROLL_MS, SAMPLE_RATE, START_MS, UtteranceCutter, wavBytes,
+  EARLY_SILENCE_MS, END_SILENCE_MS, MAX_UTTERANCE_MS, MIN_SPEECH_MS, PRE_ROLL_MS, SAMPLE_RATE, START_MS, UtteranceCutter, wavBytes,
 } from '../voice-utterance';
 
 /** 18.11: the page cuts the student's utterance itself — the words go through the coach server and OpenRouter,
@@ -147,5 +147,42 @@ describe('wavBytes', () => {
     expect([view.getUint16(20, true), view.getUint16(22, true), view.getUint32(24, true), view.getUint16(34, true)]).toEqual([1, 1, 16000, 16]);
     expect(view.getUint32(40, true)).toBe(pcm.length * 2);
     expect([0, 1, 2, 3, 4].map((i) => view.getInt16(44 + i * 2, true))).toEqual([0, 1, -1, 32767, -32768]);
+  });
+});
+
+describe('the early send (20.11): the phrase goes to be heard after a short quiet', () => {
+  const steps = (cutter: UtteranceCutter, level: { pcm: () => Int16Array; rms: number }, ms: number) => {
+    const out = [];
+    for (let t = 0; t < ms; t += FRAME_MS) out.push(cutter.push(level.pcm(), level.rms, THRESHOLD));
+    return out.filter((s) => s.started || s.utterance || s.early);
+  };
+  it('once, after EARLY_SILENCE_MS; the utterance at the end names it as the same phrase', () => {
+    const cutter = new UtteranceCutter();
+    steps(cutter, QUIET, 300);
+    steps(cutter, LOUD, 1000);
+    const quiet = steps(cutter, QUIET, END_SILENCE_MS + 60);
+    const early = quiet.filter((s) => s.early);
+    const end = quiet.find((s) => s.utterance)!;
+    expect(early).toHaveLength(1);
+    expect(end.sameAsEarly).toBe(early[0].early!.id);
+    expect(lengthMs(early[0].early!.pcm)).toBeGreaterThanOrEqual(1000 + EARLY_SILENCE_MS - FRAME_MS);
+  });
+  it('speech after it: the early send is not the phrase, a new one comes after the next quiet', () => {
+    const cutter = new UtteranceCutter();
+    steps(cutter, QUIET, 300);
+    steps(cutter, LOUD, 800);
+    const first = steps(cutter, QUIET, EARLY_SILENCE_MS + 100).find((s) => s.early)!;
+    steps(cutter, LOUD, 800);
+    const quiet = steps(cutter, QUIET, END_SILENCE_MS + 60);
+    const second = quiet.find((s) => s.early)!;
+    const end = quiet.find((s) => s.utterance)!;
+    expect(second.early!.id).not.toBe(first.early!.id);
+    expect(end.sameAsEarly).toBe(second.early!.id);
+  });
+  it('a cough sends nothing ahead', () => {
+    const cutter = new UtteranceCutter();
+    steps(cutter, QUIET, 300);
+    steps(cutter, LOUD, START_MS);
+    expect(steps(cutter, QUIET, END_SILENCE_MS + 60).some((s) => s.early)).toBe(false);
   });
 });

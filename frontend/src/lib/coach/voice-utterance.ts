@@ -14,6 +14,12 @@ export const SAMPLE_RATE = 16000;
 export const START_MS = 150;
 /** Quiet for this long after speech: the utterance is over. A pause inside a phrase is shorter. */
 export const END_SILENCE_MS = 700;
+/**
+ * Quiet for this long after speech: the utterance so far is sent to be heard ahead (CutterStep.early, 20.11). When
+ * the quiet lasts to END_SILENCE_MS its text is already on the way — about 400 ms of every turn; when the student
+ * goes on, that answer is dropped and the whole phrase is heard as before.
+ */
+export const EARLY_SILENCE_MS = 300;
 /** Kept before the moment speech was noticed. */
 export const PRE_ROLL_MS = 300;
 /** Less speech than this in all: a cough or a knock, not sent. */
@@ -40,6 +46,10 @@ export interface CutterStep {
   started: boolean;
   /** The utterance that has just ended, ready to send; null while it goes on or when it was too short. */
   utterance: Int16Array | null;
+  /** The utterance so far after EARLY_SILENCE_MS of quiet, to be heard ahead, with its number. */
+  early?: { id: number; pcm: Int16Array };
+  /** With `utterance`: the early one that is this same phrase (no speech came after it) — its text is the answer. */
+  sameAsEarly?: number;
 }
 
 const frameMs = (pcm: Int16Array) => (pcm.length / SAMPLE_RATE) * 1000;
@@ -66,6 +76,9 @@ export class UtteranceCutter {
   private recent: { energy: number; ms: number }[] = [];
   private recentMs = 0;
   private recentEnergy = 0;
+  /** The early send of this quiet stretch (its number), void once speech comes back. */
+  private earlyId: number | null = null;
+  private earlySeq = 0;
   /** The quietest level of each past NOISE_STEP_MS, oldest first, NOISE_WINDOW_MS of them: the room's own noise. */
   private steps: number[] = [];
   private stepMin = Infinity;
@@ -142,13 +155,21 @@ export class UtteranceCutter {
     if (loud) {
       this.quietMs = 0;
       this.speechMs += ms;
+      this.earlyId = null; // the student went on: the early send is not this phrase
     } else {
       this.quietMs += ms;
     }
-    if (this.quietMs < END_SILENCE_MS && this.totalMs < MAX_UTTERANCE_MS) return { started: false, utterance: null };
+    if (this.quietMs < END_SILENCE_MS && this.totalMs < MAX_UTTERANCE_MS) {
+      if (!loud && this.earlyId === null && this.quietMs >= EARLY_SILENCE_MS && this.speechMs >= MIN_SPEECH_MS) {
+        this.earlyId = ++this.earlySeq;
+        return { started: false, utterance: null, early: { id: this.earlyId, pcm: concat(this.parts) } };
+      }
+      return { started: false, utterance: null };
+    }
     const utterance = this.speechMs >= MIN_SPEECH_MS ? concat(this.parts) : null;
+    const sameAsEarly = utterance && this.earlyId !== null ? this.earlyId : undefined;
     this.reset();
-    return { started: false, utterance };
+    return sameAsEarly !== undefined ? { started: false, utterance, sameAsEarly } : { started: false, utterance };
   }
 
   /** Drop what is being collected (the microphone stops, the coach starts over). The room's noise is kept. */
@@ -160,6 +181,7 @@ export class UtteranceCutter {
     this.quietMs = 0;
     this.speechMs = 0;
     this.totalMs = 0;
+    this.earlyId = null;
   }
 }
 

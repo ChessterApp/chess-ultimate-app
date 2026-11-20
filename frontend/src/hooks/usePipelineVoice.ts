@@ -666,21 +666,32 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     let closed = false;
     let failures = 0;
     let queue: Promise<void> = Promise.resolve();
-    const hear = async (pcm: Int16Array) => {
-      if (closed) return;
+    type Heard = { ok: boolean; status: number; text: string };
+    const askStt = async (pcm: Int16Array): Promise<Heard> => {
       const locale = talkLocaleRef.current ?? ((optionsRef.current.locale?.() as PipelineLocale) || 'ru');
+      const res = await fetch('/api/coach/voice/stt', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'audio/wav', 'X-Voice-Locale': locale },
+        body: wavBytes(pcm),
+      });
+      const text = res.ok ? String(((await res.json().catch(() => ({}))) as { text?: unknown })?.text ?? '').trim() : '';
+      return { ok: res.ok, status: res.status, text };
+    };
+    // The phrase heard ahead after a short quiet (UtteranceCutter's early send, 20.11): its answer is the phrase's
+    // when nothing was said after it — a refusal included; one that never came back (the network) is asked again.
+    const ahead = new Map<number, Promise<Heard | null>>();
+    const hear = async (pcm: Int16Array, early?: Promise<Heard | null>) => {
+      if (closed) return;
       sttPendingRef.current += 1;
       restage();
       try {
-        const res = await fetch('/api/coach/voice/stt', {
-          method: 'POST', credentials: 'include',
-          headers: { 'Content-Type': 'audio/wav', 'X-Voice-Locale': locale },
-          body: wavBytes(pcm),
-        });
+        const known = early ? await early : null;
         if (closed) return;
-        if (!res.ok) throw new Error(`stt ${res.status}`);
+        const answer = known ?? (await askStt(pcm));
+        if (closed) return;
+        if (!answer.ok) throw new Error(`stt ${answer.status}`);
         failures = 0;
-        const text = String(((await res.json()) as { text?: unknown })?.text ?? '').trim();
+        const text = answer.text;
         if (text && !closed) sendUtteranceRef.current(text);
       } catch (err) {
         if (closed) return;
@@ -704,9 +715,15 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
         }
         // The student talks over the coach: his turn ends (Google's stream said so with its voice activity).
         if (step.started && statusRef.current === 'speaking') endTurn();
+        if (step.early) {
+          if (ahead.size > 4) ahead.clear(); // the ones a student talked past
+          ahead.set(step.early.id, askStt(step.early.pcm).catch(() => null));
+        }
         if (step.utterance) {
           const pcm = step.utterance;
-          queue = queue.then(() => hear(pcm));
+          const early = step.sameAsEarly !== undefined ? ahead.get(step.sameAsEarly) : undefined;
+          ahead.clear();
+          queue = queue.then(() => hear(pcm, early));
         }
       },
       sendRealtimeInput: () => { /* the frames come through push */ },
