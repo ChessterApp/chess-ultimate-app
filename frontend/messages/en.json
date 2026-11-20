@@ -2385,7 +2385,9 @@
     "voiceHintSpeaking": "Interrupt any time — just speak",
     "momentsAfterGame": "The review opens after the game: finish it or close it.",
     "photoIllegal": "The photo did not give a possible position: a piece seems to be misread. Take the photo again — straight on and in good light — or set the position up in the editor.",
-    "loadedFromPhotoDoubt": "The position from the photo is on the board, but check the pieces: the king of the side not to move is in check — a piece seems to be misread. If the other side is to move, write «white to move» or «black to move»."
+    "loadedFromPhotoDoubt": "The position from the photo is on the board, but check the pieces: the king of the side not to move is in check — a piece seems to be misread. If the other side is to move, write «white to move» or «black to move».",
+    "urlVariant": "This is a game of another chess variant ({variant}) — the coach reviews only standard chess for now, and the board does not show such games.",
+    "chess960": "Fischer Random, Chess960"
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",

@@ -209,6 +209,9 @@ def _int(value: str) -> Optional[int]:
         return None
 
 
+STANDARD_VARIANTS = frozenset({"standard", "from position", "chess"})
+
+
 def fetch_game_by_url(url: str, client: httpx.Client = None) -> dict:
     """PGN and headers of the game behind a Lichess / Chess.com link.
 
@@ -226,6 +229,12 @@ def fetch_game_by_url(url: str, client: httpx.Client = None) -> dict:
             client.close()
     if not pgn or "1." not in pgn and "1-0" not in pgn:
         raise GameUrlError("The game has no moves.")
+    # Another game than chess (Lichess / Chess.com «Variant»: Chess960, Crazyhouse, Atomic…): the board of the site and
+    # the app holds none of them, and the review reads its moves by the usual rules (tester 20.11: a Chess960 game left
+    # the earlier game on the board while the coach reviewed this one). The page tells it by this code.
+    variant = _header(pgn, "Variant")
+    if variant and variant.strip().lower() not in STANDARD_VARIANTS:
+        raise GameUrlError(f"variant:{variant.strip()}")
     plies = len(re.sub(r"\{[^}]*\}", "", pgn.split("\n\n", 1)[-1]).replace("\n", " ").split()) if "\n\n" in pgn else 0
     return {
         "source": provider,

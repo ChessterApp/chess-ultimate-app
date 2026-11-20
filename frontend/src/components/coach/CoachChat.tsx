@@ -671,7 +671,11 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           pgn?: string; white?: string; black?: string; error?: string;
         };
         if (!res.ok || !data.pgn) {
-          replaceLocalLine(lineId, t('urlFailed', { reason: data.error || `HTTP ${res.status}` }));
+          // «variant:Chess960» — another game than chess (Hermes game_url, tester 20.11): said plainly.
+          const variant = /^variant:(.+)$/.exec(data.error ?? '')?.[1];
+          replaceLocalLine(lineId, variant
+            ? t('urlVariant', { variant: variant === 'Chess960' ? t('chess960') : variant })
+            : t('urlFailed', { reason: data.error || `HTTP ${res.status}` }));
           return;
         }
         onBoardActions([{ type: 'load_pgn', pgn: data.pgn }]);
