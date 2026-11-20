@@ -655,6 +655,33 @@ def _colour_issues(text: str) -> list[str]:
     return issues
 
 
+# ── Which bishop a pawn move opens ──────────────────────────────────────────
+
+# «Лучше было 5.d3: пешка поддерживает центр и открывает дорогу белопольному слону» (tester 20.11) — d2–d3 leaves d2, a
+# dark square: it opens the dark-squared bishop (c1) and blocks the light one (f1). A pawn leaving a square opens the
+# diagonals through it, of that square's colour. Judged for a plain push to the 3rd (White, from the 2nd) or the 6th
+# rank (Black, from the 7th), where the square left is certain.
+_PAWN_OPENS_BISHOP = re.compile(
+    r"(?<![a-zа-яёәғқңөұүһі0-9x])(?P<f>[a-h])(?P<r>[36])(?![0-9a-zа-яё])[^.!?;\n]{0,100}?"
+    r"(?P<v>открыва\w*|освобожда\w*|выпуска\w*|\bopens?\b|\bfrees?\b)\s+(?:[а-яёa-z-]+\s+){0,3}?"
+    r"(?P<c>белопольн\w*|светлопольн\w*|чернопольн\w*|темнопольн\w*|light-squared|dark-squared)\s+(?:слон\w*|bishop)")
+
+
+def _pawn_bishop_issues(text: str) -> list[str]:
+    """«d3 открывает дорогу белопольному слону» — which bishop a pawn move frees is the colour of the square it left."""
+    issues = []
+    for m in _PAWN_OPENS_BISHOP.finditer(text):
+        if _negated_before(text, m.start("v")):
+            continue
+        left = chess.parse_square(m.group("f") + ("2" if m.group("r") == "3" else "7"))
+        said_light = m.group("c").startswith(("бел", "светл", "light"))
+        if said_light != _is_light(left):
+            colour = "light" if _is_light(left) else "dark"
+            issues.append(f"the pawn move to {m.group('f')}{m.group('r')} leaves {chess.square_name(left)}, a {colour} "
+                          f"square: it opens the {colour}-squared bishop, not the {'dark' if colour == 'light' else 'light'}-squared one")
+    return issues
+
+
 # ── The castling rule itself ────────────────────────────────────────────────
 
 _ROOK_ATTACKED = (r"(?:ладь\w*\s+(?:[а-яё]+\s+){0,2}?(?:под\s+бо\w+|под\s+удар\w*|атакован\w*)"
@@ -1709,7 +1736,7 @@ def law_issues(lowered: str, ctx) -> list[str]:
     """The claims about a law of chess, not about the position: a square's colour, castling with the rook attacked or b1
     attacked, an automatic draw, where a bare king can be mated (src/endgame_claims, with its own scope). They read the
     whole sentence — rule talk included (src/claim_scope.rule_spans, fix1102 K4)."""
-    return (_colour_issues(lowered) + _castling_rule_issues(lowered, getattr(ctx, "question", ""))
+    return (_colour_issues(lowered) + _pawn_bishop_issues(lowered) + _castling_rule_issues(lowered, getattr(ctx, "question", ""))
             + _castling_b1_issues(lowered) + _automatic_draw_issues(lowered) + _outcome_issues(lowered, ctx))
 
 

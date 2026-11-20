@@ -23,6 +23,7 @@ explain in words (``main_moments`` — the biggest swings, picked here) and that
 from __future__ import annotations
 
 import io
+import re
 import logging
 from typing import Any, Optional
 
@@ -109,7 +110,7 @@ def _build(data: Any, *, pgn, side, language, game_id) -> Optional[dict]:
     if not moments:
         return None
     moments.sort(key=lambda m: m["ply"])
-    return {"kind": "review_moments", "game": _game(pgn, game_id), "moments": moments[:MAX_MOMENTS]}
+    return {"kind": "review_moments", "game": _game(pgn, game_id, language), "moments": moments[:MAX_MOMENTS]}
 
 
 def _clip(value: Any, limit: int = MAX_NAME) -> Optional[str]:
@@ -119,7 +120,21 @@ def _clip(value: Any, limit: int = MAX_NAME) -> Optional[str]:
     return out[:limit] if out else None
 
 
-def _game(pgn: Optional[str], game_id: Any) -> dict:
+# A game against the coach names its players in the language of the talk, not by its PGN's «Student – Coach (Stockfish
+# 1200)» (tester 20.11: English on the Russian card). game_mode._pgn writes these headers.
+_COACH_EVENT = "Game with the coach"
+_PLAYERS = {"ru": ("Ты", "Тренер"), "kk": ("Сен", "Жаттықтырушы"), "en": ("You", "Coach")}
+
+
+def _coach_name(name: Optional[str], language: Optional[str]) -> Optional[str]:
+    you, coach = _PLAYERS.get((language or "ru").lower()[:2].replace("kz", "kk"), _PLAYERS["ru"])
+    if name == "Student":
+        return you
+    m = re.match(r"^Coach \(Stockfish (\d+)\)$", name or "")
+    return f"{coach} ({m.group(1)})" if m else name
+
+
+def _game(pgn: Optional[str], game_id: Any, language: Optional[str] = None) -> dict:
     headers: dict = {}
     if isinstance(pgn, str) and pgn.strip():
         try:
@@ -127,6 +142,9 @@ def _game(pgn: Optional[str], game_id: Any) -> dict:
             headers = dict(game) if game is not None else {}
         except Exception:  # noqa: BLE001 — the players are cosmetic
             headers = {}
+    if headers.get("Event") == _COACH_EVENT:
+        headers["White"], headers["Black"] = (_coach_name(headers.get("White"), language),
+                                              _coach_name(headers.get("Black"), language))
     game = {"white": _clip(headers.get("White")) or "?", "black": _clip(headers.get("Black")) or "?"}
     result = _clip(headers.get("Result"))
     if result and result != "*":

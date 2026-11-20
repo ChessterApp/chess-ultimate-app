@@ -1002,7 +1002,9 @@ COMMENT_RULES = {
     "ok": "The move was fine. One short encouraging sentence about the idea behind it, or about the plan ahead.",
     "finished": ("The game is over. Give the result in one sentence, then the moment that decided it exactly as the "
                  "facts state it (the «Decisive moment» line, or that there was none), and offer a full review in "
-                 "one sentence."),
+                 "one sentence. The better move was NOT played: never join it to what happened next («лучше было "
+                 "5.d3, после чего ты сдался» reads as if 5.d3 had been played and then the student resigned) — say "
+                 "the move played, then the better one, and the resignation in a sentence of its own."),
 }
 
 
