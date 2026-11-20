@@ -745,13 +745,20 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ image: base64 }),
           });
-          const data = (await res.json().catch(() => ({}))) as { fen?: string; turn_known?: boolean; error?: string };
+          const data = (await res.json().catch(() => ({}))) as {
+            fen?: string; turn_known?: boolean; doubt?: boolean; error?: string; code?: string;
+          };
           if (!res.ok || !data.fen) {
-            replaceLocalLine(lineId, t('photoFailed', { reason: data.error || `HTTP ${res.status}` }));
+            replaceLocalLine(lineId, data.code === 'illegal_position'
+              ? t('photoIllegal') : t('photoFailed', { reason: data.error || `HTTP ${res.status}` }));
             return;
           }
           onBoardActions([{ type: 'set_fen', fen: data.fen }]);
-          if (data.turn_known === false) {
+          if (data.doubt) {
+            // A piece may be misread (tester 20.11: the king read a square off, in check with the other side to move).
+            photoTurnPendingRef.current = true;
+            replaceLocalLine(lineId, t('loadedFromPhotoDoubt'));
+          } else if (data.turn_known === false) {
             photoTurnPendingRef.current = true;
             replaceLocalLine(lineId, t('loadedFromPhotoTurnUnknown'));
           } else {

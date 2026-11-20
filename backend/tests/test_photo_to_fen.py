@@ -84,3 +84,52 @@ def test_a_misread_reply_is_asked_again(monkeypatch):
     res = app.test_client().post("/api/convert-image", json={"image": "aGVsbG8="})
     assert res.status_code == 200 and len(calls) == 2
     assert res.get_json()["fen"].startswith(PLACEMENT + " w")
+
+
+def test_a_side_shown_that_cannot_move_is_doubted():
+    # Tester 20.11: the black king read on g8 (it stood on f8), in check from the queen with White to move.
+    from api.photo_to_fen import shown_side_impossible
+
+    assert shown_side_impossible("6k1/8/8/8/8/8/8/6QK w")
+    assert not shown_side_impossible("6k1/8/8/8/8/8/8/6QK ?")
+    assert not shown_side_impossible("6k1/8/8/8/8/8/8/6QK b")
+
+
+def _route(monkeypatch, texts):
+    import api.photo_to_fen as pf
+    from flask import Flask
+
+    replies = iter(texts)
+
+    class Resp:
+        ok = True
+        status_code = 200
+
+        def __init__(self, text):
+            self._text = text
+
+        def json(self):
+            return {"choices": [{"message": {"content": self._text}}]}
+
+    calls = []
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setattr(pf.requests, "post", lambda *a, **k: calls.append(1) or Resp(next(replies)))
+    app = Flask(__name__)
+    app.register_blueprint(pf.photo_fen_bp)
+    return app.test_client().post("/api/convert-image", json={"image": "aGVsbG8="}), calls
+
+
+def test_a_side_that_cannot_move_is_read_again_then_doubted(monkeypatch):
+    import api.photo_to_fen as pf
+
+    misread = "6k1/8/8/8/8/8/8/6QK w"
+    res, calls = _route(monkeypatch, [misread] * pf.PHOTO_FEN_ATTEMPTS)
+    data = res.get_json()
+    assert res.status_code == 200 and len(calls) == pf.PHOTO_FEN_ATTEMPTS
+    assert data["doubt"] is True and data["turn_known"] is False and data["fen"].split()[1] == "b"
+
+
+def test_read_again_right_is_no_doubt(monkeypatch):
+    res, calls = _route(monkeypatch, ["6k1/8/8/8/8/8/8/6QK w", "5k2/8/8/8/8/8/8/6QK w"])
+    data = res.get_json()
+    assert len(calls) == 2 and "doubt" not in data and data["turn_known"] is True and data["fen"].startswith("5k2/")

@@ -79,6 +79,21 @@ def position_from_reply(text: str):
     return board.fen(), known
 
 
+def shown_side_impossible(text: str) -> bool:
+    """The reply names the side to move, and that side cannot be to move in the placement read: either a check
+    really tells the turn, or a piece was misread (tester 20.11: the black king read on g8 instead of f8, in check
+    with White to move — the side was turned to Black, and the coach reviewed an impossible position)."""
+    m = _PLACEMENT.search(text or "")
+    if not m or (m.group(2) or "?") not in "wb":
+        return False
+    try:
+        import chess
+        board = chess.Board(f"{m.group(1)} {m.group(2)} - - 0 1")
+    except Exception:  # noqa: BLE001
+        return False
+    return not board.is_valid()
+
+
 @photo_fen_bp.route('/convert-image', methods=['POST'])
 def convert_image_to_fen():
     """
@@ -165,14 +180,21 @@ def convert_image_to_fen():
             logger.info(f"Raw FEN response from model (attempt {attempt + 1}): {fen_response}")
 
             parsed = position_from_reply(fen_response)
+            doubt = shown_side_impossible(fen_response)
+            if parsed and doubt and attempt < PHOTO_FEN_ATTEMPTS - 1:
+                # The side shown cannot move: perhaps a misread piece — read once more before turning the side.
+                logger.warning(f"Side shown cannot move (attempt {attempt + 1}): {fen_response}")
+                continue
             if parsed:
                 fen, turn_known = parsed
-                logger.info(f"Returning FEN: {fen} (turn known: {turn_known})")
-                return jsonify({'fen': fen, 'turn_known': turn_known})
+                logger.info(f"Returning FEN: {fen} (turn known: {turn_known}, doubt: {doubt})")
+                # Turned all the same: the page asks the student to check the pieces and the side to move.
+                return jsonify({'fen': fen, 'turn_known': turn_known and not doubt, **({'doubt': True} if doubt else {})})
             logger.warning(f"Invalid FEN response (attempt {attempt + 1}): {fen_response}")
 
         return jsonify({
             'error': 'Could not extract valid FEN from image analysis',
+            'code': 'illegal_position',  # the page tells it in the student's language
             'raw_response': fen_response
         }), 500
 

@@ -64,6 +64,8 @@ export default async function handler(
     if (!response.ok) {
       return res.status(response.status).json({
         error: data.error || 'Failed to convert image',
+        // 'illegal_position': no possible position read off the photo (the page says it in the student's language)
+        ...(typeof data.code === 'string' ? { code: data.code } : {}),
         raw_response: data.raw_response,
       });
     }
@@ -71,6 +73,8 @@ export default async function handler(
     return res.status(200).json({
       fen: data.fen,
       ...(typeof data.turn_known === 'boolean' ? { turn_known: data.turn_known } : {}),
+      // The side shown could not move: a piece may be misread — the page asks the student to check (20.11).
+      ...(data.doubt === true ? { doubt: true } : {}),
     });
 
   } catch (error) {
