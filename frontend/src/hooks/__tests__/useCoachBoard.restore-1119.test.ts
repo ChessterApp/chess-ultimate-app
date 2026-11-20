@@ -46,3 +46,22 @@ describe('a puzzle restored with its session', () => {
     expect(initialStepFlow(3)).toMatchObject({ phase: 'idle', index: 0 });
   });
 });
+
+describe('the board turned for a puzzle turns back when it leaves (tester 20.11)', () => {
+  const BLACK_TO_MOVE = '6k1/5ppp/8/8/8/8/5PPP/r5K1 b - - 0 1';
+  it('a puzzle for Black, then a position: White at the bottom again', () => {
+    const { result } = renderHook(() => useCoachBoard());
+    act(() => result.current.applyBoardAction({ type: 'set_puzzle', fen: BLACK_TO_MOVE, solution: ['Ra1'] }));
+    expect(result.current.orientation).toBe('black');
+    act(() => result.current.applyBoardAction({ type: 'set_fen', fen: COURSE }));
+    expect(result.current.orientation).toBe('white');
+  });
+  it('the side the student had chosen before the puzzles is the one given back, after several of them', () => {
+    const { result } = renderHook(() => useCoachBoard());
+    act(() => result.current.setOrientation('black'));
+    act(() => result.current.applyBoardAction({ type: 'set_puzzle', fen: '6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1', solution: ['Ra8#'] }));
+    act(() => result.current.applyBoardAction({ type: 'set_puzzle', fen: BLACK_TO_MOVE, solution: ['Ra1'] }));
+    act(() => result.current.applyBoardAction({ type: 'load_pgn', pgn: '1. e4 e5 *' }));
+    expect(result.current.orientation).toBe('black');
+  });
+});

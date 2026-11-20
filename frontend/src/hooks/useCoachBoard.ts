@@ -151,7 +151,21 @@ export function useCoachBoard(): UseCoachBoardReturn {
   const [moveIndex, setMoveIndex] = useState(-1);
   const [arrows, setArrows] = useState<Array<{ from: Key; to: Key; brush: string }>>([]);
   const [highlights, setHighlights] = useState<Key[]>([]);
-  const [orientation, setOrientation] = useState<'white' | 'black'>('white');
+  const [orientation, setOrientationState] = useState<'white' | 'black'>('white');
+  // The board's side before a puzzle turned it to the puzzle's: given back when the puzzle leaves the board (tester
+  // 20.11: after a puzzle for Black every following position stayed upside down).
+  const orientationRef = useRef<'white' | 'black'>('white');
+  const outsidePuzzleRef = useRef<'white' | 'black' | null>(null);
+  const setOrientation = useCallback((next: 'white' | 'black') => {
+    orientationRef.current = next;
+    setOrientationState(next);
+  }, []);
+  /** A puzzle leaves the board: its turn of the board goes with it. */
+  const leavePuzzleOrientation = useCallback(() => {
+    if (outsidePuzzleRef.current === null) return;
+    setOrientation(outsidePuzzleRef.current);
+    outsidePuzzleRef.current = null;
+  }, [setOrientation]);
   const [puzzleMode, setPuzzleMode] = useState(false);
   const [puzzleState, setPuzzleState] = useState<PuzzleState | null>(null);
 
@@ -199,6 +213,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
         setHighlights([]);
         setPuzzleMode(false);
         setPuzzleState(null);
+        leavePuzzleOrientation();
         break;
       }
 
@@ -218,6 +233,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
 
           setPgn(action.pgn);
           commitHistory(fenList, fenList.length - 1);
+          leavePuzzleOrientation();
           setArrows([]);
           setHighlights([]);
           setPuzzleMode(false);
@@ -241,7 +257,9 @@ export function useCoachBoard(): UseCoachBoardReturn {
         });
         setArrows([]);
         setHighlights([]);
-        // The board faces the side the student plays (tester, 18.11: Black's puzzles were shown from White's side).
+        // The board faces the side the student plays (tester, 18.11: Black's puzzles were shown from White's side);
+        // the side it had before the first puzzle comes back when the puzzles end.
+        if (outsidePuzzleRef.current === null) outsidePuzzleRef.current = orientationRef.current;
         setOrientation(puzzleStudentColor(action.fen));
         break;
       }
@@ -286,7 +304,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
       }
 
       case 'flip_board': {
-        setOrientation((prev) => (prev === 'white' ? 'black' : 'white'));
+        setOrientation(orientationRef.current === 'white' ? 'black' : 'white');
         break;
       }
 
@@ -300,7 +318,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
         break;
       }
     }
-  }, [commitHistory, commitPuzzle]);
+  }, [commitHistory, commitPuzzle, leavePuzzleOrientation, setOrientation]);
 
   const applyBoardActions = useCallback(
     (actions: BoardAction[]) => {
@@ -443,8 +461,9 @@ export function useCoachBoard(): UseCoachBoardReturn {
     setHighlights([]);
     setPuzzleMode(false);
     setPuzzleState(null);
+    outsidePuzzleRef.current = null;
     setOrientation('white');
-  }, [commitHistory]);
+  }, [commitHistory, setOrientation]);
 
   const setFenFromMove = useCallback((from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => {
     const baseFen = fenRef.current;
