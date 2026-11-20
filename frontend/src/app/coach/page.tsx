@@ -1149,7 +1149,11 @@ export default function CoachPage() {
     <PuzzleFlow
       controls={puzzle}
       puzzle={board.puzzleState}
-      onAsk={(message) => chatRef.current?.send(message)}
+      onAsk={(message) => {
+        // The answer to a hint or «Почему этот ход?» is seen: a phone's sheet at peek opens to half (tester 20.11).
+        if (!isDesktop && sheetDetent === 'peek') dispatchSheet({ type: 'snap', detent: 'half' });
+        chatRef.current?.send(message);
+      }}
       onNextPuzzle={() => chatRef.current?.send(t('promptPuzzle'))}
       onExit={() => board.applyBoardAction({ type: 'set_fen', fen: board.fen })}
     />

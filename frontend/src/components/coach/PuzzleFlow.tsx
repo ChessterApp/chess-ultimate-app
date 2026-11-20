@@ -40,6 +40,9 @@ export interface PuzzleStepControls {
  * The steps are the student's moves only; the opponent's replies between them
  * are played by the board hook (useCoachBoard.playPuzzleReply, tester 18.11).
  */
+/** Wrong tries after which «Показать решение» is offered. */
+export const SHOW_SOLUTION_AFTER = 2;
+
 export function usePuzzleStep(
   puzzle: PuzzleState | null,
   fen: string,
@@ -163,7 +166,11 @@ export default function PuzzleFlow({ controls, puzzle, onAsk, onNextPuzzle, onEx
       feedback={
         feedback && flow.state.phase === 'correct' && san
           ? { ...feedback, followUp: { label: t('puzzleWhyChip', { move: san }), message: t('puzzleWhyMessage', { move: san }) } }
-          : feedback
+          : feedback && flow.state.phase === 'wrong' && flow.state.attempts >= SHOW_SOLUTION_AFTER
+            // Stuck: the solution one tap away (tester 20.11: three wrong tries, only «Попробовать ещё»; the coach
+            // shows it on «сдаюсь, покажи решение» — Hermes puzzles.ASKS_SOLUTION).
+            ? { ...feedback, followUp: { label: t('puzzleShowSolution'), message: t('puzzleShowSolutionMessage') } }
+            : feedback
       }
       onHint={() => onAsk(t('puzzleHintMessage'))}
       onUndo={controls.undo}
