@@ -82,11 +82,13 @@ async def ask(key: str, model: str, audio: bytes, fmt: str, language: Optional[s
                "keyterms": KEYTERMS}
     if language:
         payload["language"] = language
-    async with httpx.AsyncClient(timeout=httpx.Timeout(TIMEOUT_S, connect=10.0)) as client:
-        return await client.post(
-            OPENROUTER_STT_URL, json=payload,
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
-                     "HTTP-Referer": "https://chesster.io", "X-Title": "Chesster coach"})
+    # The kept-alive client (src/voice_http.py, 20.11): no new handshake with OpenRouter for every utterance.
+    from src import voice_http
+
+    return await voice_http.client().post(
+        OPENROUTER_STT_URL, json=payload, timeout=httpx.Timeout(TIMEOUT_S, connect=10.0),
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                 "HTTP-Referer": "https://chesster.io", "X-Title": "Chesster coach"})
 
 
 async def transcribe(audio: bytes, content_type: Optional[str], locale: Optional[str]):

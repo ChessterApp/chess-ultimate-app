@@ -55,20 +55,23 @@ def model_and_voice(locale: Optional[str]) -> tuple[str, str]:
 
 
 async def open_stream(key: str, model: str, voice: str, text: str) -> tuple[httpx.AsyncClient, httpx.Response]:
-    """The upstream call, left open for streaming: the caller closes both. Replaced in tests."""
-    client = httpx.AsyncClient(timeout=httpx.Timeout(TIMEOUT_S, connect=10.0))
+    """The upstream call, left open for streaming: the caller closes both (the client is the kept-alive one,
+    src/voice_http.py — closing it is a no-op). Replaced in tests."""
+    from src import voice_http
+
+    client = voice_http.client()
     try:
         req = client.build_request(
             "POST", OPENROUTER_SPEECH_URL,
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
                      "HTTP-Referer": "https://chesster.io", "X-Title": "Chesster coach"},
             json={"model": model, "input": text, "voice": voice, "response_format": "pcm"},
+            timeout=httpx.Timeout(TIMEOUT_S, connect=10.0),
         )
         resp = await client.send(req, stream=True)
     except Exception:
-        await client.aclose()
         raise
-    return client, resp
+    return voice_http.KEPT, resp
 
 
 def language_of(locale: Optional[str]) -> Optional[str]:
@@ -82,18 +85,20 @@ def language_of(locale: Optional[str]) -> Optional[str]:
 async def open_elevenlabs_stream(key: str, model: str, voice: str, text: str,
                                  language: Optional[str]) -> tuple[httpx.AsyncClient, httpx.Response]:
     """The same call made of ElevenLabs itself: raw 16-bit PCM at 24 kHz, streamed. Replaced in tests."""
-    client = httpx.AsyncClient(timeout=httpx.Timeout(TIMEOUT_S, connect=10.0))
+    from src import voice_http
+
+    client = voice_http.client()
     payload = {"text": text, "model_id": model}
     if language:
         payload["language_code"] = language
     try:
         req = client.build_request("POST", ELEVENLABS_URL.format(voice=voice),
-                                   headers={"xi-api-key": key, "Content-Type": "application/json"}, json=payload)
+                                   headers={"xi-api-key": key, "Content-Type": "application/json"}, json=payload,
+                                   timeout=httpx.Timeout(TIMEOUT_S, connect=10.0))
         resp = await client.send(req, stream=True)
     except Exception:
-        await client.aclose()
         raise
-    return client, resp
+    return voice_http.KEPT, resp
 
 
 async def _ask(direct: bool, key: str, model: str, voice: str, text: str, locale: Optional[str]):

@@ -5423,8 +5423,13 @@ async def coach_voice_mode(request: Request):
     coach's model and voice says it — COACH_VOICE_MODE in its .env — so the mode changes with this server's
     settings and goes back without a site release (17.11)."""
     _get_user_id(request)
+    from src import voice_http
     from src.voice_stt import stt_ready
     from src.voice_tts import voice_mode
+
+    # The page asks this as the voice starts: the connections to OpenRouter and ElevenLabs are opened now, so the
+    # first phrase heard and the first read aloud skip the handshake (src/voice_http.py, 20.11).
+    voice_http.warm_soon()
 
     # `stt`: who turns the student's words into text in the pipeline — "server" (the page sends each utterance
     # to POST /api/coach/voice/stt, src/voice_stt.py, 18.11) or "google" (the page streams to Google's

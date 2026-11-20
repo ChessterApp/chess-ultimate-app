@@ -100,11 +100,14 @@ def test_the_request_names_the_chess_words_and_sends_the_audio_as_base64(monkeyp
         async def __aexit__(self, *a):
             return False
 
-        async def post(self, url, json=None, headers=None):
+        async def post(self, url, json=None, headers=None, timeout=None):
             sent.update(url=url, json=json, headers=headers)
             return _Resp()
 
-    monkeypatch.setattr(voice_stt.httpx, "AsyncClient", _Client)
+    # The kept-alive client (src/voice_http.py, 20.11) is the one asked.
+    from src import voice_http
+
+    monkeypatch.setattr(voice_http, "client", lambda: _Client())
     import asyncio
 
     asyncio.run(voice_stt.ask("sk-or-test", "openai/gpt-transcribe", WAV, "wav", "kk"))
