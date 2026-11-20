@@ -59,6 +59,12 @@
   Каждая фраза открывала новое соединение с OpenRouter и ElevenLabs; теперь одно постоянное, и оно открывается заранее,
   когда страница включает голос (`GET /api/coach/voice/mode`). На стенде: распознавание 1,1–1,9 → 0,65–1,0 с, первый
   звук озвучки 0,45–1,6 → 0,24–0,32 с; от конца фразы до голоса ответа медиана 5,3 → 3,4 с.
+- **Первую фразу голосового ответа озвучивает сам сервер** (`src/voice_speak.py` новый, `src/voice_tts.py`,
+  `src/server.py`). Раньше каждую фразу страница запрашивала отдельно: страница → сайт → этот сервер → ElevenLabs, и на
+  проде первый звук приходил через 1,0–1,8 с после фразы. Теперь новая страница (флаг `speech_audio` в запросе чата)
+  получает звук первой фразы прямо в потоке ответа: кадры `speech`, `speech_audio`, `speech_done`; остальные фразы она
+  озвучивает сама, как раньше. Старые страницы и приложения флаг не шлют — у них всё как было. Выключатель:
+  `COACH_SERVER_SPEECH=0` в `.env` (по умолчанию включено).
 - **Сайт и приложение** обновлены вместе с этим (плашка состояния голоса над полем ввода, отправка текста в голосовом режиме, распознавание речи по умолчанию
   через сервер, восстановленная задача продолжается с того места, где была, «Реванш» без обрезки); со старым сервером
   они работают как раньше.
@@ -68,7 +74,7 @@
 
 ```bash
 cd /root/hermes-chess && .venv/bin/python - <<'EOF'
-from src import coach_games, config, daily_plan, prompt_builder, voice_http
+from src import coach_games, config, daily_plan, prompt_builder, voice_http, voice_speak
 from src.tool_selector import spoken_lookup_skipped
 from src.quick_reply import withhold_off_topic
 
@@ -98,14 +104,19 @@ last = card.get("game_id") == coach["id"]
 quick = (config.COACH_SPOKEN_QUICK and spoken_lookup_skipped("Как перестать зевать фигуры?")
          and not spoken_lookup_skipped("Какой урок мне пройти дальше?") and not spoken_lookup_skipped("Давай сыграем, я белыми."))
 
-ok = chess_only and read and last and quick
+# --- 90e: the first sentence of a spoken answer is read here and sent in the chat stream
+head = voice_speak.first_sentence("На e4 ответь пешкой на e5. Так ты займёшь центр.")
+server_speech = bool(config.COACH_SERVER_SPEECH) and head == "На e4 ответь пешкой на e5."
+
+ok = chess_only and read and last and quick and server_speech
 print("ОК" if ok else "ПРОВЕРЬ", "| 90a только шахматы:", chess_only, "| 90b партии с тренером читаются из базы:", read,
-      "| 90c партия с тренером — последняя:", last, "| 90d голосом отвечает сразу:", bool(quick))
+      "| 90c партия с тренером — последняя:", last, "| 90d голосом отвечает сразу:", bool(quick),
+      "| 90e первая фраза озвучивается на сервере:", server_speech)
 EOF
 ```
 
   → `ОК | 90a только шахматы: True | 90b партии с тренером читаются из базы: True | 90c партия с тренером — последняя:
-  True | 90d голосом отвечает сразу: True`. До обновления — `ImportError: cannot import name 'coach_games'`. `90b … False` — запрос к `coach_boards` не
+  True | 90d голосом отвечает сразу: True | 90e первая фраза озвучивается на сервере: True`. До обновления — `ImportError: cannot import name 'coach_games'`. `90b … False` — запрос к `coach_boards` не
   прошёл: это не СТОП (карточка плана в этом случае работает как раньше), но пришли человеку вывод и
   `pm2 logs hermes-chess --lines 80 --nostream | grep -i "supabase\|coach_boards"`. Любое другое `ПРОВЕРЬ` — пришли
   вывод человеку. Команда ничего не пишет в базу и `.env` не меняет.
@@ -3667,7 +3678,7 @@ COACH_REASONING_MANDATORY, COACH_REASONING_EFFORT, COACH_LESSON_LINK=<значе
   87 18.11-3 — распознавание через OpenRouter <ОК/ПРОВЕРЬ>, слушает сервер <True/False>, модель <…>; живая: /voice/mode <…>, /voice/stt HTTP <200/…> за <…> с
   88 18.11-4 — голос: запасной <Achird/…>, в .env ru/kk <bIHbv24MWmeRgasZH58o/…>, Sarah ещё стоит <False/True>; живая: X-Tts-Model ru <…> / kk <…>
   89 18.11-5 — разминка: места <[1..5]>, конец закрывает задачу <['set_fen']/…>; задача на своей линии <True/False>; сдача без ошибки и фразы о прошлом ответе <True/False>; чужая партия <True/False>
-  90 19.11 — только шахматы <True/False>; партии с тренером читаются <True/False>; партия с тренером последняя <True/False>; голосом сразу <True/False>
+  90 19.11 — только шахматы <True/False>; партии с тренером читаются <True/False>; партия с тренером последняя <True/False>; голосом сразу <True/False>; первая фраза на сервере <True/False>
 5б: <голос заменён на Will / не выполнялся — почему>
 Бэкенд (фото доски): <обновлён, коммит …, grep PHOTO_FEN_ATTEMPTS = … / не обновлён — почему>
 Что нужно от людей: <список или «ничего»>
