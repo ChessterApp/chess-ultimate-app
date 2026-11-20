@@ -446,8 +446,12 @@ def _create_agent(
     mode: str = "full",
     fallback_model: Optional[str] = None,
     carry_tools: Optional[tuple] = None,
+    spoken_quick: bool = False,
 ):
     """Create a Hermes AIAgent configured for chess coaching.
+
+    ``spoken_quick``: a spoken turn answered at once — the lesson lookup tools are left out
+    (tool_selector.SPOKEN_LOOKUP_TOOLS, 20.11).
 
     When ``COACH_TOOL_SUBSET`` is enabled and a ``user_query`` is provided, the
     agent's tool schemas are reduced to a query-relevant subset (mirroring the
@@ -526,6 +530,11 @@ def _create_agent(
                 and t["function"]["name"] not in chosen
             ]
         # Keep the model-call validator consistent with the reduced tool set.
+        agent.valid_tool_names = {t["function"]["name"] for t in agent.tools}
+    if spoken_quick and getattr(agent, "tools", None):
+        from src.tool_selector import SPOKEN_LOOKUP_TOOLS
+
+        agent.tools = [t for t in agent.tools if t["function"]["name"] not in SPOKEN_LOOKUP_TOOLS]
         agent.valid_tool_names = {t["function"]["name"] for t in agent.tools}
 
     return agent
@@ -2793,9 +2802,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                                          active_board.source)
     except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
         logger.debug("game context tools failed", exc_info=True)
+    # A spoken turn is answered at once, without looking a lesson up (20.11; tool_selector.spoken_lookup_skipped).
+    from src.tool_selector import spoken_lookup_skipped
+
+    # Never in a game or a turn the game step played: the board is the point there.
+    spoken_quick = (bool(body.speech) and config.COACH_SPOKEN_QUICK and not live_game and not game_step
+                    and spoken_lookup_skipped(body.message))
     agent_task = asyncio.create_task(asyncio.to_thread(
         _create_agent, model=model, system_prompt="", session_id=session_id,
         user_query=body.message, fallback_model=fallback_model, carry_tools=carry_tools,
+        spoken_quick=spoken_quick,
     ))
     profile = await profile_task
     _mark("profile")
@@ -2938,6 +2954,13 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             "one. First sentence: the point, in at most twelve words. Then at most three short sentences. No lists, "
             "no headings, no markdown, no lines of moves longer than three moves; name a move by piece and square."
         )
+        if spoken_quick:
+            spoken_note += (
+                " Answer from what you know right away: there is no lesson or topic lookup in this spoken turn — do "
+                "not name, link or offer a lesson, and do not mention any tool. Do not set up or play anything on the "
+                "board either — the student did not ask to be shown; a move in the question is answered in words. The "
+                "engine and the board facts above stay the truth about the position."
+            )
         turn_context = f"{turn_context}\n\n{spoken_note}" if turn_context else spoken_note
     current_message = attach_turn_context(current_message, turn_context)
     # The blocks about the board the student sent — its state and analysis, the moves they named —
@@ -3206,8 +3229,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
         # A move played or a game command done by the system this turn needs no «сейчас посмотрю» first:
         # «Сейчас откачу ход назад» came before an answer that refused it (prod, 2026-10-13).
+        # A spoken turn has none either (20.11): the page plays its own «Сейчас посмотрю» and never reads the reaction
+        # aloud, while the answer's first words were held back until the reaction had been written.
         two_stage = (bool(config.COACH_TWO_STAGE) and wants_reaction(body.message, bool(body.fen))
-                     and not game_step)
+                     and not game_step and not (body.speech and config.COACH_SPOKEN_QUICK))
         quick = {
             "shown": False,      # at least one reaction delta went to the client
             "finished": not two_stage,  # reaction done / abandoned / disabled

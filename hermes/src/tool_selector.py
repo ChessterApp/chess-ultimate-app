@@ -45,6 +45,28 @@ CORE_TOOLS = frozenset({
     "game_action",
 })
 
+# A spoken turn (the voice pipeline, ``speech``) is answered at once (20.11): on production the voice answer came
+# ~10 s after the student stopped, and 3-4 s of it went to looking a lesson up before a general question
+# («как отвечать на e4», «как перестать зевать фигуры», «что такое связка») — a lesson link is not something a
+# listener can use. These tools are left out of such a turn unless the student asks for a lesson, a course, an
+# example or something shown / put on the board; get_puzzle and the engine stay.
+SPOKEN_LOOKUP_TOOLS = frozenset({"get_topic", "get_learning_path", "get_lesson"})
+_ASKS_LOOKUP = re.compile(
+    r"(?<![\w-])(?:урок\w*|курс\w*|программ\w*|пример\w*|покаж\w*|показ\w*|постав\w*|"
+    r"сабақ\w*|бағдарлам\w*|мысал\w*|көрсет\w*|қой\w*|"
+    r"lessons?|course\w*|curriculum|examples?|show\w*|put|set\s+up|"
+    # a puzzle, a warm-up or a game: the board is the point of the turn
+    r"задач\w*|разминк\w*|сыгра\w*|игра\w*|играю|партия|партию|есеп\w*|ойна\w*|puzzles?|warm-?up|play|game)(?![\w-])",
+    re.IGNORECASE,
+)
+
+
+def spoken_lookup_skipped(query: str) -> bool:
+    """A spoken turn that is answered without the lesson lookup (SPOKEN_LOOKUP_TOOLS) and without setting the board
+    up: nothing in *query* asks for a lesson, a course, an example, the board, a puzzle or a game."""
+    return not _ASKS_LOOKUP.search(query or "")
+
+
 # Board-render / FEN-parse tools that are redundant when the board is already
 # rendered on the student's screen. Suppressed only in ``panel`` mode.
 PANEL_SUPPRESSED_TOOLS = frozenset({"board_control"})

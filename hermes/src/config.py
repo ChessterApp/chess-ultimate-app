@@ -249,6 +249,9 @@ os.environ.setdefault("HERMES_STREAM_STALE_TIMEOUT", str(2 * COACH_STREAM_STALL_
 #   COACH_QUICK_MAX_TOKENS   — hard cap on the reaction length.
 #   COACH_MODEL_QUICK        — model for the reaction (default: the fast tier).
 COACH_TWO_STAGE = _env_flag("COACH_TWO_STAGE", True)
+# A spoken turn (the voice pipeline) is answered at once, without looking a lesson up first (20.11: 3-4 s of a ~10 s
+# voice answer went to it); COACH_SPOKEN_QUICK=0 brings the lookup back. tool_selector.SPOKEN_LOOKUP_TOOLS.
+COACH_SPOKEN_QUICK = _env_flag("COACH_SPOKEN_QUICK", True)
 COACH_QUICK_BUDGET_MS = int(os.environ.get("COACH_QUICK_BUDGET_MS", "2500"))
 COACH_QUICK_MAX_TOKENS = int(os.environ.get("COACH_QUICK_MAX_TOKENS", "60"))
 
