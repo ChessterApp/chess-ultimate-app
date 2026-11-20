@@ -2368,25 +2368,21 @@
     "viewingStart": "Viewing: the starting position. The game goes on",
     "viewingLine": "Side line: {line}",
     "gameNavCounter": "Ply {index} of {total}",
-    "voiceStage": {
-      "connecting": "Turning the mic on…",
-      "listening": "Listening — go ahead",
-      "hearing": "I hear you…",
-      "recognizing": "Recognising your words…",
-      "thinking": "The coach is thinking…",
-      "speaking": "The coach is speaking"
-    },
-    "voiceStageHint": {
-      "connecting": "A couple of seconds",
-      "listening": "The mic is on and hears everything around",
-      "hearing": "Finish — it goes when you pause",
-      "recognizing": "Turning speech into text",
-      "thinking": "The answer is on its way",
-      "speaking": "Interrupt any time — just speak"
-    },
     "voiceHeard": "Heard: “{text}”",
     "voiceSeconds": "s",
-    "voiceStopShort": "Stop"
+    "voiceStopShort": "Stop",
+    "voiceStageConnecting": "Turning the mic on…",
+    "voiceStageListening": "Listening — go ahead",
+    "voiceStageHearing": "I hear you…",
+    "voiceStageRecognizing": "Recognising your words…",
+    "voiceStageThinking": "The coach is thinking…",
+    "voiceStageSpeaking": "The coach is speaking",
+    "voiceHintConnecting": "A couple of seconds",
+    "voiceHintListening": "The mic is on and hears everything around",
+    "voiceHintHearing": "Finish — it goes when you pause",
+    "voiceHintRecognizing": "Turning speech into text",
+    "voiceHintThinking": "The answer is on its way",
+    "voiceHintSpeaking": "Interrupt any time — just speak"
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",

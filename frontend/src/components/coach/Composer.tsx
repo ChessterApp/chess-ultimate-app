@@ -94,8 +94,9 @@ export function VoiceBanner({ voice }: { voice: ComposerVoice }) {
     : stage === 'speaking'
       ? 'border-(--coach-accent) bg-(--coach-accent-soft) text-(--coach-accent-text)'
       : 'border-(--coach-border) bg-(--coach-surface-2) text-(--coach-text)';
-  const title = t(`voiceStage.${stage}`) + (counted && seconds > 0 ? ` · ${seconds} ${t('voiceSeconds')}` : '');
-  const sub = stage === 'thinking' && voice.heard ? t('voiceHeard', { text: voice.heard }) : t(`voiceStageHint.${stage}`);
+  const name = stage.charAt(0).toUpperCase() + stage.slice(1);
+  const title = t(`voiceStage${name}`) + (counted && seconds > 0 ? ` · ${seconds} ${t('voiceSeconds')}` : '');
+  const sub = stage === 'thinking' && voice.heard ? t('voiceHeard', { text: voice.heard }) : t(`voiceHint${name}`);
   const level = voice.level ?? 0;
   return (
     <div data-testid="voice-banner" data-stage={stage} role="status" aria-live="polite"

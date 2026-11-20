@@ -104,7 +104,7 @@ describe('Composer', () => {
     const onToggle = vi.fn();
     render(<Harness voice={{ status: 'listening', active: true, stage: 'thinking', heard: 'how to answer Nf3', onToggle }} />);
     expect(screen.getByTestId('voice-banner').getAttribute('data-stage')).toBe('thinking');
-    expect(screen.getByTestId('voice-banner-title').textContent).toBe(coach.voiceStage.thinking);
+    expect(screen.getByTestId('voice-banner-title').textContent).toBe(coach.voiceStageThinking);
     expect(screen.getByText('Heard: “how to answer Nf3”')).toBeTruthy();
     fireEvent.click(screen.getByTestId('voice-banner-stop'));
     expect(onToggle).toHaveBeenCalledOnce();
@@ -112,7 +112,7 @@ describe('Composer', () => {
 
   it('the banner: a level meter while the mic hears the student', () => {
     render(<Harness voice={{ status: 'listening', active: true, stage: 'hearing', level: 0.8 }} />);
-    expect(screen.getByTestId('voice-banner-title').textContent).toBe(coach.voiceStage.hearing);
+    expect(screen.getByTestId('voice-banner-title').textContent).toBe(coach.voiceStageHearing);
     const bars = screen.getByTestId('voice-level').querySelectorAll('span');
     expect(bars).toHaveLength(5);
     expect(parseInt((bars[2] as HTMLElement).style.height, 10)).toBeGreaterThan(15);

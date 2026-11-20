@@ -149,14 +149,14 @@ describe('CoachChat voice mode', () => {
   it('shows the listening banner when status is listening', () => {
     live.ret = makeReturn({ status: 'listening', isActive: true });
     renderChat();
-    expect(screen.getByTestId('voice-banner-title').textContent).toBe(coach.voiceStage.listening);
+    expect(screen.getByTestId('voice-banner-title').textContent).toBe(coach.voiceStageListening);
     expect(screen.getByTestId('voice-banner-stop')).toBeTruthy();
   });
 
   it('shows the speaking banner when status is speaking', () => {
     live.ret = makeReturn({ status: 'speaking', isActive: true });
     renderChat();
-    expect(screen.getByTestId('voice-banner-title').textContent).toBe(coach.voiceStage.speaking);
+    expect(screen.getByTestId('voice-banner-title').textContent).toBe(coach.voiceStageSpeaking);
   });
 
   it('renders a user bubble from a final transcript', () => {

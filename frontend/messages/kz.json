@@ -2368,25 +2368,21 @@
     "viewingStart": "Қарау: бастапқы позиция. Ойын жалғасады",
     "viewingLine": "Нұсқа: {line}",
     "gameNavCounter": "{total} жүрістің {index}-і",
-    "voiceStage": {
-      "connecting": "Микрофонды қосып жатырмын…",
-      "listening": "Тыңдап тұрмын — сөйлеңіз",
-      "hearing": "Естіп тұрмын…",
-      "recognizing": "Сөзіңізді танып жатырмын…",
-      "thinking": "Жаттықтырушы ойланып жатыр…",
-      "speaking": "Жаттықтырушы сөйлеп жатыр"
-    },
-    "voiceStageHint": {
-      "connecting": "Бірнеше секунд",
-      "listening": "Микрофон қосулы, айналадағының бәрін естиді",
-      "hearing": "Сөзіңізді аяқтаңыз — тоқтағанда жіберемін",
-      "recognizing": "Сөзді мәтінге айналдырып жатырмын",
-      "thinking": "Жауап жақында",
-      "speaking": "Кез келген уақытта сөйлей беріңіз"
-    },
     "voiceHeard": "Естігенім: «{text}»",
     "voiceSeconds": "с",
-    "voiceStopShort": "Тоқтату"
+    "voiceStopShort": "Тоқтату",
+    "voiceStageConnecting": "Микрофонды қосып жатырмын…",
+    "voiceStageListening": "Тыңдап тұрмын — сөйлеңіз",
+    "voiceStageHearing": "Естіп тұрмын…",
+    "voiceStageRecognizing": "Сөзіңізді танып жатырмын…",
+    "voiceStageThinking": "Жаттықтырушы ойланып жатыр…",
+    "voiceStageSpeaking": "Жаттықтырушы сөйлеп жатыр",
+    "voiceHintConnecting": "Бірнеше секунд",
+    "voiceHintListening": "Микрофон қосулы, айналадағының бәрін естиді",
+    "voiceHintHearing": "Сөзіңізді аяқтаңыз — тоқтағанда жіберемін",
+    "voiceHintRecognizing": "Сөзді мәтінге айналдырып жатырмын",
+    "voiceHintThinking": "Жауап жақында",
+    "voiceHintSpeaking": "Кез келген уақытта сөйлей беріңіз"
   },
   "gameEnd": {
     "winTitle": "Мат! Сен жеңдің!",
