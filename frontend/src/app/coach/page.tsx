@@ -640,6 +640,20 @@ export default function CoachPage() {
     [sessionId, handleSessionCreated, board, applyGameView, t, gameFailureReason],
   );
 
+  /** The board put back at the confirmed position (CoachBoard resetKey). */
+  const [boardResetKey, setBoardResetKey] = useState(0);
+  /** The server's game, asked again after a move that did not go through: shown when it moved on. */
+  const resyncGame = useCallback(async (sid: string, boardId: string) => {
+    const data = await coachApi.listBoards(sid).catch(() => null);
+    if (!data || data === SESSION_NOT_FOUND) return;
+    const record = data.boards.find((b) => b.id === boardId);
+    const view = record ? gameViewFromBoard(record) : null;
+    if (view && gameRef.current?.board_id === boardId && view.moves.length !== gameRef.current.moves.length) {
+      applyGameView(view);
+      setBoardResetKey((k) => k + 1);
+    }
+  }, [applyGameView]);
+
   const submitGameMove = useCallback(
     async (uci: string) => {
       const current = gameRef.current;
@@ -656,11 +670,15 @@ export default function CoachPage() {
       } catch (err: unknown) {
         const reason = gameFailureReason(err);
         if (reason !== null) setGameError(t('gameMoveFailed', { reason }));
+        // The move did not go through (the connection dropped, tester 20.11): the piece goes back to the position the
+        // server last confirmed, and the server's own game is asked for — the move may have reached it after all.
+        setBoardResetKey((k) => k + 1);
+        void resyncGame(sessionId, current.board_id);
       } finally {
         setGameThinking(false);
       }
     },
-    [sessionId, applyGameView, requestGameComment, t, gameFailureReason],
+    [sessionId, applyGameView, requestGameComment, t, gameFailureReason, resyncGame],
   );
 
   // A move on the study board: the game's move while a game is on, otherwise
@@ -1036,6 +1054,7 @@ export default function CoachPage() {
   const momentBoard = momentsOn ? moments.board : null;
   const studyBoard = (
     <CoachBoard
+      resetKey={boardResetKey}
       fen={momentBoard ? momentBoard.fen : onPuzzle ? puzzle.boardFen : (shownFen ?? board.fen)}
       lastMove={momentBoard || onPuzzle ? null : gameLastMove}
       controls={!(isDesktop && game)}

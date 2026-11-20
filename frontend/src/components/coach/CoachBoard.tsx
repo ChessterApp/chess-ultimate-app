@@ -7,6 +7,8 @@ import { Key } from 'chessground/types';
 
 interface CoachBoardProps {
   fen: string;
+  /** A new value puts the board back at `fen`, whatever was dragged on it: a move the server refused (tester 20.11). */
+  resetKey?: number;
   arrows: Array<{ from: Key; to: Key; brush: string }>;
   highlights: Key[];
   orientation: 'white' | 'black';
@@ -56,11 +58,13 @@ export default function CoachBoard({
   onLast,
   onFlip,
   boardSize,
+  resetKey,
 }: CoachBoardProps) {
   const [measureBox, fluidSize] = useBoxSquare();
   const board = (size: number) => (
     <div className="relative" style={{ width: size, height: size }}>
       <ChessgroundBoard
+        key={resetKey}
         fen={fen}
         orientation={orientation}
         onMove={onMove}
