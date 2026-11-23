@@ -2150,6 +2150,7 @@
     "sessions": "Sessions",
     "sessionsTitle": "Your sessions",
     "noSessions": "No saved sessions yet",
+    "moreSessions": "Show more",
     "untitledSession": "Untitled",
     "deleteSession": "Delete session",
     "renameSession": "Rename",

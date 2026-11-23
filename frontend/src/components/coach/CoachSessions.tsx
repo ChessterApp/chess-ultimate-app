@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { MoreHorizontal, Plus, X } from 'lucide-react';
-import { coachApi, type SessionSummary } from '@/lib/coach/boards-api';
+import { coachApi, SESSIONS_PAGE, type SessionSummary } from '@/lib/coach/boards-api';
 import CoachDialog from './CoachDialog';
 
 interface CoachSessionsProps {
@@ -38,10 +38,31 @@ export default function CoachSessions({ currentSessionId, onSelect, onNew, onClo
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ kind: 'rename' | 'delete'; session: SessionSummary } | null>(null);
 
+  // The list comes in pages, newest first (tester 17.11: 1001 sessions took 7–11 s at once). `offset` = the stored
+  // sessions asked for so far (less the ones deleted here); a full page means there may be more.
+  const [offset, setOffset] = useState(0);
+  const [more, setMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const refresh = useCallback(async () => {
-    const list = await coachApi.listSessions();
+    const list = await coachApi.listSessions(0);
     setSessions(list ?? []);
+    setOffset(SESSIONS_PAGE);
+    setMore((list?.length ?? 0) >= SESSIONS_PAGE);
   }, []);
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    const page = await coachApi.listSessions(offset);
+    setLoadingMore(false);
+    if (!page) return; // a failed page keeps the button: the student may try again
+    const seen = new Set((sessions ?? []).map((x) => x.id));
+    const fresh = page.filter((x) => !seen.has(x.id));
+    setSessions((prev) => [...(prev ?? []), ...fresh.filter((x) => !(prev ?? []).some((y) => y.id === x.id))]);
+    setOffset((o) => o + SESSIONS_PAGE);
+    // Nothing new on a full page = a Hermes before pages (it sends the whole list each time): no more to show.
+    setMore(page.length >= SESSIONS_PAGE && fresh.length > 0);
+  };
 
   useEffect(() => {
     void refresh();
@@ -58,6 +79,7 @@ export default function CoachSessions({ currentSessionId, onSelect, onNew, onClo
     const ok = await coachApi.deleteSession(s.id);
     if (ok) {
       setSessions((prev) => (prev ?? []).filter((x) => x.id !== s.id));
+      setOffset((o) => Math.max(0, o - 1));
       if (s.id === currentSessionId) onNew();
     }
   };
@@ -184,6 +206,19 @@ export default function CoachSessions({ currentSessionId, onSelect, onNew, onClo
                 )}
               </li>
             ))}
+            {more && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => void loadMore()}
+                  disabled={loadingMore}
+                  className={`flex min-h-11 w-full items-center justify-center rounded-lg px-3 text-sm text-(--coach-accent-text) hover:bg-white/5 disabled:opacity-60 ${focusRing}`}
+                  data-testid="coach-sessions-more"
+                >
+                  {loadingMore ? '…' : t('moreSessions')}
+                </button>
+              </li>
+            )}
           </ul>
         )}
       </div>

@@ -561,3 +561,30 @@ class TestVoice:
         text = "".join(json.loads(line[6:]).get("delta", "") for line in resp.text.splitlines()
                        if line.startswith("data: "))
         assert text.startswith("Задача 1 из 5.")
+
+
+@pytest.mark.unit
+class TestPaused:
+    """A game pasted in the middle of a warm-up: the answer opens with «Разминка прервана на задаче 1 из 5.», once —
+    it ended without a word before (open since 20.11, src/warmup.paused)."""
+
+    PASTED = "Разбери мою партию: 1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7"
+
+    def test_a_pasted_game_pauses_it_said_once(self):
+        t = _Turns("end-turn-paused")
+        first = t.turn(RU)
+        shown = first["puzzles"][0]
+        pasted = t.turn(self.PASTED, fen="r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 6")
+        assert pasted["text"].startswith("Разминка прервана на задаче 1 из 5.\n\n")
+        assert "[Warm-up paused]" in t.message and "do not repeat it" in t.message
+        again = t.turn("А какой план у белых?", fen="r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 6")
+        assert "Разминка прервана" not in again["text"]
+        # Back at the warm-up: its next puzzle with its place.
+        back = t.turn("дальше", fen=shown["fen"])
+        assert back["text"].startswith("Задача 2 из 5.")
+
+    def test_a_question_on_the_puzzle_itself_is_no_break(self):
+        t = _Turns("end-turn-not-paused")
+        shown = t.turn(RU)["puzzles"][0]
+        asked = t.turn("Подскажи, с чего начать?", fen=shown["fen"])
+        assert "Разминка прервана" not in asked["text"]

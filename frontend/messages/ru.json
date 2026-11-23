@@ -2150,6 +2150,7 @@
     "sessions": "Сессии",
     "sessionsTitle": "Ваши сессии",
     "noSessions": "Пока нет сохранённых сессий",
+    "moreSessions": "Показать ещё",
     "untitledSession": "Без названия",
     "deleteSession": "Удалить сессию",
     "renameSession": "Переименовать",

@@ -13,7 +13,7 @@ const api = vi.hoisted(() => ({
   updateSession: vi.fn(),
   deleteSession: vi.fn(),
 }));
-vi.mock('@/lib/coach/boards-api', () => ({ coachApi: api }));
+vi.mock('@/lib/coach/boards-api', () => ({ coachApi: api, SESSIONS_PAGE: 2 }));
 
 import CoachSessions from '../CoachSessions';
 
@@ -120,5 +120,39 @@ describe('CoachSessions — touch-friendly row actions', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: coach.deleteSession })).toBeNull());
     expect(api.deleteSession).not.toHaveBeenCalled();
     expect(screen.getByText('Endgames')).toBeTruthy();
+  });
+});
+
+describe('CoachSessions — the list in pages (tester 17.11: 1001 sessions)', () => {
+  it('a full page offers «Show more», which appends the next page and stops at a short one', async () => {
+    api.listSessions
+      .mockResolvedValueOnce([session('s1', 'Sicilian'), session('s2', 'Endgames')])
+      .mockResolvedValueOnce([session('s2', 'Endgames'), session('s3', 'Pins')])
+      .mockResolvedValueOnce([session('s4', 'Forks')]);
+    renderSessions();
+    fireEvent.click(await screen.findByTestId('coach-sessions-more'));
+    expect(await screen.findByText('Pins')).toBeTruthy();
+    expect(screen.getAllByText('Endgames')).toHaveLength(1); // a session seen on both pages is listed once
+    expect(api.listSessions).toHaveBeenNthCalledWith(1, 0);
+    expect(api.listSessions).toHaveBeenNthCalledWith(2, 2);
+    fireEvent.click(screen.getByTestId('coach-sessions-more'));
+    expect(await screen.findByText('Forks')).toBeTruthy();
+    expect(api.listSessions).toHaveBeenNthCalledWith(3, 4);
+    await waitFor(() => expect(screen.queryByTestId('coach-sessions-more')).toBeNull());
+  });
+
+  it('a page with nothing new hides «Show more» (a Hermes before pages sends the whole list each time)', async () => {
+    api.listSessions.mockResolvedValue([session('s1', 'Sicilian'), session('s2', 'Endgames')]);
+    renderSessions();
+    fireEvent.click(await screen.findByTestId('coach-sessions-more'));
+    await waitFor(() => expect(screen.queryByTestId('coach-sessions-more')).toBeNull());
+    expect(screen.getAllByText('Sicilian')).toHaveLength(1);
+  });
+
+  it('a short first page has no «Show more»', async () => {
+    api.listSessions.mockResolvedValueOnce([session('s1', 'Sicilian')]);
+    renderSessions();
+    await screen.findByText('Sicilian');
+    expect(screen.queryByTestId('coach-sessions-more')).toBeNull();
   });
 });

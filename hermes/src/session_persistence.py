@@ -232,6 +232,7 @@ class SessionPersistence:
                 headers=self._headers(),
                 timeout=TIMEOUT,
             ).raise_for_status()
+            self._touch_session(session_id)
             return
         except Exception as exc:
             # Fail-soft: the enrichment columns may not exist yet in prod. Retry
@@ -248,6 +249,7 @@ class SessionPersistence:
                         headers=self._headers(),
                         timeout=TIMEOUT,
                     ).raise_for_status()
+                    self._touch_session(session_id)
                     return
                 except Exception:
                     logger.debug(
@@ -442,6 +444,42 @@ class SessionPersistence:
         except Exception:
             logger.warning("Failed to load the coach sessions of user %s", user_id, exc_info=True)
             return []
+
+    def load_user_session_page(self, user_id: str, limit: int, offset: int = 0) -> list[dict]:
+        """One page of a user's coach_sessions rows (id, updated_at), latest activity first. [] on failure.
+
+        The list of sessions used to load every session of the user with its messages: the test account's 1001
+        sessions took 7–11 s after a restart and twice ran past the site proxy's 10 s (tester 17.11). A message
+        written bumps its session's ``updated_at`` (``_touch_session``), so this order is the activity order.
+        """
+        if not self.enabled:
+            return []
+        try:
+            resp = _sb().get(
+                f"{self.url}/rest/v1/coach_sessions",
+                params={"user_id": f"eq.{user_id}", "select": "id,updated_at",
+                        "order": "updated_at.desc,id.desc", "limit": str(int(limit)), "offset": str(int(offset))},
+                headers=self._headers(),
+                timeout=TIMEOUT,
+            )
+            resp.raise_for_status()
+            return resp.json() or []
+        except Exception:
+            logger.warning("Failed to load a page of the coach sessions of user %s", user_id, exc_info=True)
+            return []
+
+    def _touch_session(self, session_id: str) -> None:
+        """The session's ``updated_at`` = now: the list pages by it (a message is activity)."""
+        try:
+            _sb().patch(
+                f"{self.url}/rest/v1/coach_sessions",
+                params={"id": f"eq.{session_id}"},
+                json={"updated_at": datetime.now(timezone.utc).isoformat()},
+                headers=self._headers(),
+                timeout=TIMEOUT,
+            ).raise_for_status()
+        except Exception:
+            logger.debug("Failed to touch coach session %s", session_id, exc_info=True)
 
     def load_messages(self, session_id: str) -> list[dict]:
         """Fetch coach_messages for a session, oldest first. Raises SessionLoadError on failure."""

@@ -4,10 +4,21 @@ import { requireApiAccess } from '@/lib/require-api-access';
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
+/** The page of the list Hermes is asked for: `limit` and `offset`, digits only (tester 17.11: 1001 sessions). */
+function pageQuery(request: NextRequest): string {
+  const params = new URLSearchParams();
+  for (const key of ['limit', 'offset']) {
+    const value = request.nextUrl.searchParams.get(key);
+    if (value && /^\d{1,7}$/.test(value)) params.set(key, value);
+  }
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
 /**
- * GET /api/coach/sessions — List coach sessions for the current user
+ * GET /api/coach/sessions — A page of the current user's coach sessions (`?limit=&offset=`, Hermes' default 30)
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const { userId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -17,7 +28,7 @@ export async function GET() {
   if (denied) return denied;
 
   try {
-    const response = await fetch(`${HERMES_URL}/api/coach/sessions`, {
+    const response = await fetch(`${HERMES_URL}/api/coach/sessions${pageQuery(request)}`, {
       headers: { 'X-User-Id': userId },
       signal: AbortSignal.timeout(10000),
     });

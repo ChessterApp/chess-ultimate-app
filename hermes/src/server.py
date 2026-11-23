@@ -2471,6 +2471,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             puzzle_step = None
         if puzzle_step:
             active_board = session.ensure_board()
+    # The student turned away from a warm-up (a pasted game, another position): said once, by the server (20.11).
+    warmup_paused = None
+    if not puzzle_step:
+        try:
+            from src import warmup as _warmup
+
+            warmup_paused = _warmup.paused(session, game_in_message=route.get("reason") == "pgn_in_message")
+        except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
+            logger.debug("warm-up pause check failed", exc_info=True)
 
     # Small talk ("Привет", "спасибо") gets one fast tool-free reply instead of
     # the agent loop — see _small_talk_stream.
@@ -3485,6 +3494,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         # The puzzle card: the choosing ran here, not as a tool, so its frame is sent from here.
                         loop.call_soon_threadsafe(queue.put_nowait, ("tool_result", {
                             "tool": "get_puzzle", "ok": True, "summary": puzzle_step["summary"]}))
+                if warmup_paused:
+                    from src import warmup
+
+                    _lead(warmup.paused_line(warmup_paused, turn_language))
+                    warmup.note_paused_said(session)
+                    message = f"{message}\n\n{warmup.paused_note(warmup_paused)}"
                 if puzzle_note:
                     message = f"{message}\n\n{puzzle_note}"
                 if solution_step:
@@ -5967,13 +5982,29 @@ def _session_game_label(s) -> str:
     return title(board.pgn, (getattr(board, "game_state", None) or {}).get("result"))[:120]
 
 
+SESSIONS_PAGE = 30
+SESSIONS_PAGE_MAX = 100
+
+
+def _query_int(request: Request, name: str, default: int, low: int, high: int) -> int:
+    try:
+        return max(low, min(high, int(request.query_params.get(name, default))))
+    except (TypeError, ValueError):
+        return default
+
+
 @app.get("/api/coach/sessions")
 async def coach_list_sessions(request: Request):
-    """List all coaching sessions for a user, newest activity first."""
+    """A page of the user's coaching sessions, newest activity first (``?limit=``, default 30, and ``?offset=``).
+
+    Every client asks for pages: the whole list of the test account (1001 sessions) took 7–11 s after a restart and
+    twice ran past the site proxy's 10 s (tester 17.11). A full page means there may be more (the site's and the
+    app's «Показать ещё» asks for the next offset)."""
     user_id = _get_user_id(request)
-    # Off the event loop: a cold list loads every session of the user from
-    # Supabase (13 sessions = dozens of roundtrips) and froze every stream.
-    sessions = await asyncio.to_thread(session_store.list, user_id)
+    limit = _query_int(request, "limit", SESSIONS_PAGE, 1, SESSIONS_PAGE_MAX)
+    offset = _query_int(request, "offset", 0, 0, 1_000_000)
+    # Off the event loop: a cold page loads its sessions from Supabase (dozens of roundtrips).
+    sessions = await asyncio.to_thread(session_store.list, user_id, limit, offset)
     summaries = [_session_summary(s) for s in sessions]
     summaries.sort(key=lambda x: x["updated_at"], reverse=True)
     return summaries

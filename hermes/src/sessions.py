@@ -44,6 +44,12 @@ def _board_changed(session, board) -> None:
             logger.debug("board listener failed", exc_info=True)
 
 
+def _activity(session) -> float:
+    """When the session was last used: its last message, else its creation (the list's order)."""
+    last = session.messages[-1].timestamp if session.messages else None
+    return float(last if last is not None else (session.created_at or 0))
+
+
 def _stored_time(*values) -> Optional[float]:
     """The first of *values* that reads as a time (epoch seconds or an ISO string from Supabase), else None.
     A session reloaded after a restart got the load time on every message (seam audit 28.10): the session
@@ -521,20 +527,47 @@ class SessionStore:
         self._sessions[session.id] = session
         return session
 
-    def list(self, user_id: str) -> list[Session]:
-        """List all sessions for a user (merges cache with backend).
+    def list(self, user_id: str, limit: Optional[int] = None, offset: int = 0) -> list[Session]:
+        """List a user's sessions (merges cache with backend); with *limit*, one page of them.
 
         Sessions not in memory (after a restart) load side by side: a user
         with 13 sessions used to wait for 26 roundtrips one after the other.
+        A page loads only its own sessions — the whole list of the test account (1001 sessions) took 7–11 s
+        after a restart (tester 17.11). Pages follow the stored activity order (``updated_at``, bumped by every
+        message); the first page also carries the user's sessions in memory not stored yet (just created).
         """
-        missing = [row["id"] for row in self._persistence.load_user_sessions(user_id)
-                   if row["id"] not in self._sessions]
+        if limit is None:
+            ids = [row["id"] for row in self._persistence.load_user_sessions(user_id)]
+        else:
+            ids = [row["id"] for row in self._page_rows(user_id, limit, offset)]
+        missing = [sid for sid in ids if sid not in self._sessions]
         if missing:
             from concurrent.futures import ThreadPoolExecutor
 
             with ThreadPoolExecutor(max_workers=min(8, len(missing)), thread_name_prefix="session-list") as pool:
                 list(pool.map(self._load_for_list, missing))
-        return [s for s in self._sessions.values() if s.user_id == user_id]
+        mine = [s for s in list(self._sessions.values()) if s.user_id == user_id]
+        if limit is None:
+            return mine
+        if not getattr(self._persistence, "enabled", True):
+            return sorted(mine, key=_activity, reverse=True)[offset:offset + limit]
+        page = [self._sessions[sid] for sid in ids if sid in self._sessions]
+        if offset == 0:
+            # Not stored yet (its row is still being written): with a full page only the sessions newer than the
+            # page's oldest are added — older ones are on the next pages.
+            stored = set(ids)
+            full = len(ids) >= limit
+            oldest = min((_activity(s) for s in page), default=0.0)
+            page += [s for s in mine if s.id not in stored and (not full or _activity(s) >= oldest)]
+        return page
+
+    def _page_rows(self, user_id: str, limit: int, offset: int) -> "list[dict]":
+        loader = getattr(self._persistence, "load_user_session_page", None)
+        if loader is not None:
+            return loader(user_id, limit, offset)
+        rows = sorted(self._persistence.load_user_sessions(user_id),
+                      key=lambda r: str(r.get("updated_at") or ""), reverse=True)
+        return rows[offset:offset + limit]
 
     def _load_for_list(self, session_id: str) -> Optional[Session]:
         # One session that failed to load is left out of this listing (and not cached), not the whole list.

@@ -52,6 +52,11 @@ _OVER_COUNTED = {
     "en": "The warm-up is over: {solved} of {of} solved.",
     "kk": "Жаттығу аяқталды: {of} есептің ішінен {solved} есеп шешілді.",
 }
+_PAUSED = {
+    "ru": "Разминка прервана на задаче {n} из {of}.",
+    "en": "The warm-up is paused at puzzle {n} of {of}.",
+    "kk": "Жаттығу {of} есептің {n}-есебінде тоқтатылды.",
+}
 _OVER = {
     "ru": "Разминка из {of} задач окончена.",
     "en": "The warm-up of {of} puzzles is over.",
@@ -121,6 +126,7 @@ def put_up(session, puzzle_id=None, fen: Optional[str] = None) -> None:
     if pid is None:
         return
     at = state["ids"].index(pid)
+    state["paused_said"] = False  # back at the warm-up: a later break is said again
     if at != state["at"]:
         state["at"] = at
         state["up_turn"] = session.user_turns()
@@ -305,3 +311,45 @@ def say_place(place: dict) -> str:
     first, in the student's language, with the server's numbers."""
     return ("Tell the student the place of this puzzle FIRST, in their language, with exactly these numbers: "
             f"«{place_line(place, 'ru')}» / \"{place_line(place, 'en')}\" / «{place_line(place, 'kk')}».")
+
+
+def paused(session, game_in_message: bool = False) -> Optional[dict]:
+    """The student turned to something else in the middle of a warm-up — a game pasted into the message or onto the
+    board, another position, a game against the coach: {"n", "of"} of the puzzle it stopped at until the break is said
+    (``note_paused_said``; a puzzle of the warm-up put up again clears the mark), else None. It ended without a word before (open since 20.11): the puzzle
+    panel was gone, the next «дальше» could bring its next puzzle or, a few messages later, the programme's task.
+
+    Not a break: a turn on the warm-up's own positions (anywhere along a puzzle's solution), a warm-up over."""
+    state = getattr(session, "warmup", None)
+    if not state or state.get("over") or state.get("paused_said"):
+        return None
+    board = session.active_board() if getattr(session, "boards", None) else None
+    key = _key(getattr(board, "fen", None)) if board is not None else ""
+    on_its_own = (board is not None and getattr(board, "kind", None) != "game"
+                  and any(key in keys for keys in state["lines"].values()))
+    if on_its_own and not game_in_message:
+        return None
+    return {"n": state["at"] + 1, "of": len(state["ids"])}
+
+
+def note_paused_said(session) -> None:
+    """The break was said (``paused``): not again until the student is back at the warm-up."""
+    state = getattr(session, "warmup", None)
+    if state:
+        state["paused_said"] = True
+
+
+def paused_line(place: Optional[dict], language: Optional[str]) -> str:
+    """«Разминка прервана на задаче 3 из 5.» — the server's own line at the head of the answer."""
+    if not isinstance(place, dict) or not place.get("n") or not place.get("of"):
+        return ""
+    return _PAUSED[_lang(language)].format(n=int(place["n"]), of=int(place["of"]))
+
+
+def paused_note(place: dict) -> str:
+    """What the model is told about the break (English, for the turn's block)."""
+    n, of = int(place["n"]), int(place["of"])
+    return (f"[Warm-up paused] The student left the warm-up at puzzle {n} of {of} for what they bring now. The system "
+            f"has already written «{paused_line(place, 'ru')}» at the head of your answer — do not repeat it and do "
+            "not count puzzles. Answer what they bring now. If it fits, end with one short sentence that «дальше» "
+            "goes back to the warm-up's puzzles.")

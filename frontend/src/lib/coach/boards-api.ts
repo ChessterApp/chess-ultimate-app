@@ -189,8 +189,13 @@ async function call<T>(path: string, init?: RequestInit): Promise<T | null> {
   }
 }
 
+/** Sessions per page of the list (Hermes' own default). */
+export const SESSIONS_PAGE = 30;
+
 export const coachApi = {
-  listSessions: () => call<SessionSummary[]>('/api/coach/sessions'),
+  /** One page of the sessions, newest first; a full page means there may be more (tester 17.11). */
+  listSessions: (offset = 0, limit = SESSIONS_PAGE) =>
+    call<SessionSummary[]>(`/api/coach/sessions?limit=${limit}&offset=${offset}`),
 
   createSession: (title?: string) =>
     call<SessionSummary>('/api/coach/sessions', { method: 'POST', body: JSON.stringify({ title }) }),
