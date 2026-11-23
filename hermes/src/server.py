@@ -1435,14 +1435,20 @@ def _last_finished_game(session, but: Optional[str] = None) -> Optional[str]:
 # then the model's own step (10.11 load test: 6 s, then 7–10 s to the first word), one skipped costs only what main
 # did — so the doubt goes to skipping.
 REVIEW_BOARD_FIT = 0.5
+# The turn's own share for checking the moments deeper (src/tools/critical_moments._verify_claim): with nothing checked
+# in the background the step took the whole 5.5 s of its wait (local, 23.11) — at most this much of it now.
+REVIEW_VERIFY_MS = 2500
 
 
 def _review_scan(pgn: str, job):
     """The turn's review step: the scan at an answer's level, as one job — the turn cancels it if it stops waiting."""
     from src.tools import critical_moments as cm
 
+    # The moments' deeper checks (23.11) end before the turn stops waiting, and take at most REVIEW_VERIFY_MS of it: the
+    # biggest claim is checked first, the background usually checked them all already (the answer reads its cache).
+    deadline = time.monotonic() + config.COACH_REVIEW_WAIT_MS / 1000.0 - 0.5
     with engine_pool.priority(engine_pool.PRIORITY_LINE, job):
-        return cm.find_critical_moments(pgn)
+        return cm.find_critical_moments(pgn, deadline=deadline, verify_budget_ms=REVIEW_VERIFY_MS)
 
 
 def _board_review_fits(pgn: str) -> tuple[bool, dict]:

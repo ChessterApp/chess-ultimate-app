@@ -34,6 +34,17 @@ EVAL_CAP = 10.0
 MAX_MOMENTS = int(os.environ.get("CRITICAL_MOMENTS_MAX", "6"))
 # Plies of the engine's line shown for each moment.
 BEST_LINE_PLIES = 6
+# A moment the scan finds is a claim — «X was a mistake, Y was better» — and depth 12 can be wrong about a sacrifice
+# whose point lies past its horizon (tester 20.11: Morphy's 15.Bxd7+ in the Opera Game came out «blunder», «better
+# 15.Bxf6»; Stockfish 16 prefers 15.Bxf6 to depth 16 and 19 does at a fresh depth 12 too). Each claim is checked
+# by a deeper search of just the two moves, the played one and the alternative: a moment stays only when the
+# alternative is still better by the threshold. Two root moves make depth 20 cost well under a second.
+VERIFY_DEPTH = int(os.environ.get("CRITICAL_MOMENTS_VERIFY_DEPTH", "20"))
+VERIFY_MS = int(os.environ.get("CRITICAL_MOMENTS_VERIFY_MS", "2500"))  # one check's bound
+VERIFY_BUDGET_MS = int(os.environ.get("CRITICAL_MOMENTS_VERIFY_BUDGET_MS", "6000"))  # all checks of one scan
+# The background review (src/engine_precompute) checks every moment it can: nobody waits on it, and the answer
+# then reads the checks from the cache.
+VERIFY_BUDGET_BACKGROUND_MS = int(os.environ.get("CRITICAL_MOMENTS_VERIFY_BUDGET_BACKGROUND_MS", "20000"))
 
 CRITICAL_MOMENTS_SCHEMA = {
     "name": "find_critical_moments",
@@ -147,8 +158,12 @@ def find_critical_moments(
     threshold: float = DEFAULT_THRESHOLD,
     stockfish_path: str = STOCKFISH_PATH,
     _proc=None,
+    deadline: float | None = None,
+    verify_budget_ms: int | None = None,
 ) -> dict:
-    """Analyze a game move-by-move to find turning points."""
+    """Analyze a game move-by-move to find turning points. *deadline* (time.monotonic()): when the caller stops
+    waiting — the deeper checks of the moments end by then (a claim left unchecked stands as the scan found it);
+    *verify_budget_ms*: their whole time (default VERIFY_BUDGET_MS)."""
     try:
         game = chess.pgn.read_game(io.StringIO(pgn))
     except Exception:
@@ -173,7 +188,8 @@ def find_critical_moments(
         scanned = _scan_pooled(positions)
         if scanned is None:
             return {"error": "Stockfish is not available."}
-        return _moments(positions, moves_san, scanned, threshold)
+        return _moments(positions, moves_san, scanned, threshold, verify=_verify_claim, deadline=deadline,
+                        budget_ms=verify_budget_ms)
 
     # Start Stockfish (or use provided proc for testing)
     own_proc = _proc is None
@@ -213,11 +229,48 @@ def find_critical_moments(
                 proc.wait(timeout=5)
             except (BrokenPipeError, subprocess.TimeoutExpired):
                 proc.kill()
-    return _moments(positions, moves_san, scanned, threshold)
+    # A test's stand-in process has no deeper search to check with.
+    return _moments(positions, moves_san, scanned, threshold, verify=_verify_claim if own_proc else None,
+                    deadline=deadline, budget_ms=verify_budget_ms)
 
 
-def _moments(positions: list, moves_san: list, scanned: list, threshold: float) -> dict:
-    """The critical moments from every position's (White-side eval, engine line)."""
+def _verify_claim(board: chess.Board, played: str, instead: str, max_ms: int) -> float | None:
+    """How much better *instead* is than *played* (UCI) for the side to move, in capped pawns, by a search of just the
+    two moves to VERIFY_DEPTH within *max_ms*; None when the search says nothing about both."""
+    from src.tools import stockfish
+
+    moves = (played, instead)
+    fen = board.fen()
+    res = stockfish._cache_get(fen, VERIFY_DEPTH, 2, moves)
+    if res is None:
+        res = stockfish.analyze_position(fen, depth=VERIFY_DEPTH, multipv=2, searchmoves=moves, max_ms=max_ms)
+        stockfish._cache_put(fen, res, moves)
+    score = {}
+    for line in res.get("lines") or []:
+        first = (line.get("pv") or "").split()[:1]
+        if first and first[0] not in score:
+            score[first[0]] = _for_mover(float(line.get("score") or 0.0), chess.WHITE)  # already the mover's
+    if played not in score or instead not in score:
+        return None
+    return score[instead] - score[played]
+
+
+def _check_stopped() -> bool:
+    """The job these searches belong to was cancelled (the answer stopped waiting, the board changed)."""
+    try:
+        from src import engine_pool
+
+        job = engine_pool.current_job()
+        return bool(job is not None and job.cancelled)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _moments(positions: list, moves_san: list, scanned: list, threshold: float, verify=None,
+             deadline: float | None = None, budget_ms: int | None = None) -> dict:
+    """The critical moments from every position's (White-side eval, engine line). *verify* (board, played UCI,
+    alternative UCI, ms) → how much better the alternative is: a claim a deeper look does not confirm is dropped.
+    The checks spend at most *budget_ms* (default VERIFY_BUDGET_MS), and end by *deadline* (time.monotonic())."""
     evals = [score for score, _ in scanned]
 
     # A move is critical when the mover's own evaluation drops by the threshold.
@@ -261,13 +314,37 @@ def _moments(positions: list, moves_san: list, scanned: list, threshold: float) 
         if best_line and best_line[0] != moves_san[i]:
             moment["best_move"] = best_line[0]
             moment["best_line"] = " ".join(best_line)
-        critical.append((loss, moment))
+        critical.append((loss, moment, i))
 
-    found = len(critical)
-    # The biggest swings, back in game order.
-    kept = sorted(critical, key=lambda c: -c[0])[:MAX_MOMENTS] if MAX_MOMENTS > 0 else critical
-    order = {id(m): n for n, (_, m) in enumerate(critical)}
-    moments = sorted((m for _, m in kept), key=lambda m: order[id(m)])
+    # The biggest swings first, each checked deeper until enough are confirmed; a claim left unchecked when the
+    # budget runs out stays as the scan found it (as before the check).
+    by_loss = sorted(critical, key=lambda c: -c[0])
+    kept, dropped = [], 0
+    spent_ms = 0.0
+    for loss, moment, i in by_loss:
+        if MAX_MOMENTS > 0 and len(kept) >= MAX_MOMENTS:
+            break
+        instead = (scanned[i][1] or [None])[0]
+        left = (VERIFY_BUDGET_MS if budget_ms is None else budget_ms) - spent_ms
+        if deadline is not None:
+            left = min(left, (deadline - time.monotonic()) * 1000.0)
+        if verify is not None and instead and left >= 200 and not _check_stopped():
+            board = positions[i]
+            played = board.parse_san(moves_san[i]).uci()
+            t0 = time.monotonic()
+            try:
+                better = verify(board, played, instead, int(min(VERIFY_MS, left)))
+            except Exception as exc:  # noqa: BLE001 — the scan's claim stands
+                logger.warning("critical moment check failed: %s", exc)
+                better = None
+            spent_ms += (time.monotonic() - t0) * 1000.0
+            if better is not None and better < threshold:
+                dropped += 1
+                continue
+        kept.append((loss, moment, i))
+    found = len(critical) - dropped
+    # Back in game order.
+    moments = [m for _, m, _ in sorted(kept, key=lambda c: c[2])]
 
     result = {
         "total_moves": len(moves_san),

@@ -246,9 +246,10 @@ def _review_steps(pgn: str) -> list:
         steps += _line_steps(final.fen())
 
     def _moments():
-        from src.tools.critical_moments import find_critical_moments
+        from src.tools.critical_moments import VERIFY_BUDGET_BACKGROUND_MS, find_critical_moments
 
-        found = find_critical_moments(pgn)  # every position is in the cache now: no search
+        # Every position is in the cache now: the searches left are the moments' deeper checks, kept for the answer.
+        found = find_critical_moments(pgn, verify_budget_ms=VERIFY_BUDGET_BACKGROUND_MS)
         for m in (found.get("critical_moments") or [])[:REVIEW_MOMENTS]:
             fen = m.get("fen_before")
             if fen:
