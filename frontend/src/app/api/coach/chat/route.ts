@@ -5,6 +5,7 @@ import { captureServer } from '@/lib/analytics/server';
 import { ANALYTICS_EVENTS } from '@/lib/analytics/events';
 
 import { resolveUserTier } from '@/lib/subscription-tier';
+import { coachLearnFloor, learnFloorHeader } from '@/lib/coach/learn-floor';
 import { requestLocale } from '@/i18n/detect';
 import { hermesErrorFrame, unreachableFrame } from '@/lib/coach/coach-errors';
 
@@ -62,7 +63,8 @@ export async function POST(request: NextRequest) {
 
   // Cookie → Accept-Language, as the page picks its language (28.10: the cookie alone gave 'ru' to Kazakh browsers).
   const locale = requestLocale(request);
-  const tier = await resolveUserTier(userId);
+  // The plan, and the Chess Empire level /learn's locks open courses by (src/lib/coach/learn-floor.ts), side by side.
+  const [tier, learnFloor] = await Promise.all([resolveUserTier(userId), coachLearnFloor(userId)]);
 
   // Tracking plan §4 B — counts the message, never its content. Runs after the
   // response so the PostHog round trip never delays the stream.
@@ -85,6 +87,7 @@ export async function POST(request: NextRequest) {
             'Content-Type': 'application/json',
             'X-User-Id': userId,
             'x-subscription-tier': tier,
+            ...learnFloorHeader(learnFloor),
           },
           body: JSON.stringify({
             message: body.message,

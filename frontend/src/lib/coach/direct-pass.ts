@@ -28,10 +28,12 @@ export function signDirectPass(payload: Record<string, unknown>, secret: string)
 }
 
 /** The pass for this student and plan, or null when the direct path is not set up on this deployment. */
-export function mintDirectPass(userId: string, tier: string, nowMs: number = Date.now()): DirectPass | null {
+export function mintDirectPass(userId: string, tier: string, nowMs: number = Date.now(), floor?: number): DirectPass | null {
   const url = (process.env.COACH_DIRECT_URL || '').trim().replace(/\/+$/, '');
   const secret = (process.env.COACH_DIRECT_SECRET || '').trim();
   if (!url || !secret || !userId) return null;
   const exp = Math.floor(nowMs / 1000) + DIRECT_PASS_TTL_S;
-  return { url, token: signDirectPass({ sub: userId, tier, exp, aud: DIRECT_AUDIENCE }, secret), expiresAt: exp * 1000 };
+  // The Chess Empire level /learn's locks open courses by (src/lib/coach/learn-floor.ts) rides in the pass as the plan.
+  const payload = { sub: userId, tier, exp, aud: DIRECT_AUDIENCE, ...(floor ? { floor } : {}) };
+  return { url, token: signDirectPass(payload, secret), expiresAt: exp * 1000 };
 }

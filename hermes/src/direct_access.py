@@ -36,7 +36,8 @@ AUDIENCE = "coach-direct"
 # A clock a little apart on the two servers does not refuse a fresh pass.
 LEEWAY_S = 30
 # The identity and the plan come from the pass alone on this path.
-DROPPED_HEADERS = {b"x-user-id", b"x-clerk-user-id", b"x-subscription-tier", b"authorization", b"cookie"}
+DROPPED_HEADERS = {b"x-user-id", b"x-clerk-user-id", b"x-subscription-tier", b"x-learn-floor", b"authorization",
+                   b"cookie"}
 DEFAULT_ORIGINS = "https://chesster.io,https://www.chesster.io"
 
 
@@ -65,7 +66,7 @@ def sign(payload: dict, secret: Optional[bytes] = None) -> str:
 
 
 def verify(token: str, now: Optional[float] = None) -> Optional[dict]:
-    """The pass's payload {sub, tier, exp, aud} when its signature, audience and expiry hold, else None."""
+    """The pass's payload {sub, tier, exp, aud[, floor]} when its signature, audience and expiry hold, else None."""
     secret = _secret()
     if not secret or not token:
         return None
@@ -134,6 +135,10 @@ class DirectAccess:
         inner["raw_path"] = target.encode()
         inner["headers"] = [(k, v) for k, v in scope.get("headers") or [] if k.lower() not in DROPPED_HEADERS] + [
             (b"x-user-id", payload["sub"].encode()), (b"x-subscription-tier", payload["tier"].encode())]
+        floor = payload.get("floor")
+        if isinstance(floor, int) and not isinstance(floor, bool) and 1 <= floor <= 99:
+            # The student's Chess Empire level (src/learn_access.py): from the pass, as the identity.
+            inner["headers"].append((b"x-learn-floor", str(floor).encode()))
 
         async def send_cors(message):
             if message.get("type") == "http.response.start":

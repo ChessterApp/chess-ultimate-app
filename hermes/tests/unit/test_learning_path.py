@@ -109,7 +109,9 @@ class TestLearningPath:
         by_slug = {c["slug"]: c for c in out["courses"]}
         assert by_slug["chess-basics"]["title"] == "Основы шахмат"
         assert by_slug["chess-basics"]["lessons_completed"] == 1
-        assert by_slug["tactics-101"]["url"] == "https://chesster.io/learn/tactics-101"
+        assert by_slug["chess-basics"]["url"] == "https://chesster.io/learn/chess-basics"
+        # The second course is closed on /learn until the first is passed: named, not linked (tester 20.11, item 12).
+        assert by_slug["tactics-101"]["locked"] is True and "url" not in by_slug["tactics-101"]
         # The in-progress lesson wins over "first not completed".
         assert out["continue_with"]["slug"] == "the-rook"
         assert out["continue_with"]["status"] == "in_progress"
@@ -179,8 +181,17 @@ class TestFindLessons:
 @pytest.mark.unit
 class TestGetLesson:
     def test_full_lesson_with_san_solutions(self):
-        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
-            out = get_lesson("knight-fork", user_id="u1", locale="ru")
+        # The lesson's course is the second one: open to a Chess Empire student of level 2 (item 12's locks, 23.11).
+        from src import learn_access
+
+        learn_access._cache.clear()
+        learn_access.note_floor("u1", 2)
+        try:
+            with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
+                out = get_lesson("knight-fork", user_id="u1", locale="ru")
+        finally:
+            learn_access.note_floor("u1", None)
+            learn_access._cache.clear()
         assert out["title"] == "Вилка конём"
         assert out["course"]["slug"] == "tactics-101" and out["module"] == "Двойные удары"
         assert out["content"] == "Конь нападает на две фигуры сразу."

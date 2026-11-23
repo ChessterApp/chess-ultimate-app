@@ -823,6 +823,10 @@ def _handle_get_topic(args: dict, **kwargs) -> str:
     if locked and isinstance(result, dict):
         result.pop("board_actions", None)
         result["board_hint"] = HIDDEN_BOARD_NOTE if hidden else BOARD_KEPT_NOTE
+    # The lessons of courses /learn still keeps locked are not offered (src/learn_access, 22.11).
+    from src.learn_access import gate_topic
+
+    result = gate_topic(result, user_id, args.get("locale") or "ru")
     return json.dumps(result, ensure_ascii=False)
 
 

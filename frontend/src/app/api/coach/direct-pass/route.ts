@@ -5,6 +5,7 @@ import { resolveUserTier } from '@/lib/subscription-tier';
 import { captureServer } from '@/lib/analytics/server';
 import { ANALYTICS_EVENTS } from '@/lib/analytics/events';
 import { mintDirectPass } from '@/lib/coach/direct-pass';
+import { coachLearnFloor } from '@/lib/coach/learn-floor';
 
 export const runtime = 'nodejs';
 
@@ -18,8 +19,8 @@ export async function GET() {
   if (!userId) return Response.json({ error: 'Unauthorized' }, { status: 401 });
   const denied = await requireCoachAccess(userId);
   if (denied) return denied;
-  const tier = await resolveUserTier(userId);
-  return Response.json({ direct: mintDirectPass(userId, tier) }, { headers: { 'Cache-Control': 'no-store' } });
+  const [tier, learnFloor] = await Promise.all([resolveUserTier(userId), coachLearnFloor(userId)]);
+  return Response.json({ direct: mintDirectPass(userId, tier, Date.now(), learnFloor) }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 /**

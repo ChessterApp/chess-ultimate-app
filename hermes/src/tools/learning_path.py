@@ -369,6 +369,11 @@ def get_learning_path(
     else:
         progress_note = None
 
+    # The locks of the site's /learn (src/learn_access, 22.11): a closed course is named, never offered or linked.
+    from src.learn_access import LOCKED_COURSE_NOTE, LOCKED_COURSES_NOTE, states_for, unlock_path
+
+    states = states_for(user_id, programme, progress)
+
     if course:
         c = _match_course(programme, course)
         if c is None:
@@ -378,6 +383,18 @@ def get_learning_path(
                     {"slug": _slug(x) or None, "course_id": x.get("id"), "title": _loc(x, "title", locale)}
                     for x in programme["courses"]
                 ],
+            }
+        st = states.get(c.get("id")) or {}
+        if st.get("locked"):
+            # What is inside, by name only — and the way to it.
+            return {
+                "course": {"title": _cap(_loc(c, "title", locale), TITLE_CHAR_CAP), "level": c.get("level"),
+                           "description": _cap(_loc(c, "description", locale), 400), "locked": True},
+                "modules": [{"title": _cap(_loc(m, "title", locale), TITLE_CHAR_CAP),
+                             "lessons": [_cap(_loc(l, "title", locale), TITLE_CHAR_CAP) for l in m.get("lessons", [])]}
+                            for m in c.get("modules", [])],
+                "unlock_path": unlock_path(user_id, st, locale, states=states),
+                "note": LOCKED_COURSE_NOTE,
             }
         modules = []
         for m in c.get("modules", []):
@@ -407,16 +424,25 @@ def get_learning_path(
         done = sum(1 for l in lessons if (progress.get(l["id"]) or {}).get("status") == "completed")
         total += len(lessons)
         completed += done
-        courses_out.append({
+        row = {
             "slug": _slug(c) or None,
             "title": _cap(_loc(c, "title", locale), TITLE_CHAR_CAP),
             "level": c.get("level"),
             "lessons_total": len(lessons),
             "lessons_completed": done,
             "url": _course_url(c),
-        })
+        }
+        if (states.get(c.get("id")) or {}).get("locked"):
+            row["locked"] = True
+            row.pop("url", None)
+        courses_out.append(row)
 
     nxt = next_lesson(programme, progress)
+    if nxt and (states.get(nxt[0].get("id")) or {}).get("locked"):
+        # A lesson touched in a course that is closed now (opened by the coach before 22.11): the open way instead.
+        nxt = next(((c, m, l) for c, m, l in iter_lessons(programme)
+                    if not (states.get(c.get("id")) or {}).get("locked")
+                    and (progress.get(l["id"]) or {}).get("status") != "completed"), None)
     out = {
         "user_id": user_id,
         "lessons_total": total,
@@ -431,6 +457,8 @@ def get_learning_path(
         "hint": "Call get_learning_path with course=<slug> to see its modules and lessons; "
                 "get_lesson with lesson=<slug> to read a lesson and put its exercise on the board.",
     }
+    if any(r.get("locked") for r in courses_out):
+        out["locked_note"] = LOCKED_COURSES_NOTE
     if progress_note:
         out["note"] = progress_note
     return out
@@ -694,6 +722,16 @@ def get_lesson(
             "hint": "Call get_lesson again with the exact slug or lesson_id.",
         }
     course, module, brief = matches[0]
+
+    # A lesson of a course /learn still keeps locked is not read, shown or linked: the way to it is told instead
+    # (src/learn_access, tester 20.11 item 12).
+    if user_id:
+        from src.learn_access import gate_lesson
+
+        gated = gate_lesson({"lesson_id": brief["id"], "title": _loc(brief, "title", locale),
+                             "course": {"title": _loc(course, "title", locale)}}, user_id, locale)
+        if gated.get("locked"):
+            return gated
 
     rows = _query_with_fallback(
         "lessons", LESSON_FULL_SELECT, LESSON_FULL_SELECT_MIN, supabase_url, supabase_key,

@@ -404,6 +404,10 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
     ``token_usage`` with ``surface="voice"``.
     """
     user_id = _get_user_id(request)
+    # The voice coach's tools see /learn's locks as the text coach's do (src/learn_access.py, 22.11).
+    from src import learn_access
+
+    learn_access.note_floor(user_id, learn_access.floor_from_header(request.headers.get("x-learn-floor")))
 
     # Same sliding-window mechanism/tiers as text chat, on the voice-tool limiter.
     await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)

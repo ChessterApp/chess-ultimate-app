@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { requireCoachAccess } from '@/lib/coach-access';
 
 import { resolveUserTier } from '@/lib/subscription-tier';
+import { coachLearnFloor, learnFloorHeader } from '@/lib/coach/learn-floor';
 import { requestLocale } from '@/i18n/detect';
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing tool name' }, { status: 400 });
   }
 
-  const tier = await resolveUserTier(userId);
+  const [tier, learnFloor] = await Promise.all([resolveUserTier(userId), coachLearnFloor(userId)]);
 
   try {
     const response = await fetch(
@@ -46,6 +47,8 @@ export async function POST(request: NextRequest) {
           'Content-Type': 'application/json',
           'X-User-Id': userId,
           'x-subscription-tier': tier,
+          // The voice coach's lessons follow /learn's locks too (src/lib/coach/learn-floor.ts).
+          ...learnFloorHeader(learnFloor),
         },
         body: JSON.stringify({
           args: body.args ?? {},

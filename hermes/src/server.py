@@ -360,6 +360,7 @@ async def add_request_id(request: Request, call_next):
 # The voice pipeline's direct path (src/direct_access.py, 23.11): added after the request-id middleware, so it runs
 # first — the identity that middleware reads is already the pass's.
 from src.direct_access import DirectAccess  # noqa: E402
+from src import learn_access  # noqa: E402
 
 app.add_middleware(DirectAccess)
 
@@ -2378,6 +2379,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         stages[stage] = int((time.monotonic() - request_started) * 1000)
 
     user_id = _get_user_id(request)
+    # The student's Chess Empire level, as the site resolved it (x-learn-floor): /learn's locks for the lessons the
+    # coach offers this turn (src/learn_access.py, 22.11).
+    learn_access.note_floor(user_id, learn_access.floor_from_header(request.headers.get("x-learn-floor")))
 
     # Rate limiting
     await enforce_rate_limit(request)
