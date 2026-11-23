@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 23.11 (разбор перепроверяет каждую «ошибку» глубже — на любом Stockfish лучший ход не называется ошибкой; исправляет проверку 91a, не прошедшую на сервере 23.11) — включает всё из версий 06.10 … 20.11
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 23.11 (разбор перепроверяет каждую «ошибку» глубже — на любом Stockfish лучший ход не называется ошибкой; исправляет проверку 91a, не прошедшую на сервере 23.11; прямой путь голоса без Vercel — включается отдельно, подшаг 5в) — включает всё из версий 06.10 … 20.11
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -7,8 +7,9 @@
 > обновление: всё, что уже сделано в прошлый раз (миграции, база задач, переменные), Claude
 > проверит и пропустит, так что займёт 10–15 минут. В конце Claude пришлёт отчёт.
 >
-> **Это обновление поверх версии 20.11**, которая уже стоит: только код, без новых переменных, ключей и миграций.
-> Модель, голос и голосовой режим не меняются, `.env` не трогается.
+> **Это обновление поверх версии 20.11**, которая уже стоит: код, без миграций. Модель, голос и голосовой режим не
+> меняются. Новое по желанию — **подшаг 5в «прямой путь голоса»** (одна строка в `.env`, адрес `coach-api.chesster.io`
+> в nginx, две переменные в Vercel): делайте его, только если человек согласился; без него всё работает как раньше.
 
 ---
 
@@ -34,8 +35,8 @@
 ### Что изменится после обновления
 
 Новое в версии 23.11 (отчёт об обновлении до 20.11 от 23.11; код — `hermes/src/` и тесты. Миграций, пакетов и
-переменных нет; подшаги 5а и 5б не выполняются. Если сервер на 20.11 — шаги 0, 1, 2, 3, 4, 8 и проверки 1, 3, 91, 92; если
-раньше — все шаги):
+пакетов нет; подшаги 5а и 5б не выполняются, подшаг 5в — только с согласия человека (см. последний пункт). Если сервер на
+20.11 — шаги 0, 1, 2, 3, 4, 8 и проверки 1, 3, 91, 92 (и 93 после 5в); если раньше — все шаги):
 - **Разбор перепроверяет каждую «ошибку», прежде чем её назвать** (`src/tools/critical_moments.py`). На сервере
   23.11 проверка 91a дала `False`: Stockfish 16 на глубине 12 (и 16) сам выбирает в «Оперной партии» 15.Сxf6, поэтому
   правило версии 20.11 «ход, который движок выбрал сам, — не ошибка» не срабатывало, и 15.Сxd7+ (лучший ход, мат после
@@ -78,6 +79,87 @@ EOF
   ошибается: проверка показывает, что перепроверка его поправляет. Время — справочное (без пула процессов, обычно 5–20 с
   на прогон); пришли его в отчёте. До обновления — `TypeError` (нет `verify_budget_ms`). `ПРОВЕРЬ` с `False` — пришли
   вывод человеку. Команда ничего не пишет в базу и `.env` не меняет.
+- **Прямой путь голоса — без Vercel посередине** (`src/direct_access.py`; сайт и приложение уже умеют). Сейчас каждый
+  запрос тренеру идёт браузер → сайт на Vercel → Hermes: сайт проверяет вход и тариф и передаёт их заголовками, которым
+  Hermes верит. Это ~0,5 с на запрос, два запроса на голосовой ход (замер прода 23.11: распознавание 1,8 с, из них сам
+  OpenRouter 0,9 с). Теперь сайт выдаёт странице короткий пропуск (кто, тариф, 5 минут; подпись секретом
+  `COACH_DIRECT_SECRET`), и два горячих запроса — распознавание фразы и голосовой вопрос — идут прямо в Hermes по адресам
+  `/direct/voice/stt` и `/direct/chat`. Hermes проверяет подпись и берёт ученика и тариф **только из пропуска**
+  (заголовки «кто я» из запроса выбрасываются); без пропуска — 401, любой другой адрес под `/direct/` — 404, без
+  секрета в `.env` весь `/direct/` отвечает 404 (путь выключен). Если прямой путь не ответил, страница сама идёт через
+  сайт, как раньше — ученик ничего не замечает. Включается в любом порядке.
+
+  **Включение — это подшаг 5в, отдельно от остального обновления и только с согласия человека.** Части 1–2 делает
+  Claude на сервере, часть 3 — человек с доступом к Vercel. Если что-то из частей 1–2 невозможно (нет DNS-записи, на
+  сервере не nginx, нет certbot) — не включай, напиши в отчёте, чего не хватает; остальное обновление от этого не
+  зависит.
+
+  1. **Секрет в `.env` Hermes** (не печатать, не писать в отчёт):
+     ```bash
+     cd /root/hermes-chess && grep -q '^COACH_DIRECT_SECRET=' .env \
+       || echo "COACH_DIRECT_SECRET=$(openssl rand -hex 32)" >> .env
+     grep -c '^COACH_DIRECT_SECRET=' .env   # → 1
+     ```
+     Перезапуск — шаг 8, как обычно. Порт 8642 **остаётся закрытым снаружи** — файрвол не трогать.
+  2. **Публичный адрес только для двух путей** — `coach-api.chesster.io` (поддомен chesster.io: политика безопасности
+     сайта уже разрешает его странице). Нужна DNS-запись `A coach-api.chesster.io → IP этого сервера`; проверь
+     `getent hosts coach-api.chesster.io` — если не этот сервер, **СТОП для подшага 5в**, напиши в отчёте «нужна
+     DNS-запись». Затем nginx (`nginx -v`; если не nginx — СТОП для 5в), файл
+     `/etc/nginx/sites-available/coach-api.chesster.io`:
+     ```nginx
+     limit_req_zone $binary_remote_addr zone=coach_direct:10m rate=5r/s;
+     server {
+         listen 80;
+         server_name coach-api.chesster.io;
+         location / { return 404; }
+     }
+     server {
+         listen 443 ssl;
+         server_name coach-api.chesster.io;
+         # ssl_certificate … — допишет certbot
+         client_max_body_size 3m;
+         location = /direct/voice/stt {
+             limit_req zone=coach_direct burst=10 nodelay;
+             proxy_pass http://127.0.0.1:8642;
+             proxy_read_timeout 30s;
+         }
+         location = /direct/chat {
+             limit_req zone=coach_direct burst=10 nodelay;
+             proxy_pass http://127.0.0.1:8642;
+             proxy_http_version 1.1;
+             proxy_buffering off;
+             proxy_read_timeout 130s;
+         }
+         location / { return 404; }
+     }
+     ```
+     Только эти два `location =` — **ничего больше не открывать** (всё остальное у Hermes доверяет заголовкам и
+     должно оставаться за Vercel). Затем:
+     ```bash
+     ln -sf /etc/nginx/sites-available/coach-api.chesster.io /etc/nginx/sites-enabled/ \
+       && certbot --nginx -d coach-api.chesster.io --non-interactive --agree-tos --redirect -m <почта из других сертификатов: certbot certificates> \
+       && nginx -t && systemctl reload nginx
+     ```
+     Если certbot при выпуске добавил в 443-й блок свои `location` — оставь только два наших и `location / { return 404; }`.
+  3. **Человек в Vercel** (проект сайта chesster.io → Settings → Environment Variables, Production):
+     `COACH_DIRECT_URL` = `https://coach-api.chesster.io`, `COACH_DIRECT_SECRET` = то же значение, что в
+     `/root/hermes-chess/.env` (человек смотрит его сам: `grep COACH_DIRECT_SECRET /root/hermes-chess/.env`), затем
+     Redeploy последней сборки. Без этого страница прямым путём не ходит — всё работает как раньше.
+
+  Проверка 93 (после частей 1–2 и перезапуска; без модели и без расходов: «пустой» звук Hermes отбрасывает сам):
+
+```bash
+cd /root/hermes-chess && U=https://coach-api.chesster.io && c() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@"; }
+PASS=$(.venv/bin/python -c "import time; from src import config; from src.direct_access import sign; print(sign({'sub':'check-93','tier':'free','exp':int(time.time())+120,'aud':'coach-direct'}))")
+FAKE=$(.venv/bin/python -c "import time; from src.direct_access import sign; print(sign({'sub':'check-93','tier':'pro','exp':int(time.time())+120,'aud':'coach-direct'}, b'wrong'))")
+echo "93a без пропуска: $(c -X POST $U/direct/chat) | 93b поддельный: $(c -X POST -H "Authorization: Bearer $FAKE" --data-binary x $U/direct/voice/stt) | 93c чужие адреса: $(c $U/api/coach/sessions) $(c -X POST $U/direct/sessions) $(c $U/health) | 93d верный: $(curl -s --max-time 10 -X POST -H "Authorization: Bearer $PASS" -H 'Content-Type: audio/wav' --data-binary x $U/direct/voice/stt) | 93e CORS: $(curl -s -D - -o /dev/null -X OPTIONS -H 'Origin: https://chesster.io' -H 'Access-Control-Request-Method: POST' $U/direct/chat | tr -d '\r' | grep -i '^access-control-allow-origin' | cut -d' ' -f2) | 93f 8642: $(ss -ltn | grep -c ':8642 ')"
+```
+
+  → `93a без пропуска: 401 | 93b поддельный: 401 | 93c чужие адреса: 404 404 404 | 93d верный: {"text": "", "model":
+  …, "ms": 0} | 93e CORS: https://chesster.io | 93f 8642: 1`. Любое другое значение в 93a–93c — **сразу выключи**
+  (`rm /etc/nginx/sites-enabled/coach-api.chesster.io && systemctl reload nginx`) и пришли вывод человеку. Снаружи порт
+  8642 и адрес проверит разработчик сам. Выключить прямой путь целиком: убрать строку `COACH_DIRECT_SECRET` из `.env` и
+  `pm2 restart hermes-chess` (или убрать переменные в Vercel) — страница вернётся на путь через сайт.
 
 Новое в версии 20.11 (отчёт тестировщика от 20.11; код — `hermes/src/` и тесты. Миграций, пакетов и переменных нет;
 подшаги 5а и 5б не выполняются. Если сервер на 19.11 — шаги 0, 1, 2, 3, 4, 8 и проверки 1, 3, 91; если раньше — все
@@ -2991,6 +3073,7 @@ grep -q '_pawn_bishop_issues' chess-ultimate-app/hermes/src/answer_check_rules.p
 
 ```bash
 grep -q 'VERIFY_DEPTH' chess-ultimate-app/hermes/src/tools/critical_moments.py \
+  && grep -q 'class DirectAccess' chess-ultimate-app/hermes/src/direct_access.py \
   && echo "версия 23.11 в main есть" || echo "НЕТ версии 23.11"
 ```
 
@@ -3829,6 +3912,8 @@ COACH_REASONING_MANDATORY, COACH_REASONING_EFFORT, COACH_LESSON_LINK=<значе
   90 19.11 — только шахматы <True/False>; партии с тренером читаются <True/False>; партия с тренером последняя <True/False>; голосом сразу <True/False>; первая фраза на сервере <True/False>
   91 20.11 — Морфи <True/False>; слон пешки <…>; «Ты – Тренер» <…>; разбор при реванше <…>; Фишер по ссылке <…>; имя сессии <…>
   92 23.11 — глубина 12 <True/False> (<мс>); глубина 8 <True/False> (<мс>)
+  5в прямой путь голоса: включён / не включён (почему: нет согласия / нет DNS / не nginx / …)
+  93 23.11 — 93a <код>; 93b <код>; 93c <коды>; 93d <ответ>; 93e <origin>; 93f <число> (только после 5в; секрет НЕ писать)
 5б: <голос заменён на Will / не выполнялся — почему>
 Бэкенд (фото доски): <обновлён, коммит …, grep PHOTO_FEN_ATTEMPTS = … / не обновлён — почему>
 Что нужно от людей: <список или «ничего»>
