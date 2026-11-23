@@ -2755,8 +2755,11 @@
       },
       "messages": {
         "brilliant": "You found {count, plural, one {# brilliant move} other {# brilliant moves}}. Step through the review to relive the key moments.",
-        "clean": "No blunders this game — top accuracy {best}%. Let’s look at where you could push even harder.",
-        "review": "A few turning points to learn from. Top accuracy was {best}% — start the review to see every key moment."
+        "clean": "No blunders this game — your accuracy {accuracy}%. Let’s look at where you could push even harder.",
+        "review": "A few turning points to learn from. Your accuracy was {accuracy}% — start the review to see every key moment.",
+        "brilliantNeutral": "{count, plural, one {# brilliant move} other {# brilliant moves}} in this game. Step through the review to relive the key moments.",
+        "cleanNeutral": "No blunders this game. Accuracy: White {white}%, Black {black}%.",
+        "reviewNeutral": "A few turning points to learn from. Accuracy: White {white}%, Black {black}% — start the review to see every key moment."
       },
       "bubblePlaceholder": "Step through the game to see move-by-move coaching.",
       "explain": {

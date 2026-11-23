@@ -6,6 +6,19 @@
 /* Don't override inline width/height on the board wrapper —
    the component sets explicit pixel dimensions via inline style */
 
+/* Board squares from the Settings theme (--board-light/--board-dark, set
+   inline by ChessgroundBoard). Replaces brown.css's embedded SVG board. */
+.chessground-board cg-board {
+  background-color: var(--board-light, #f0d9b5);
+  background-image: conic-gradient(
+    var(--board-dark, #b58863) 0deg 90deg,
+    var(--board-light, #f0d9b5) 90deg 180deg,
+    var(--board-dark, #b58863) 180deg 270deg,
+    var(--board-light, #f0d9b5) 270deg 360deg
+  );
+  background-size: 25% 25%;
+}
+
 /* Selected square highlight */
 .chessground-board cg-board square.selected {
   background-color: rgba(255, 215, 0, 0.6) !important;

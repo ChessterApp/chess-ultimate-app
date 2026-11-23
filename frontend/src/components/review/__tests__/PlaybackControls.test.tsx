@@ -15,8 +15,12 @@ describe('nextKeyMoment', () => {
     expect(nextKeyMoment([5, 6, 12], 6)).toBe(12);
   });
 
-  it('returns null when none remain', () => {
-    expect(nextKeyMoment([5, 6], 6)).toBeNull();
+  it('wraps to the first key moment when none remain', () => {
+    expect(nextKeyMoment([5, 6], 6)).toBe(5);
+    expect(nextKeyMoment([12, 5, 6], 40)).toBe(5);
+  });
+
+  it('returns null only when there are no key moments', () => {
     expect(nextKeyMoment([], 3)).toBeNull();
   });
 
@@ -73,8 +77,16 @@ describe('PlaybackControls', () => {
     expect(onJump).toHaveBeenCalledWith(12);
   });
 
-  it('disables Next when no key moments remain', () => {
-    const { getByTestId } = setup(12, 40, [5, 12]);
+  it('Next stays enabled at the final ply and wraps to the first key moment', () => {
+    const { getByTestId, onJump } = setup(40, 40, [5, 12]);
+    const next = getByTestId('pb-keymoment') as HTMLButtonElement;
+    expect(next.disabled).toBe(false);
+    fireEvent.click(next);
+    expect(onJump).toHaveBeenCalledWith(5);
+  });
+
+  it('disables Next only when the game has no key moments', () => {
+    const { getByTestId } = setup(12, 40, []);
     expect((getByTestId('pb-keymoment') as HTMLButtonElement).disabled).toBe(true);
   });
 

@@ -14,6 +14,8 @@ export interface ReviewGame {
   isFinished?: boolean;
   /** Board orientation to open the review with. */
   orientation?: 'white' | 'black';
+  /** The colour the user played, when known (bot/online). Omit when unknown. */
+  userColor?: 'w' | 'b';
 }
 
 /**
@@ -66,6 +68,7 @@ export default function StartReviewButton({
       const { review_id } = await startReview(game.pgn, source);
       const params = new URLSearchParams({ source });
       if (game.orientation) params.set('orientation', game.orientation);
+      if (game.userColor) params.set('side', game.userColor);
       router.push(`/review/${review_id}?${params.toString()}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : t('startButton.couldNotStart');

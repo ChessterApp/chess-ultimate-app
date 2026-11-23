@@ -1,6 +1,6 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import type { ReviewResult } from './types';
 import CoachIntro from './CoachIntro';
 import AccuracyCard from './AccuracyCard';
@@ -10,6 +10,7 @@ import GameRating from './GameRating';
 import PhaseStats from './PhaseStats';
 import ReviewPanel from './ReviewPanel';
 import type { CoachArrow } from '@/lib/coach/review-markup';
+import { translateOpeningName } from '@/lib/openings/openingNamesI18n';
 
 export interface SidebarPlayer {
   name: string;
@@ -21,6 +22,8 @@ export interface ReviewSidebarProps {
   mode: 'highlights' | 'review';
   white: SidebarPlayer;
   black: SidebarPlayer;
+  /** The colour the user played, when known; scopes the coach greeting to it. */
+  userColor?: 'w' | 'b';
   onStartReview: () => void;
   /** Review-mode wiring (Phase 4). */
   currentPly: number;
@@ -32,26 +35,42 @@ export interface ReviewSidebarProps {
 /** Minimal shape of the `gameReview` translator used by {@link coachCopy}. */
 type CoachTranslate = (key: string, values?: Record<string, string | number>) => string;
 
-/** Build a short, deterministic coach greeting from the aggregates. */
-function coachCopy(t: CoachTranslate, data: ReviewResult): { headline: string; message: string } {
-  const brilliancies = data.tally.w.brilliant + data.tally.b.brilliant;
-  const blunders = data.tally.w.blunder + data.tally.b.blunder;
-  const best = Math.max(data.accuracy.w, data.accuracy.b).toFixed(1);
-  if (brilliancies > 0) {
+/**
+ * Build a short, deterministic coach greeting from the aggregates. With the
+ * user's colour known it speaks only about the user's side; without it the
+ * copy stays neutral so the opponent's (often the bot's) numbers are never
+ * presented as the user's.
+ */
+export function coachCopy(
+  t: CoachTranslate,
+  data: ReviewResult,
+  userColor?: 'w' | 'b',
+): { headline: string; message: string } {
+  const tally = userColor
+    ? data.tally[userColor]
+    : {
+        brilliant: data.tally.w.brilliant + data.tally.b.brilliant,
+        blunder: data.tally.w.blunder + data.tally.b.blunder,
+      };
+  const values: Record<string, string | number> = userColor
+    ? { accuracy: data.accuracy[userColor].toFixed(1) }
+    : { white: data.accuracy.w.toFixed(1), black: data.accuracy.b.toFixed(1) };
+  const suffix = userColor ? '' : 'Neutral';
+  if (tally.brilliant > 0) {
     return {
       headline: t('coach.headlines.brilliant'),
-      message: t('coach.messages.brilliant', { count: brilliancies }),
+      message: t(`coach.messages.brilliant${suffix}`, { count: tally.brilliant }),
     };
   }
-  if (blunders === 0) {
+  if (tally.blunder === 0) {
     return {
       headline: t('coach.headlines.clean'),
-      message: t('coach.messages.clean', { best }),
+      message: t(`coach.messages.clean${suffix}`, values),
     };
   }
   return {
     headline: t('coach.headlines.review'),
-    message: t('coach.messages.review', { best }),
+    message: t(`coach.messages.review${suffix}`, values),
   };
 }
 
@@ -64,6 +83,7 @@ export default function ReviewSidebar({
   mode,
   white,
   black,
+  userColor,
   onStartReview,
   currentPly,
   onSetPly,
@@ -71,6 +91,7 @@ export default function ReviewSidebar({
   onCoachShapes,
 }: ReviewSidebarProps) {
   const t = useTranslations('gameReview');
+  const locale = useLocale();
   if (mode === 'review') {
     return (
       <ReviewPanel
@@ -83,7 +104,7 @@ export default function ReviewSidebar({
     );
   }
 
-  const copy = coachCopy(t, data);
+  const copy = coachCopy(t, data, userColor);
 
   return (
     <aside
@@ -92,7 +113,7 @@ export default function ReviewSidebar({
       style={{ width: 430, maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: 14 }}
     >
       <CoachIntro
-        openingName={data.opening?.name || undefined}
+        openingName={data.opening?.name ? translateOpeningName(data.opening.name, locale) : undefined}
         headline={copy.headline}
         message={copy.message}
       />

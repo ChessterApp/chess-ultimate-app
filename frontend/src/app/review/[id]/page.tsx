@@ -35,7 +35,12 @@ function ReviewPageInner() {
   const params = useParams<{ id: string }>();
   const search = useSearchParams();
   const id = params?.id ?? '';
-  const orientation = (search?.get('orientation') as 'white' | 'black') || 'white';
+  const side = search?.get('side');
+  const userColor = side === 'w' || side === 'b' ? side : undefined;
+  // The user's side wins; otherwise the caller's explicit orientation.
+  const orientation = userColor
+    ? userColor === 'b' ? 'black' : 'white'
+    : (search?.get('orientation') as 'white' | 'black') || 'white';
 
   const { isDark, toggle } = useDarkMode();
   const { state, dispatch } = useReviewStore(id);
@@ -181,6 +186,7 @@ function ReviewPageInner() {
               mode={mode}
               white={{ name: t('players.white'), rating: data.estRating.w }}
               black={{ name: t('players.black'), rating: data.estRating.b }}
+              userColor={userColor}
               onStartReview={() => dispatch({ type: 'setMode', mode: 'review' })}
               currentPly={currentPly}
               onSetPly={(ply) => dispatch({ type: 'setPly', ply })}

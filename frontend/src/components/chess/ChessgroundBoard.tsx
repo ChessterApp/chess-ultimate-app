@@ -11,6 +11,7 @@ import 'chessground/assets/chessground.base.css';
 import 'chessground/assets/chessground.brown.css';
 import '@/styles/chessground-theme.css';
 import { DEFAULT_BOARD_ANIMATION_DURATION } from '@/lib/setting/helper';
+import { useBoardTheme } from '@/lib/setting/useBoardTheme';
 import { isPromotionMove, type PromotionRole } from '@/lib/chess/promotion';
 import PromotionOverlay from './PromotionOverlay';
 import { FORK_BRUSHES } from '@/lib/variationFork';
@@ -100,6 +101,7 @@ export default function ChessgroundBoard({
   const boardRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const cgRef = useRef<Api | null>(null);
+  const boardTheme = useBoardTheme();
 
   // A pawn move to the last rank is held here (not yet reported) while the
   // player picks a promotion piece from the overlay.
@@ -588,6 +590,9 @@ export default function ChessgroundBoard({
           borderRadius: '2px',
           boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
           ['--cg-animation-duration' as any]: `${animationDuration}ms`,
+          // Square colours from the Settings board theme (see chessground-theme.css).
+          ['--board-light' as any]: boardTheme.lightSquareColor,
+          ['--board-dark' as any]: boardTheme.darkSquareColor,
         }}
       />
       {pendingPromotion && (

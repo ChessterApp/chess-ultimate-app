@@ -1,9 +1,10 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import ClassificationIcon from './ClassificationIcon';
 import type { ReviewMove } from './types';
 import type { CoachEntry } from '@/hooks/useReviewCoach';
+import { translateOpeningName } from '@/lib/openings/openingNamesI18n';
 
 /** Minimal shape of the `gameReview` translator used by {@link coachText}. */
 type CoachTranslate = (key: string, values?: Record<string, string | number>) => string;
@@ -111,6 +112,7 @@ export interface CoachBubbleProps {
 /** Review-mode coach bubble: classification icon + SAN + delta chip + text. */
 export default function CoachBubble({ move, prev, opening, coach, onExplain }: CoachBubbleProps) {
   const t = useTranslations('gameReview');
+  const locale = useLocale();
   if (!move) {
     return (
       <div className="review-card" data-testid="coach-bubble" style={{ padding: 14, minHeight: 92 }}>
@@ -124,6 +126,10 @@ export default function CoachBubble({ move, prev, opening, coach, onExplain }: C
   const delta = evalDeltaPawns(move, prev);
   const deltaStr = formatDelta(delta);
   const deltaNegative = delta < -0.05;
+  // Display-only: the raw (English) name still goes to the coach via onExplain.
+  const shownOpening = opening?.name
+    ? { ...opening, name: translateOpeningName(opening.name, locale) }
+    : opening;
 
   return (
     <div
@@ -166,13 +172,13 @@ export default function CoachBubble({ move, prev, opening, coach, onExplain }: C
           </span>
         </div>
         <p style={{ fontSize: 13, lineHeight: 1.4, margin: 0, opacity: 0.9 }}>
-          {coachText(t, move, prev, opening)}
+          {coachText(t, move, prev, shownOpening)}
         </p>
-        {opening?.name && move.classification === 'book' && (
+        {shownOpening?.name && move.classification === 'book' && (
           <div
             style={{ fontSize: 11.5, marginTop: 6, opacity: 0.6, textDecoration: 'underline' }}
           >
-            {opening.name}
+            {shownOpening.name}
           </div>
         )}
         {onExplain && <ExplainSection t={t} coach={coach} onExplain={onExplain} />}

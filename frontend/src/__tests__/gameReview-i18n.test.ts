@@ -118,7 +118,7 @@ describe('gameReview namespace i18n', () => {
       expect(flat['coach.moveComments.bookLast'], `${locale} bookLast {opening}`).toContain(
         '{opening}',
       )
-      expect(flat['coach.messages.clean'], `${locale} clean {best}`).toContain('{best}')
+      expect(flat['coach.messages.clean'], `${locale} clean {accuracy}`).toContain('{accuracy}')
     }
   })
 })

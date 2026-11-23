@@ -174,7 +174,12 @@ export default function LiveGameEndModal({
       </Box>
       {reviewPgn && (
         <StartReviewButton
-          game={{ pgn: reviewPgn, isFinished: true, orientation: myColor ?? 'white' }}
+          game={{
+            pgn: reviewPgn,
+            isFinished: true,
+            orientation: myColor ?? 'white',
+            userColor: myColor ? (myColor === 'white' ? 'w' : 'b') : undefined,
+          }}
           source="online"
           variant="ghost"
           label={t('gameReview')}

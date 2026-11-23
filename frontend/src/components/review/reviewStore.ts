@@ -26,7 +26,12 @@ export function reviewReducer(state: ReviewState, action: ReviewAction): ReviewS
     case 'stepPly':
       return { ...state, currentPly: clampPly(state.currentPly + action.delta, state.data) };
     case 'setMode':
-      return { ...state, mode: action.mode };
+      // Starting the move-by-move review walks the game from the first move.
+      return {
+        ...state,
+        mode: action.mode,
+        currentPly: action.mode === 'review' && state.mode !== 'review' ? 0 : state.currentPly,
+      };
     default:
       return state;
   }

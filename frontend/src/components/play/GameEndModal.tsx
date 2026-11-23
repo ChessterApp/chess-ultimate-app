@@ -28,6 +28,8 @@ interface GameEndModalProps {
   onChooseAnother: () => void
   /** Finished-game PGN; when present a "Game Review" entry point is shown. */
   reviewPgn?: string
+  /** The colour the user played; scopes the review to their side. */
+  userColor?: 'w' | 'b'
 }
 
 const INK = '#28324E'
@@ -60,6 +62,7 @@ export default function GameEndModal({
   onTryStronger,
   onChooseAnother,
   reviewPgn,
+  userColor,
 }: GameEndModalProps) {
   const t = useTranslations('gameEnd')
   const theme = gameTheme(bot)
@@ -150,7 +153,7 @@ export default function GameEndModal({
 
       {reviewPgn && (
         <StartReviewButton
-          game={{ pgn: reviewPgn, isFinished: true }}
+          game={{ pgn: reviewPgn, isFinished: true, userColor }}
           source="bot"
           variant="ghost"
           label={t('gameReview')}

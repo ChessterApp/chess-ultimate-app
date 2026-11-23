@@ -715,6 +715,7 @@ export default function PlayPage() {
               onTryStronger={handleTryStronger}
               onChooseAnother={resetGame}
               reviewPgn={chess.pgn()}
+              userColor={actualPlayerColor}
             />
           )}
         </Box>

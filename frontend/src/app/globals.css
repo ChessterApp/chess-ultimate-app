@@ -945,8 +945,6 @@ html.dark .divide-gray-200 > :not(:last-child) { border-color: #333 !important; 
   --review-tint: #F0FDFA;
   --review-tint-2: #DCFCE7;
   --review-neutral: #F4F4F5;
-  --review-board-light: #F0F4FF;
-  --review-board-dark: #B3C2E0;
   --review-coord: #5B6B8C;
   --review-evalbar-track: #27272A;
   --review-evalbar-fill: #ffffff;
@@ -977,8 +975,6 @@ html.dark .divide-gray-200 > :not(:last-child) { border-color: #333 !important; 
   --review-tint: rgba(129, 140, 248, 0.15);
   --review-tint-2: rgba(129, 140, 248, 0.15);
   --review-neutral: rgba(255, 255, 255, 0.04);
-  --review-board-light: #3D4763;
-  --review-board-dark: #252E47;
   --review-coord: #8B9AC2;
   --review-evalbar-track: #151B2E;
   --review-evalbar-fill: #E2E8F0;
@@ -1076,20 +1072,6 @@ html.dark .divide-gray-200 > :not(:last-child) { border-color: #333 !important; 
    tighten it. 12px matches the prior inline value, so desktop is unchanged. */
 .review-accuracy-row {
   gap: 12px;
-}
-
-/* Review board squares recoloured from the themable board vars (proto2/proto3).
-   A conic-gradient checker tiled at 25% paints an 8×8 board over chessground. */
-.review-root .cg-wrap { background: transparent; }
-.review-root cg-board {
-  background-color: var(--review-board-light);
-  background-image: conic-gradient(
-    var(--review-board-dark) 0deg 90deg,
-    var(--review-board-light) 90deg 180deg,
-    var(--review-board-dark) 180deg 270deg,
-    var(--review-board-light) 270deg 360deg
-  );
-  background-size: 25% 25%;
 }
 
 /* --- Phase 4: Review walkthrough overlays --- */

@@ -12,15 +12,13 @@ import {
 } from '@/components/icons/ChessBaseNavIcons';
 
 /**
- * The next key-moment ply strictly after `currentPly`, or null if none remain.
+ * The next key-moment ply strictly after `currentPly`, wrapping to the first
+ * one when none remain; null only when there are no key moments at all.
  * Key moments arrive sorted from the backend; we defensively sort a copy.
  */
 export function nextKeyMoment(keyMoments: number[], currentPly: number): number | null {
   const sorted = [...keyMoments].sort((a, b) => a - b);
-  for (const ply of sorted) {
-    if (ply > currentPly) return ply;
-  }
-  return null;
+  return sorted.find((ply) => ply > currentPly) ?? sorted[0] ?? null;
 }
 
 export interface PlaybackControlsProps {

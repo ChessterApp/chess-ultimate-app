@@ -72,6 +72,15 @@ describe('StartReviewButton', () => {
     );
   });
 
+  it('puts the user\'s side in the URL when known', async () => {
+    startReview.mockResolvedValue({ review_id: 'xyz', status: 'queued' });
+    const { getByTestId } = renderIntl(
+      <StartReviewButton game={{ pgn: '1. e4 e5', isFinished: true, userColor: 'b' }} source="bot" />,
+    );
+    fireEvent.click(getByTestId('start-review-button'));
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/review/xyz?source=bot&side=b'));
+  });
+
   it('is enabled for a database game even without isFinished', () => {
     const { getByTestId } = renderIntl(
       <StartReviewButton game={{ pgn: '1. d4' }} source="database" />,
