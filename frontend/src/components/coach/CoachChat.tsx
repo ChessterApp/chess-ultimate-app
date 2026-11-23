@@ -31,6 +31,7 @@ import { applyStreamFrame } from '@/lib/coach/message-stream';
 import { contextChips } from '@/lib/coach/context-chips';
 import type { CoachMode } from '@/lib/coach/coach-mode';
 import type { ReviewMomentsSummary } from '@/lib/coach/tool-summary';
+import { countDirectMessage, directPost } from '@/lib/coach/direct-client';
 
 /** «ход чёрных», "black to move", «қаралардың жүрісі» → 'b' (and White likewise); else null. */
 export function sideToMoveCommand(text: string): 'w' | 'b' | null {
@@ -841,32 +842,39 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     try {
       // The pipeline's turn this answer is read into (frames of another turn are dropped).
       const voiceTurn = pipelineRef.current.isActive ? pipelineRef.current.currentTurnId() : undefined;
-      const response = await fetch('/api/coach/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          // The visible bubble shows `trimmed`; the coach receives the grounding
-          // preamble (if any) prepended so the answer is scoped to the position.
-          message: trimmed,
-          // Grounding travels apart from the question so Hermes routes, selects
-          // tools and stores history on what the student actually asked.
-          context_note: contextNote || undefined,
-          fen: currentFen,
-          session_id: sessionId,
-          board_id: boardId || undefined,
-          // The daily plan's «review my last game»: the server loads and reviews that saved game.
-          review_game_id: options?.reviewGameId,
-          // The answer will be read aloud (the voice pipeline): the server keeps it short and does not
-          // restate a move the system already said.
-          speech: pipelineRef.current.isActive && pipelineRef.current.ttsState === 'ok' ? true : undefined,
-          // …and its first sentence's sound may come down this stream, read by the coach server (20.11).
-          speech_audio: pipelineRef.current.isActive && pipelineRef.current.ttsState === 'ok' ? true : undefined,
-          // The earlier position of the game on the board, when the student browsed back (26.10).
-          view_ply: viewPlyRef.current ?? undefined,
-          view_line: viewLineRef.current ?? undefined,
-        }),
-        signal: controller.signal,
-      });
+      const spoken = pipelineRef.current.isActive && pipelineRef.current.ttsState === 'ok';
+      const payload = {
+        // The visible bubble shows `trimmed`; the coach receives the grounding
+        // preamble (if any) prepended so the answer is scoped to the position.
+        message: trimmed,
+        // Grounding travels apart from the question so Hermes routes, selects
+        // tools and stores history on what the student actually asked.
+        context_note: contextNote || undefined,
+        fen: currentFen,
+        session_id: sessionId,
+        board_id: boardId || undefined,
+        // The daily plan's «review my last game»: the server loads and reviews that saved game.
+        review_game_id: options?.reviewGameId,
+        // The answer will be read aloud (the voice pipeline): the server keeps it short and does not
+        // restate a move the system already said.
+        speech: spoken ? true : undefined,
+        // …and its first sentence's sound may come down this stream, read by the coach server (20.11).
+        speech_audio: spoken ? true : undefined,
+        // The earlier position of the game on the board, when the student browsed back (26.10).
+        view_ply: viewPlyRef.current ?? undefined,
+        view_line: viewLineRef.current ?? undefined,
+      };
+      const request = { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal };
+      // A spoken turn goes straight to the coach server when the direct path is on (23.11): the language the site's
+      // proxy would add travels in the body; any failure before the answer starts goes through the site as before.
+      const direct = spoken
+        ? await directPost('chat', {
+          ...request,
+          body: JSON.stringify({ ...payload, locale: (typeof document !== 'undefined' && document.documentElement.lang) || undefined }),
+        })
+        : null;
+      if (direct) countDirectMessage();
+      const response = direct ?? (await fetch('/api/coach/chat', { ...request, body: JSON.stringify(payload) }));
 
       if (!response.ok) {
         if (await handleRestrictedResponse(response)) return;

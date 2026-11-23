@@ -153,6 +153,7 @@ const SITE_NOT_ROWS: Record<string, string> = {
   'metrics POST': 'passes the body through whole; Hermes reads a raw dict',
   'profile PUT': 'passes the body through whole; Hermes reads a raw dict',
   'review-cache POST': 'does not call Hermes',
+  'direct-pass POST': 'does not call Hermes: counts a message the direct path sent (the page posts no body)',
   'voice/stt POST': 'the body is the recorded utterance itself (WAV bytes), passed through whole; the language goes in X-Voice-Locale',
 };
 

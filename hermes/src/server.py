@@ -357,6 +357,13 @@ async def add_request_id(request: Request, call_next):
     return response
 
 
+# The voice pipeline's direct path (src/direct_access.py, 23.11): added after the request-id middleware, so it runs
+# first — the identity that middleware reads is already the pass's.
+from src.direct_access import DirectAccess  # noqa: E402
+
+app.add_middleware(DirectAccess)
+
+
 def _bearer_token(request: Request) -> str:
     return request.headers.get("authorization", "").removeprefix("Bearer ").strip()
 

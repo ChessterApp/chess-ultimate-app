@@ -20,6 +20,7 @@ import {
 } from '@/lib/coach/voice-pipeline';
 import { gameFromActions } from '@/lib/coach/voice-game';
 import { UtteranceCutter, wavBytes } from '@/lib/coach/voice-utterance';
+import { directPost, warmDirect } from '@/lib/coach/direct-client';
 import { getMicrophone } from '@/lib/audio-session';
 
 export type VoiceMode = 'live' | 'pipeline';
@@ -719,11 +720,9 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     type Heard = { ok: boolean; status: number; text: string };
     const askStt = async (pcm: Int16Array): Promise<Heard> => {
       const locale = talkLocaleRef.current ?? ((optionsRef.current.locale?.() as PipelineLocale) || 'ru');
-      const res = await fetch('/api/coach/voice/stt', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'audio/wav', 'X-Voice-Locale': locale },
-        body: wavBytes(pcm),
-      });
+      const init = { method: 'POST', headers: { 'Content-Type': 'audio/wav', 'X-Voice-Locale': locale }, body: wavBytes(pcm) };
+      // Straight to the coach server when the direct path is on (23.11), else — and on any failure — the site's.
+      const res = (await directPost('voice/stt', init)) ?? (await fetch('/api/coach/voice/stt', { ...init, credentials: 'include' }));
       const text = res.ok ? String(((await res.json().catch(() => ({}))) as { text?: unknown })?.text ?? '').trim() : '';
       return { ok: res.ok, status: res.status, text };
     };
@@ -839,6 +838,8 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     if (sessionRef.current) return;
     setError(null);
     setStatus('connecting');
+    // The direct path's pass (23.11) is asked now, beside the microphone: the first phrase does not wait for it.
+    warmDirect();
     try {
       await acquireMedia();
       // Who hears is the coach server's to say (GET /api/coach/voice/mode), unless the address chose.
