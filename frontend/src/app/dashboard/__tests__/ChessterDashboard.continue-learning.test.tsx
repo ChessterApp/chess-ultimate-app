@@ -56,12 +56,12 @@ vi.mock('@/hooks/useCourseProgress', () => ({
   useCourseProgress: () => progressReturn,
 }));
 
-// Configurable per test: XP is derived from total_completions, and the Continue
-// Learning card's headline count must match this exact number.
+// Configurable per test: the Continue Learning card's headline count must match
+// this exact number of completed lessons.
 let totalCompletions = 0;
 vi.mock('@/hooks/useLessonCompletions', () => ({
   useLessonCompletions: () => ({
-    completions: { total_completions: totalCompletions, completion_dates: [] },
+    completions: { total_completions: totalCompletions, completion_dates: [], lesson_xp: 0 },
   }),
 }));
 
@@ -122,7 +122,7 @@ describe('ChessterDashboard — Continue Learning fetch states', () => {
   });
 
   it('renders overall progress (matching XP) once loaded successfully', async () => {
-    totalCompletions = 5; // XP source: 5 lessons completed
+    totalCompletions = 5; // 5 lessons completed
     progressReturn = {
       courseProgress: {
         'course-tactics-1': {
@@ -154,7 +154,7 @@ describe('ChessterDashboard — Continue Learning fetch states', () => {
       { id: 'tactics', slug: 'tactics', title: 'Chess Tactics', level: 'beginner', order_index: 1 },
       { id: 'mate3', slug: 'mate3', title: 'Mate in 3 Moves', level: 'intermediate', order_index: 2 },
     ] as never);
-    totalCompletions = 77; // 40 + 37 completed lessons → XP source
+    totalCompletions = 77; // 40 + 37 completed lessons
     progressReturn = {
       courseProgress: {
         basics: { courseId: 'basics', completedLessons: 40, totalLessons: 40, progress: 100 },

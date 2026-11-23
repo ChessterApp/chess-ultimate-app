@@ -7,7 +7,8 @@
  * side-effect-free so it can be unit tested without a database.
  *
  * Rank math reuses the EXISTING `rankForXp` / `rankProgress` from `economy.ts`
- * unchanged — only the XP source differs.
+ * unchanged — only the XP source differs: the server sums `lessonXp` (by lesson
+ * type and course level, see `lessonXp.ts`) over the completed lessons.
  */
 import {
   type RankRow,
@@ -15,9 +16,6 @@ import {
   rankForXp,
   rankProgress,
 } from './economy';
-
-/** Locked economy decision: every completed lesson is worth this much XP. */
-export const XP_PER_LESSON = 10;
 
 /**
  * Default rank ladder for non-linked users. Mirrors the chess-empire seed
@@ -34,12 +32,6 @@ export const DEFAULT_RANKS: RankRow[] = [
   { code: 'king', name_ru: 'Король', name_kk: 'Патша', name_en: 'King', min_xp: 300, sort_order: 6 },
 ];
 
-/** XP earned from N completed lessons. Negative / non-finite inputs → 0. */
-export function deriveXpFromCompletions(totalCompletions: number): number {
-  if (!Number.isFinite(totalCompletions) || totalCompletions <= 0) return 0;
-  return Math.floor(totalCompletions) * XP_PER_LESSON;
-}
-
 export interface DerivedProfile {
   xp: number;
   rank: RankRow | null;
@@ -47,14 +39,15 @@ export interface DerivedProfile {
 }
 
 /**
- * Full non-linked profile: completions → XP → rank + progress. Feeds the
- * derived XP into the existing rank ladder helpers (imported, not duplicated).
+ * Full non-linked profile: server lesson XP → rank + progress. Feeds the XP
+ * into the existing rank ladder helpers (imported, not duplicated).
+ * Negative / non-finite XP → 0.
  */
 export function deriveProfile(
-  totalCompletions: number,
+  lessonXp: number,
   ranks: RankRow[] = DEFAULT_RANKS,
 ): DerivedProfile {
-  const xp = deriveXpFromCompletions(totalCompletions);
+  const xp = Number.isFinite(lessonXp) && lessonXp > 0 ? Math.floor(lessonXp) : 0;
   return {
     xp,
     rank: rankForXp(ranks, xp),

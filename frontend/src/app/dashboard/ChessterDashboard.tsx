@@ -133,8 +133,8 @@ export default function ChessterDashboard({
   // Non-linked users derive XP + rank + a DAILY streak from lesson completions;
   // linked users keep their tournament-driven weekly economy (unchanged).
   const derived = useMemo(
-    () => deriveProfile(completions.total_completions),
-    [completions.total_completions],
+    () => deriveProfile(completions.lesson_xp),
+    [completions.lesson_xp],
   )
   // The daily streak depends on "today", which is timezone-relative — keep it at
   // 0 until mounted so server and first client render match, then fill it in.

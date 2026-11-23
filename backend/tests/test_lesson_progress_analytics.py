@@ -80,12 +80,12 @@ def test_endpoint_wires_capture():
     table = MagicMock()
     for name in ('select', 'eq', 'upsert'):
         getattr(table, name).return_value = table
-    table.execute.side_effect = [MagicMock(data=[]), MagicMock(data=[{'ok': True}])]
+    table.execute.side_effect = [MagicMock(data=[{'ok': True}])]  # row inserted → first start
     sb = MagicMock()
     sb.table.return_value = table
 
     with patch('utils.auth._decode_clerk_token', return_value={'sub': USER_ID}), \
-            patch('api.lessons.resolve_course_and_lesson', return_value=(COURSE, {'id': 'l-9'})), \
+            patch('api.lessons.resolve_course_and_lesson', return_value=(COURSE, {'id': 'l-9', 'lesson_type': 'theory'})), \
             patch('api.lessons.supabase', sb), \
             patch('api.lessons._capture_lesson_progress') as helper:
         resp = app.test_client().post(

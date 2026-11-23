@@ -1,44 +1,35 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_RANKS,
-  XP_PER_LESSON,
   computeDailyStreak,
   deriveProfile,
-  deriveXpFromCompletions,
 } from '../derived';
 
-describe('deriveXpFromCompletions', () => {
-  it('is 10 XP per completed lesson', () => {
-    expect(XP_PER_LESSON).toBe(10);
-    expect(deriveXpFromCompletions(0)).toBe(0);
-    expect(deriveXpFromCompletions(1)).toBe(10);
-    expect(deriveXpFromCompletions(7)).toBe(70);
-  });
-
-  it('guards against negative / non-finite input', () => {
-    expect(deriveXpFromCompletions(-3)).toBe(0);
-    expect(deriveXpFromCompletions(NaN)).toBe(0);
-    expect(deriveXpFromCompletions(Infinity)).toBe(0);
-  });
-});
-
-describe('deriveProfile — completions → xp → rank', () => {
-  it('maps zero completions to the lowest rank (Pawn)', () => {
+describe('deriveProfile — server lesson XP → rank', () => {
+  it('maps zero XP to the lowest rank (Pawn)', () => {
     const p = deriveProfile(0);
     expect(p.xp).toBe(0);
     expect(p.rank?.code).toBe('pawn');
     expect(p.rankProgress.pct).toBeGreaterThanOrEqual(0);
   });
 
-  it('crosses the Knight boundary at exactly 10 XP (1 lesson)', () => {
-    // Knight floor is 10 XP in the default ladder → 1 completion promotes.
-    expect(deriveProfile(0).rank?.code).toBe('pawn');
-    expect(deriveProfile(1).rank?.code).toBe('knight');
+  it('uses the server XP as-is (one beginner theory lesson = Knight)', () => {
+    expect(deriveProfile(9).rank?.code).toBe('pawn');
+    expect(deriveProfile(10).rank?.code).toBe('knight');
+    expect(deriveProfile(10).xp).toBe(10);
   });
 
-  it('spot-checks a higher boundary (Rook at 70 XP = 7 lessons)', () => {
-    expect(deriveProfile(6).rank?.code).toBe('bishop'); // 60 XP
-    expect(deriveProfile(7).rank?.code).toBe('rook'); // 70 XP
+  it('spot-checks higher boundaries', () => {
+    expect(deriveProfile(69).rank?.code).toBe('bishop');
+    expect(deriveProfile(70).rank?.code).toBe('rook');
+    expect(deriveProfile(300).rank?.code).toBe('king');
+  });
+
+  it('guards against negative / non-finite / missing XP', () => {
+    expect(deriveProfile(-3).xp).toBe(0);
+    expect(deriveProfile(NaN).xp).toBe(0);
+    expect(deriveProfile(Infinity).xp).toBe(0);
+    expect(deriveProfile(undefined as unknown as number).xp).toBe(0);
   });
 
   it('accepts a custom rank ladder', () => {
@@ -46,13 +37,13 @@ describe('deriveProfile — completions → xp → rank', () => {
       { code: 'a', name_ru: 'a', name_kk: 'a', name_en: 'A', min_xp: 0, sort_order: 1 },
       { code: 'b', name_ru: 'b', name_kk: 'b', name_en: 'B', min_xp: 100, sort_order: 2 },
     ];
-    expect(deriveProfile(5, ranks).rank?.code).toBe('a'); // 50 XP
-    expect(deriveProfile(10, ranks).rank?.code).toBe('b'); // 100 XP
+    expect(deriveProfile(50, ranks).rank?.code).toBe('a');
+    expect(deriveProfile(100, ranks).rank?.code).toBe('b');
   });
 
-  it('exposes the seed ladder as DEFAULT_RANKS', () => {
-    expect(DEFAULT_RANKS.map((r) => r.code)).toEqual([
-      'pawn', 'knight', 'bishop', 'rook', 'queen', 'king',
+  it('keeps the seed ladder thresholds (DEFAULT_RANKS unchanged)', () => {
+    expect(DEFAULT_RANKS.map((r) => [r.code, r.min_xp])).toEqual([
+      ['pawn', 0], ['knight', 10], ['bishop', 30], ['rook', 70], ['queen', 150], ['king', 300],
     ]);
   });
 });

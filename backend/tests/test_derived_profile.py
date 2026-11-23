@@ -5,7 +5,7 @@ deriving XP / rank / streak for non-linked users).
 Uses a Flask test client with a mocked Supabase and mocked JWT auth. Covers:
 completed rows are counted and their dates returned; non-completed rows are
 ignored; completed rows without completed_at are counted but omitted from dates;
-no rows -> zeros.
+no rows -> zeros; lesson_xp sums lesson_xp() over completed lessons.
 """
 
 import pytest
@@ -68,8 +68,22 @@ def mock_jwt():
         yield
 
 
+COURSES = [
+    {'id': 'c-beg', 'level': 'beginner'},
+    {'id': 'c-gm', 'level': 'grandmaster'},
+]
+LESSONS = {
+    'c-beg': [{'id': 'beg-theory', 'lesson_type': 'theory'},
+              {'id': 'beg-ex', 'lesson_type': 'exercise'}],
+    'c-gm': [{'id': 'gm-theory', 'lesson_type': 'theory'},
+             {'id': 'gm-ex', 'lesson_type': 'exercise'}],
+}
+
+
 def _get(client, auth_headers, progress_rows):
-    with patch('api.lessons.supabase', make_supabase(progress_rows)):
+    with patch('api.lessons.supabase', make_supabase(progress_rows)), \
+            patch('api.lessons.get_cached_courses', return_value=COURSES), \
+            patch('api.lessons.get_cached_lessons_for_course', side_effect=lambda cid: LESSONS[cid]):
         return client.get('/api/gamification/derived-profile', headers=auth_headers)
 
 
@@ -119,6 +133,20 @@ def test_no_rows_is_zero(client, auth_headers):
     body = resp.get_json()
     assert body['total_completions'] == 0
     assert body['completion_dates'] == []
+    assert body['lesson_xp'] == 0
+
+
+def test_lesson_xp_sums_completed_lessons_by_type_and_level(client, auth_headers):
+    progress = [
+        {'lesson_id': 'beg-theory', 'status': 'completed', 'completed_at': None},  # 10
+        {'lesson_id': 'beg-ex', 'status': 'completed', 'completed_at': None},      # 15
+        {'lesson_id': 'gm-ex', 'status': 'completed', 'completed_at': None},       # 50
+        {'lesson_id': 'gm-theory', 'status': 'in_progress', 'completed_at': None}, # not counted
+        {'lesson_id': 'deleted-lesson', 'status': 'completed', 'completed_at': None},  # unknown → 0
+    ]
+    body = _get(client, auth_headers, progress).get_json()
+    assert body['total_completions'] == 4
+    assert body['lesson_xp'] == 75
 
 
 if __name__ == '__main__':

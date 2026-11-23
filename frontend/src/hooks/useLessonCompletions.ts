@@ -7,9 +7,11 @@ import { apiFetch } from '@/lib/api'
 export interface LessonCompletions {
   total_completions: number
   completion_dates: string[]
+  /** XP of the completed lessons, summed on the server (lesson type × course level). */
+  lesson_xp: number
 }
 
-const EMPTY: LessonCompletions = { total_completions: 0, completion_dates: [] }
+const EMPTY: LessonCompletions = { total_completions: 0, completion_dates: [], lesson_xp: 0 }
 
 /**
  * Fetches the authenticated user's raw lesson-completion signal from

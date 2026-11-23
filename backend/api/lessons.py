@@ -12,6 +12,7 @@ from utils.auth import (
     resolve_membership_restriction,
 )
 from utils.cache import with_cache
+from api.lesson_xp import lesson_xp
 from concurrent.futures import ThreadPoolExecutor
 import time
 import logging
@@ -348,6 +349,15 @@ def restricted_level_denial(course_id):
         return None
 
 
+def _lesson_xp_by_id():
+    """lesson_id -> XP the lesson is worth, over every course (cached lessons)."""
+    xp = {}
+    for course in get_cached_courses():
+        for lesson in get_cached_lessons_for_course(course['id']):
+            xp[lesson['id']] = lesson_xp(lesson.get('lesson_type'), course.get('level'))
+    return xp
+
+
 @lessons_bp.route('/api/gamification/derived-profile', methods=['GET'])
 @verify_clerk_token
 def get_derived_profile():
@@ -357,14 +367,14 @@ def get_derived_profile():
     Non-linked Chesster users (not connected to a Chess-Empire tournament
     account) have no tournament-driven economy. Their XP / rank / streak are
     derived from their own lesson completions instead. This endpoint exposes the
-    raw signal for the authenticated user; the frontend turns it into XP + rank
-    (10 XP/lesson) and a daily streak. Additive — does not alter existing
-    progress endpoints.
+    signal for the authenticated user plus the XP it is worth (see lesson_xp.py);
+    the frontend turns it into a rank and a daily streak.
 
     Returns:
         {
             "total_completions": N,                    # completed user_progress rows
-            "completion_dates": ["2026-09-15", ...]    # ISO date (UTC) per completion
+            "completion_dates": ["2026-09-15", ...],   # ISO date (UTC) per completion
+            "lesson_xp": XP                            # sum of lesson_xp over completed lessons
         }
     """
     try:
@@ -372,7 +382,7 @@ def get_derived_profile():
 
         result = retry_supabase_query(
             lambda: supabase.table('user_progress')
-                .select('status, completed_at')
+                .select('lesson_id, status, completed_at')
                 .eq('user_id', user_id)
                 .execute()
         )
@@ -381,10 +391,12 @@ def get_derived_profile():
         # completed_at is TIMESTAMPTZ; PostgREST serializes it in UTC, so the
         # leading YYYY-MM-DD is the UTC calendar day of the completion.
         completion_dates = [r['completed_at'][:10] for r in completed if r.get('completed_at')]
+        xp_by_lesson = _lesson_xp_by_id()
 
         return jsonify({
             'total_completions': len(completed),
             'completion_dates': completion_dates,
+            'lesson_xp': sum(xp_by_lesson.get(r.get('lesson_id'), 0) for r in completed),
         }), 200
 
     except Exception as e:
@@ -601,6 +613,15 @@ def get_lesson_by_slug(course_slug, lesson_slug):
         if denial:
             return denial
 
+        progress = retry_supabase_query(
+            lambda: supabase.table('user_progress')
+                .select('status')
+                .eq('user_id', user_id)
+                .eq('lesson_id', lesson['id'])
+                .execute()
+        )
+        progress_status = progress.data[0].get('status') if progress.data else 'not_started'
+
         # Check if lesson is locked
         if lesson.get('requires_lesson_id'):
             progress = supabase.table('user_progress')\
@@ -633,6 +654,8 @@ def get_lesson_by_slug(course_slug, lesson_slug):
         localized_course = localize(course, locale)
         localized_lesson['course_slug'] = course_slug
         localized_lesson['course_title'] = localized_course['title']
+        localized_lesson['course_level'] = course.get('level')
+        localized_lesson['progress_status'] = progress_status
 
         return jsonify(localized_lesson), 200
 
@@ -685,6 +708,86 @@ def _capture_lesson_progress(user_id, course, lesson_id, data, first_start, prev
         logger.warning('lesson analytics failed: %s', exc)
 
 
+EXERCISE_NOT_SOLVED = 'EXERCISE_NOT_SOLVED'
+
+
+def write_lesson_progress(user_id, lesson_id, data):
+    """
+    Save a user's lesson progress. Returns (row, inserted).
+
+    A completed lesson never goes back to in_progress / not_started: any status
+    other than 'completed' is written as ONE `INSERT ... ON CONFLICT DO NOTHING`,
+    so an existing row — completed or not — is left as it is.
+    """
+    status = data.get('status', 'in_progress')
+    row = {
+        'user_id': user_id,
+        'lesson_id': lesson_id,
+        'status': status,
+        'updated_at': 'now()',
+    }
+    if 'time_spent_seconds' in data:
+        row['time_spent_seconds'] = data['time_spent_seconds']
+    if 'score' in data:
+        row['score'] = data['score']
+
+    if status == 'completed':
+        row['completed_at'] = 'now()'
+        result = retry_supabase_query(
+            lambda: supabase.table('user_progress')
+                .upsert(row, on_conflict='user_id,lesson_id')
+                .execute()
+        )
+        return result.data[0], True
+
+    if status == 'in_progress':
+        row['started_at'] = 'now()'
+    result = retry_supabase_query(
+        lambda: supabase.table('user_progress')
+            .upsert(row, on_conflict='user_id,lesson_id', ignore_duplicates=True)
+            .execute()
+    )
+    if result.data:
+        return result.data[0], True
+
+    current = retry_supabase_query(
+        lambda: supabase.table('user_progress')
+            .select('*')
+            .eq('user_id', user_id)
+            .eq('lesson_id', lesson_id)
+            .execute()
+    )
+    return (current.data[0] if current.data else None), False
+
+
+def _exercise_unsolved(user_id, lesson):
+    """
+    True when an exercise lesson has puzzles the user has not solved yet.
+    Single-puzzle exercises keep their puzzle on the lesson row (no
+    lesson_puzzles rows), so there is nothing to check on the server for them.
+    """
+    if lesson.get('lesson_type') != 'exercise':
+        return False
+    puzzles = retry_supabase_query(
+        lambda: supabase.table('lesson_puzzles')
+            .select('id')
+            .eq('lesson_id', lesson['id'])
+            .execute()
+    )
+    puzzle_ids = [p['id'] for p in (puzzles.data or [])]
+    if not puzzle_ids:
+        return False
+    solved = retry_supabase_query(
+        lambda: supabase.table('user_puzzle_progress')
+            .select('puzzle_id')
+            .eq('user_id', user_id)
+            .in_('puzzle_id', puzzle_ids)
+            .not_.is_('completed_at', 'null')
+            .execute()
+    )
+    return len({r['puzzle_id'] for r in (solved.data or [])}) < len(puzzle_ids)
+
+
 @lessons_bp.route('/api/learn/<course_slug>/<lesson_slug>/progress', methods=['POST'])
 @verify_clerk_token
 def update_lesson_progress_by_slug(course_slug, lesson_slug):
@@ -705,24 +808,13 @@ def update_lesson_progress_by_slug(course_slug, lesson_slug):
             return jsonify({"error": "Lesson not found"}), 404
 
         lesson_id = lesson['id']
+        status = data.get('status', 'in_progress')
 
-        # Build update object
-        update_data = {
-            'user_id': user_id,
-            'lesson_id': lesson_id,
-            'status': data.get('status', 'in_progress'),
-            'updated_at': 'now()'
-        }
+        if status == 'completed' and _exercise_unsolved(user_id, lesson):
+            return jsonify({"error": EXERCISE_NOT_SOLVED}), 409
 
-        if 'time_spent_seconds' in data:
-            update_data['time_spent_seconds'] = data['time_spent_seconds']
-
-        if 'score' in data:
-            update_data['score'] = data['score']
-
-        status = data.get('status')
         prev = None
-        if status in ('in_progress', 'completed'):
+        if status == 'completed':
             existing = retry_supabase_query(
                 lambda: supabase.table('user_progress')
                     .select('started_at, status')
@@ -732,22 +824,12 @@ def update_lesson_progress_by_slug(course_slug, lesson_slug):
             )
             prev = existing.data[0] if existing.data else None
 
-        first_start = status == 'in_progress' and not (prev and prev.get('started_at'))
-        if first_start:
-            update_data['started_at'] = 'now()'
-
-        if status == 'completed':
-            update_data['completed_at'] = 'now()'
-
-        result = retry_supabase_query(
-            lambda: supabase.table('user_progress')
-                .upsert(update_data, on_conflict='user_id,lesson_id')
-                .execute()
-        )
+        row, inserted = write_lesson_progress(user_id, lesson_id, data)
+        first_start = status == 'in_progress' and inserted
 
         _capture_lesson_progress(user_id, course, lesson_id, data, first_start, prev)
 
-        return jsonify(result.data[0]), 200
+        return jsonify(row), 200
 
     except Exception as e:
         return jsonify({"error": f"Failed to update progress: {str(e)}"}), 500
@@ -1113,43 +1195,18 @@ def update_lesson_progress(lesson_id):
         user_id = get_current_user_id()
         data = request.get_json()
 
-        # Build update object
-        update_data = {
-            'user_id': user_id,
-            'lesson_id': lesson_id,
-            'status': data.get('status', 'in_progress'),
-            'updated_at': 'now()'
-        }
-
-        # Add optional fields
-        if 'time_spent_seconds' in data:
-            update_data['time_spent_seconds'] = data['time_spent_seconds']
-
-        if 'score' in data:
-            update_data['score'] = data['score']
-
-        # Set started_at if not started yet
-        if data.get('status') == 'in_progress':
-            # Check if progress exists
-            existing = supabase.table('user_progress')\
-                .select('started_at')\
-                .eq('user_id', user_id)\
-                .eq('lesson_id', lesson_id)\
-                .execute()
-
-            if not existing.data or not existing.data[0].get('started_at'):
-                update_data['started_at'] = 'now()'
-
-        # Set completed_at if completing
         if data.get('status') == 'completed':
-            update_data['completed_at'] = 'now()'
+            lesson = retry_supabase_query(
+                lambda: supabase.table('lessons')
+                    .select('id, lesson_type')
+                    .eq('id', lesson_id)
+                    .execute()
+            )
+            if lesson.data and _exercise_unsolved(user_id, lesson.data[0]):
+                return jsonify({"error": EXERCISE_NOT_SOLVED}), 409
 
-        # Upsert progress
-        result = supabase.table('user_progress')\
-            .upsert(update_data, on_conflict='user_id,lesson_id')\
-            .execute()
-
-        return jsonify(result.data[0]), 200
+        row, _ = write_lesson_progress(user_id, lesson_id, data)
+        return jsonify(row), 200
 
     except Exception as e:
         return jsonify({"error": f"Failed to update progress: {str(e)}"}), 500

@@ -235,34 +235,32 @@ def complete_puzzle(course_slug, lesson_slug, puzzle_index):
         # Check if there's a next puzzle
         total_puzzles = lesson.get('puzzle_count', 0)
         next_index = puzzle_index + 1 if puzzle_index < total_puzzles else None
-        lesson_complete = puzzle_index >= total_puzzles
 
-        # If all puzzles complete, mark lesson as complete
+        # The lesson is complete once every one of its puzzles is solved, in any order
+        all_puzzles = supabase.table('lesson_puzzles')\
+            .select('id')\
+            .eq('lesson_id', lesson['id'])\
+            .execute()
+
+        completed = supabase.table('user_puzzle_progress')\
+            .select('puzzle_id')\
+            .eq('user_id', user_id)\
+            .in_('puzzle_id', [p['id'] for p in all_puzzles.data])\
+            .not_.is_('completed_at', 'null')\
+            .execute()
+
+        lesson_complete = len({c['puzzle_id'] for c in completed.data}) >= len(all_puzzles.data)
         if lesson_complete:
-            # Check if really all puzzles are complete
-            all_puzzles = supabase.table('lesson_puzzles')\
-                .select('id')\
-                .eq('lesson_id', lesson['id'])\
+            # Mark lesson as complete
+            supabase.table('user_progress')\
+                .upsert({
+                    'user_id': user_id,
+                    'lesson_id': lesson['id'],
+                    'status': 'completed',
+                    'completed_at': 'now()',
+                    'updated_at': 'now()'
+                }, on_conflict='user_id,lesson_id')\
                 .execute()
-
-            completed = supabase.table('user_puzzle_progress')\
-                .select('puzzle_id')\
-                .eq('user_id', user_id)\
-                .in_('puzzle_id', [p['id'] for p in all_puzzles.data])\
-                .not_.is_('completed_at', 'null')\
-                .execute()
-
-            if len(completed.data) >= len(all_puzzles.data):
-                # Mark lesson as complete
-                supabase.table('user_progress')\
-                    .upsert({
-                        'user_id': user_id,
-                        'lesson_id': lesson['id'],
-                        'status': 'completed',
-                        'completed_at': 'now()',
-                        'updated_at': 'now()'
-                    }, on_conflict='user_id,lesson_id')\
-                    .execute()
 
         return jsonify({
             "success": True,

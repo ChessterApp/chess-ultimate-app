@@ -45,7 +45,8 @@ interface PuzzleSequenceProps {
   courseSlug: string
   lessonSlug: string
   getToken: () => Promise<string | null>
-  onAllPuzzlesComplete?: () => void
+  /** Reports whether every puzzle is solved — on load, on each solve and on reset. */
+  onAllCompleteChange?: (complete: boolean) => void
   /**
    * Optional callback reporting the full puzzle context (all puzzles, current
    * puzzle, and live board state) whenever it changes, so the lesson page can
@@ -67,7 +68,7 @@ export default function PuzzleSequence({
   courseSlug,
   lessonSlug,
   getToken,
-  onAllPuzzlesComplete,
+  onAllCompleteChange,
   onPuzzleContextChange
 }: PuzzleSequenceProps) {
   const t = useTranslations('puzzles')
@@ -92,6 +93,13 @@ export default function PuzzleSequence({
   // just because the parent passed a fresh function identity.
   const onPuzzleContextChangeRef = useRef(onPuzzleContextChange)
   onPuzzleContextChangeRef.current = onPuzzleContextChange
+
+  const onAllCompleteChangeRef = useRef(onAllCompleteChange)
+  onAllCompleteChangeRef.current = onAllCompleteChange
+
+  useEffect(() => {
+    onAllCompleteChangeRef.current?.(allComplete)
+  }, [allComplete])
 
   // Fetch all puzzles for this lesson
   const fetchPuzzles = useCallback(async () => {
@@ -192,7 +200,6 @@ export default function PuzzleSequence({
       // Check if all puzzles are complete
       if (data.lesson_complete) {
         setAllComplete(true)
-        onAllPuzzlesComplete?.()
       } else if (currentIndex < totalCount) {
         // Auto-advance to next puzzle after Lottie animation plays (1.5s + 300ms buffer)
         setTimeout(() => {

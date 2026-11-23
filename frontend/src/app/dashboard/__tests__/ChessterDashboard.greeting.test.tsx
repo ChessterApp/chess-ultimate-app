@@ -52,7 +52,7 @@ vi.mock('@/hooks/useCourseProgress', () => ({
 
 vi.mock('@/hooks/useLessonCompletions', () => ({
   useLessonCompletions: () => ({
-    completions: { total_completions: 0, completion_dates: [] },
+    completions: { total_completions: 0, completion_dates: [], lesson_xp: 0 },
   }),
 }));
 

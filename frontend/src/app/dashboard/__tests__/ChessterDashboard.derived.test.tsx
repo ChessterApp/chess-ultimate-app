@@ -53,6 +53,7 @@ vi.mock('@/hooks/useLessonCompletions', () => ({
     completions: {
       total_completions: 7,
       completion_dates: [day(-2), day(-1), day(0)],
+      lesson_xp: 95, // summed on the server by lesson type × course level
     },
   }),
 }));
@@ -95,10 +96,10 @@ afterEach(() => {
 });
 
 describe('ChessterDashboard — derived stats for non-linked users', () => {
-  it('renders derived XP (7 lessons × 10) instead of 0', async () => {
+  it('renders the server lesson XP (not completions × a flat rate)', async () => {
     const { findAllByTestId } = render(<ChessterDashboard />);
     const xp = await findAllByTestId('xp-display');
-    expect(xp[0].textContent).toBe('70');
+    expect(xp[0].textContent).toBe('95');
   });
 
   it('renders the derived daily streak (3 consecutive days) instead of 0', async () => {

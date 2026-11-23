@@ -22,11 +22,11 @@ import LevelCompleteConversion from '@/components/empire/LevelCompleteConversion
 import { useMembership } from '@/components/providers/MembershipProvider'
 import { slugifyTitle } from '@/lib/learn-gating'
 import { shouldShowLevelComplete } from '@/lib/level-complete-guard'
+import { YOUTUBE_URL_REGEX, canCompleteLesson, lessonHasVideo } from '@/lib/lesson-completion'
+import { lessonXp } from '@/lib/gamification/lessonXp'
+import { useYouTubeEnded } from '@/hooks/useYouTubeEnded'
 import type { ReactNode } from 'react'
 import type { Components } from 'react-markdown'
-
-// Detect YouTube URLs
-const YOUTUBE_URL_REGEX = /^https?:\/\/(?:www\.)?(?:youtube\.com\/(?:embed\/|watch\?v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:\?.*)?$/
 
 // Defined at module scope so the component identity is stable across renders.
 // An inline `p` renderer creates a new component type on every render, which
@@ -46,7 +46,7 @@ const MarkdownParagraph = ({ children }: { children?: ReactNode }) => {
       return (
         <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden' }}>
           <iframe
-            src={`https://www.youtube.com/embed/${videoId}`}
+            src={`https://www.youtube.com/embed/${videoId}?enablejsapi=1`}
             style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
             frameBorder="0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -85,6 +85,8 @@ interface Lesson {
   slug: string
   course_slug: string
   course_title: string
+  course_level: string | null
+  progress_status: string
   exercise_fen: string | null
   solution_move: string | null
   exercise_type: string | null
@@ -134,6 +136,9 @@ export default function LessonPage() {
   const [showCelebration, setShowCelebration] = useState(false)
   const [showQuickCelebration, setShowQuickCelebration] = useState(false)
   const [quickCelebrationMessage, setQuickCelebrationMessage] = useState('')
+  // Gates for the "Complete lesson" button (see lib/lesson-completion).
+  const [exerciseSolved, setExerciseSolved] = useState(false)
+  const contentRef = useRef<HTMLDivElement>(null)
   // Restricted-member level-complete conversion overlay (frozen/expired only).
   const [conversion, setConversion] = useState<{ level: number; nextTitle: string | null } | null>(null)
 
@@ -161,6 +166,7 @@ export default function LessonPage() {
         const headers = { 'Authorization': `Bearer ${token}` }
 
         // Fetch lesson and chat history in parallel for faster loading
+        let progressStatus: string | undefined
         try {
           const [lessonData, chatData] = await Promise.all([
             apiFetch<Lesson>(`${apiUrl}/api/learn/${courseSlug}/${lessonSlug}?locale=${locale}`, { headers }),
@@ -168,6 +174,7 @@ export default function LessonPage() {
           ])
 
           setLesson(lessonData)
+          progressStatus = lessonData.progress_status
           setError(null)
           setMessages(chatData.messages || [])
         } catch (e) {
@@ -179,12 +186,15 @@ export default function LessonPage() {
           throw e
         }
 
-        // Mark lesson as in progress (fire-and-forget, don't block rendering)
-        apiFetch(`${apiUrl}/api/learn/${courseSlug}/${lessonSlug}/progress?locale=${locale}`, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'in_progress' })
-        }).catch(err => console.warn('Failed to update progress:', err))
+        // Mark lesson as in progress (fire-and-forget, don't block rendering).
+        // A finished lesson stays finished — re-opening it sends nothing.
+        if (progressStatus !== 'completed') {
+          apiFetch(`${apiUrl}/api/learn/${courseSlug}/${lessonSlug}/progress?locale=${locale}`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'in_progress' })
+          }).catch(err => console.warn('Failed to update progress:', err))
+        }
 
       } catch (err) {
         console.error('Failed to fetch lesson:', err)
@@ -294,7 +304,8 @@ export default function LessonPage() {
     }
   }
 
-  const markLessonComplete = async () => {
+  // Saves the completion on the server. Returns false when it was not saved.
+  const saveCompletion = async (): Promise<boolean> => {
     try {
       const token = await getToken()
       await apiFetch(
@@ -308,14 +319,13 @@ export default function LessonPage() {
           body: JSON.stringify({ status: 'completed' })
         }
       )
-
-      // Trigger XP gain animation
-      const earnedXP = lesson?.lesson_type === 'exercise' ? 15 : 10
-      setXpEarned(earnedXP)
-      setShowXPGain(true)
+      return true
     } catch (err) {
       console.error('Failed to mark lesson complete:', err)
-      showToast(t('learn.errors.saveProgressFailed'), 'error')
+      const notSolved = err instanceof ApiError && err.status === 409
+      showToast(t(notSolved ? 'learn.errors.exerciseNotSolved' : 'learn.errors.saveProgressFailed'), 'error')
+      if (notSolved) setExerciseSolved(false)
+      return false
     }
   }
 
@@ -343,11 +353,13 @@ export default function LessonPage() {
     }
   }
 
-  // Handle correct move in exercise
+  // Handle correct move in exercise: unlock the button and save the completion
+  // quietly (XP is shown once, when the lesson is completed with the button).
   const handleCorrectMove = async () => {
     setQuickCelebrationMessage(t('lesson.greatMove'))
     setShowQuickCelebration(true)
-    await markLessonComplete()
+    setExerciseSolved(true)
+    await saveCompletion()
   }
 
   // When a RESTRICTED member finishes their current level, return the level +
@@ -392,7 +404,16 @@ export default function LessonPage() {
 
     setCompletingLesson(true)
     try {
-      await markLessonComplete()
+      if (!(await saveCompletion())) {
+        setCompletingLesson(false)
+        return
+      }
+
+      // XP only for the first completion — a finished lesson is never counted twice.
+      if (!alreadyCompleted) {
+        setXpEarned(xp)
+        setShowXPGain(true)
+      }
 
       // A restricted member who just finished their current level gets the
       // endowed-progress conversion screen instead of the plain redirect.
@@ -417,6 +438,20 @@ export default function LessonPage() {
     setCompletingLesson(false)
     router.push(`/learn/${courseSlug}`)
   }
+
+  const alreadyCompleted = lesson?.progress_status === 'completed'
+  const xp = lesson ? lessonXp(lesson.lesson_type, lesson.course_level) : 0
+  const hasMultiPuzzles = !!(lesson?.has_multiple_puzzles && lesson.puzzle_count && lesson.puzzle_count > 0)
+  const hasSinglePuzzle = !!(!lesson?.has_multiple_puzzles && lesson?.exercise_fen && (lesson.solution_move || lesson.exercise_solution?.targets))
+  const hasVideo = lessonHasVideo(lesson?.content)
+  const gate = {
+    alreadyCompleted,
+    hasExercise: lesson?.lesson_type === 'exercise' && (hasMultiPuzzles || hasSinglePuzzle),
+    exerciseSolved,
+    hasVideo,
+  }
+  const videoDone = useYouTubeEnded(contentRef, hasVideo && !alreadyCompleted && !gate.hasExercise)
+  const canComplete = canCompleteLesson({ ...gate, videoDone })
 
   if (loading || !isLoaded) {
     return <LoadingScreen isVisible={true} />
@@ -482,7 +517,7 @@ export default function LessonPage() {
             {t(`course.lessonTypes.${lesson.lesson_type}`)}
           </span>
 
-          <div className="prose dark:prose-invert max-w-none mb-6">
+          <div ref={contentRef} className="prose dark:prose-invert max-w-none mb-6">
             <ReactMarkdown
               components={markdownComponents}
             >
@@ -491,23 +526,23 @@ export default function LessonPage() {
           </div>
 
           {/* Multi-puzzle lesson - show PuzzleSequence */}
-          {lesson.has_multiple_puzzles && lesson.puzzle_count && lesson.puzzle_count > 0 && (
+          {hasMultiPuzzles && (
             <div className="mb-6">
               <h3 className="font-semibold mb-4">
-                {t('lesson.practicePuzzles', { count: lesson.puzzle_count })}
+                {t('lesson.practicePuzzles', { count: lesson.puzzle_count ?? 0 })}
               </h3>
               <PuzzleSequence
                 courseSlug={courseSlug}
                 lessonSlug={lessonSlug}
                 getToken={getToken}
-                onAllPuzzlesComplete={markLessonComplete}
+                onAllCompleteChange={setExerciseSolved}
                 onPuzzleContextChange={(ctx) => { puzzleContextRef.current = ctx }}
               />
             </div>
           )}
 
           {/* Single puzzle lesson - show AnimatedChessBoard directly */}
-          {!lesson.has_multiple_puzzles && lesson.exercise_fen && (lesson.solution_move || lesson.exercise_solution?.targets) && (
+          {hasSinglePuzzle && lesson.exercise_fen && (
             <div className="mb-6">
               <InlineTip message={t('mascot.messages.findBestMove')} mood="thinking" variant="compact" />
               <div className="mt-4">
@@ -537,7 +572,7 @@ export default function LessonPage() {
 
           <button
             onClick={completeLessonAndRedirect}
-            disabled={completingLesson}
+            disabled={completingLesson || !canComplete}
             className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-4 px-6 rounded-xl transition-all shadow-lg hover:shadow-xl active:scale-98 disabled:opacity-50 flex items-center justify-center gap-3"
           >
             {completingLesson ? (
@@ -552,7 +587,7 @@ export default function LessonPage() {
               <>
                 <span>{t('lesson.completeLesson')}</span>
                 <span className="bg-white/20 px-2 py-0.5 rounded-full text-sm">
-                  +{lesson.lesson_type === 'exercise' ? 15 : 10} XP
+                  +{xp} XP
                 </span>
               </>
             )}
@@ -669,7 +704,6 @@ export default function LessonPage() {
         <QuickCelebration
           message={quickCelebrationMessage}
           icon="✨"
-          xp={5}
           onComplete={() => setShowQuickCelebration(false)}
         />
       )}
@@ -679,7 +713,7 @@ export default function LessonPage() {
           type="lessonComplete"
           title={t('gamification.celebration.lessonComplete')}
           subtitle={`${t('lesson.youveCompleted')} "${lesson.title}"`}
-          xpGained={xpEarned}
+          xpGained={xpEarned || undefined}
           onClose={handleCelebrationClose}
           autoClose={false}
         />

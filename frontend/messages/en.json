@@ -390,7 +390,8 @@
       "requestTimeout": "Request timed out — try again",
       "networkError": "Network error — check your connection",
       "sendMessageFailed": "Failed to send message — try again",
-      "saveProgressFailed": "Failed to save progress — try again"
+      "saveProgressFailed": "Failed to save progress — try again",
+      "exerciseNotSolved": "Solve the exercise first — then you can finish the lesson."
     }
   },
   "profile": {
