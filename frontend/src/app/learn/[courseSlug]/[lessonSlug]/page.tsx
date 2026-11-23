@@ -8,7 +8,7 @@ import { useParams, useRouter } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
 import { useTranslations, useLocale } from 'next-intl'
 import { AnimatedChessBoard, PuzzleSequence } from '@/components/chess'
-import type { TutorPuzzleContext } from '@/components/chess'
+import type { BoardStateReport, TutorPuzzleContext } from '@/components/chess'
 import LoadingScreen from '@/components/LoadingScreen'
 import Link from 'next/link'
 import { ChevronDown, ChevronUp, MessageCircle } from 'lucide-react'
@@ -138,6 +138,8 @@ export default function LessonPage() {
   const [quickCelebrationMessage, setQuickCelebrationMessage] = useState('')
   // Gates for the "Complete lesson" button (see lib/lesson-completion).
   const [exerciseSolved, setExerciseSolved] = useState(false)
+  // Single-exercise hint text shows only after Hint is pressed or a wrong move
+  const [hintRevealed, setHintRevealed] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   // Restricted-member level-complete conversion overlay (frozen/expired only).
   const [conversion, setConversion] = useState<{ level: number; nextTitle: string | null } | null>(null)
@@ -331,7 +333,8 @@ export default function LessonPage() {
 
   // Build tutor puzzle context for a single-puzzle lesson from the lesson
   // fields + live board state, storing it for the next chat message.
-  const handleSingleBoardStateChange = (bs: { currentFen: string; attempts: number; solved: boolean }) => {
+  const handleSingleBoardStateChange = (bs: BoardStateReport) => {
+    setHintRevealed(bs.hintRevealed)
     if (!lesson) return
     const solutionMove = lesson.solution_move || undefined
     const puzzle = {
@@ -562,9 +565,11 @@ export default function LessonPage() {
                   showArrowsOverlay={!lesson.exercise_solution?.targets}
                   showStar={!lesson.exercise_solution?.targets}
                   strictValidation={lesson.exercise_type === 'one_move_puzzle' && !((lesson.exercise_solution?.arrow?.path?.length ?? 0) > 1)}
+                  revealHintsOnRequest
+                  showLegalDests
                 />
               </div>
-              {lesson.hint_text && (
+              {lesson.hint_text && hintRevealed && (
                 <InlineTip message={lesson.hint_text} mood="happy" variant="highlight" />
               )}
             </div>

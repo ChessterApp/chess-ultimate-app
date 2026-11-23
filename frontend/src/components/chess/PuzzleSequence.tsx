@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { AnimatedChessBoard } from '@/components/chess'
+import type { BoardStateReport } from '@/components/chess'
 import { ChevronLeft, ChevronRight, Check, Trophy, RotateCcw } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { apiFetch, ApiError } from '@/lib/api'
@@ -85,7 +86,10 @@ export default function PuzzleSequence({
   const [resetting, setResetting] = useState(false)
   // Live board state relayed up from AnimatedChessBoard (student's current
   // position + attempts on the active puzzle), forwarded to the AI tutor.
-  const [boardState, setBoardState] = useState<{ currentFen: string; attempts: number; solved: boolean } | null>(null)
+  const [boardState, setBoardState] = useState<BoardStateReport | null>(null)
+  // Puzzle whose hint the student has revealed (Hint pressed or a wrong move);
+  // keyed by id so a stale report never shows the next puzzle's hint.
+  const [hintRevealedId, setHintRevealedId] = useState<string | null>(null)
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL
 
@@ -304,11 +308,16 @@ export default function PuzzleSequence({
           onIncorrectMove={(move) => {
             console.log('Incorrect move:', move)
           }}
-          onBoardStateChange={setBoardState}
+          onBoardStateChange={(bs) => {
+            setBoardState(bs)
+            setHintRevealedId(bs.hintRevealed ? currentPuzzle.id : null)
+          }}
           showHints={true}
           enableAnimations={true}
           strictValidation={true}
           showStar={false}
+          revealHintsOnRequest
+          showLegalDests
         />
 
       </div>
@@ -416,7 +425,7 @@ export default function PuzzleSequence({
         )}
 
         {/* Hint */}
-        {currentPuzzle.hint_text && !currentPuzzle.completed && (
+        {currentPuzzle.hint_text && !currentPuzzle.completed && hintRevealedId === currentPuzzle.id && (
           <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
             <p className="text-sm text-yellow-800 dark:text-yellow-200">
               <span className="font-medium">{t('hint')}</span> {currentPuzzle.hint_text}

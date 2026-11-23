@@ -13,7 +13,7 @@ import { Chessground } from 'chessground';
 import type { Api } from 'chessground/api';
 import type { Key } from 'chessground/types';
 import { MoveValidator } from '@/lib/chess/moveValidator';
-import { getChessgroundConfig } from '@/lib/chess/chessgroundConfig';
+import { getChessgroundConfig, computeLegalDests } from '@/lib/chess/chessgroundConfig';
 import { evaluateLineMove, colorToMove } from '@/lib/chess/solutionLine';
 import { squareToPercent } from '@/lib/chess/boardGeometry';
 import {
@@ -81,12 +81,30 @@ interface AnimatedChessBoardProps {
    */
   strictValidation?: boolean;
   /**
-   * Optional callback fired whenever the live board position, attempt count, or
-   * solved flag changes. Used to lift board state up to the lesson page so the
-   * AI tutor can see the student's current position. Backward compatible — the
-   * board works unchanged when this is omitted.
+   * When true, the solution arrow stays hidden until the student presses Hint
+   * or makes a wrong move, so the answer isn't given away before they try.
+   * Default: false (arrow shown from the start).
    */
-  onBoardStateChange?: (state: { currentFen: string; attempts: number; solved: boolean }) => void;
+  revealHintsOnRequest?: boolean;
+  /** Show legal-move dots after selecting a piece (falls back to none for non-standard FENs) */
+  showLegalDests?: boolean;
+  /**
+   * Optional callback fired whenever the live board position, attempt count,
+   * solved flag, or hint-revealed flag changes. Used to lift board state up to
+   * the lesson page so the AI tutor can see the student's current position and
+   * the page can gate hint text. Backward compatible — the board works
+   * unchanged when this is omitted.
+   */
+  onBoardStateChange?: (state: BoardStateReport) => void;
+}
+
+/** Live board state reported to the parent via onBoardStateChange. */
+export interface BoardStateReport {
+  currentFen: string;
+  attempts: number;
+  solved: boolean;
+  /** Hint pressed or a wrong attempt made (always true without revealHintsOnRequest) */
+  hintRevealed: boolean;
 }
 
 interface BoardState {
@@ -110,6 +128,8 @@ interface BoardState {
   showCelebration: boolean;
   /** Number of incorrect attempts made on the current puzzle this session */
   attempts: number;
+  /** Whether the student pressed Hint on the current puzzle */
+  hintRequested: boolean;
 }
 
 /**
@@ -134,6 +154,8 @@ export default function AnimatedChessBoard({
   showArrowsOverlay = true,
   showStar = true,
   strictValidation = false,
+  revealHintsOnRequest = false,
+  showLegalDests = false,
   onBoardStateChange,
 }: AnimatedChessBoardProps) {
   // Auto-derive orientation from FEN active color if not explicitly provided
@@ -163,6 +185,7 @@ export default function AnimatedChessBoard({
     capturedStars: new Set<string>(),
     showCelebration: false,
     attempts: 0,
+    hintRequested: false,
   });
 
   // Keep the latest onBoardStateChange in a ref so the reporting effect can fire
@@ -205,6 +228,7 @@ export default function AnimatedChessBoard({
             movable: true,
             premovable: false,
             animationDuration,
+            showLegalDests,
           }),
         });
 
@@ -273,6 +297,7 @@ export default function AnimatedChessBoard({
       capturedStars: new Set<string>(),
       showCelebration: false,
       attempts: 0,
+      hintRequested: false,
     });
 
     // Update chessground with new position
@@ -295,13 +320,28 @@ export default function AnimatedChessBoard({
    * changes, so the lesson page can pass it to the AI tutor. No-op when the
    * parent didn't supply a callback.
    */
+  const hintRevealed = !revealHintsOnRequest || state.hintRequested || state.attempts > 0;
+
   useEffect(() => {
     onBoardStateChangeRef.current?.({
       currentFen: state.currentFen,
       attempts: state.attempts,
       solved: state.isSolved,
+      hintRevealed,
     });
-  }, [state.currentFen, state.attempts, state.isSolved]);
+  }, [state.currentFen, state.attempts, state.isSolved, hintRevealed]);
+
+  /**
+   * Refresh the legal-move dots once each move settles. Chessground drops its
+   * dests after every user move, so this also re-runs when validation ends on
+   * an unchanged position (illegal or wrong move reverted).
+   */
+  useEffect(() => {
+    if (!showLegalDests || state.isValidating || state.isSolved) return;
+    groundRef.current?.set({
+      movable: { showDests: true, dests: computeLegalDests(state.currentFen) },
+    });
+  }, [showLegalDests, state.currentFen, state.isValidating, state.isSolved, state.attempts]);
 
   /**
    * Calculate chess distance between two squares (Chebyshev distance - max of file/rank difference)
@@ -795,6 +835,8 @@ export default function AnimatedChessBoard({
       currentFen: fen,
       isValidating: false,
       pathStep: 0,
+      // In reveal-on-request mode a wrong attempt reveals the solution arrow
+      showArrows: revealHintsOnRequest || prev.showArrows,
     }));
 
     // Clear feedback after 2 seconds so user can read the message
@@ -815,7 +857,20 @@ export default function AnimatedChessBoard({
       ? (solutionLine ? solutionLine[lineIndexRef.current] : undefined)
       : solutionMove;
 
-    if (state.isSolved || state.hintShown || !showHints || !boardRef.current || !hintMove) {
+    if (state.isSolved || state.hintShown || !showHints || !boardRef.current) {
+      return;
+    }
+
+    // Pressing Hint reveals the arrow (from the start position) and hint text
+    if (revealHintsOnRequest) {
+      setState((prev) => ({
+        ...prev,
+        hintRequested: true,
+        showArrows: prev.showArrows || prev.pathStep === 0,
+      }));
+    }
+
+    if (!hintMove) {
       return;
     }
 
@@ -864,7 +919,7 @@ export default function AnimatedChessBoard({
         feedback: 'idle',
       }));
     }, ANIMATION_DURATIONS.HINT_APPEAR_DELAY + 3000);
-  }, [state.isSolved, state.hintShown, showHints, solutionMove, solutionLine, isLineMode, orientation]);
+  }, [state.isSolved, state.hintShown, showHints, solutionMove, solutionLine, isLineMode, orientation, revealHintsOnRequest]);
 
   /**
    * Reset board to initial position
@@ -910,6 +965,7 @@ export default function AnimatedChessBoard({
       capturedStars: new Set<string>(),
       showCelebration: false,
       attempts: 0,
+      hintRequested: false,
     });
   }, [fen, orientation, handleMove]);
 
@@ -956,7 +1012,7 @@ export default function AnimatedChessBoard({
             fromSquare={arrowFromSquare}
             toSquare={solutionMove.slice(2, 4)}
             orientation={orientation}
-            visible={state.showArrows && !state.isSolved}
+            visible={state.showArrows && !state.isSolved && hintRevealed}
             intermediateSquares={arrowPath}
           />
         )}

@@ -2,6 +2,7 @@
  * Chessground configuration for animated chess board
  */
 
+import { Chess } from 'chess.js';
 import type { Config } from 'chessground/config';
 import type { Key } from 'chessground/types';
 
@@ -12,6 +13,28 @@ export interface ChessgroundConfigOptions {
   movable?: boolean;
   premovable?: boolean;
   animationDuration?: number;
+  /** Show legal-move dots after selecting a piece (dests computed from the FEN) */
+  showLegalDests?: boolean;
+}
+
+/**
+ * Legal destinations per square for the side to move, in chessground's dests
+ * shape. Returns undefined when chess.js rejects the FEN (lesson positions
+ * without kings etc.), so the board falls back to free moves without dots.
+ */
+export function computeLegalDests(fen: string): Map<Key, Key[]> | undefined {
+  let chess: Chess;
+  try {
+    chess = new Chess(fen);
+  } catch {
+    return undefined;
+  }
+  const dests = new Map<Key, Key[]>();
+  for (const m of chess.moves({ verbose: true })) {
+    const from = m.from as Key;
+    dests.set(from, [...(dests.get(from) ?? []), m.to as Key]);
+  }
+  return dests;
 }
 
 /**
@@ -24,6 +47,7 @@ export function getChessgroundConfig({
   movable = true,
   premovable = false,
   animationDuration = 50,
+  showLegalDests = false,
 }: ChessgroundConfigOptions): Config {
   return {
     fen,
@@ -34,7 +58,9 @@ export function getChessgroundConfig({
     movable: {
       free: true, // Allow free movement (we'll validate in the move handler)
       color: orientation, // Allow moving pieces for the current orientation
-      showDests: false, // We'll show hints manually via the Hint button
+      // Free moves stay allowed (validated in the move handler); dests only draw the dots
+      showDests: showLegalDests,
+      dests: showLegalDests ? computeLegalDests(fen) : undefined,
       events: {
         after: onMove,
       },

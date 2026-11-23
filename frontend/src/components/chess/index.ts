@@ -5,6 +5,7 @@
  */
 
 export { default as AnimatedChessBoard } from './AnimatedChessBoard';
+export type { BoardStateReport } from './AnimatedChessBoard';
 export { default as FeedbackDisplay } from './FeedbackDisplay';
 export type { FeedbackType } from './FeedbackDisplay';
 export { default as BoardControls } from './BoardControls';
