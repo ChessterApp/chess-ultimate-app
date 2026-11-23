@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 23.11-2 (тренер предлагает и открывает только уроки, открытые ученику в «Обучении», а про закрытый говорит, что пройти сначала; прямой путь голоса — подшаг 5в, по-прежнему по согласию) — включает всё из версий 06.10 … 23.11
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 23.11-3 (список сессий тренера страницами; тренер говорит, что разминка прервана; замки уроков из 23.11-2; прямой путь голоса — подшаг 5в, по-прежнему по согласию) — включает всё из версий 06.10 … 23.11-2
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -7,9 +7,10 @@
 > обновление: всё, что уже сделано в прошлый раз (миграции, база задач, переменные), Claude
 > проверит и пропустит, так что займёт 10–15 минут. В конце Claude пришлёт отчёт.
 >
-> **Это обновление поверх версии 23.11**, которая уже стоит: только код, без новых переменных, ключей и миграций.
-> Модель, голос и голосовой режим не меняются, `.env` не трогается. Подшаг 5в (прямой путь голоса) — как в 23.11:
-> только с согласия человека и когда готова DNS-запись `coach-api.chesster.io`; без него всё работает как раньше.
+> **Это обновление поверх версии 23.11 или 23.11-2** (23.11-2 можно не ставить отдельно — она вся входит сюда): только
+> код, без новых переменных, ключей и миграций. Модель, голос и голосовой режим не меняются, `.env` не трогается. Подшаг 5в
+> (прямой путь голоса) — как в 23.11: только с согласия человека и когда готова DNS-запись `coach-api.chesster.io`; без
+> него всё работает как раньше.
 
 ---
 
@@ -33,6 +34,71 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 23.11-3 (код — `hermes/src/` и тесты. Миграций, пакетов и переменных нет; подшаги 5а и 5б не выполняются,
+5в — как в версии 23.11 ниже. Если сервер на 23.11 или 23.11-2 — шаги 0, 1, 2, 3, 4, 8 и проверки 1, 3, 94, 95 (и 5в с
+проверкой 93, если человек согласился и DNS готов); если раньше — все шаги):
+- **Список сессий тренера — страницами** (`src/sessions.py`, `src/session_persistence.py`, `src/server.py`). У тестовой
+  учётки 1001 сессия: после перезапуска список собирался 7–11 с (сервер поднимал каждую сессию со всеми сообщениями) и
+  дважды не уложился в 10 с прокси сайта (502). Теперь `GET /api/coach/sessions` отдаёт страницу (`?limit=`, по
+  умолчанию 30, не больше 100, и `?offset=`) и поднимает только её сессии; на сайте и в приложении внизу списка
+  «Показать ещё». Порядок — по последней активности: каждое записанное сообщение теперь обновляет `updated_at` своей
+  сессии в `coach_sessions` (одна лёгкая запись в фоне). Старый сайт без параметров получает первые 30.
+- **Разминка, прерванная вставленной партией, — сказана** (`src/warmup.py`, `src/server.py`). Раньше, если во время
+  разминки вставить партию или поставить другую позицию, разминка обрывалась молча. Теперь ответ начинается строкой сервера
+  «Разминка прервана на задаче N из M.» — один раз, пока ученик не вернётся к задачам разминки («дальше»).
+- Проверка 95 (без модели, без сети и без базы):
+
+```bash
+cd /root/hermes-chess && SUPABASE_URL= .venv/bin/python - <<'EOF'
+import inspect
+from src import session_persistence as sp, warmup
+from src.sessions import Session, SessionStore
+
+# --- 95a: the session list in pages — a page loads only its own sessions, newest first (tester 17.11: 1001 sessions)
+class Stored:
+    enabled = True
+    def __init__(self):
+        self.rows = {f"s{i:03d}": {"id": f"s{i:03d}", "user_id": "u", "updated_at": f"2026-11-01T00:{i // 60:02d}:{i % 60:02d}+00:00"} for i in range(100)}
+        self.loaded = 0
+    def persist_session(self, *a): pass
+    def load_session(self, sid): self.loaded += 1; return self.rows.get(sid)
+    def load_user_sessions(self, uid): return list(self.rows.values())
+    def load_user_session_page(self, uid, limit, offset):
+        rows = sorted(self.rows.values(), key=lambda r: r["updated_at"], reverse=True)
+        return rows[offset:offset + limit]
+    def load_messages(self, sid): return []
+    def load_boards(self, sid): return []
+st = Stored()
+page = SessionStore(persistence=st).list("u", 30, 0)
+paged = [s.id for s in page][:2] == ["s099", "s098"] and len(page) == 30 and st.loaded == 30
+touched = "_touch_session(session_id)" in inspect.getsource(sp.SessionPersistence._persist_message)
+
+# --- 95b: a warm-up left for a pasted game is said: «Разминка прервана на задаче 1 из 3.», once
+s = Session(id="check-95", user_id="u")
+puzzles = [{"puzzle_id": f"p{i}", "fen": fen, "solution": [mv]} for i, (fen, mv) in enumerate([
+    ("6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1", "d1d8"), ("6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1", "e1e8"),
+    ("7k/6pp/8/8/8/8/6PP/R5K1 w - - 0 1", "a1a8")])]
+warmup.start(s, puzzles)
+s.set_board_state(puzzles[0]["fen"])
+on_puzzle = warmup.paused(s) is None
+s.set_board_state("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2")
+place = warmup.paused(s)
+said = warmup.paused_line(place, "ru") == "Разминка прервана на задаче 1 из 3."
+warmup.note_paused_said(s)
+once = warmup.paused(s) is None
+pause = on_puzzle and said and once
+
+ok = paged and touched and pause
+print("ОК" if ok else "ПРОВЕРЬ", "| 95a список страницами:", paged, "| 95a сообщение двигает сессию:", touched,
+      "| 95b пауза разминки сказана один раз:", pause)
+EOF
+```
+
+  → `ОК | 95a список страницами: True | 95a сообщение двигает сессию: True | 95b пауза разминки сказана один раз: True`.
+  До обновления — `TypeError` (у `SessionStore.list()` нет страниц). Любое другое `ПРОВЕРЬ` — пришли вывод человеку.
+  Команда ничего не пишет в базу и `.env` не меняет.
+- Проверка 94 — из версии 23.11-2 ниже (замки уроков): если 23.11-2 не ставили, она тоже нужна.
 
 Новое в версии 23.11-2 (отчёт тестировщика от 20.11, пункт 12; код — `hermes/src/` и тесты. Миграций, пакетов и
 переменных нет; подшаги 5а и 5б не выполняются, 5в — как в версии 23.11 ниже. Если сервер на 23.11 — шаги 0, 1, 2, 3, 4,
@@ -3151,6 +3217,15 @@ grep -q 'def floor_from_header' chess-ultimate-app/hermes/src/learn_access.py \
 
 Если «НЕТ версии 23.11-2»: **СТОП** — версия 23.11-2 ещё не влита в `main`; напиши Александру, ничего не обновляй.
 
+Версия 23.11-3 в main:
+
+```bash
+grep -q 'def load_user_session_page' chess-ultimate-app/hermes/src/session_persistence.py \
+  && echo "версия 23.11-3 в main есть" || echo "НЕТ версии 23.11-3"
+```
+
+Если «НЕТ версии 23.11-3»: **СТОП** — версия 23.11-3 ещё не влита в `main`; напиши Александру, ничего не обновляй.
+
 ## Шаг 2. Резервная копия
 
 ```bash
@@ -3987,6 +4062,7 @@ COACH_REASONING_MANDATORY, COACH_REASONING_EFFORT, COACH_LESSON_LINK=<значе
   5в прямой путь голоса: включён / не включён (почему: нет согласия / нет DNS / не nginx / …)
   93 23.11 — 93a <код>; 93b <код>; 93c <коды>; 93d <ответ>; 93e <origin>; 93f <число> (только после 5в; секрет НЕ писать)
   94 23.11-2 — 94a <True/False>; 94b <…>; 94c <…>
+  95 23.11-3 — 95a страницы <True/False>; 95a сообщение <…>; 95b пауза <…>
 5б: <голос заменён на Will / не выполнялся — почему>
 Бэкенд (фото доски): <обновлён, коммит …, grep PHOTO_FEN_ATTEMPTS = … / не обновлён — почему>
 Что нужно от людей: <список или «ничего»>
