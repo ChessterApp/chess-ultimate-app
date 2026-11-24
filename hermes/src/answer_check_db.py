@@ -139,6 +139,25 @@ def note_board_game(ctx, pgn: str, headers: Optional[dict] = None, moves: Option
         + (f"\n\n{facts}" if facts else ""))
 
 
+def note_page_game(ctx, pgn: str) -> None:
+    """A finished game the student put on the board (a pasted PGN, a file, a link — src/board_record.py): its main
+    line, for the checks that read a game's record whoever's game it is (``sacrifice_issues``). Not a master game: the
+    student's side stays theirs, and the checks of a database game's telling (``loaded_game_issues``, in shadow — they
+    cut true sentences about a student's own game) do not read it."""
+    if ctx is None or not pgn:
+        return
+    try:
+        from src.board_record import _read, finished
+
+        if not finished(pgn):
+            return
+        _, line = _read(pgn)
+        if line:
+            ctx.page_game = line
+    except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
+        logger.debug("page game note failed", exc_info=True)
+
+
 def turn_tools_note(ctx) -> str:
     """For the rewrite of a wrong sentence: what the database tools of the turn did, and the game on the board."""
     parts = []
@@ -823,7 +842,7 @@ def sacrifice_issues(original: str, ctx) -> list[str]:
     на b5», "the queen sacrifice on b8" — names a move of that piece to that square in the game. None there: the
     claim is wrong, and the game's own sacrifice of that piece (a move to a square where it was taken at once) is told
     to the rewrite. Another game, a line of theory, a what-if are not judged (as ``loaded_game_issues``)."""
-    line = getattr(ctx, "loaded_game", None) if ctx is not None else None
+    line = (getattr(ctx, "loaded_game", None) or getattr(ctx, "page_game", None)) if ctx is not None else None
     if not line:
         return []
     low = (original or "").lower().replace("ё", "е")
@@ -962,7 +981,7 @@ def forget_board_game(ctx) -> None:
     and the rewrite no longer hears of it (mirrors src/boards.Board._forget_db_game; verification 04.11)."""
     if ctx is None:
         return
-    for name in ("loaded_game", "master_game", "loaded_game_text"):
+    for name in ("loaded_game", "master_game", "loaded_game_text", "page_game"):
         if getattr(ctx, name, None) is not None:
             setattr(ctx, name, None)
 

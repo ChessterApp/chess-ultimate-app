@@ -698,7 +698,7 @@ def _forget_old_board(agent, moved: dict, old_blocks: list) -> None:
 
 # The turn context's blocks about the position on the board: its state and analysis, and the database game it shows
 # (its facts and the shown ply, src/game_story.py — 06.11: they stayed after get_game_pgn put another game up).
-BOARD_BLOCK_HEADERS = ("## Current Board State", "## The database game on the board")
+BOARD_BLOCK_HEADERS = ("## Current Board State", "## The database game on the board", "## The game on the board")
 
 
 def turn_board_blocks_of(turn_context: Optional[str]) -> list:
@@ -2915,6 +2915,17 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 turn_context = f"{turn_context}\n\n{story_note}" if turn_context else story_note
         except Exception:  # noqa: BLE001 — never block a turn on the game's facts
             logger.debug("game facts failed", exc_info=True)
+    elif active_board.pgn and active_board.kind != "game":
+        # Any other game on the board (a pasted PGN, a file, a link): its record and the move shown — the model had the
+        # position alone, and told the game from memory or asked for its moves (src/board_record.py, prod 24.11).
+        try:
+            from src.board_record import block as board_record_block
+
+            record_note = board_record_block(active_board.pgn, active_board.ply)
+            if record_note:
+                turn_context = f"{turn_context}\n\n{record_note}" if turn_context else record_note
+        except Exception:  # noqa: BLE001 — never block a turn on the game's record
+            logger.debug("board record failed", exc_info=True)
     if active_board.kind == "game" and active_board.game_state and _ASKS_BETTER_MOVE.search(body.message or ""):
         # «Что было лучше вместо моего хода?»: the engine judged the student's last move when it was played; its better
         # move is a fact — the model guessed another, illegal one on the long prod run (26.10: «слон c1 бьёт на h6»
@@ -3200,6 +3211,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 from src.answer_check_db import note_board_game
 
                 note_board_game(check_ctx, review_pgn)
+            elif active_board.pgn and active_board.kind != "game":
+                # A finished game the student put on the board: what the answer tells of its moves is checked against
+                # its record too (src/answer_check_db.note_page_game — «жертва ферзя на d8» for 16.Qb8+, tester 23.11).
+                from src.answer_check_db import note_page_game
+
+                note_page_game(check_ctx, active_board.pgn)
         except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
             logger.debug("board game note failed", exc_info=True)
         try:
