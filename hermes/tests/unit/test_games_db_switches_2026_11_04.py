@@ -205,7 +205,8 @@ class TestTurn:
         assert text == NO_ACCESS
         [record] = [kw["payload"] for name, kw in events if name == "db_check"]
         assert record["db_shadow"][0]["part"] == "db_claim" and record["db_shadow"][0]["sentence"] == NO_ACCESS
-        assert record["modes"] == {"db_claim": "shadow", "loaded_game": config.COACH_LOADED_GAME_CHECK}
+        assert record["modes"] == {"db_claim": "shadow", "loaded_game": config.COACH_LOADED_GAME_CHECK,
+                                   "sacrifice": config.COACH_SACRIFICE_CHECK}  # the third switch, 24.11
 
     def test_on_cuts_the_sentence(self):
         self.monkeypatch.setattr(config, "COACH_DB_CLAIM_CHECK", "on")
