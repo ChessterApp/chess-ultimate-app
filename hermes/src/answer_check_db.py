@@ -803,6 +803,58 @@ def _walk_issues(low: str, text: str, line: list) -> list:
     return out
 
 
+# «Решающая жертва ферзя на d8 отвлекла коня» about the Opera Game, where the queen went to b8 (16.Qb8+ Nxb8) and the
+# rook mated on d8 (tester 23.11): a sacrifice told with its square names a move of that piece to that square.
+_SAC_PIECE = (r"(?P<p>ферз(?:я|ем|ём|ь)|ладь(?:и|ю|ей|ёй|я)|слон(?:а|ом)?|кон(?:я|ем|ём|ь)|пешк(?:и|у|ой|а)|"
+              r"queen|rook|bishop|knight|pawn)")
+_SAC = re.compile(
+    _B + r"(?:(?:жертв(?:а|у|ой|ы|е)|пожертвова\w*|жертвова\w*|жертвует|жертвуют)\s+(?:(?:белых|черных|своего|своей|"
+    r"свою|белого|черного|белой|черной|белым|черным|белыми|черными)\s+)?" + _SAC_PIECE +
+    r"|(?:sacrific\w*|gave\s+up)\s+(?:(?:the|his|her|their|a|white's|black's)\s+)?" + _SAC_PIECE.replace("?P<p>", "?P<e>") +
+    r"|" + _SAC_PIECE.replace("?P<p>", "?P<q>") + r"\s+sacrifice)"
+    r"\s+(?:(?:белых|черных)\s+)?(?:на|on|to)\s+(?P<sq>[a-h][1-8])" + _E, re.IGNORECASE)
+_SAC_STEM = (("ферз", chess.QUEEN), ("ладь", chess.ROOK), ("слон", chess.BISHOP), ("кон", chess.KNIGHT),
+             ("пешк", chess.PAWN), ("queen", chess.QUEEN), ("rook", chess.ROOK), ("bishop", chess.BISHOP),
+             ("knight", chess.KNIGHT), ("pawn", chess.PAWN))
+
+
+def sacrifice_issues(original: str, ctx) -> list[str]:
+    """A sacrifice told of the database game on the board with its square — «жертва ферзя на d8», «пожертвовал слона
+    на b5», "the queen sacrifice on b8" — names a move of that piece to that square in the game. None there: the
+    claim is wrong, and the game's own sacrifice of that piece (a move to a square where it was taken at once) is told
+    to the rewrite. Another game, a line of theory, a what-if are not judged (as ``loaded_game_issues``)."""
+    line = getattr(ctx, "loaded_game", None) if ctx is not None else None
+    if not line:
+        return []
+    low = (original or "").lower().replace("ё", "е")
+    if _ALTERNATIVE.search(low):
+        return []
+    game = getattr(ctx, "master_game", None) or {}
+    if _about_the_game(original or "", low, game, line) is False:
+        return []
+    for m in _SAC.finditer(low):
+        word = (m["p"] or m["e"] or m["q"] or "").lower()
+        ptype = next((t for stem, t in _SAC_STEM if word.startswith(stem)), None)
+        if ptype is None:
+            continue
+        sq = chess.parse_square(m["sq"])
+        if any(mv.to_square == sq and (b.piece_type_at(mv.from_square) == ptype) for b, mv in line):
+            continue
+        name = _NAMES_EN[ptype]
+        sacs = []
+        for i, (b, mv) in enumerate(line):
+            if b.piece_type_at(mv.from_square) != ptype or i + 1 >= len(line):
+                continue
+            if line[i + 1][1].to_square == mv.to_square:
+                sacs.append(_label(b, mv) + " " + _label(*line[i + 1]))
+        claim = (original or "")[m.start():m.end()]
+        where = (f"; the {name} was given up with {', '.join(sacs[:2])}" if sacs
+                 else f"; no {name} was given up there")
+        return [f"«{claim}» does not match the game on the board: no {name} went to {m['sq']} in it{where} "
+                "(tell the game's moves only from its move list)"]
+    return []
+
+
 _NAMES_EN = {chess.PAWN: "pawn", chess.KNIGHT: "knight", chess.BISHOP: "bishop", chess.ROOK: "rook",
              chess.QUEEN: "queen", chess.KING: "king"}
 
@@ -922,7 +974,8 @@ def forget_board_game(ctx) -> None:
 # Фишер сыграл b3, укрепив слона c4» read as the reply), the database claims 1 («Комментариев к этой партии в базе
 # нет, но все ходы есть»). Each ships in shadow: it runs, its verdicts are recorded in ``ctx.db_shadow`` and
 # logged as the turn's ``db_check`` event (src/server.py), nothing is cut, until the log is reviewed.
-SWITCHES = {"db_claim": "COACH_DB_CLAIM_CHECK", "loaded_game": "COACH_LOADED_GAME_CHECK"}
+SWITCHES = {"db_claim": "COACH_DB_CLAIM_CHECK", "loaded_game": "COACH_LOADED_GAME_CHECK",
+            "sacrifice": "COACH_SACRIFICE_CHECK"}
 _OFF = ("off", "0", "false", "no", "")
 _ON = ("on", "1", "true", "yes")
 SHADOW_BYTES = 6000  # one coach_events row (the logger stubs payloads over 8 KB)
@@ -946,7 +999,8 @@ def game_db_issues(lowered: str, original: str, ctx) -> list[str]:
     ``ctx.db_shadow`` as (part, sentence, issues), never returned; off — not run. Never raises."""
     out: list[str] = []
     for part, check, args in (("db_claim", db_claim_issues, (lowered, ctx, original)),
-                              ("loaded_game", loaded_game_issues, (original, ctx))):
+                              ("loaded_game", loaded_game_issues, (original, ctx)),
+                              ("sacrifice", sacrifice_issues, (original, ctx))):
         try:
             current = mode(part)
             if current == "off":

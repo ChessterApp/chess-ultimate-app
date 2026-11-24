@@ -196,3 +196,28 @@ def test_tool_handler_reports_errors_as_json():
     with patch("src.tools.game_url.fetch_game_by_url", return_value={"pgn": "1. e4 *"}):
         out = json.loads(_handle_import_game_from_url({"url": "https://lichess.org/kAdOQKeh"}))
     assert out["pgn"] == "1. e4 *" and "load_pgn" in out["hint"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("game, variant", [
+    ({"pgnHeaders": {**CHESSCOM_HEADERS, "Variant": "Chess960", "SetUp": "1",
+                     "FEN": "bqnbrkrn/pppppppp/8/8/8/8/PPPPPPPP/BQNBRKRN w GEge - 0 1"}}, "Chess960"),
+    ({"pgnHeaders": CHESSCOM_HEADERS, "typeName": "Chess960"}, "Chess960"),
+    ({"pgnHeaders": CHESSCOM_HEADERS, "type": "crazyhouse"}, "Crazyhouse"),
+])
+def test_a_chesscom_variant_game_is_named_before_its_moves(game, variant):
+    """Tester 23.11: a Chess960 game from Chess.com came back «could not load the game» — its moves were rebuilt on the
+    standard board, which drops the «Variant» header. The page says plainly that the coach reviews only chess."""
+    callback = {"game": {"id": 7, "moveList": TCN_PREFIX, **game}}
+    client = httpx.Client(transport=_transport({
+        "https://www.chess.com/callback/live/game/7": httpx.Response(200, json=callback),
+    }))
+    with pytest.raises(GameUrlError, match=f"^variant:{variant}$"):
+        fetch_game_by_url("https://www.chess.com/game/live/7", client=client)
+
+
+@pytest.mark.unit
+def test_a_standard_chesscom_game_says_no_variant():
+    from src.tools.game_url import _chesscom_variant
+
+    assert _chesscom_variant({**CHESSCOM_HEADERS, "Variant": "Standard"}, {"type": "chess", "typeName": "Standard Chess"}) is None

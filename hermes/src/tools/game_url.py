@@ -182,6 +182,11 @@ def _chesscom_pgn(game_id: str, client: httpx.Client) -> str:
     headers = game.get("pgnHeaders") or {}
     if not headers.get("White") or not headers.get("Black"):
         raise GameUrlError("Chess.com returned no game data for this link.")
+    # Another chess variant, read before the moves (tester 23.11: a Chess960 game from Chess.com came back «could not
+    # load the game» — its TCN moves were rebuilt on the standard board, which drops the «Variant» header, and failed).
+    variant = _chesscom_variant(headers, game)
+    if variant:
+        raise GameUrlError(f"variant:{variant}")
     tcn = game.get("moveList") or ""
     if tcn:
         try:
@@ -192,6 +197,22 @@ def _chesscom_pgn(game_id: str, client: httpx.Client) -> str:
     if not pgn:
         raise GameUrlError("Could not read the moves of this Chess.com game.")
     return pgn
+
+
+_CHESSCOM_TYPES = {"chess960": "Chess960", "crazyhouse": "Crazyhouse", "bughouse": "Bughouse",
+                   "kingofthehill": "King of the Hill", "threecheck": "Three-check", "oddschess": "Odds chess"}
+
+
+def _chesscom_variant(headers: dict, game: dict) -> Optional[str]:
+    """The variant of a Chess.com game other than chess (its «Variant» header, else its game type), or None."""
+    variant = str(headers.get("Variant") or "").strip()
+    if variant and variant.lower() not in STANDARD_VARIANTS:
+        return variant
+    for key in ("typeName", "type", "gameType", "rules"):
+        kind = re.sub(r"[^a-z0-9]", "", str(game.get(key) or "").lower())
+        if kind in _CHESSCOM_TYPES:
+            return _CHESSCOM_TYPES[kind]
+    return None
 
 
 # ── Shared ─────────────────────────────────────────────────────────────────

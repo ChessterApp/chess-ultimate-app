@@ -262,6 +262,33 @@ _MATE_CLAIM = re.compile(
 _STALEMATE_CLAIM = re.compile(_W + r"(?:это|уже|получил\w*|is|it'?s|that'?s)\s+(?:\w+\s+)?(?:пат|stalemate)" + _E, re.IGNORECASE)
 
 
+# On a finished board (mate or stalemate) nobody moves next (tester 23.11, 7k/5Q2/6K1/8/8/8/8/8 b: «Это пат: ничья…
+# Однако сейчас ход за тобой, поэтому пат ещё не наступил. Ищи ход, который даст шах»): «not yet», «your move», «find a
+# move» told as now. Advice for next time («надо было», «в следующий раз», «если бы») is not a claim about this board.
+_NOT_YET_OVER = re.compile(
+    _W + r"(?:(?:пат|мат)\w*\s+(?:\w+\s+)?(?:еще|ещё)\s+не\s+(?:наступил\w*|случил\w*|поставлен\w*)"
+    r"|(?:еще|ещё)\s+не\s+(?:пат|мат)"
+    r"|ход\s+за\s+тобой|твой\s+ход|теперь\s+ты\s+ходишь|тебе\s+ходить"
+    r"|(?:ищи|найди|сделай|сыграй|выбери)\s+(?:сейчас\s+|теперь\s+)?(?:\w+\s+)?ход"
+    r"|not\s+(?:a\s+)?(?:stale)?mate\s+yet|(?:it'?s|it\s+is)\s+your\s+(?:move|turn)|find\s+a\s+move)" + _E,
+    re.IGNORECASE)
+_ADVICE_FOR_LATER = re.compile(
+    r"(?:надо\s+было|нужно\s+было|следовало|можно\s+было|в\s+следующ\w+\s+раз|если\s+бы|было\s+бы|раньше|до\s+этого|"
+    r"на\s+прошл\w+\s+ход\w*|next\s+time|should\s+have|could\s+have|earlier|before\s+that)", re.IGNORECASE)
+
+
+def _over_board_issues(text: str, board) -> list[str]:
+    """«Пат ещё не наступил», «ход за тобой», «ищи ход…» about a board where the game is over."""
+    m = _NOT_YET_OVER.search(text)
+    if not m or _ADVICE_FOR_LATER.search(text):
+        return []
+    side = "White" if board.turn == chess.WHITE else "Black"
+    if board.is_checkmate():
+        return [f"the game on the board is OVER: {side} to move is checkmated — nobody moves next"]
+    return [f"the game on the board is OVER: it is {side} to move, {side} has no legal move and is not in check — "
+            "stalemate now, a draw; nobody moves next and there is no move to look for on this board"]
+
+
 def _mate_state_issues(text: str, ctx) -> list[str]:
     board = ctx.current
     if board is None or _SAN_OR_SQ.search(text):
@@ -270,7 +297,7 @@ def _mate_state_issues(text: str, ctx) -> list[str]:
         # The board may have changed during the turn (a line loaded by a tool),
         # and «что это за мат» is a name: only a finished game is certain.
         return []
-    issues = []
+    issues = _over_board_issues(text, board)
     mate = None
     for m in _MATE_CLAIM.finditer(text):
         if _negated_before(text, m.start()) or re.search(r"(?:не|not|no)\s+(?:\w+\s+)?$", text[max(0, m.start("w" if m.group("w") else "w2") - 12):m.start("w" if m.group("w") else "w2")]):

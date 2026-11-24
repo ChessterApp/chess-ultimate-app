@@ -359,6 +359,10 @@ COACH_RELATION_CHECK = os.environ.get("COACH_RELATION_CHECK", "on").strip().lowe
 # Read at call time (src/answer_check_db.mode).
 COACH_DB_CLAIM_CHECK = os.environ.get("COACH_DB_CLAIM_CHECK", "shadow").strip().lower()
 COACH_LOADED_GAME_CHECK = os.environ.get("COACH_LOADED_GAME_CHECK", "shadow").strip().lower()
+#   COACH_SACRIFICE_CHECK — a sacrifice told of the game on the board with a square no such piece went to («жертва
+#   ферзя на d8» for the Opera Game's 16.Qb8+, tester 23.11). Narrow — a move of that piece to that square, or not —
+#   so it ships on.
+COACH_SACRIFICE_CHECK = os.environ.get("COACH_SACRIFICE_CHECK", "on").strip().lower()
 # The proof of the rewrite (src/rewrite_proof.py, fix1102 K6): a rewrite's sentence with a board word is shown only
 # when the check proved it. off | shadow | on, default shadow: the live run of 04.11 (175 inputs) dropped 36 of 40
 # rewrites as unproven, at least 15 of them true («Black» the only issue, the Russian rewrite right) — shadow logs
