@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
     speech_audio?: boolean;
     view_ply?: number;
     view_line?: string[];
+    board_pgn?: string;
   };
   try {
     body = await request.json();
@@ -113,6 +114,9 @@ export async function POST(request: NextRequest) {
             // A side line of the game on the board (26.10): its moves from the start.
             view_line: Array.isArray(body.view_line) && body.view_line.length <= 400 && body.view_line.every((m) => typeof m === 'string' && m.length <= 10)
               ? body.view_line : undefined,
+            // The game on the study board (24.11): Hermes loads it when the session has not got it.
+            board_pgn: typeof body.board_pgn === 'string' && body.board_pgn.trim() && body.board_pgn.length <= 60000
+              ? body.board_pgn : undefined,
           }),
           signal: AbortSignal.timeout(HERMES_TIMEOUT_MS),
         });

@@ -1951,6 +1951,10 @@ class CoachChatRequest(CoachRequest):
     view_ply: Optional[int] = None
     # A side line of the game on the board (a variation kept after a takeback, 26.10): the moves from the start.
     view_line: Optional[list[str]] = None
+    # The game on the page's study board (a pasted PGN, a .pgn file, a link): the turn is about the board the student
+    # sees, moves and all. A game put up before the session existed reached the server as its last position only — the
+    # coach reviewed the Opera Game's final position and asked for its moves (prod 24.11, a .pgn file in a new session).
+    board_pgn: Optional[str] = Field(default=None, max_length=60000)
 
 
 class CoachSessionCreateRequest(CoachRequest):
@@ -2435,6 +2439,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
     if body.board_id and session.get_board(body.board_id):
         session.set_active_board(body.board_id)
+    if body.board_pgn:
+        session.take_page_game(body.board_pgn, board_id=body.board_id)
     if body.fen:
         try:
             session.set_board_state(body.fen, board_id=body.board_id)

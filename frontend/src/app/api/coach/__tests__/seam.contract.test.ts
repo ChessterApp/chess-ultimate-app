@@ -95,7 +95,7 @@ const rows: Row[] = [
     hermes: 'POST /api/coach/tool/{name}', hermesUrl: /\/api\/coach\/tool\/board_control$/,
     proxyReads: { name: 'goes into the Hermes path /tool/{name}' } },
   { name: 'chat', route: 'chat', method: 'POST', client: 'components/coach/CoachChat.tsx:811-832', cookie: 'NEXT_LOCALE=ru',
-    body: { message: 'что тут играть?', context_note: '[Review context]', fen: FEN, session_id: 's1', board_id: 'b1', review_game_id: 'g1', speech: true, speech_audio: true, view_ply: 3, view_line: ['e4', 'e5', 'Nf3'] },
+    body: { message: 'что тут играть?', context_note: '[Review context]', fen: FEN, session_id: 's1', board_id: 'b1', review_game_id: 'g1', speech: true, speech_audio: true, view_ply: 3, view_line: ['e4', 'e5', 'Nf3'], board_pgn: '1. e4 e5 2. Nf3 *' },
     hermes: 'POST /api/coach/chat', hermesUrl: /\/api\/coach\/chat$/ },
   { name: 'live-token -> voice/prompt', route: 'live-token', method: 'POST', client: 'hooks/useGeminiLive.ts:2219-2230', cookie: 'NEXT_LOCALE=ru',
     body: { fen: FEN, session_id: 's1', resume: 'h1' }, hermes: 'POST /api/coach/voice/prompt', hermesUrl: /\/api\/coach\/voice\/prompt$/,

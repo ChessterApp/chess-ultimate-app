@@ -402,6 +402,33 @@ class Session(BaseModel):
                 self.id, role, content, source, extra=extra, evt=evt
             )
 
+    def take_page_game(self, pgn: str, board_id: Optional[str] = None) -> bool:
+        """The game on the page's study board, sent with the turn (``CoachChatRequest.board_pgn``): loaded onto that
+        board when it holds another game or none — compared by positions, so a game the board already has (the coach's
+        own load, the page's PATCH) keeps its arrows and its ply. A game board (a game against the coach) or a puzzle
+        being solved is never replaced from here. Returns True when the board took it."""
+        from src.boards import _fens_from_pgn
+
+        board = self.get_board(board_id) if board_id else None
+        board = board or self.ensure_board()
+        if board is None or getattr(board, "kind", "study") not in ("study",):
+            return False
+        try:
+            fens = _fens_from_pgn(pgn)
+        except Exception:  # noqa: BLE001 — not a game: the turn goes on with the board as it is
+            return False
+        if len(fens) < 2:
+            return False
+        if board.pgn:
+            try:
+                if _fens_from_pgn(board.pgn) == fens:
+                    return False
+            except Exception:  # noqa: BLE001
+                pass
+        board.load_pgn(pgn)
+        self.save_board(board)
+        return True
+
     def set_board_state(self, fen: str, board_id: Optional[str] = None) -> None:
         """Update the current position (validates FEN).
 

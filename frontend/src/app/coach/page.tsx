@@ -1192,6 +1192,7 @@ export default function CoachPage() {
       ref={chatRef}
       currentFen={chatFen}
       currentPgn={board.pgn}
+      studyPgn={!activeGameId && !gameLive && !board.puzzleMode ? board.pgn : null}
       sessionId={sessionId}
       boardId={activeBoardId && !activeBoardId.startsWith('local-') ? activeBoardId : null}
       restoreHistory

@@ -67,6 +67,11 @@ interface CoachChatProps {
   currentFen: string;
   /** The moves on the board, when a game is loaded (a review by voice uses them). */
   currentPgn?: string;
+  /**
+   * The game on the study board when the study board is what the student is looking at: sent with every question,
+   * so the coach has its moves even in a session that did not exist when it was put up (prod 24.11).
+   */
+  studyPgn?: string | null;
   sessionId: string | null;
   /** The board (tab) the student is looking at; sent as board_id on every turn. */
   boardId?: string | null;
@@ -203,6 +208,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   {
     currentFen,
     currentPgn,
+    studyPgn,
     sessionId,
     boardId,
     restoreHistory = false,
@@ -293,6 +299,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   const currentPgnRef = useRef(currentPgn);
   currentPgnRef.current = currentPgn;
   const getPgn = useCallback(() => currentPgnRef.current, []);
+  const studyPgnRef = useRef(studyPgn);
+  studyPgnRef.current = studyPgn;
 
   // Shared conversation memory: text and voice must use the SAME Hermes session
   // id. Track the active id in a ref so voice callbacks read it synchronously,
@@ -864,6 +872,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         // The earlier position of the game on the board, when the student browsed back (26.10).
         view_ply: viewPlyRef.current ?? undefined,
         view_line: viewLineRef.current ?? undefined,
+        // The study board's game: Hermes loads it when the session has not got it (24.11).
+        board_pgn: studyPgnRef.current?.trim() ? studyPgnRef.current : undefined,
       };
       const request = { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal };
       // A spoken turn goes straight to the coach server when the direct path is on (23.11): the language the site's

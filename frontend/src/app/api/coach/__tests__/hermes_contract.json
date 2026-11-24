@@ -41,7 +41,8 @@
    "speech",
    "speech_audio",
    "view_ply",
-   "view_line"
+   "view_line",
+   "board_pgn"
   ]
  },
  "POST /api/coach/create-checkout-session": {
