@@ -75,6 +75,8 @@ export default async function handler(
       ...(typeof data.turn_known === 'boolean' ? { turn_known: data.turn_known } : {}),
       // The side shown could not move: a piece may be misread — the page asks the student to check (20.11).
       ...(data.doubt === true ? { doubt: true } : {}),
+      // …and why: 'side', or 'double_check' — rare in a game, the usual sign of a misread piece (tester 23.11).
+      ...(data.doubt === true && typeof data.doubt_reason === 'string' ? { doubt_reason: data.doubt_reason } : {}),
     });
 
   } catch (error) {

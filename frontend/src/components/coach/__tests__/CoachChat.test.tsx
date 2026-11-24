@@ -788,6 +788,30 @@ describe('CoachChat — a photo of the board or a scoresheet', () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    ['double_check', 'loadedFromPhotoDoubleCheck'],
+    ['side', 'loadedFromPhotoDoubt'],
+    [undefined, 'loadedFromPhotoDoubt'],
+  ] as const)('a doubted photo (%s) asks to check the pieces with its reason (tester 23.11)', async (reason, key) => {
+    const fen = '4r1k1/1b3p1B/pp3q2/8/P1pP4/2P2pQ1/1P5P/4rRK1 b - - 0 1';
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, status: 200,
+      json: async () => ({ fen, turn_known: false, doubt: true, ...(reason ? { doubt_reason: reason } : {}) }),
+    })));
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId={null} onBoardActions={vi.fn()} />
+      </NextIntlClientProvider>,
+    );
+    fireEvent.click(screen.getByLabelText(coach.attachMenu));
+    fireEvent.click(screen.getByText(coach.photoToPosition));
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('photo-input') as HTMLInputElement, { target: { files: [pngFile()] } });
+    });
+    expect(await screen.findByText(coach[key])).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
   it('scoresheet photo → /api/convert-scoresheet → load_pgn', async () => {
     const onBoardActions = vi.fn();
     const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ pgn: '1. d4 d5 *' }) }));

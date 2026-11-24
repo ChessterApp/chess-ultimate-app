@@ -133,3 +133,37 @@ def test_read_again_right_is_no_doubt(monkeypatch):
     res, calls = _route(monkeypatch, ["6k1/8/8/8/8/8/8/6QK w", "5k2/8/8/8/8/8/8/6QK w"])
     data = res.get_json()
     assert len(calls) == 2 and "doubt" not in data and data["turn_known"] is True and data["fen"].startswith("5k2/")
+
+
+# Tester 23.11: the same photo — the black king read on g8 (it stood on f8), no side named; only Black can be to move
+# (White's turn would leave Black in check), and Black is in check from the queen g3 and the bishop h7 at once.
+GERMAN_1123 = "4r1k1/1b3p1B/pp3q2/8/P1pP4/2P2pQ1/1P5P/4rRK1"
+
+
+def test_a_double_check_is_read_again_then_doubted(monkeypatch):
+    import api.photo_to_fen as pf
+
+    res, calls = _route(monkeypatch, [f"{GERMAN_1123} ?"] * pf.PHOTO_FEN_ATTEMPTS)
+    data = res.get_json()
+    assert res.status_code == 200 and len(calls) == pf.PHOTO_FEN_ATTEMPTS
+    assert data["doubt"] is True and data["doubt_reason"] == "double_check" and data["turn_known"] is False
+
+
+def test_a_double_check_read_again_right_is_no_doubt(monkeypatch):
+    res, calls = _route(monkeypatch, [f"{GERMAN_1123} ?", "4rk2/1b3p1B/pp3q2/8/P1pP4/2P2pQ1/1P5P/4rRK1 ?"])
+    data = res.get_json()
+    assert len(calls) == 2 and "doubt" not in data and data["fen"].startswith("4rk2/")
+
+
+def test_a_side_doubt_says_its_reason(monkeypatch):
+    import api.photo_to_fen as pf
+
+    res, _ = _route(monkeypatch, ["6k1/8/8/8/8/8/8/6QK w"] * pf.PHOTO_FEN_ATTEMPTS)
+    assert res.get_json()["doubt_reason"] == "side"
+
+
+def test_one_check_is_no_doubt():
+    from api.photo_to_fen import double_check
+
+    assert double_check(f"{GERMAN_1123} b - - 0 1")
+    assert not double_check("6k1/8/8/8/8/8/8/6QK b - - 0 1")

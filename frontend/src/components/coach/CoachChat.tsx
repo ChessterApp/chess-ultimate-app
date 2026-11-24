@@ -751,7 +751,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
             body: JSON.stringify({ image: base64 }),
           });
           const data = (await res.json().catch(() => ({}))) as {
-            fen?: string; turn_known?: boolean; doubt?: boolean; error?: string; code?: string;
+            fen?: string; turn_known?: boolean; doubt?: boolean; doubt_reason?: string; error?: string; code?: string;
           };
           if (!res.ok || !data.fen) {
             replaceLocalLine(lineId, data.code === 'illegal_position'
@@ -762,7 +762,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           if (data.doubt) {
             // A piece may be misread (tester 20.11: the king read a square off, in check with the other side to move).
             photoTurnPendingRef.current = true;
-            replaceLocalLine(lineId, t('loadedFromPhotoDoubt'));
+            // …or a double check — rare in a game, the usual sign of a misread piece (tester 23.11).
+            replaceLocalLine(lineId, t(data.doubt_reason === 'double_check' ? 'loadedFromPhotoDoubleCheck' : 'loadedFromPhotoDoubt'));
           } else if (data.turn_known === false) {
             photoTurnPendingRef.current = true;
             replaceLocalLine(lineId, t('loadedFromPhotoTurnUnknown'));

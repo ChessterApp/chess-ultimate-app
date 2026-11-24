@@ -94,6 +94,17 @@ def shown_side_impossible(text: str) -> bool:
     return not board.is_valid()
 
 
+def double_check(fen: str) -> bool:
+    """The side to move is in check from two pieces at once. Legal (a discovered check), yet rare in a game and the
+    usual sign of a piece read a square off (tester 23.11: the black king read on g8 instead of f8, in check from the
+    queen g3 and the bishop h7 — the side was turned to Black and the coach reviewed a position that never was)."""
+    try:
+        import chess
+        return len(chess.Board(fen).checkers()) >= 2
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @photo_fen_bp.route('/convert-image', methods=['POST'])
 def convert_image_to_fen():
     """
@@ -181,15 +192,19 @@ def convert_image_to_fen():
 
             parsed = position_from_reply(fen_response)
             doubt = shown_side_impossible(fen_response)
+            reason = "side" if doubt else None
+            if parsed and not doubt and double_check(parsed[0]):
+                doubt, reason = True, "double_check"
             if parsed and doubt and attempt < PHOTO_FEN_ATTEMPTS - 1:
-                # The side shown cannot move: perhaps a misread piece — read once more before turning the side.
-                logger.warning(f"Side shown cannot move (attempt {attempt + 1}): {fen_response}")
+                # The side shown cannot move, or a double check: perhaps a misread piece — read once more.
+                logger.warning(f"Photo position doubted ({reason}, attempt {attempt + 1}): {fen_response}")
                 continue
             if parsed:
                 fen, turn_known = parsed
-                logger.info(f"Returning FEN: {fen} (turn known: {turn_known}, doubt: {doubt})")
-                # Turned all the same: the page asks the student to check the pieces and the side to move.
-                return jsonify({'fen': fen, 'turn_known': turn_known and not doubt, **({'doubt': True} if doubt else {})})
+                logger.info(f"Returning FEN: {fen} (turn known: {turn_known}, doubt: {reason})")
+                # Set all the same: the page asks the student to check the pieces (and the side to move).
+                return jsonify({'fen': fen, 'turn_known': turn_known and not doubt,
+                                **({'doubt': True, 'doubt_reason': reason} if doubt else {})})
             logger.warning(f"Invalid FEN response (attempt {attempt + 1}): {fen_response}")
 
         return jsonify({
