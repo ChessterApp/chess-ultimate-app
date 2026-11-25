@@ -650,7 +650,7 @@ def test_en_passant_is_a_trade_not_a_loss():
     moves = [m for m in question_moves("Могу ли я побить пешку d5 своей пешкой e5?", fen) if m.get("legal")]
     note = hypothetical_notes(fen, moves, 100)["note"]
     assert "en passant capture: it takes the pawn on d5" in note
-    assert "a pawn for a pawn, material stays level; not a loss" in note
+    assert "a pawn for a pawn, an even trade, the material balance stays as it was before the move; not a loss" in note
 
 
 # ── Production re-run after 07.10, 2026-10-07 ─────────────────────────────────

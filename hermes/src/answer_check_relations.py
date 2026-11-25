@@ -91,6 +91,30 @@ def _game_capped(ctx: Any) -> bool:
     return raw in _ON and getattr(ctx, "relation_surface", "text") == "game"
 
 
+def _false_now_too(text: str, ctx: Any, stats: dict) -> bool:
+    """A game comment's sentence flagged on the board its words point at is false on the board as it stands too.
+
+    A comment tells two moves — the student's and the coach's reply — and the scene a sentence is judged on is the
+    move it names: «ты сыграл Kf8, и теперь мой конь забрал пешку на b5 и смотрит на твою пешку d6» was judged right
+    after 11...Kf8, where no knight reaches d6, though after the reply 12.Nxb5 one does (sample 25.11). So on this
+    surface a flag alone is only recorded, as before; it cuts the sentence when the same sentence, read on the
+    position now with no record to pick a moment from (``ctx.comment_now``, set by the comment endpoint), is false
+    as well — «ходом 5...Nf6 ты развил коня и напал на ферзя» is false right after the move and now (tester 25.11).
+    COACH_COMMENT_RELATION_CHECK=shadow keeps the surface recorded only."""
+    from src import config
+
+    raw = str(getattr(config, "COACH_COMMENT_RELATION_CHECK", "on") or "").strip().lower()
+    alt = getattr(ctx, "comment_now", None)
+    if raw not in _ON or alt is None:
+        return False
+    try:
+        return bool(_issues(text, alt, _stats(alt)))
+    except Exception:  # noqa: BLE001 — fail-open: the sentence stays
+        stats["errors"] += 1
+        logger.debug("relation check: the comment's second board failed", exc_info=True)
+        return False
+
+
 def extract_claims(text: str, ctx: Any, state: dict) -> list[Claim]:
     """The claims of *text*: the grammar's and the board rules'."""
     from src import claim_grammar, claim_rules, claim_scene
@@ -231,6 +255,8 @@ def relation_issues(text: str, ctx: Any, prior: list[str]) -> list[str]:
         # (cover_cause, src/config.GAME_RECORD_RELATIONS) follows its own switch there (review-miss2 01.11)
         passed = [i for i in issues if i in (getattr(ctx, "_rel_record_issues", ()) or ())] if _game_capped(ctx) else []
         rest = [i for i in issues if i not in passed]
+        if rest and _game_capped(ctx) and _false_now_too(text, ctx, stats):
+            passed, rest = passed + rest, []
         if rest:
             try:
                 ctx.relation_shadow.append((text, list(rest)))

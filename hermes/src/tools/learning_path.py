@@ -92,7 +92,7 @@ def _cap(text: Optional[str], limit: int) -> str:
 
 COURSE_SELECT = "id,slug,title,title_ru,title_kk,description,description_ru,level,order_index"
 MODULE_SELECT = "id,course_id,title,title_ru,description,description_ru,order_index"
-LESSON_LIST_SELECT = "id,slug,module_id,title,title_ru,lesson_type,exercise_type,order_index"
+LESSON_LIST_SELECT = "id,slug,module_id,title,title_ru,lesson_type,exercise_type,order_index,requires_lesson_id"
 
 # PostgREST rejects the whole query when one selected column is missing, and the
 # optional columns above come from later migrations (003 slug, 010 *_ru, 001
@@ -317,19 +317,60 @@ def _lesson_view(course: dict, module: dict, lesson: dict, progress: dict, local
     return view
 
 
-def next_lesson(programme: dict, progress: dict) -> Optional[tuple]:
-    """The lesson to continue with: the most recently touched in-progress lesson,
-    else the first not-completed lesson in study order."""
-    in_progress = [
-        (c, m, l) for c, m, l in iter_lessons(programme)
-        if (progress.get(l["id"]) or {}).get("status") == "in_progress"
-    ]
-    if in_progress:
-        return max(in_progress, key=lambda t: (progress[t[2]["id"]].get("updated_at") or ""))
-    for c, m, l in iter_lessons(programme):
-        if (progress.get(l["id"]) or {}).get("status") != "completed":
-            return c, m, l
+def _completed(progress: dict, lesson: dict) -> bool:
+    return (progress.get(lesson.get("id")) or {}).get("status") == "completed"
+
+
+def lesson_open(lesson: dict, progress: dict) -> bool:
+    """The lesson is open on the course's page: it needs no other lesson, or that one is completed (the site's
+    ``isLessonUnlocked``)."""
+    need = lesson.get("requires_lesson_id")
+    return not need or (progress.get(need) or {}).get("status") == "completed"
+
+
+def next_lesson(programme: dict, progress: dict, states: Optional[dict] = None) -> Optional[tuple]:
+    """The student's next lesson, as their Learn pages show it: (course, module, lesson) or None.
+
+    The course is the dashboard's (site ``ChessterDashboard.currentCourse``): of the courses open to the student, the
+    first one they are part-way through, else the first not finished. The lesson is that course's first not
+    completed in study order — the one its page offers with «Начать».
+
+    Until 25.11 this was «the most recently touched in-progress lesson»: a lesson opened once out of order — from a
+    link in the chat — stayed «next» forever. The tester's Learn page offered «Слон», the coach «Открыл следующий
+    урок — Троекратное повторение позиции», the last lesson of the course. A lesson the student began and left is
+    ``started_lesson``, told beside the next one, never instead of it.
+
+    *states*: src/learn_access.course_states — the courses it marks locked are skipped."""
+    rows = []
+    for c in programme.get("courses", []):
+        if states is not None and (states.get(c.get("id")) or {}).get("locked"):
+            continue
+        lessons = [(m, l) for m in c.get("modules", []) for l in m.get("lessons", [])]
+        if lessons:
+            rows.append((c, lessons))
+    part_way = [r for r in rows if any(_completed(progress, l) for _, l in r[1])
+                and not all(_completed(progress, l) for _, l in r[1])]
+    unfinished = [r for r in rows if not all(_completed(progress, l) for _, l in r[1])]
+    for c, lessons in (part_way or unfinished)[:1]:
+        for m, l in lessons:
+            if not _completed(progress, l):
+                return c, m, l
     return None
+
+
+def started_lesson(programme: dict, progress: dict, states: Optional[dict] = None,
+                   but: Optional[str] = None) -> Optional[tuple]:
+    """The lesson the student opened last and has not completed — only one open to them on the site (its course not
+    locked, the lesson it needs completed), and not the lesson *but* (the next one, told already)."""
+    began = [
+        (c, m, l) for c, m, l in iter_lessons(programme)
+        if (progress.get(l["id"]) or {}).get("status") == "in_progress" and l.get("id") != but
+        and lesson_open(l, progress)
+        and not (states is not None and (states.get(c.get("id")) or {}).get("locked"))
+    ]
+    if not began:
+        return None
+    return max(began, key=lambda t: (progress[t[2]["id"]].get("updated_at") or ""))
 
 
 def _match_course(programme: dict, needle: str) -> Optional[dict]:
@@ -437,12 +478,8 @@ def get_learning_path(
             row.pop("url", None)
         courses_out.append(row)
 
-    nxt = next_lesson(programme, progress)
-    if nxt and (states.get(nxt[0].get("id")) or {}).get("locked"):
-        # A lesson touched in a course that is closed now (opened by the coach before 22.11): the open way instead.
-        nxt = next(((c, m, l) for c, m, l in iter_lessons(programme)
-                    if not (states.get(c.get("id")) or {}).get("locked")
-                    and (progress.get(l["id"]) or {}).get("status") != "completed"), None)
+    nxt = next_lesson(programme, progress, states)
+    began = started_lesson(programme, progress, states, but=nxt[2].get("id") if nxt else None)
     out = {
         "user_id": user_id,
         "lessons_total": total,
@@ -457,6 +494,16 @@ def get_learning_path(
         "hint": "Call get_learning_path with course=<slug> to see its modules and lessons; "
                 "get_lesson with lesson=<slug> to read a lesson and put its exercise on the board.",
     }
+    if nxt:
+        out["continue_note"] = (
+            "continue_with is the student's NEXT lesson — the one their Learn page offers. «Следующий урок», «что "
+            "дальше», \"my next lesson\" mean this lesson and no other.")
+    if began:
+        out["started_lesson"] = {**_lesson_view(began[0], began[1], began[2], progress, locale),
+                                 "course": _cap(_loc(began[0], "title", locale), TITLE_CHAR_CAP)}
+        out["started_note"] = (
+            "started_lesson is a lesson the student opened earlier and did not finish, out of order. It is not their "
+            "next lesson: name it only when they ask to go on with what they began.")
     if any(r.get("locked") for r in courses_out):
         out["locked_note"] = LOCKED_COURSES_NOTE
     if progress_note:
@@ -922,9 +969,27 @@ def _handle_get_lesson(args: dict, **kwargs) -> str:
         locale=args.get("locale") or "ru",
         show=args.get("show") is not False and (not locked or hidden),
     )
+    if isinstance(result, dict) and result.get("locked"):
+        # The lesson is closed; the rule it teaches is still the coach's to explain and show, with its own example
+        # (src/rule_examples; tester 25.11: «показать пример на доске сейчас не получилось» for en passant).
+        from src import rule_examples
+        from src.learn_access import LOCKED_RULE_NOTE
+
+        rule = rule_examples.for_words(str(result.get("title") or "")) or rule_examples.for_words(str(args.get("lesson") or ""))
+        if rule:
+            own = rule_examples.topic(rule, args.get("locale") or "ru", args.get("show") is not False and (not locked or hidden))
+            result.update({k: own[k] for k in ("example", "board_actions", "board_hint") if k in own})
+            result["note"] = LOCKED_RULE_NOTE
     if locked and isinstance(result, dict):
         result.pop("board_actions", None)
         result["board_hint"] = HIDDEN_BOARD_NOTE if hidden else BOARD_KEPT_NOTE
+    try:  # an example put over a warm-up's puzzle: the break is said in this very answer (src/warmup.left_for)
+        from src import warmup
+        from src.sessions import _tool_session
+
+        warmup.left_for(_tool_session(kwargs), result)
+    except Exception:  # noqa: BLE001 — the warm-up's bookkeeping never breaks a tool
+        pass
     return json.dumps(result, ensure_ascii=False)
 
 

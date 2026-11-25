@@ -3164,6 +3164,9 @@ def _eval_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
                     _UNIT_OBJECT.match(text, m.end("w")):
                 continue  # «Чёрные выиграли две пешки» (review miss2 01.11): a material gain or loss, not the evaluation
             if w.startswith(("лучше", "перевес", "преимуществ", "better", "ahead", "advantage")):
+                if w.startswith(("перевес", "преимуществ", "advantage")) and "side" in gd \
+                        and _ADVANTAGE_GONE.search(text[m.end("side"): m.start("w")] if m.end("side") <= m.start("w") else ""):
+                    continue  # «ты упустил преимущество»: told as gone, which the engine's minus agrees with
                 if e <= -0.6:
                     issues.append(f"the engine evaluates the position at {_fmt_eval(ev)}: {name} is worse, not better")
             elif w.startswith(("хуже", "worse", "behind")):
@@ -3175,7 +3178,52 @@ def _eval_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             elif w.startswith(("проигр", "lost", "losing")):
                 if e > -1.0:
                     issues.append(f"the engine evaluates the position at {_fmt_eval(ev)}: {name} is not lost")
+    if not issues:
+        issues.extend(_student_advantage_issues(text, original, ctx))
     return issues
+
+
+# «ты вернул фигуру и сохранил преимущество» in a comment on the student's move (tester 25.11: the engine gave White
+# +2.0 and the student was Black): the advantage has no side word beside it — it is the student's by the «ты» of the
+# sentence, and _EVAL_CLAIMS reads a side word at most three words before the verdict. In a game comment the student
+# is the one addressed, so an advantage told with no other side in the sentence is theirs.
+_ADVANTAGE_WORD = re.compile(_B2 + r"(?P<w>преимуществ\w*|перевес\w*|advantage|басымды[қғ]\w*)(?![а-яa-zәғқңөұүһі])",
+                             re.IGNORECASE)
+_SECOND_PERSON = re.compile(_B2 + r"(?:ты|тебя|тебе|у\s+тебя|тво[йеёяи]\w*|you|your|сен|сенің|сенде|саған)(?![а-яa-zәғқңөұүһі])",
+                            re.IGNORECASE)
+_OTHER_SIDE = re.compile(_B2 + r"(?:бел\w+|ч[её]рн\w+|white|black|соперник\w*|противник\w*|opponent\w*|движ\w+|engine|"
+                         r"компьютер\w*|я|меня|мне|мой|мо[яеёи]\w*|me|my|i|ақ\w*|қара\w*|қарсылас\w*)(?![а-яa-zәғқңөұүһі])",
+                         re.IGNORECASE)
+# the advantage is told as gone, not as held: «упустил преимущество», "lost the advantage"
+_ADVANTAGE_GONE = re.compile(_B2 + r"(?:упус\w+|потер\w+|теря\w+|лиши\w+|растер\w+|отда\w+|утрат\w+|исчез\w+|уш[лё]\w*|"
+                             r"lost|lose|loses|losing|gave|give|gives|giving|squander\w*|threw|throw\w*|gone|slip\w*|"
+                             r"айырыл\w+|жоғалт\w+)(?![а-яa-zәғқңөұүһі])", re.IGNORECASE)
+
+
+# the advantage is a goal or a condition, not the state of the board: «чтобы получить преимущество», "to keep the edge"
+_ADVANTAGE_AIM = re.compile(_B2 + r"(?:чтобы|чтоб|если|когда|для|мог\w*|смож\w+|буд\w+|стоит|нужно|надо|важно|старайся|"
+                            r"постарайся|попробуй|to|if|could|would|will|can|should|try|үшін|егер|керек)(?![а-яa-zәғқңөұүһі])",
+                            re.IGNORECASE)
+
+
+def _student_advantage_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
+    """A game comment that tells the student's advantage while the engine has them worse (see _ADVANTAGE_WORD)."""
+    if ctx.engine_eval is None or ctx.current is None or ctx.student_color is None \
+            or getattr(ctx, "relation_surface", "text") != "game":
+        return []
+    mine = ctx.engine_eval if ctx.student_color == chess.WHITE else -ctx.engine_eval
+    if mine > -0.6:
+        return []
+    for m in _ADVANTAGE_WORD.finditer(text):
+        if not _SECOND_PERSON.search(text) or _OTHER_SIDE.search(text) or _ADVANTAGE_GONE.search(text) \
+                or _ADVANTAGE_AIM.search(text[: m.start()]):
+            continue
+        if _NEGATION.search(text[max(0, m.start() - 20): m.start()]) or _is_hypothetical(text, original, m.start(), ctx=ctx):
+            continue
+        name = "White" if ctx.student_color == chess.WHITE else "Black"
+        return [f"the engine evaluates the position at {_fmt_eval(ctx.engine_eval)}: the student ({name}) is worse — "
+                "they have no advantage to have or keep"]
+    return []
 
 
 _FUTURE_FILL = _FUTURE_VERB  # «останешься с лишней пешкой»: the same future forms (src/claim_scope.py)

@@ -284,7 +284,9 @@ class TestPrompts:
         msgs = comment_prompt(board, "ru")
         assert msgs[0]["role"] == "system" and "Russian" in msgs[0]["content"] and "blundered" in msgs[0]["content"]
         assert "Student's move: h4 — verdict blunder" in msgs[1]["content"]
-        assert "Better move was: e4." in msgs[1]["content"] and "Your reply on the board: e5." in msgs[1]["content"]
+        # the better move comes with its words since 25.11 (which piece, from where, what it takes)
+        assert "Better move was: e4 — pawn from e2 to e4." in msgs[1]["content"]
+        assert "Your reply on the board: e5." in msgs[1]["content"]
         resign(s, board)
         end = comment_prompt(board, "en", event="end")
         assert "The game is over" in end[0]["content"] and "Result: 0-1 (resign)" in end[1]["content"]

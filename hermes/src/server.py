@@ -2783,6 +2783,28 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         except Exception:  # noqa: BLE001
             logger.debug("past move lookup failed", exc_info=True)
             past = None
+    # «А если бы я в прошлой партии взял конём на d5?» — the game finished before the one on the board (a rematch, a
+    # new board): its record goes to the turn, and the idea is played at its moment of that game (src/prior_game.py;
+    # tester 25.11: «пришли запись партии», the coach's own review of it just above). Not when the board itself holds
+    # a finished game — «прошлая партия» is then the one in front of them.
+    prior_note = None
+    board_game_over = active_board.kind == "game" and (active_board.game_state or {}).get("status") == "finished"
+    if past is None and not hidden_fen and not board_game_over:
+        try:
+            from src import prior_game
+
+            if prior_game.names_prior_game(body.message):
+                prior_rec = prior_game.prior_board(session, active_board)
+                if prior_rec is not None:
+                    past = prior_game.moment(body.message, prior_rec.game_state)
+                    if past:
+                        idea_fen = past["fen"]
+                    prior_note = prior_game.block(prior_rec.game_state, past)
+        except Exception:  # noqa: BLE001 — the turn goes on without the earlier game
+            logger.debug("prior game lookup failed", exc_info=True)
+            prior_note = None
+    # A moment of the game before this one is a finished game's: the idea there is judged in full, not as a hint.
+    idea_live = bool(live_game) and not (past and past.get("prior"))
     # The student's words about moves: a pasted game's moves are the game, not ideas for the board in front of them.
     asked = body.message
     if route.get("reason") == "pgn_in_message":
@@ -2806,7 +2828,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 from src.hypothetical import hypothetical_notes
 
                 hypo_future = _engine_pool.submit(
-                    hypothetical_notes, idea_fen, legal_named, idea_movetime, not live_game,
+                    hypothetical_notes, idea_fen, legal_named, idea_movetime, not idea_live,
                 )
                 hypo_future.add_done_callback(
                     lambda f, sid=session.id, bid=active_board.id: _after_ideas(f, sid, bid))
@@ -2903,6 +2925,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     turn_context = f"{turn_context}\n\n{facts_note}"
         except Exception:  # noqa: BLE001 — never block a turn on the game note
             logger.debug("game context failed", exc_info=True)
+    if prior_note:
+        turn_context = f"{turn_context}\n\n{prior_note}" if turn_context else prior_note
     if (active_board.source or {}).get("twic_game_id") and active_board.pgn and active_board.kind != "game":
         # The database game on the board from an earlier turn: its facts (material, trades, ending — computed from its
         # moves, src/game_story.py) and the position the board shows, for what the student asks of it now (06.11).
@@ -3609,7 +3633,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 hypo = _await_engine_note(hypo_future, engine_started, hypo_state)
                 if hypo:
                     old_board_blocks.append(
-                        hypothetical_block(hypo['note'], live_game=bool(live_game), where=past['label'] if past else None))
+                        hypothetical_block(hypo['note'], live_game=idea_live, where=past['label'] if past else None))
                     message = f"{message}\n\n{old_board_blocks[-1]}"
                 # The rules the board itself shows this turn — a stalemate an idea move makes, a mate, an illegal
                 # castling — with the facts of the recommended move (src/rules_facts.rules_block, plan 31.10: P6 writes
@@ -5968,18 +5992,12 @@ async def coach_voice_idea(body: VoiceIdeaRequest, request: Request):
 
 def _session_summary(s) -> dict:
     last = s.messages[-1] if s.messages else None
-    # The session's label on the site (the list, the phone's context bar) is its first question — not the
-    # coach's last words («Let me find a good tactical puzzle for you…» over a puzzle, Alexander's screenshot 23.10).
-    first_question = next((m for m in s.messages if getattr(m, "role", "") == "user" and (m.content or "").strip()), None)
-    named_by = first_question or last
-    preview = named_by.content[:120] if named_by else ""
-    if first_question is None:
-        # A session of a game against the coach with no question in it is named by the game, not by the coach's last
-        # comment — which renamed it on every move («Ход 5...d6 немного неточен…»), and «Без названия, 0 сообщ.» while
-        # the game had 13 moves (tester 20.11). The game's opening and result read the same in every language.
-        game = _session_game_label(s)
-        if game:
-            preview = game
+    # The session's label on the site (the list, the phone's context bar): the first thing the student said in their
+    # own words, a game against the coach by its game — never a service text, a pasted position or a button's request
+    # (src/session_label.py, tester 25.11; before that Alexander's screenshot 23.10 and the tester's 20.11).
+    from src.session_label import label
+
+    preview = label(s)
     return {
         "id": s.id,
         "title": s.title,
@@ -5995,14 +6013,9 @@ def _session_summary(s) -> dict:
 
 def _session_game_label(s) -> str:
     """«1.e4 e5 2.Nf3 Nc6 … 1-0» of the session's latest game against the coach, or ""."""
-    games = [b for b in (getattr(s, "boards", None) or []) if getattr(b, "kind", None) == "game"
-             and (getattr(b, "pgn", None) or "").strip()]
-    if not games:
-        return ""
-    from src.coach_games import title
+    from src.session_label import game_label
 
-    board = max(games, key=lambda b: getattr(b, "updated_at", 0) or 0)
-    return title(board.pgn, (getattr(board, "game_state", None) or {}).get("result"))[:120]
+    return game_label(s)
 
 
 SESSIONS_PAGE = 30
@@ -6337,7 +6350,14 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
     student = chess.WHITE if state.get("student_color") == "white" else chess.BLACK
     check_ctx = CheckContext.from_fens([board.fen], [board.pgn] if board.pgn else [], student_color=student)
     check_ctx.language = comment_language
-    check_ctx.relation_surface = "game"  # the relation checker records here (shadow), never cuts, until reviewed
+    # The relation checker records here (shadow); a flag cuts only when the sentence is false on the board as it
+    # stands too — the second context, with no record to pick a moment from (answer_check_relations._false_now_too).
+    check_ctx.relation_surface = "game"
+    try:
+        check_ctx.comment_now = CheckContext.from_fens([board.fen], [], student_color=student)
+        check_ctx.comment_now.language = comment_language
+    except Exception:  # noqa: BLE001 — the surface is then recorded only, as before
+        check_ctx.comment_now = None
     # The game's own record, as the chat path gives it (fix 01.11): the game-record detectors (who took what, what
     # was given up, the material by the record) judge a comment against the moves of this game — without them every
     # one of them was silent here. Only a record that leads to the board's position: a comment is about that board.
@@ -6349,9 +6369,23 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
         check_ctx.game_engine_moves = _engine_moves(state)
     gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
 
+    def _eval_now() -> Optional[float]:
+        """The engine's evaluation of the board the comment is about, in pawns from White's side: «ты сохранил
+        преимущество» was told with the student two pawns down (tester 25.11) and no check had the number. The game
+        asks for the same evaluation on the student's next move, so the search is not spent twice."""
+        try:
+            if state.get("status") != "playing" or not board.fen:
+                return None
+            cp, _ = game_mode._evaluate(board.fen, student)
+            return (cp if student == chess.WHITE else -cp) / 100.0
+        except Exception:  # noqa: BLE001 — the comment is then checked without the evaluation
+            logger.debug("game comment: the evaluation failed", exc_info=True)
+            return None
+
     async def event_stream():
         queue: asyncio.Queue = asyncio.Queue()
         sentinel = object()
+        eval_future = loop.run_in_executor(None, _eval_now)
 
         def _on_delta(text):
             if text:
@@ -6392,6 +6426,13 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
             item = await queue.get()
             if item is sentinel:
                 break
+            if not parts:
+                # The first words are here: the evaluation is usually ready (it began with the model's call); a
+                # second for it at most, then the comment is checked without it.
+                try:
+                    check_ctx.engine_eval = await asyncio.wait_for(asyncio.shield(eval_future), timeout=1.0)
+                except Exception:  # noqa: BLE001
+                    check_ctx.engine_eval = None
             parts.append(item)
             for frame in _frames(gate.feed(item)):
                 yield frame

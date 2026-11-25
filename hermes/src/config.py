@@ -352,6 +352,10 @@ COACH_ANSWER_FIX_TIMEOUT_S = float(os.environ.get("COACH_ANSWER_FIX_TIMEOUT_S", 
 #                          sentence; on cuts it and sends the issue to the rewrite. Read at call time, so a test
 #                          or the harness (scripts/eval_relations.py) can patch it.
 COACH_RELATION_CHECK = os.environ.get("COACH_RELATION_CHECK", "on").strip().lower()
+#   COACH_COMMENT_RELATION_CHECK — on | shadow (default on): on a game move comment a relation flag cuts the sentence
+#                          when the sentence is false on the board as it stands too (answer_check_relations
+#                          ._false_now_too, tester 25.11); shadow records it only, as before 25.11.
+COACH_COMMENT_RELATION_CHECK = os.environ.get("COACH_COMMENT_RELATION_CHECK", "on").strip().lower()
 # The games-database checks of the answer check (src/answer_check_db.py, 03–04.11), each off | shadow | on, default
 # shadow: computed and logged (the turn's db_check event), never cut — the last check of 04.11 still cut true sentences.
 #   COACH_DB_CLAIM_CHECK    — «поиск ничего не нашёл», «нет доступа к базе» with no empty database search of the turn.

@@ -27,6 +27,7 @@ put up more than ``END_TURNS`` of their messages ago. Outside a warm-up nothing 
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Optional
 
@@ -127,6 +128,7 @@ def put_up(session, puzzle_id=None, fen: Optional[str] = None) -> None:
         return
     at = state["ids"].index(pid)
     state["paused_said"] = False  # back at the warm-up: a later break is said again
+    state["pause_told_at"] = None
     if at != state["at"]:
         state["at"] = at
         state["up_turn"] = session.user_turns()
@@ -321,15 +323,61 @@ def paused(session, game_in_message: bool = False) -> Optional[dict]:
 
     Not a break: a turn on the warm-up's own positions (anywhere along a puzzle's solution), a warm-up over."""
     state = getattr(session, "warmup", None)
+    if state and state.get("pause_told_at") is not None:
+        # The break was the coach's own to say last turn (``left_for``): said — nothing more; not said — the server
+        # says it now, as before.
+        state["pause_told_at"] = None
+        if not _said_last(session):
+            state["paused_said"] = False
     if not state or state.get("over") or state.get("paused_said"):
         return None
-    board = session.active_board() if getattr(session, "boards", None) else None
-    key = _key(getattr(board, "fen", None)) if board is not None else ""
-    on_its_own = (board is not None and getattr(board, "kind", None) != "game"
-                  and any(key in keys for keys in state["lines"].values()))
-    if on_its_own and not game_in_message:
+    if _on_its_own(session, state) and not game_in_message:
         return None
     return {"n": state["at"] + 1, "of": len(state["ids"])}
+
+
+def _on_its_own(session, state: dict) -> bool:
+    """The board shows one of the warm-up's own positions (anywhere along a puzzle's solution)."""
+    board = session.active_board() if getattr(session, "boards", None) else None
+    key = _key(getattr(board, "fen", None)) if board is not None else ""
+    return (board is not None and getattr(board, "kind", None) != "game"
+            and any(key in keys for keys in state["lines"].values()))
+
+
+_WARMUP_WORD = re.compile(r"разминк|warm[\s-]?up|жаттығу|бой\s+жаз", re.IGNORECASE)
+
+
+def _said_last(session) -> bool:
+    """The coach's last message speaks of the warm-up."""
+    last = next((m for m in reversed(getattr(session, "messages", None) or []) if getattr(m, "role", "") == "assistant"), None)
+    return bool(last is not None and _WARMUP_WORD.search(getattr(last, "content", "") or ""))
+
+
+def left_for(session, result) -> None:
+    """A tool's *result* is about to replace the warm-up's puzzle on the board with a position of its own — an example
+    of a topic, a lesson's diagram (its ``board_actions`` set a position that is not a puzzle of the warm-up). The
+    break happens in THIS turn, so it is said in this turn: the result carries the note and the coach ends its answer
+    with the place. Until 25.11 the server's line came at the head of the NEXT answer — «Разминка прервана на задаче 4
+    из 5» over a question asked three messages after the student had left (tester 25.11). The next turn checks that
+    the coach did say it (``paused``)."""
+    state = getattr(session, "warmup", None) if session is not None else None
+    actions = result.get("board_actions") if isinstance(result, dict) else None
+    if not state or state.get("over") or state.get("paused_said") or not isinstance(actions, list):
+        return
+    setting = [a for a in actions if isinstance(a, dict) and a.get("type") in ("set_fen", "load_pgn", "set_puzzle")]
+    if not setting or not _on_its_own(session, state):
+        return
+    firsts = {keys[0] for keys in state["lines"].values() if keys}
+    if any(str(a.get("puzzle_id")) in state["ids"] or (a.get("fen") and _key(a["fen"]) in firsts) for a in setting):
+        return  # a puzzle of the warm-up itself
+    place = {"n": state["at"] + 1, "of": len(state["ids"])}
+    state["paused_said"] = True
+    state["pause_told_at"] = session.user_turns()
+    result["warmup_note"] = (
+        f"[Warm-up paused] This position replaces puzzle {place['n']} of {place['of']} of the student's warm-up on "
+        "the board. End your answer with one short sentence, in the student's language, that the warm-up is paused "
+        f"at puzzle {place['n']} of {place['of']} and that «дальше» brings it back — exactly these numbers, never "
+        "your own count.")
 
 
 def note_paused_said(session) -> None:

@@ -820,13 +820,41 @@ def _handle_get_topic(args: dict, **kwargs) -> str:
         by_words = get_topic(said, locale=args.get("locale") or "ru", user_id=user_id, show=show, question=said)
         if isinstance(by_words, dict) and not by_words.get("ambiguous") and not by_words.get("error"):
             result = by_words
-    if locked and isinstance(result, dict):
-        result.pop("board_actions", None)
-        result["board_hint"] = HIDDEN_BOARD_NOTE if hidden else BOARD_KEPT_NOTE
     # The lessons of courses /learn still keeps locked are not offered (src/learn_access, 22.11).
     from src.learn_access import gate_topic
 
     result = gate_topic(result, user_id, args.get("locale") or "ru")
+    # A rule of the game the lookup has no example for («взятие на проходе»: no topic of the base, the site's lesson
+    # locked): the coach's own example, checked by the server (src/rule_examples, tester 25.11). By the topic the
+    # model named; by the student's words only when the lookup found nothing at all.
+    if isinstance(result, dict) and not isinstance(result.get("example"), dict):
+        from src import rule_examples
+
+        nothing = bool(result.get("ambiguous") or result.get("error"))
+        rule = rule_examples.for_words(str(args.get("topic") or "")) or (rule_examples.for_words(said) if nothing else None)
+        if rule and result.get("ambiguous"):
+            # Several topics of the base, and they ARE about this rule («castling»: its two topics) — the model picks
+            # one, as before. Topics found by a shared word alone («на проходе» → «проходная пешка») are not.
+            offered = " ".join(f"{t.get('slug', '')} {t.get('title', '')}" for t in result.get("topics") or []
+                               if isinstance(t, dict)).replace("-", " ")
+            if rule["words"].search(offered):
+                rule = None
+        if rule:
+            own = rule_examples.topic(rule, args.get("locale") or "ru", show)
+            for key in ("site_lessons", "locked_lessons", "unlock_path", "locked_note"):
+                if result.get(key):
+                    own[key] = result[key]
+            result = own
+    if locked and isinstance(result, dict):
+        result.pop("board_actions", None)
+        result["board_hint"] = HIDDEN_BOARD_NOTE if hidden else BOARD_KEPT_NOTE
+    try:  # an example put over a warm-up's puzzle: the break is said in this very answer (src/warmup.left_for)
+        from src import warmup
+        from src.sessions import _tool_session
+
+        warmup.left_for(_tool_session(kwargs), result)
+    except Exception:  # noqa: BLE001 — the warm-up's bookkeeping never breaks a tool
+        pass
     return json.dumps(result, ensure_ascii=False)
 
 

@@ -156,7 +156,17 @@ LOCKED_NOTE = (
     "This lesson is LOCKED for the student: its course is closed in their /learn programme until the courses before it "
     "are passed. Do not open, show, teach or link it, and do not offer it. Tell them, warmly and in one or two sentences, "
     "which course to finish to get there (unlock_path — the first one is where to start) and offer its next lesson "
-    "(unlock_path[0].next[0], as a link)."
+    "(unlock_path[0].next[0], as a link). The lock closes the LESSON, not a question: if the student asked what a "
+    "rule, a term or an idea is, answer that question yourself first, in your own words — never «не получилось "
+    "показать», never «сначала пройди курс» in place of the answer."
+)
+# The locked lesson is about a rule of the game the coach has its own example of (src/rule_examples, 25.11).
+LOCKED_RULE_NOTE = (
+    "The site's LESSON on this is locked for the student (its course is closed until the courses before it are "
+    "passed): do not open or link the lesson or its course, and do not offer it. The rule itself is yours to explain: "
+    "`example` is your OWN example of it, not the lesson's — explain the rule with it as board_hint says, that is the "
+    "answer. Only after it, in one short sentence, you may add that the site's lesson on it opens after the course "
+    "in unlock_path[0] — by name, with the link of its next lesson (unlock_path[0].next[0]) and no other link."
 )
 
 

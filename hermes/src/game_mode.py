@@ -60,6 +60,7 @@ DEFAULT_COMMENT_MODE = "mistakes"
 BLUNDER_CP = 300
 MISTAKE_CP = 100
 INACCURACY_CP = 50
+BETTER_CP = 60  # from here a side «stands better» in a comment's facts — the answer check's own line (0.6 pawns)
 
 MAX_GAME_PLIES = 400
 
@@ -1044,6 +1045,84 @@ def fallback_comment(board_rec: Board, locale: Optional[str], event: str = "move
     return text.strip()
 
 
+def student_eval_words(cp: int) -> str:
+    """Who stands better, in words the model cannot misread («evaluation now -2.0 for the student» was told as
+    «ты сохранил преимущество», tester 25.11)."""
+    pawns = abs(cp) / 100
+    if cp <= -BETTER_CP:
+        return (f"The student stands WORSE now, by about {pawns:.1f} pawns: never say they are better, ahead, winning, "
+                "or that they have, keep or gain an advantage.")
+    if cp >= BETTER_CP:
+        return (f"The student stands better now, by about {pawns:.1f} pawns: never say they are worse, behind or "
+                "losing.")
+    return "The position is about equal now: say of neither side that it is better, ahead or has an advantage."
+
+
+def _did(board: chess.Board, move: chess.Move) -> str:
+    """One move's part in the comment's facts: the move in words, what the moved piece attacks from its new square
+    and, when it can be lost there, by what — the dangers only, a safe piece is not told as «not attacked»."""
+    from src.hypothetical import moved_piece_facts
+
+    after = board.copy(stack=False)
+    after.push(move)
+    words = move_words(board, move)
+    if board.is_castling(move):
+        return words  # the king's new square and the rook's are not the news of a castling
+    told = [words]
+    for fact in moved_piece_facts(board, after, move):
+        if fact.endswith(("attacks nothing", "is not attacked")) or " gives check" in fact or fact.startswith("it takes "):
+            continue  # the check and the capture are in the words; «attacks nothing» is the rule below, not a line
+        told.append(fact)
+    if not any(" attacks " in f for f in told[1:]):
+        told.append("the moved piece attacks no enemy piece")
+    return "; ".join(told)
+
+
+def _better_words(state: dict, annotation: dict) -> str:
+    """« — knight from f6 to d5, takes the knight on d5»: the better move in words, on the board it was for («лучше
+    было 8...Nxd5: конь сам берёт пешку на d5» — it took a knight; stand 25.11). "" when it cannot be read."""
+    try:
+        ply = int(annotation.get("ply") or 0)
+        before = _replay(list(state.get("moves") or [])[: ply - 1])
+        return f" — {move_words(before, before.parse_san(str(annotation['best'])))}"
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def move_facts(state: dict) -> list[str]:
+    """What the student's last move and the engine's reply did on the board, as plain facts for the comment.
+
+    The comment's model had the moves and the verdict alone and told the rest from the look of the notation:
+    «ходом 5...Nf6 ты развил коня и напал на ферзя» with the queen on d4, which a knight on f6 does not attack — it
+    attacks the pawn on e4 (tester 25.11). The server knows what a moved piece attacks, what it took and whether it
+    can be taken, so it says it; the answer check judges the comment against the same boards."""
+    annotations = state.get("annotations") or []
+    moves = list(state.get("moves") or [])
+    if not annotations or not moves:
+        return []
+    ply = int(annotations[-1].get("ply") or 0)
+    if not 1 <= ply <= len(moves):
+        return []
+    out: list[str] = []
+    try:
+        before = _replay(moves[: ply - 1])
+        move = before.parse_san(moves[ply - 1])
+        out.append(f"What the student's {move_label(ply, moves[ply - 1])} did, on the board right after it (before "
+                   f"your reply): {_did(before, move)}.")
+        if len(moves) > ply:
+            before.push(move)
+            reply = before.parse_san(moves[ply])
+            out.append(f"What your reply {move_label(ply + 1, moves[ply])} did: {_did(before, reply)}.")
+        out.append("These two lines keep you exact, they are not the comment: never say a move attacks, threatens, "
+                   "takes, defends or is (castling, a check, a capture) anything they do not say, and do not recite "
+                   "them — no «ничего не атакует», «не под боем», \"attacks nothing\". Say the idea of the move in a "
+                   "child's words.")
+    except Exception:  # noqa: BLE001 — a comment is never lost over its facts
+        logger.debug("move facts failed", exc_info=True)
+        return []
+    return out
+
+
 def comment_prompt(board_rec: Board, locale: Optional[str], event: str = "move", spoken: bool = False) -> list[dict]:
     """Messages for the tool-free comment call after a student's move or at the end.
 
@@ -1072,10 +1151,12 @@ def comment_prompt(board_rec: Board, locale: Optional[str], event: str = "move",
         facts.append(f"Student's move: {last.get('san')} — verdict {last.get('verdict')}, "
                      f"lost {last.get('cp_loss', 0)} centipawns; evaluation now {last.get('eval_after', 0) / 100:+.1f} "
                      f"for the student.")
+        facts.append(student_eval_words(int(last.get("eval_after") or 0)))
         if last.get("best"):
-            facts.append(f"Better move was: {last['best']}.")
+            facts.append(f"Better move was: {last['best']}{_better_words(state, last)}.")
         if state.get("moves"):
             facts.append(f"Your reply on the board: {state['moves'][-1]}.")
+        facts.extend(move_facts(state))
     if finished:
         facts.append(f"Result: {state.get('result')} ({state.get('termination')}), winner: {state.get('winner') or 'nobody'}.")
         bad = [a for a in (state.get("annotations") or []) if a.get("verdict") in ("mistake", "blunder")]

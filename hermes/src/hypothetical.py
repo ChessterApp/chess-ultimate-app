@@ -376,8 +376,14 @@ def moved_piece_facts(board: chess.Board, after: chess.Board, move: chess.Move) 
             facts.insert(0, f"this is an en passant capture: it takes the pawn on {chess.square_name(taken)}")
         else:
             captured_type = board.piece_type_at(dest)
+            # What is taken, said outright: «конь сам забирает пешку на d5» was told of Nxd5 taking a knight — the
+            # facts named the square and the trade, never the piece that leaves the board (stand 25.11).
+            facts.insert(0, f"it takes {_piece(board, dest)}")
         if attackers and captured_type and VALUES[captured_type] >= VALUES[moved_type]:
-            level = "material stays level" if VALUES[captured_type] == VALUES[moved_type] else "the mover stays ahead"
+            # «the balance does not change», not «material stays level»: a knight for a knight with a pawn already
+            # down was told «материал остаётся равным» (stand 25.11) — the trade is even, the position need not be.
+            level = ("an even trade, the material balance stays as it was before the move"
+                     if VALUES[captured_type] == VALUES[moved_type] else "the mover comes out ahead on this trade")
             facts.append(f"if it is taken back, that is a trade — a {chess.piece_name(captured_type)} for a "
                          f"{chess.piece_name(moved_type)}, {level}; not a loss")
     return facts
