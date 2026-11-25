@@ -15,7 +15,8 @@ import re
 import json
 import logging
 import difflib
-from typing import List, Dict, Optional, Tuple
+import threading
+from typing import Any, List, Dict, Optional, Tuple
 import requests
 import chess
 import chess.pgn
@@ -391,6 +392,111 @@ Return ONLY the numbered moves. NO explanations, NO notes, NO markdown blocks.""
 
     logger.error("All vision models failed")
     raise Exception("Scoresheet analysis failed with all available models. Please try again.")
+
+
+# The sheet's heading — who played, the result — read by the cheap vision model in its own call, beside the moves
+# (tester 25.11: a sheet headed «Белые: Иванов, Чёрные: Петров» came back as «? – ?», and the coach's review card read
+# «Белые – Чёрные»; the moves' prompt asks for the moves alone and the PGN's names came only from the caller).
+HEADER_MODEL = os.getenv("SCORESHEET_HEADER_MODEL", FALLBACK_MODEL)
+HEADER_TIMEOUT_S = float(os.getenv("SCORESHEET_HEADER_TIMEOUT_S", "25"))
+_HEADER_KEYS = ("white", "black", "result", "date", "event", "round")
+_RESULTS = {"1-0": "1-0", "0-1": "0-1", "1/2-1/2": "1/2-1/2", "½-½": "1/2-1/2", "1/2": "1/2-1/2", "0.5-0.5": "1/2-1/2"}
+_HEADER_PROMPT = """This is a chess scoresheet. Read its HEADING only — not the moves.
+Return one JSON object with these keys, each a string, "" when the sheet does not show it:
+  "white"  — the name written for White (Белые / White / Ақ), exactly as written, in its own alphabet;
+  "black"  — the name written for Black (Чёрные / Black / Қара);
+  "result" — the game's result if it is written: "1-0", "0-1" or "1/2-1/2";
+  "date"   — the date if written, as YYYY.MM.DD;
+  "event"  — the tournament or event if written;
+  "round"  — the round if written.
+Never guess and never invent a name: what is not written is "". Return ONLY the JSON object."""
+
+
+def clean_headers(raw: Any) -> Dict[str, str]:
+    """The heading the model read, kept only where it is a plain short text (a result only when it is one)."""
+    out: Dict[str, str] = {}
+    if not isinstance(raw, dict):
+        return out
+    for key in _HEADER_KEYS:
+        value = raw.get(key)
+        if not isinstance(value, str):
+            continue
+        value = " ".join(value.replace('"', "").replace("[", "").replace("]", "").split())[:60]
+        if not value or value in ("?", "-", "—", "unknown", "Unknown", "N/A", "n/a"):
+            continue
+        if key == "result":
+            value = _RESULTS.get(value.replace(" ", "").replace("–", "-").replace("—", "-").replace(":", "-"), "")
+            if not value:
+                continue
+        if key == "date" and not re.fullmatch(r"\d{4}\.\d{2}\.\d{2}", value):
+            continue
+        out[key] = value
+    return out
+
+
+def extract_headers_from_images(images: List[str], openrouter_key: str) -> Dict[str, str]:
+    """The sheet's heading (see _HEADER_PROMPT); {} when it could not be read — the moves never wait on it."""
+    content: List[Dict[str, Any]] = [{"type": "text", "text": _HEADER_PROMPT}]
+    for image_base64 in images[:1]:  # the heading is on the first page
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}})
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {openrouter_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://chesster.io",
+                "X-Title": "Chesster - Scoresheet Scanner",
+            },
+            json={
+                "model": HEADER_MODEL,
+                "messages": [{"role": "user", "content": content}],
+                "temperature": 0,
+                "max_tokens": 2000,
+                "reasoning": {"effort": "low"},
+            },
+            timeout=HEADER_TIMEOUT_S,
+        )
+        data = response.json()
+        if data.get("usage"):
+            record_openrouter_usage(data, model=HEADER_MODEL, surface="vision")
+        if not response.ok or not data.get("choices"):
+            return {}
+        text = (data["choices"][0]["message"].get("content") or "").strip()
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        return clean_headers(json.loads(match.group(0))) if match else {}
+    except Exception as e:  # noqa: BLE001 — a heading is never worth a failed scan
+        logger.warning(f"Scoresheet heading was not read: {e}")
+        return {}
+
+
+def with_sheet_headers(metadata: Any, read: Dict[str, str]) -> Dict[str, str]:
+    """The caller's metadata with the heading read off the sheet where the caller gave nothing."""
+    merged = dict(metadata) if isinstance(metadata, dict) else {}
+    for key, value in (read or {}).items():
+        if not str(merged.get(key) or "").strip():
+            merged[key] = value
+    return merged
+
+
+def pgn_with_headers(pgn: str, metadata: Dict[str, str]) -> str:
+    """*pgn* with its White / Black / Date / Event / Round set from *metadata*, and its Result when the PGN has none
+    of its own (a mate on the board keeps the result the moves give)."""
+    try:
+        game = chess.pgn.read_game(StringIO(pgn))
+        if game is None:
+            return pgn
+        for key, tag in (("white", "White"), ("black", "Black"), ("date", "Date"), ("event", "Event"), ("round", "Round")):
+            value = str(metadata.get(key) or "").strip()
+            if value:
+                game.headers[tag] = value
+        result = str(metadata.get("result") or "").strip()
+        if result in ("1-0", "0-1", "1/2-1/2") and game.headers.get("Result", "*") in ("*", "", "?"):
+            game.headers["Result"] = result
+        return str(game)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Scoresheet heading was not joined to the PGN: {e}")
+        return pgn
 
 
 def extraction_is_clean(parsed: List[Tuple[int, str, str]]) -> bool:
@@ -1003,15 +1109,23 @@ def convert_scoresheet_to_pgn():
             logger.error("OPENROUTER_API_KEY not configured")
             return jsonify({'error': 'OpenRouter API key not configured'}), 500
 
+        # The sheet's heading is read beside the moves (its own cheap call), and joined before the PGN is built.
+        header_box: Dict[str, Dict[str, str]] = {}
+        header_thread = threading.Thread(
+            target=lambda: header_box.update(read=extract_headers_from_images(images, openrouter_key)), daemon=True)
+        header_thread.start()
+
         # Use 3-pass voting pipeline for better accuracy
         logger.info(f"Starting 3-pass voting pipeline with {len(images)} image(s)")
         pgn, corrections, moves_total, moves_corrected = validate_and_build_pgn(
             "",  # raw_moves_text not needed for voting
-            metadata,
+            metadata if isinstance(metadata, dict) else {},
             openrouter_key,
             images,
             use_voting=True
         )
+        header_thread.join(timeout=HEADER_TIMEOUT_S)
+        pgn = pgn_with_headers(pgn, with_sheet_headers(metadata, header_box.get("read") or {}))
 
         # Calculate confidence score
         if moves_total == 0:

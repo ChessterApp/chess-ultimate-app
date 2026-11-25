@@ -364,3 +364,31 @@ class TestAdaptivePasses(unittest.TestCase):
         finally:
             scoresheet_module.extract_moves_from_images = original
         self.assertEqual(calls, [0.1, 0.3, 0.5])
+
+
+class TestSheetHeading(unittest.TestCase):
+    """Tester 25.11: a sheet headed «Белые: Иванов, Чёрные: Петров» came back as «? – ?»."""
+
+    PGN = '[Event "Casual Game"]\n[White "?"]\n[Black "?"]\n[Result "*"]\n\n1. e4 e5 2. Nf3 Nc6 *'
+
+    def test_the_heading_read_off_the_sheet_names_the_players(self):
+        read = scoresheet_module.clean_headers({"white": "Иванов", "black": " Петров ", "result": "0 - 1", "date": "вчера",
+                                                "event": "", "round": None})
+        self.assertEqual(read, {"white": "Иванов", "black": "Петров", "result": "0-1"})
+        pgn = scoresheet_module.pgn_with_headers(self.PGN, scoresheet_module.with_sheet_headers({}, read))
+        self.assertIn('[White "Иванов"]', pgn)
+        self.assertIn('[Black "Петров"]', pgn)
+        self.assertIn('[Result "0-1"]', pgn)
+        self.assertIn("1. e4 e5 2. Nf3 Nc6", pgn)
+
+    def test_the_callers_names_win_and_nothing_read_changes_nothing(self):
+        merged = scoresheet_module.with_sheet_headers({"white": "Asan"}, {"white": "Иванов", "black": "Петров"})
+        self.assertEqual(merged, {"white": "Asan", "black": "Петров"})
+        self.assertEqual(scoresheet_module.clean_headers("no json"), {})
+        self.assertEqual(scoresheet_module.clean_headers({"white": "?", "black": "unknown", "result": "won"}), {})
+        pgn = scoresheet_module.pgn_with_headers(self.PGN, {})
+        self.assertIn('[White "?"]', pgn)
+
+    def test_a_result_the_moves_gave_is_kept(self):
+        pgn = scoresheet_module.pgn_with_headers(self.PGN.replace('"*"', '"1-0"'), {"result": "0-1"})
+        self.assertIn('[Result "1-0"]', pgn)
