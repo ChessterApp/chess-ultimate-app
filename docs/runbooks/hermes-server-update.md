@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 24.11-3 (тренер получает запись партии, стоящей на доске ученика; прямой путь голоса — подшаг 5в, по-прежнему по согласию) — включает всё из версий 06.10 … 24.11-2
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 25.11 (восьмой отчёт тестировщика: комментарии к ходам партии по фактам доски, прошлая партия после реванша, названия сессий, следующий урок, пример правила на доске; прямой путь голоса — подшаг 5в, по-прежнему по согласию) — включает всё из версий 06.10 … 24.11-3
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -7,9 +7,13 @@
 > обновление: всё, что уже сделано в прошлый раз (миграции, база задач, переменные), Claude
 > проверит и пропустит, так что займёт 10–15 минут. В конце Claude пришлёт отчёт.
 >
-> **Это обновление поверх версии 24.11-2**, которая уже стоит: только код Hermes, без новых переменных, ключей и
-> миграций; `.env` не трогается, бэкенд не меняется. Подшаг 5в (прямой путь голоса) — как в 23.11: только с согласия
-> человека и когда готова DNS-запись `coach-api.chesster.io`; без него всё работает как раньше.
+> **Это обновление поверх версии 24.11-3**, которая уже стоит: только код Hermes, без новых переменных, ключей и
+> миграций; `.env` не трогается. Подшаг 5в (прямой путь голоса) — как в 23.11: только с согласия человека и когда
+> готова DNS-запись `coach-api.chesster.io`; без него всё работает как раньше.
+>
+> **Отдельно от Hermes — бэкенд `api.chesster.io`** (его выкатывает команда сайта своим обычным способом): в этом же
+> `main` изменён `backend/api/scoresheet_to_pgn.py` — с фото бланка теперь читаются имена игроков и результат. Пока
+> бэкенд не выкачен, бланк распознаётся как раньше (ходы верные, имён нет); на Hermes это не влияет.
 
 ---
 
@@ -33,6 +37,122 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 25.11 (код — `hermes/src/` и тесты. Миграций, пакетов и переменных нет; подшаги 5а и 5б не выполняются,
+5в — как в версии 23.11 ниже. Если сервер на 24.11-3 — шаги 0, 1, 2, 3, 4, 8 и проверки 1, 3, 99 (и 5в с проверкой 93, если
+человек согласился и DNS готов); если раньше — все шаги и проверки 94–99). Источник — восьмой отчёт тестировщика, 25.11:
+- **Комментарий к ходу в партии говорит то, что ход сделал** (`src/game_mode.py`, `src/hypothetical.py`,
+  `src/answer_check.py`, `src/answer_check_relations.py`, `src/server.py`). Было: «ходом 5...Кf6 ты развил коня и напал на
+  ферзя» (конь с f6 бьёт только пешку e4) и «ты вернул фигуру и сохранил преимущество» при оценке +2 у соперника. Модель
+  комментария получала ходы и вердикт, остальное додумывала. Теперь сервер даёт ей факты: ход словами (какая фигура,
+  откуда, куда, что взяла), что фигура атакует с нового поля и чем её могут взять, то же про ответ тренера, лучший ход
+  словами, и прямо — кто стоит лучше. Проверка ответа на этой поверхности получила оценку движка (фраза «у тебя
+  преимущество», когда ученик стоит хуже, не показывается) и режет фразу «напал на …», если она неверна и сразу после
+  хода ученика, и на доске после ответа тренера. Выключатель второго: `COACH_COMMENT_RELATION_CHECK=shadow` (только
+  запись, как до 25.11); по умолчанию `on`, в `.env` ничего добавлять не нужно.
+- **Прошлая партия после «Реванша»** (`src/prior_game.py`, `src/server.py`). Было: на «а что было бы, если бы я в прошлой
+  партии взял конём на d5» тренер просил прислать запись партии, которую сам только что разобрал. Теперь, когда слова
+  называют прошлую партию, ход получает её запись (блок «## The previous game of this session»), ошибки ученика с
+  позициями и момент, к которому относится названный ход; идея проверяется движком на той позиции.
+- **Название сессии в списке** (`src/session_label.py`). Было: «Current chess puzzle context: … The solution i…»
+  (служебный текст чата задач, с решением), текст кнопки «Подсказка», строка FEN. Теперь сессию называет первое, что
+  ученик сказал своими словами; партию с тренером — её ходы и результат; вставленная позиция или запись — только если
+  больше ничего не сказано. Действует и на старые сессии (название считается при выдаче списка).
+- **«Следующий урок» — тот же, что на странице «Обучение»** (`src/tools/learning_path.py`). Было: тренер считал
+  следующим последний открытый урок («Открыл следующий урок — Троекратное повторение позиции» при следующем «Слон»).
+  Теперь это первый непройденный урок текущего курса; начатый и брошенный урок передаётся отдельно (`started_lesson`).
+  В выборку уроков добавлена колонка `requires_lesson_id` (если её нет в базе, запрос сам повторится без неё).
+- **Правило показывается на доске своим примером** (`src/rule_examples.py`, `src/learn_access.py`, инструменты
+  `get_topic` / `get_lesson`). Было: «Показать пример на доске сейчас не получилось. Для урока о взятии на проходе
+  сначала нужно пройти курс…». Теперь для взятия на проходе, рокировки, превращения и пата у тренера есть собственные
+  проверенные позиции; замок курса закрывает урок, а не ответ на вопрос.
+- **Пауза разминки говорится в том же ответе**, где пример занял доску вместо задачи (`src/warmup.py`), а не в начале
+  следующего; если тренер её не сказал, сервер скажет сам, как раньше.
+- Проверка 99 (без модели, без сети и без базы):
+
+```bash
+cd /root/hermes-chess && SUPABASE_URL= .venv/bin/python - <<'EOF'
+from types import SimpleNamespace as NS
+
+import chess
+import chess.pgn
+
+from src import game_mode, prior_game, rule_examples, session_label
+from src.answer_check import CheckContext, SentenceGate
+from src.tools import learning_path as lp
+
+# --- 99: the tester's report of 25.11 — no model, no network, no database
+# 99a  a comment on a move is given what the move did; «напал на ферзя» for a knight that attacks a pawn is cut
+moves = "e4 e5 d4 exd4 Qxd4 Nc6 Qd3 Nd4 Qxd4 Nf6 Bd2".split()
+state = {"student_color": "black", "engine_elo": 1200, "moves": moves, "status": "playing",
+         "annotations": [{"ply": 10, "san": "Nf6", "verdict": "ok", "cp_loss": 10, "eval_after": -450}]}
+facts = " ".join(game_mode.move_facts(state))
+board = chess.Board()
+for san in moves:
+    board.push_san(san)
+
+
+def gate(engine_eval=None):
+    ctx = CheckContext.from_fens([board.fen()], [str(chess.pgn.Game.from_board(board))], student_color=chess.BLACK)
+    ctx.language = "ru"
+    ctx.relation_surface = "game"
+    ctx.comment_now = CheckContext.from_fens([board.fen()], [], student_color=chess.BLACK)
+    ctx.comment_now.language = "ru"
+    ctx.game_moves = list(moves)
+    ctx.engine_eval = engine_eval
+    return SentenceGate(ctx, enabled=True)
+
+
+def cut(text, engine_eval=None):
+    g = gate(engine_eval)
+    return any(issues for _, issues, _ in g.feed(text) + g.flush())
+
+
+comment = ("the knight on f6 attacks the white pawn on e4" in facts
+           and cut("Хорошо: ходом 5...Nf6 ты развил коня и напал на ферзя.")
+           and not cut("Хорошо: ходом 5...Nf6 ты развил коня и напал на пешку e4."))
+# 99b  «сохранил преимущество» with the student worse is cut; «упустил преимущество» is not
+advantage = (cut("Ты вернул фигуру и сохранил преимущество.", 4.5) and not cut("Ты упустил преимущество.", 4.5)
+             and "WORSE" in game_mode.student_eval_words(-450))
+# 99c  the game before a rematch: its record and the moment of «взял бы конём на d5»
+prior = {"student_color": "black", "status": "finished", "result": "1-0", "termination": "resign", "winner": "engine",
+         "moves": "e4 e5 Nf3 Nf6 Nc3 Bb4 Bc4 O-O O-O d6 d3 h6 h3 d5 Nxd5 Nc6 Nxb4 Nxb4 c3".split(),
+         "annotations": [{"ply": 16, "san": "Nc6", "verdict": "blunder", "cp_loss": 340, "eval_after": -550, "best": "Nxd5"}]}
+asked = "А что было бы если бы я в прошлой партии взял конем на d5"
+at = prior_game.moment(asked, prior)
+earlier = (prior_game.names_prior_game(asked) and bool(at) and at["played"] == "Nc6"
+           and "8...Nc6" in prior_game.block(prior, at) and not prior_game.names_prior_game("а если сейчас конём на d5?"))
+# 99d  a session's name: not the service text, not the hint button in a game, not a pasted position
+user = lambda text, at=3.0: NS(role="user", content=text, timestamp=at)  # noqa: E731
+game = NS(kind="game", pgn="1. e4 c5 2. Nf3 d6 0-1", game_state={"result": "0-1"}, updated_at=9, created_at=2.0)
+names = (session_label.label(NS(messages=[user("Current chess puzzle context: themes White to move. The solution is: "
+                                               "Bxc6+\n\nКакой лучший ход?")], boards=[])) == "Какой лучший ход?"
+         and session_label.label(NS(messages=[user("Подскажи, на что обратить внимание в этой позиции (без лучшего "
+                                                   "хода).", 5.0)], boards=[game])) == "1.e4 c5 2.Nf3 d6 0-1"
+         and session_label.label(NS(messages=[user("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"), user("Почему тут ничья?", 6.0)],
+                                    boards=[])) == "Почему тут ничья?")
+# 99e  the next lesson is the Learn page's, not the one opened last
+lesson = lambda i: {"id": f"l{i}", "title": f"L{i}"}  # noqa: E731
+programme = {"courses": [{"id": "c1", "modules": [{"id": "m1", "lessons": [lesson(i) for i in range(1, 6)]}]}]}
+progress = {"l1": {"status": "completed"}, "l5": {"status": "in_progress", "updated_at": "2026-11-25"}}
+nxt = lp.next_lesson(programme, progress)
+began = lp.started_lesson(programme, progress, but="l2")
+lessons = bool(nxt) and nxt[2]["id"] == "l2" and bool(began) and began[2]["id"] == "l5"
+# 99f  a rule of the game has the coach's own example, proved on the board
+rule = rule_examples.for_words("Что такое взятие на проходе, покажи на доске")
+rules = (all(rule_examples.verify(e) for e in rule_examples.EXAMPLES) and bool(rule)
+         and rule_examples.topic(rule, "ru")["board_actions"][0]["fen"] == "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2")
+
+ok = comment and advantage and earlier and names and lessons and rules
+print("ОК" if ok else "ПРОВЕРЬ", "| 99a комментарий к ходу:", comment, "| 99b преимущество:", advantage,
+      "| 99c прошлая партия:", earlier, "| 99d имя сессии:", names, "| 99e следующий урок:", lessons,
+      "| 99f пример правила:", rules)
+EOF
+```
+
+  → `ОК | 99a комментарий к ходу: True | 99b преимущество: True | 99c прошлая партия: True | 99d имя сессии: True |
+  99e следующий урок: True | 99f пример правила: True`. До обновления — `ImportError` (нет `src/prior_game.py`). Любое
+  другое `ПРОВЕРЬ` — пришли вывод человеку. Команда ничего не пишет в базу и `.env` не меняет.
 
 Новое в версии 24.11-3 (код — `hermes/src/` и тесты. Миграций, пакетов, переменных и изменений бэкенда нет; подшаги 5а и
 5б не выполняются, 5в — как в версии 23.11 ниже. Если сервер на 24.11-2 — шаги 0, 1, 2, 3, 4, 8 и проверки 1, 3, 98 (и 5в с
@@ -3409,6 +3529,15 @@ test -f chess-ultimate-app/hermes/src/board_record.py \
 
 Если «НЕТ версии 24.11-3»: **СТОП** — версия 24.11-3 ещё не влита в `main`; напиши Александру, ничего не обновляй.
 
+Версия 25.11 в main:
+
+```bash
+test -f chess-ultimate-app/hermes/src/prior_game.py && test -f chess-ultimate-app/hermes/src/rule_examples.py \
+  && echo "версия 25.11 в main есть" || echo "НЕТ версии 25.11"
+```
+
+Если «НЕТ версии 25.11»: **СТОП** — версия 25.11 ещё не влита в `main`; напиши Александру, ничего не обновляй.
+
 ## Шаг 2. Резервная копия
 
 ```bash
@@ -4249,6 +4378,7 @@ COACH_REASONING_MANDATORY, COACH_REASONING_EFFORT, COACH_LESSON_LINK=<значе
   96 24.11 — 96a жертва <True/False>; 96b партия окончена <…>; 96c 960 <…>
   97 24.11-2 — 97a партия со страницы <True/False>; 97b та же партия <…>; 97c партия с тренером <…>
   98 24.11-3 — 98a запись партии <True/False>; 98b жертва по записи <…>; 98c незаконченная линия <…>
+  99 25.11 — 99a комментарий <True/False>; 99b преимущество <…>; 99c прошлая партия <…>; 99d имя сессии <…>; 99e следующий урок <…>; 99f пример правила <…>
 5б: <голос заменён на Will / не выполнялся — почему>
 Бэкенд (фото доски): <обновлён, коммит …, grep double_check = …, grep PHOTO_FEN_ATTEMPTS = … / не обновлён — почему>
 Что нужно от людей: <список или «ничего»>
