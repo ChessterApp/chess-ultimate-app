@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canCheck, initialStepFlow, stepFlow, stepXp, type StepFlowEvent, type StepFlowState } from '../step-flow';
+import { canCheck, initialStepFlow, puzzlePrompt, stepFlow, stepXp, type StepFlowEvent, type StepFlowState } from '../step-flow';
 
 const run = (events: StepFlowEvent[], from: StepFlowState) => events.reduce(stepFlow, from);
 
@@ -56,5 +56,20 @@ describe('StepFlow state machine', () => {
     expect(stepXp(1)).toBe(10);
     expect(stepXp(2)).toBe(5);
     expect(stepXp(3)).toBe(0);
+  });
+});
+
+describe('puzzlePrompt — the card over a puzzle\'s buttons (tester 25.11)', () => {
+  it('the task on the first step, the next move on a later one', () => {
+    expect(puzzlePrompt({ phase: 'idle', index: 0, total: 2 }, true)).toBe('puzzleWhiteToWin');
+    expect(puzzlePrompt({ phase: 'idle', index: 0, total: 2 }, false)).toBe('puzzleBlackToWin');
+    expect(puzzlePrompt({ phase: 'idle', index: 1, total: 2 }, true)).toBe('puzzleKeepGoing');
+    expect(puzzlePrompt({ phase: 'correct', index: 0, total: 2 }, true)).toBe('puzzleWhiteToWin');
+  });
+
+  it('solved: no next move is promised over «Отлично! … Дальше»', () => {
+    expect(puzzlePrompt({ phase: 'correct', index: 1, total: 2 }, true)).toBe('puzzleSolved');
+    expect(puzzlePrompt({ phase: 'correct', index: 0, total: 1 }, false)).toBe('puzzleSolved');
+    expect(puzzlePrompt({ phase: 'wrong', index: 1, total: 2 }, true)).toBe('puzzleKeepGoing');
   });
 });

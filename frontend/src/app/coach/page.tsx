@@ -34,7 +34,7 @@ import ViewerMoveList from '@/components/coach/ViewerMoveList';
 import { coachApi, CoachApiError, SESSION_NOT_FOUND, type BoardRecord, type GameStateView } from '@/lib/coach/boards-api';
 import { clearSessionId, loadSessionId, saveSessionId } from '@/lib/coach/session-storage';
 import { coachMode, currentMode, initialCoachMode } from '@/lib/coach/coach-mode';
-import { coachRemark, moveVerdict, rematchOptions, type GameStartOptions, type MoveVerdict } from '@/lib/coach/play';
+import { coachRemark, movesWentBack, moveVerdict, rematchOptions, type GameStartOptions, type MoveVerdict } from '@/lib/coach/play';
 import {
   applyTabActions,
   EMPTY_ANNOTATIONS,
@@ -552,6 +552,10 @@ export default function CoachPage() {
       setGameError(null);
       if (newGame) {
         // a new game by voice or words: the old game's remark and verdict go (audit 26.10)
+        setCoachLine(null);
+        setVerdictToast(null);
+      } else if (movesWentBack(previous.moves, view.moves)) {
+        // «Вернуть», a cut, a side line continued: the remark and the badge were about moves that are gone (25.11)
         setCoachLine(null);
         setVerdictToast(null);
       }

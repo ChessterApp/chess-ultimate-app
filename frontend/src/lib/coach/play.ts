@@ -68,6 +68,17 @@ export function rematchOptions(game: GameStateView, last: GameStartOptions | nul
   return { color: game.student_color, elo: game.engine_elo, comment_mode: game.comment_mode };
 }
 
+/**
+ * The game's moves no longer continue what was on the board: a move taken back, the game cut to an earlier ply or
+ * turned onto a side line. What the coach said of the moves that went — its remark over the board, the last move's
+ * badge — is then about a position the board no longer shows («Белый ферзь на c5 атакует…» with the queen back on
+ * d4 after «Вернуть», tester 25.11).
+ */
+export function movesWentBack(previous: readonly string[], next: readonly string[]): boolean {
+  if (next.length < previous.length) return true;
+  return previous.some((san, i) => next[i] !== san);
+}
+
 /** The coach's whole remark for the play bubble: no markdown, every sentence, capped at a word. */
 export function coachRemark(markdown: string, max = 600): string {
   const plain = markdown

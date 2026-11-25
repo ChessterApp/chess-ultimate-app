@@ -654,9 +654,13 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   // A pasted PGN or FEN (or a .pgn file) goes to the board directly and the
   // coach is told about it in one short line — the student should not have to
   // ask the model to "load this" and wait for a tool round-trip.
-  /** One local line in the thread (no server round-trip) — what the board just did. */
-  const addLocalLine = useCallback((content: string, id?: string) => {
-    const line: CoachMessage = { id: id ?? crypto.randomUUID(), role: 'user', content, timestamp: new Date() };
+  /**
+   * One local line in the thread (no server round-trip) — what the board just did. It is the coach's side speaking
+   * («Загрузил партию на доску…», «Распознал партию с бланка…»): drawn as the student's own message it read as a
+   * question they had asked (tester 25.11). `'user'` — the student's own words answered locally («ход чёрных»).
+   */
+  const addLocalLine = useCallback((content: string, role: CoachMessage['role'] = 'assistant') => {
+    const line: CoachMessage = { id: crypto.randomUUID(), role, content, timestamp: new Date() };
     setMessages((prev) => [...prev, line]);
     return line.id;
   }, []);
@@ -814,7 +818,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       if (side) {
         const flipped = withSideToMove(currentFenRef.current, side);
         if (typeof overrideText !== 'string') setInput('');
-        addLocalLine(trimmed);
+        addLocalLine(trimmed, 'user');
         if (flipped) {
           onBoardActions([{ type: 'set_fen', fen: flipped }]);
           addLocalLine(t(side === 'w' ? 'whiteToMoveSet' : 'blackToMoveSet'));
@@ -1145,7 +1149,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   const peek = view === 'peek';
 
   // The home on an empty session: today's plan. «Play the coach» needs the host's play sheet.
-  const planState = useDailyPlan(!!dailyPlan);
+  // Asked again each time the home is shown (a new session, after a game): fetched once per mount, the card
+  // «Разбор последней партии» offered the game of two days ago after three games played today (tester 25.11).
+  const planState = useDailyPlan(!!dailyPlan, messages.length === 0, sessionId);
   const playable = planState.status === 'ready' ? playablePlan(planState.plan, !!onPlayCoach) : null;
   const shownPlan: DailyPlanState =
     planState.status !== 'ready' ? planState : playable ? { status: 'ready', plan: playable } : { status: 'error' };

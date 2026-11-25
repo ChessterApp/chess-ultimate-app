@@ -677,7 +677,10 @@ describe('CoachChat — pasted games go straight to the board', () => {
     const input = screen.getByPlaceholderText(coach.inputPlaceholder);
     fireEvent.paste(input, { clipboardData: { getData: () => '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6' } });
     expect(onBoardActions).toHaveBeenCalledWith([{ type: 'load_pgn', pgn: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6' }]);
-    expect(screen.getByText(coach.loadedPgn)).toBeTruthy();
+    // The chat's own line, on the coach's side: drawn as the student's message it read as their question (25.11).
+    const line = screen.getByText(coach.loadedPgn);
+    expect(line.closest('[data-testid="answer-text"]')).toBeTruthy();
+    expect(line.closest('.justify-end')).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });

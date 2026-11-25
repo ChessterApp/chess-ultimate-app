@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GAME_STRENGTHS, eloLevel, moveVerdict, coachRemark, nearestStrengthIndex, rematchOptions } from '../play';
+import { GAME_STRENGTHS, eloLevel, moveVerdict, coachRemark, movesWentBack, nearestStrengthIndex, rematchOptions } from '../play';
 import type { GameStateView } from '../boards-api';
 
 describe('eloLevel', () => {
@@ -71,5 +71,29 @@ describe('coachRemark', () => {
 
   it('nothing but markdown is empty', () => {
     expect(coachRemark('```\ncode\n```')).toBe('');
+  });
+});
+
+describe('movesWentBack — what the coach said of moves that are gone (tester 25.11)', () => {
+  const game = ['e4', 'e5', 'd4', 'exd4', 'Qxd4', 'Nc6', 'Qd3', 'Nd4', 'Qxd4', 'Nf6', 'Bd2', 'Bc5', 'Qxc5'];
+
+  it('a move played, or the same moves again, is not a step back', () => {
+    expect(movesWentBack(game.slice(0, 11), game)).toBe(false);
+    expect(movesWentBack(game, [...game])).toBe(false);
+    expect(movesWentBack([], ['e4'])).toBe(false);
+  });
+
+  it('«Вернуть» is: the hint about the queen on c5 is about a board no longer shown', () => {
+    expect(movesWentBack(game, game.slice(0, 11))).toBe(true);
+  });
+
+  it('a side line continued is: the moves from where it left are other moves', () => {
+    expect(movesWentBack(['e4', 'e5', 'Nf3'], ['e4', 'e5', 'Bc4', 'Nc6'])).toBe(true);
+  });
+
+  it('a link in a remark is its text (the peek reads it the same way)', () => {
+    expect(coachRemark('Открыл урок — [«Троекратное повторение позиции»](https://chesster.io/learn/c/l).', 400)).toBe(
+      'Открыл урок — «Троекратное повторение позиции».',
+    );
   });
 });

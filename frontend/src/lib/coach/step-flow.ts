@@ -67,3 +67,17 @@ export function stepXp(attempts: number, base = 10): number {
   if (attempts === 2) return Math.round(base / 2);
   return 0;
 }
+
+/**
+ * What a puzzle's card says over its buttons: the task on the first step, «Верно — теперь следующий ход» on a later
+ * one, and that the puzzle is solved once its last step is — the card kept promising a next move over «Отлично! …
+ * Дальше» with no move left (tester 25.11).
+ */
+export function puzzlePrompt(
+  state: Pick<StepFlowState, 'phase' | 'index' | 'total'>,
+  whiteToMove: boolean,
+): 'puzzleSolved' | 'puzzleWhiteToWin' | 'puzzleBlackToWin' | 'puzzleKeepGoing' {
+  if (state.phase === 'correct' && state.index + 1 >= state.total) return 'puzzleSolved';
+  if (state.index === 0) return whiteToMove ? 'puzzleWhiteToWin' : 'puzzleBlackToWin';
+  return 'puzzleKeepGoing';
+}

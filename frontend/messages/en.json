@@ -2279,6 +2279,7 @@
     "puzzleWhiteToWin": "White to play and win",
     "puzzleBlackToWin": "Black to play and win",
     "puzzleKeepGoing": "Right — now the next move",
+    "puzzleSolved": "Puzzle solved",
     "puzzleHintMessage": "Give me a hint for this puzzle without naming the move.",
     "puzzleWhyChip": "Why {move}?",
     "puzzleWhyMessage": "Explain why {move} is the right move in this puzzle.",

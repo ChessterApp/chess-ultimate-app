@@ -9,6 +9,7 @@ import type { PlanAction } from '@/lib/coach/daily-plan';
 import type { DailyPlanState } from '@/hooks/useDailyPlan';
 import DailyPlan, { DailyPlanSkeleton } from './DailyPlan';
 import { messageText } from '@/lib/coach/message-stream';
+import { coachRemark } from '@/lib/coach/play';
 import CoachAvatar from './CoachAvatar';
 import FeedbackButtons from './FeedbackButtons';
 import ToolIndicator from './ToolIndicator';
@@ -18,6 +19,9 @@ import MessageCards from './cards/MessageCards';
  * Markdown in an assistant answer: typography's dark scale, sized for chat —
  * tight block margins, no edge margins, inline code as a chip.
  */
+/** The peek shows three lines; this much text is more than they hold on the widest sheet. */
+const PEEK_CHARS = 400;
+
 const MARKDOWN_CLASSES = [
   'prose prose-invert prose-sm max-w-none text-(--coach-text)',
   'prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-blockquote:my-2',
@@ -236,7 +240,8 @@ export function PeekMessage({ messages, onExpand }: { messages: CoachMessage[]; 
         {latest ? (
           // Plain text: markdown's block margins would break the clamp.
           <span className="line-clamp-3 text-[15px] leading-snug text-(--coach-text)">
-            {messageText(latest).replace(/[*_`#>]/g, '')}
+            {/* As the play bubble reads a remark: a link is its text, not «[…](https://…» (tester 25.11). */}
+            {coachRemark(messageText(latest), PEEK_CHARS)}
           </span>
         ) : (
           <>

@@ -7,6 +7,7 @@ import type { PuzzleState } from '@/types/coach';
 import { useHaptic } from '@/hooks/useHaptic';
 import { puzzleReplyDue, puzzleStudentColor, puzzleStudentMoves, puzzleStudentMovesDone } from '@/hooks/useCoachBoard';
 import { creditStepXp, useStepFlow, type StepComplete, type StepFlowControls } from '@/hooks/useStepFlow';
+import { puzzlePrompt } from '@/lib/coach/step-flow';
 import StepFlow, { type StepFeedback } from './StepFlow';
 
 interface PendingMove {
@@ -152,8 +153,7 @@ export default function PuzzleFlow({ controls, puzzle, onAsk, onNextPuzzle, onEx
   const t = useTranslations('coach');
   const { flow, feedback } = controls;
   const whiteToMove = puzzle.fen.split(' ')[1] !== 'b';
-  const prompt =
-    flow.state.index === 0 ? (whiteToMove ? t('puzzleWhiteToWin') : t('puzzleBlackToWin')) : t('puzzleKeepGoing');
+  const prompt = t(puzzlePrompt(flow.state, whiteToMove));
   const solved = flow.state.phase === 'correct' && flow.state.index + 1 >= flow.state.total;
   const san = feedback?.san;
 
