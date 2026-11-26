@@ -491,8 +491,14 @@ def pgn_with_headers(pgn: str, metadata: Dict[str, str]) -> str:
             if value:
                 game.headers[tag] = value
         result = str(metadata.get("result") or "").strip()
-        if result in ("1-0", "0-1", "1/2-1/2") and game.headers.get("Result", "*") in ("*", "", "?"):
-            game.headers["Result"] = result
+        if game.headers.get("Result", "*") in ("*", "", "?"):
+            # The board knows a finished game's result whether or not the sheet has it written: the last move
+            # mates, or leaves no move at all. A sheet that says otherwise is a slip of the pen, not the result.
+            on_board = game.end().board().result()
+            if on_board != "*":
+                game.headers["Result"] = on_board
+            elif result in ("1-0", "0-1", "1/2-1/2"):
+                game.headers["Result"] = result
         return str(game)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Scoresheet heading was not joined to the PGN: {e}")

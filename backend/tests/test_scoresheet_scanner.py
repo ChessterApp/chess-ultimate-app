@@ -392,3 +392,16 @@ class TestSheetHeading(unittest.TestCase):
     def test_a_result_the_moves_gave_is_kept(self):
         pgn = scoresheet_module.pgn_with_headers(self.PGN.replace('"*"', '"1-0"'), {"result": "0-1"})
         self.assertIn('[Result "1-0"]', pgn)
+
+    MATE = ('[Event "Casual Game"]\n[White "?"]\n[Black "?"]\n[Result "*"]\n\n'
+            '1. e4 e5 2. Nf3 Nc6 3. Bc4 Nd4 4. Nxe5 Qg5 5. Nxf7 Qxg2 6. Rf1 Qxe4+ 7. Be2 Nf3# *')
+
+    def test_a_mate_on_the_board_is_the_result_whatever_the_sheet_says(self):
+        # Live run 26.11: the tester's own sheet (the Blackburne trap, no result written) came back «*».
+        pgn = scoresheet_module.pgn_with_headers(self.MATE, {"white": "Иванов", "black": "Петров"})
+        self.assertIn('[Result "0-1"]', pgn)
+        self.assertTrue(pgn.rstrip().endswith("Nf3# 0-1"))
+        # a slip of the pen on the sheet does not turn a mate round
+        self.assertIn('[Result "0-1"]', scoresheet_module.pgn_with_headers(self.MATE, {"result": "1-0"}))
+        # an unfinished game keeps what the sheet says, or nothing
+        self.assertIn('[Result "*"]', scoresheet_module.pgn_with_headers(self.PGN, {}))
