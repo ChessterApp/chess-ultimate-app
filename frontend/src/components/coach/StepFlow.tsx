@@ -229,7 +229,8 @@ function FeedbackPanel({
               onClick={() => (feedback.followUp!.action ? feedback.followUp!.action() : onFollowUp(feedback.followUp!.message))}
               className={`flex min-h-11 items-center gap-1.5 rounded-full border border-(--coach-border) px-3 text-(--coach-text) transition-colors hover:bg-white/5 active:bg-white/10 ${focusRing}`}
             >
-              <MessageCircle size={14} aria-hidden />
+              {/* A question for the chat, or the panel's own step («Показать ход» — the hint's bulb, not a bubble). */}
+              {feedback.followUp.action ? <Lightbulb size={14} aria-hidden /> : <MessageCircle size={14} aria-hidden />}
               {feedback.followUp.label}
             </button>
           )}
