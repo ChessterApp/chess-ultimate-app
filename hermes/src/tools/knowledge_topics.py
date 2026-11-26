@@ -845,6 +845,12 @@ def _handle_get_topic(args: dict, **kwargs) -> str:
                 if result.get(key):
                     own[key] = result[key]
             result = own
+    try:  # a question about a rule is answered on a board that shows the rule (src/rule_examples.over, 26.11)
+        from src import rule_examples as _rules
+
+        result = _rules.over(result, said, args.get("locale") or "ru", show)
+    except Exception:  # noqa: BLE001 — the topic is told as it was
+        pass
     if locked and isinstance(result, dict):
         result.pop("board_actions", None)
         result["board_hint"] = HIDDEN_BOARD_NOTE if hidden else BOARD_KEPT_NOTE

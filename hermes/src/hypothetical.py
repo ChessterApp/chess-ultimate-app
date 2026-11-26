@@ -330,6 +330,45 @@ def _piece(board: chess.Board, sq: int) -> str:
     return f"the {'white' if p.color else 'black'} {chess.piece_name(p.piece_type)} on {chess.square_name(sq)}"
 
 
+def _capture_outcome(after: chess.Board, dest: int, mover: chess.Color, captured_type, moved_type,
+                     attacked: bool) -> list[str]:
+    """What a capture comes to once the other side has its say on that square — counted as a whole exchange
+    (src/position_facts.exchange_gain: every capture there, the cheapest piece first, each side stopping when going
+    on loses).
+
+    Until 26.11 «it can be taken back» was told as «a trade — a pawn for a pawn, an even trade» whenever the piece
+    taken was worth no less than the piece taking: after 4...dxe4 with the pawn guarded by the f6 knight the comment
+    said «пешки можно разменять поровну» — the knight that takes back is itself lost, the pawn is simply won (tester
+    26.11). A capture nothing can answer was told with no word on it at all."""
+    if not captured_type:
+        return []
+    won = chess.piece_name(captured_type)
+    if not attacked:
+        return [f"nothing can take it back: the capture wins the {won} outright"]
+    try:
+        from src.position_facts import exchange_gain
+
+        back = exchange_gain(after, dest)
+    except Exception:  # noqa: BLE001 — the attack and the defence are told either way
+        back = None
+    if back is None:
+        return []
+    if back == 0:
+        return [f"taking it back would lose material — it is defended: the capture wins the {won}, this is NOT a "
+                "trade and the material is NOT level after it"]
+    net = VALUES[captured_type] - back
+    if net == 0:
+        # «the balance does not change», not «material stays level»: a knight for a knight with a pawn already
+        # down was told «материал остаётся равным» (stand 25.11) — the trade is even, the position need not be.
+        return [f"if it is taken back, that is a trade — a {won} for a {chess.piece_name(moved_type)}, an even trade, "
+                "the material balance stays as it was before the move; not a loss"]
+    if net > 0:
+        return [f"if it is taken back, the mover still comes out ahead on this trade (by about {net} pawn"
+                f"{'' if net == 1 else 's'}' worth); not a loss"]
+    return [f"if it is taken back, the mover loses material on this exchange (about {-net} pawn"
+            f"{'' if net == -1 else 's'}' worth more than it took)"]
+
+
 def moved_piece_facts(board: chess.Board, after: chess.Board, move: chess.Move) -> list[str]:
     """What the moved piece attacks from its new square, and whether it is safe there."""
     mover = board.turn
@@ -379,13 +418,7 @@ def moved_piece_facts(board: chess.Board, after: chess.Board, move: chess.Move) 
             # What is taken, said outright: «конь сам забирает пешку на d5» was told of Nxd5 taking a knight — the
             # facts named the square and the trade, never the piece that leaves the board (stand 25.11).
             facts.insert(0, f"it takes {_piece(board, dest)}")
-        if attackers and captured_type and VALUES[captured_type] >= VALUES[moved_type]:
-            # «the balance does not change», not «material stays level»: a knight for a knight with a pawn already
-            # down was told «материал остаётся равным» (stand 25.11) — the trade is even, the position need not be.
-            level = ("an even trade, the material balance stays as it was before the move"
-                     if VALUES[captured_type] == VALUES[moved_type] else "the mover comes out ahead on this trade")
-            facts.append(f"if it is taken back, that is a trade — a {chess.piece_name(captured_type)} for a "
-                         f"{chess.piece_name(moved_type)}, {level}; not a loss")
+        facts.extend(_capture_outcome(after, dest, mover, captured_type, moved_type, bool(attackers)))
     return facts
 
 

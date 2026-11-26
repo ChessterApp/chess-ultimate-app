@@ -3004,7 +3004,18 @@ def extract(text: str, state: dict, language: Optional[str] = None) -> list[Clai
         blind_from = next((m.start() for m in re.finditer(W + r"(?:бь[её]т|бьют|берет|берут|забирает|забирают)\s+с\s+шахом" + E, low)), None)
         for c in raws:
             if blind_from is not None and c.pos > blind_from:
-                break  # a capture we could not read comes before: the board after it is unknown
+                # A capture we could not read comes before: the board after it is unknown. What is still said of the
+                # board keeps its words with no position (26.11): a claim no board can make true — «поле g4 защищено
+                # пешкой h6» after «слон забирает его» — is judged by its geometry alone (answer_check_relations).
+                if c.rel != "TAKE":
+                    try:
+                        blind = _convert(c, Pos(at=_SKIP, tense=_position(c, t, toks, told, unread_at).tense,
+                                                skip_reason="unparsed move"), told)
+                    except Exception:  # noqa: BLE001 — as before: nothing read after the capture
+                        blind = None
+                    if blind is not None and (blind.subj is not None or blind.objs):
+                        claims.append(blind)
+                continue
             if c.rel == "TAKE":
                 cap = _told_capture(c, t)
                 if cap is None:

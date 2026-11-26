@@ -575,13 +575,27 @@ class TestPaused:
         first = t.turn(RU)
         shown = first["puzzles"][0]
         pasted = t.turn(self.PASTED, fen="r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 6")
-        assert pasted["text"].startswith("Разминка прервана на задаче 1 из 5.\n\n")
-        assert "[Warm-up paused]" in t.message and "do not repeat it" in t.message
+        # The break is the answer's LAST line, the server's (26.11: it was the first — over an answer about a game).
+        assert not pasted["text"].startswith("Разминка")
+        assert pasted["text"].endswith("Разминка приостановлена на задаче 1 из 5 — напиши «дальше», чтобы вернуться к ней.")
+        assert "[Warm-up paused]" in t.message and "adds its own closing line" in t.message
         again = t.turn("А какой план у белых?", fen="r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 6")
-        assert "Разминка прервана" not in again["text"]
-        # Back at the warm-up: its next puzzle with its place.
+        assert "Разминка" not in again["text"]
+        # The student is back on the puzzle's own board and says «дальше»: theirs to skip — the next one.
         back = t.turn("дальше", fen=shown["fen"])
         assert back["text"].startswith("Задача 2 из 5.")
+
+    def test_дальше_brings_back_the_puzzle_left_unsolved(self):
+        """«…напиши «дальше», чтобы вернуться к ней» — and the fourth came, the third left unsolved (tester 26.11)."""
+        game = "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 6"
+        t = _Turns("end-turn-resume")
+        shown = t.turn(RU)["puzzles"][0]
+        t.turn(self.PASTED, fen=game)
+        back = t.turn("дальше", fen=game)   # the board still shows the game
+        assert back["text"].startswith("Задача 1 из 5.")
+        assert back["puzzles"][0]["puzzle_id"] == shown["puzzle_id"]
+        nxt = t.turn("дальше", fen=back["puzzles"][0]["fen"])   # on the puzzle now: theirs to skip
+        assert nxt["text"].startswith("Задача 2 из 5.")
 
     def test_a_question_on_the_puzzle_itself_is_no_break(self):
         t = _Turns("end-turn-not-paused")

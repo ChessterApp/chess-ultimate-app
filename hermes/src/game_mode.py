@@ -1058,6 +1058,41 @@ def student_eval_words(cp: int) -> str:
     return "The position is about equal now: say of neither side that it is better, ahead or has an advantage."
 
 
+def material_words(board: chess.Board, student: chess.Color) -> str:
+    """The material on *board* counted for the comment, from the student's side: who has what more, and what may
+    not be said of it.
+
+    The comment's model had the moves and the evaluation and told the material from the look of the last capture:
+    «ходом 6.Nxf3 ты вернул пешку» with two pawns lost and one taken — six pawns against seven on the board (tester
+    26.11). The count is the server's."""
+    from src.game_record import material
+    from src.position_facts import _units
+
+    m = material(board)
+    mine, theirs = ("white", "black") if student == chess.WHITE else ("black", "white")
+    head = f"Material on the board now, counted by the system: White {m['white']} points, Black {m['black']}."
+    more_mine, more_theirs = m["more"][mine], m["more"][theirs]
+    if not more_mine and not more_theirs:
+        return head + " The same pieces on both sides: the material is level."
+    bits = []
+    if more_theirs:
+        bits.append(f"you (the engine) have {_units(more_theirs)} more")
+    if more_mine:
+        bits.append(f"the student has {_units(more_mine)} more")
+    diff = (m["diff"] if student == chess.WHITE else -m["diff"])
+    line = head + " " + "; ".join(bits).capitalize() + "."
+    if diff < 0:
+        line += (f" The student is DOWN in material (by {-diff} point{'' if diff == -1 else 's'}): never say the "
+                 "material is equal or level, that a trade was even, or that the student has won a pawn or a piece "
+                 "back or regained it — a capture that takes one of two lost pawns leaves them a pawn down, and the "
+                 "comment says so when it speaks of material.")
+    elif diff > 0:
+        line += f" The student is UP in material (by {diff} point{'' if diff == 1 else 's'}): never say they are down or level."
+    else:
+        line += " Different pieces, the same count: do not call either side up in material."
+    return line
+
+
 def _did(board: chess.Board, move: chess.Move) -> str:
     """One move's part in the comment's facts: the move in words, what the moved piece attacks from its new square
     and, when it can be lost there, by what — the dangers only, a safe piece is not told as «not attacked»."""
@@ -1157,6 +1192,10 @@ def comment_prompt(board_rec: Board, locale: Optional[str], event: str = "move",
         if state.get("moves"):
             facts.append(f"Your reply on the board: {state['moves'][-1]}.")
         facts.extend(move_facts(state))
+        try:
+            facts.append(material_words(board, chess.WHITE if state.get("student_color") == "white" else chess.BLACK))
+        except Exception:  # noqa: BLE001 — a comment is never lost over its facts
+            logger.debug("material words failed", exc_info=True)
     if finished:
         facts.append(f"Result: {state.get('result')} ({state.get('termination')}), winner: {state.get('winner') or 'nobody'}.")
         bad = [a for a in (state.get("annotations") or []) if a.get("verdict") in ("mistake", "blunder")]

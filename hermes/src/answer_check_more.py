@@ -54,6 +54,7 @@ def more_issues(text: str, lowered: str, ctx: CheckContext, issues: list) -> lis
     out += _fail_open(plan_issues, lowered, ctx)
     out += _fail_open(_structure_issues, text, ctx)
     out += _fail_open(_material_word_issues, text, ctx)
+    out += _fail_open(_won_back_issues, text, ctx)
     return [i for i in out if i not in issues]
 
 
@@ -806,3 +807,52 @@ def _material_word_issues(text: str, ctx: CheckContext) -> list[str]:
         if have != n:
             out.append(f"{'White' if side else 'Black'} has {have} pawns (not {n})")
     return out
+
+
+# ── «ты вернул пешку» in a game comment with the student still down ───────────────────────────────────────────────
+# «Хорошо, ходом 6.Nxf3 ты вернул пешку и развил коня» after 4.e4 dxe4 5.f3 exf3 6.Nxf3: two pawns lost and one taken,
+# six pawns against seven on the board — «ребёнок решит, что материал равный» (tester 26.11). In a comment on the
+# student's move «вернул / отыграл / отбил пешку (фигуру, материал, качество)» says the loss is made good; it is not
+# while the board has the student down. A sentence that says so itself («…но ты всё ещё на пешку позади») stays, and
+# so does a wish, a condition or a denial. «Вернул коня на f3», «вернул коня в игру» is a piece's way back to a
+# square, not material.
+_WON_BACK = re.compile(
+    r"(?<![а-яёa-z])(?:вернул[аи]?|отыграл[аи]?|отбил[аи]?)\s+(?:себе\s+|назад\s+|обратно\s+|свою\s+|сво[её]\s+)*"
+    r"(?P<u>пешк[уи]|пешек|материал|фигуру|качество|(?:коня|слона|ладью|ферзя)(?!\s+(?:на|в|к|из|с|под|за)(?![а-яё])))"
+    r"|(?<![a-z])(?:won|got|gotten|win|wins)\s+(?:the\s+|a\s+|your\s+)?(?P<eu>pawn|piece|material|exchange)\s+back"
+    r"|(?<![a-z])(?:regained|won\s+back|got\s+back)\s+(?:the\s+|a\s+|your\s+)?(?P<eu2>pawn|piece|material|exchange)",
+    re.IGNORECASE)
+_WON_BACK_STILL = re.compile(
+    r"(?<![а-яёa-z])(?:но|хотя|однако|вс[её]\s+ещ[её]|пока|по-прежнему|меньше|позади|отста[её]\w*|не\s+хватает|минус|"
+    r"but|still|though|yet|down|behind|short)(?![а-яёa-z])", re.IGNORECASE)
+_WON_BACK_NOT = re.compile(
+    r"(?<![а-яёa-z])(?:не|нет|ни|если|когда|чтобы|чтоб|бы|можешь|сможешь|мог\w*|надо|нужно|стоит|попробуй|постарайся|"
+    r"хочешь|собираешься|как|if|when|to|could|would|can|should|try|not|never|how)(?![а-яёa-z])", re.IGNORECASE)
+
+
+def _won_back_issues(text: str, ctx: CheckContext) -> list[str]:
+    board = ctx.current
+    student = getattr(ctx, "student_color", None)
+    if board is None or student is None or getattr(ctx, "relation_surface", "text") != "game" or "?" in text:
+        return []
+    from src.game_record import material
+
+    m = material(board)
+    diff = m["diff"] if student == chess.WHITE else -m["diff"]
+    if diff >= 0:
+        return []
+    for found in _WON_BACK.finditer(text):
+        unit = (found.group("u") or found.group("eu") or found.group("eu2") or "").lower()
+        # «вернул фигуру» with a pawn still missing may well be true; down by the very thing «won back», it is not
+        worth = 3 if unit.startswith(("фигур", "кон", "слон", "piece")) else 5 if unit.startswith("ладь") else \
+            9 if unit.startswith("ферз") else 2 if unit.startswith(("качеств", "exchange")) else 1
+        if -diff < worth:
+            continue
+        cs = max(text.rfind(c, 0, found.start()) for c in ".;!\n") + 1
+        end = min([i for i in (text.find(c, found.end()) for c in ".;!\n") if i >= 0] or [len(text)])
+        clause = text[cs:end]
+        if _WON_BACK_STILL.search(clause) or _WON_BACK_NOT.search(text[cs:found.start()]):
+            continue
+        return [f"material on the board: White {m['white']}, Black {m['black']} — the student is still down by "
+                f"{-diff}: a capture took something, the loss is not won back"]
+    return []

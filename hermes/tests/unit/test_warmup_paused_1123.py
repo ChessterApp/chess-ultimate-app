@@ -67,4 +67,4 @@ def test_no_warm_up_or_one_over_is_never_paused():
 ])
 def test_the_line_is_the_servers_in_the_students_language(lang, line):
     assert warmup.paused_line({"n": 2, "of": 5}, lang) == line
-    assert "do not repeat it" in warmup.paused_note({"n": 2, "of": 5})
+    assert "adds its own closing line" in warmup.paused_note({"n": 2, "of": 5})  # the end of the answer (26.11)

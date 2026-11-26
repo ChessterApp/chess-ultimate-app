@@ -129,8 +129,47 @@ def judge_claim(claim: Claim, ctx: Any, state: dict) -> Optional[Verdict]:
 
     boards = claim_scene.boards_for(claim, ctx, state)
     if boards is None:
-        return None
+        return _never_reaches(claim)
     return claim_judge.decide(claim, boards, ctx)
+
+
+# «…король не может ответить взятием, потому что поле g4 защищено пешкой h6» (tester 26.11): the capture told in words
+# («взятием») left the claim with no board to be judged on, and it went out. A piece named on its square as what
+# guards, attacks or holds another square — in the passive, «защищено пешкой h6», a state and not a move of that
+# piece — is wrong on every board when the piece cannot reach the square from there at all: a pawn on h6 covers g5 or
+# g7, never g4; a knight on g1 never e5; a bishop never leaves its diagonals.
+_INSTRUMENTAL = re.compile(r"(?:пешкой|кон[её]м|слоном|ладь[её]й|ферз[её]м|корол[её]м)$", re.IGNORECASE)
+_PIECE_TYPE = {"P": chess.PAWN, "N": chess.KNIGHT, "B": chess.BISHOP, "R": chess.ROOK, "Q": chess.QUEEN, "K": chess.KING}
+
+
+def _never_reaches(claim: Claim) -> Optional[Verdict]:
+    """A verdict for a claim with no board of its own when its geometry is impossible anywhere, else None."""
+    s = claim.subj
+    if claim.rel not in ("attack", "defend", "hold") or claim.neg or claim.question or s is None or not s.sq \
+            or s.piece not in _PIECE_TYPE or s.pronoun or s.from_sq or claim.pos.tense != "present" \
+            or not _INSTRUMENTAL.search((s.text or "").strip()):
+        return None
+    try:
+        frm = chess.parse_square(s.sq)
+        targets = [chess.parse_square(o.sq) for o in claim.objs if o is not None and o.sq]
+    except ValueError:
+        return None
+    if not targets or len(targets) != len([o for o in claim.objs if o is not None]):
+        return None
+    kind = _PIECE_TYPE[s.piece]
+    empty = chess.Board(None)
+    reach = chess.SquareSet()
+    for colour in (chess.WHITE, chess.BLACK):
+        empty.set_piece_at(frm, chess.Piece(kind, colour))
+        reach |= empty.attacks(frm)
+    missed = [t for t in targets if t not in reach]
+    if not missed:
+        return None
+    name = chess.piece_name(kind)
+    return Verdict(status="false", where="on any board",
+                   truth=f"a {name} on {s.sq} never reaches {', '.join(chess.square_name(t) for t in missed)} — "
+                         f"the squares a {name} covers from {s.sq}: "
+                         + (", ".join(chess.square_name(t) for t in sorted(reach)[:8]) or "none"))
 
 
 def remember(text: str, claims: list[Claim], ctx: Any, state: dict) -> None:

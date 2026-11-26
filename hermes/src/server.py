@@ -996,9 +996,20 @@ def _puzzle_block(board) -> str:
     progress = ("not started — the student has not moved yet" if reached == 0
                 else f"the student is {reached} half-move(s) into it; next is {sans[reached]}" if reached < len(sans)
                 else "solved — the board shows the final position")
+    told = ""
+    try:  # what every move of the solution does on its own position: the reasons are the server's (26.11)
+        from src import puzzle_facts
+
+        lines = puzzle_facts.solution_facts(pz["fen"], solution)
+        if lines:
+            told = ("What each move of the solution does, on the position it is played in (the system's own facts):\n"
+                    + "\n".join(f"- {line}" for line in lines) + f"\n{puzzle_facts.RULE}\n")
+    except Exception:  # noqa: BLE001 — the block is told without them
+        logger.debug("puzzle facts failed", exc_info=True)
     return (
         "## The puzzle on the board (private — its solution)\n"
         f"{solver} to move in {pz['fen']}; solution: {' '.join(sans)}. Progress: {progress}.\n"
+        f"{told}"
         "A hint leads to THIS solution — the idea, the target or the piece first, never another move as the "
         "answer; say the whole solution only when the student asks for it or gives up. A move they propose is "
         "right only if it is the next move of this solution."
@@ -3544,7 +3555,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if warmup_paused:
                     from src import warmup
 
-                    _lead(warmup.paused_line(warmup_paused, turn_language))
+                    # Said by the server at the END of the answer (26.11; it was the first line until then).
+                    warmup.set_tail(session, warmup_paused)
                     warmup.note_paused_said(session)
                     message = f"{message}\n\n{warmup.paused_note(warmup_paused)}"
                 if puzzle_note:
@@ -4636,6 +4648,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         elif lead_shown:
             # The server's first line went out and the model's text came as one piece: the stored message has both.
             answer_text = "".join(lead_shown) + answer_text
+        try:  # a warm-up left in this turn: the server's closing line (src/warmup.tail_line, 26.11)
+            from src import warmup as _warmup_tail
+
+            tail = _warmup_tail.tail_line(session, answer_text, turn_language)
+        except Exception:  # noqa: BLE001 — bookkeeping never breaks a turn
+            tail = ""
+        if tail:
+            yield _sse({"delta": f"\n\n{tail}"})
+            answer_text = f"{answer_text.rstrip()}\n\n{tail}"
         response_text = f"{quick_text}\n\n{answer_text}" if quick_text else answer_text
 
         # Record real token usage for this turn (fire-and-forget; never blocks)

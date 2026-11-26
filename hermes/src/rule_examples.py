@@ -160,3 +160,73 @@ def topic(example: dict, locale: Optional[str] = "ru", show: bool = True) -> dic
     else:
         out["board_hint"] = WORDS_HINT
     return out
+
+
+# ── the rule asked about, and a lesson's diagram that shows something else (26.11) ────────────────────────────────
+# «Может ли пешка превратиться в короля?» was answered rightly — over a position with queens, a rook and two kings,
+# «на доске показан пример материального перевеса: у белых лишняя ладья» (tester 26.11): the site's lesson
+# «Превращение пешки — путь к победе» was open to the student, and its first diagram, which is about the extra rook,
+# went on the board. A question about a rule is answered on a board that shows the rule: when the position a tool is
+# about to show does not, the coach's own example goes up and the lesson is offered by its name.
+_WANTS_LESSON = re.compile(_W + r"(?:урок\w*|lesson\w*|сабақ\w*|курс\w*|course\w*|заняти\w*|программ\w*)", re.IGNORECASE)
+
+
+def shown_in(example: dict, fen: Optional[str]) -> bool:
+    """*fen* is a position where the rule of *example* can be seen: an en passant capture or a castling to play, a
+    pawn one step from promoting, a stalemate."""
+    try:
+        board = chess.Board(fen)
+    except (ValueError, TypeError):
+        return False
+    key = example["key"]
+    if key == "stalemate":
+        return board.is_stalemate()
+    for turn in (board.turn, not board.turn):
+        b = board.copy(stack=False)
+        if turn != board.turn:
+            if b.is_check():
+                continue
+            b.turn = turn
+            b.ep_square = None
+        for move in b.legal_moves:
+            if (key == "en_passant" and b.is_en_passant(move)) or (key == "castling" and b.is_castling(move)) \
+                    or (key == "promotion" and move.promotion):
+                return True
+    return False
+
+
+OVER_LESSON_HINT = (
+    " The student asked about the rule itself: this example is on the board INSTEAD of the lesson's own diagram, which "
+    "shows something else — never describe that other diagram. After the answer you may offer the lesson by its title."
+)
+
+
+def over(result, words: Optional[str], locale: Optional[str] = "ru", show: bool = True):
+    """*result* — a lesson's or a topic's, about to show a position — with the rule's own example in its place when
+    the student's *words* ask about a rule (not for a lesson) and that position does not show it. Else *result*."""
+    if not isinstance(result, dict) or result.get("source") == "rule_example" or result.get("locked"):
+        return result
+    example = for_words(words)
+    if not example or _WANTS_LESSON.search(words or ""):
+        return result
+    if isinstance(result.get("example"), dict) and result["example"].get("source") in ("knowledge_base", "endgame_theory"):
+        return result  # the base's own example for its topic («патовая ловушка») is chosen for that topic
+    actions = result.get("board_actions") if isinstance(result.get("board_actions"), list) else []
+    fen = next((a.get("fen") for a in actions if isinstance(a, dict) and a.get("type") in ("set_fen", "set_puzzle")
+                and a.get("fen")), None)
+    if fen is None and isinstance(result.get("example"), dict):
+        fen = result["example"].get("fen")
+    if not fen or shown_in(example, fen):
+        return result
+    own = topic(example, locale, show)
+    out = dict(result)
+    out["example"] = own["example"]
+    out["board_hint"] = own["board_hint"] + OVER_LESSON_HINT
+    if show:
+        out["board_actions"] = own["board_actions"]
+    else:
+        out.pop("board_actions", None)
+    # the lesson's own diagrams stay out of the answer: they are what was told by mistake
+    for key in ("diagrams", "diagrams_note", "board_puzzle"):
+        out.pop(key, None)
+    return out

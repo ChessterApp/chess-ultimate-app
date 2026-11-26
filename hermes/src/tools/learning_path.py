@@ -980,6 +980,13 @@ def _handle_get_lesson(args: dict, **kwargs) -> str:
             own = rule_examples.topic(rule, args.get("locale") or "ru", args.get("show") is not False and (not locked or hidden))
             result.update({k: own[k] for k in ("example", "board_actions", "board_hint") if k in own})
             result["note"] = LOCKED_RULE_NOTE
+    try:  # a question about a rule is answered on a board that shows the rule (src/rule_examples.over, 26.11)
+        from src import rule_examples as _rules
+
+        result = _rules.over(result, str(kwargs.get("student_message") or kwargs.get("utterance") or ""),
+                             args.get("locale") or "ru", args.get("show") is not False and (not locked or hidden))
+    except Exception:  # noqa: BLE001 — the lesson is told as it was
+        pass
     if locked and isinstance(result, dict):
         result.pop("board_actions", None)
         result["board_hint"] = HIDDEN_BOARD_NOTE if hidden else BOARD_KEPT_NOTE

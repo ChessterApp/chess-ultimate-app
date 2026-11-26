@@ -644,6 +644,20 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
                 return json.dumps(result, indent=2, ensure_ascii=False)
     # The next puzzle asked for after the LAST one of a warm-up — «дальше», the puzzle panel's button (it sends the
     # plain request): the warm-up is over, no puzzle goes up (18.11; the tester got a sixth and a seventh).
+    # «Дальше» after the warm-up's puzzle was left unsolved for something else (an example over it, a pasted game):
+    # that puzzle again, from its start — «напиши «дальше», чтобы вернуться к ней» is kept (tester 26.11: the next
+    # one came and the third stayed unsolved).
+    if session is not None and plain and not warm_asked:
+        back = warmup.resume(session)
+        if back:
+            warmup.put_up(session, back.get("puzzle_id"), back.get("fen"))
+            result = queued_puzzle_result(back, len(session.puzzle_queue),
+                                          place=warmup.place_of(session, back.get("puzzle_id")))
+            result["resumed"] = True
+            result["how_to_show"] = ("This is the puzzle of the warm-up the student left unsolved — it is back on the "
+                                     "board from its start. " + result["how_to_show"])
+            return json.dumps(warmup.remember(session, words, result, kwargs.get("caller")), indent=2,
+                              ensure_ascii=False)
     if session is not None and plain and not warm_asked:
         over = warmup.over_result(session, words, kwargs.get("caller"))
         if over:
