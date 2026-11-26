@@ -6,6 +6,7 @@ import { RotateCcw } from 'lucide-react';
 import type { Key } from 'chessground/types';
 import type { ReviewMomentsSummary } from '@/lib/coach/tool-summary';
 import {
+  canReveal,
   currentMoment,
   initialMomentsFlow,
   momentsBoard,
@@ -106,8 +107,18 @@ export default function MomentsFlow({ controls, onAsk, onExit }: MomentsFlowProp
   const n = state.step.index + 1;
   const checked = state.checked;
   let feedback: StepFeedback | null = null;
-  if (checked) {
-    // Correct: the better move, and why not the game's. Wrong: the student's move, and why not it.
+  if (checked && !checked.correct && !state.revealed) {
+    // A miss says only that it is one; the better move stays the student's to find. After the second miss «Показать
+    // ход» is on offer (tester 26.11: the answer and its arrow came with the first miss, over «Попробовать ещё»).
+    feedback = {
+      san: numberedMove(moment, checked.move.san),
+      explanation: t('momentsTryAgainNote'),
+      followUp: canReveal(state)
+        ? { label: t('momentsShowMove'), message: '', action: () => send({ type: 'reveal' }) }
+        : undefined,
+    };
+  } else if (checked) {
+    // Correct: the better move, and why not the game's. Wrong and revealed: the student's move, and why not it.
     const whyNot = checked.correct ? moment.played : checked.move.san;
     feedback = {
       san: numberedMove(moment, checked.correct ? moment.best : checked.move.san),

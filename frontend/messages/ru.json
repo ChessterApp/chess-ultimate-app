@@ -2295,6 +2295,8 @@
     "momentsAskMessage": "Объясни момент {n} ({move})",
     "momentsWhyNotChip": "Почему не {move}?",
     "momentsWhyNotMessage": "Почему в моменте {n} ход {move} хуже, чем {best}?",
+    "momentsShowMove": "Показать ход",
+    "momentsTryAgainNote": "Есть ход сильнее — попробуй ещё.",
     "momentsDoneTitle": "Разбор окончен",
     "momentsDoneScore": "С первой попытки: {found} из {total}",
     "momentsDoneBack": "Вернуться в чат",

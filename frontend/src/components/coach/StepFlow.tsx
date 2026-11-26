@@ -13,8 +13,8 @@ export interface StepFeedback {
   motif?: string;
   /** XP earned; the chip shows only when the XP is really credited. */
   xp?: number;
-  /** A question chip that goes to the chat. */
-  followUp?: { label: string; message: string };
+  /** A question chip that goes to the chat — or, with `action`, does that instead (the review's «Показать ход»). */
+  followUp?: { label: string; message: string; action?: () => void };
 }
 
 interface StepFlowProps {
@@ -226,7 +226,7 @@ function FeedbackPanel({
           {feedback.followUp && onFollowUp && (
             <button
               type="button"
-              onClick={() => onFollowUp(feedback.followUp!.message)}
+              onClick={() => (feedback.followUp!.action ? feedback.followUp!.action() : onFollowUp(feedback.followUp!.message))}
               className={`flex min-h-11 items-center gap-1.5 rounded-full border border-(--coach-border) px-3 text-(--coach-text) transition-colors hover:bg-white/5 active:bg-white/10 ${focusRing}`}
             >
               <MessageCircle size={14} aria-hidden />

@@ -32,6 +32,12 @@ export interface MomentsFlowState {
   checked: { move: MomentMove; correct: boolean } | null;
   /** «Подсказка» was used on this moment: the better move's square is lit. */
   hint: boolean;
+  /**
+   * «Показать ход» was pressed on this moment: the better move is drawn and told. Until then a wrong answer says
+   * only that it is wrong — the first miss showed «Сильнее 31.Be2» with its arrow over «Попробовать ещё», and there
+   * was nothing left to try (tester 26.11). As in a puzzle, the answer is one tap away after the second miss.
+   */
+  revealed: boolean;
   /** Moments found on the first try. */
   firstTry: number;
 }
@@ -43,10 +49,19 @@ export type MomentsFlowEvent =
   | { type: 'retry' }
   | { type: 'next' }
   | { type: 'hint' }
+  | { type: 'reveal' }
   | { type: 'restart'; moments: ReviewMoment[] };
 
+/** Wrong answers on a moment before «Показать ход» is offered (the puzzle panel's SHOW_SOLUTION_AFTER). */
+export const SHOW_MOVE_AFTER = 2;
+
+/** «Показать ход» is on offer: the moment was missed often enough and its answer is not shown yet. */
+export function canReveal(state: MomentsFlowState): boolean {
+  return state.step.phase === 'wrong' && !state.revealed && state.step.attempts >= SHOW_MOVE_AFTER;
+}
+
 export function initialMomentsFlow(moments: ReviewMoment[] = []): MomentsFlowState {
-  return { moments, step: initialStepFlow(moments.length), pending: null, checked: null, hint: false, firstTry: 0 };
+  return { moments, step: initialStepFlow(moments.length), pending: null, checked: null, hint: false, revealed: false, firstTry: 0 };
 }
 
 export function currentMoment(state: MomentsFlowState): ReviewMoment | null {
@@ -94,7 +109,7 @@ export function momentsFlow(state: MomentsFlowState, event: MomentsFlowEvent): M
       return {
         ...state,
         step,
-        // A correct move stays on the board; a wrong one is taken back and the better move drawn.
+        // A correct move stays on the board; a wrong one is taken back (the better move is drawn once revealed).
         pending: correct ? state.pending : null,
         checked: { move: state.pending, correct },
         firstTry: state.firstTry + (correct && step.attempts === 1 && !state.hint ? 1 : 0),
@@ -104,10 +119,12 @@ export function momentsFlow(state: MomentsFlowState, event: MomentsFlowEvent): M
       return phase === 'wrong' ? { ...state, checked: null, step: stepFlow(state.step, { type: 'retry' }) } : state;
     case 'next': {
       if (phase !== 'correct') return state;
-      return { ...state, step: stepFlow(state.step, { type: 'next' }), pending: null, checked: null, hint: false };
+      return { ...state, step: stepFlow(state.step, { type: 'next' }), pending: null, checked: null, hint: false, revealed: false };
     }
     case 'hint':
       return moment && (phase === 'idle' || phase === 'moved') ? { ...state, hint: true } : state;
+    case 'reveal':
+      return canReveal(state) ? { ...state, revealed: true } : state;
     case 'restart':
       return initialMomentsFlow(event.moments);
   }
@@ -115,7 +132,7 @@ export function momentsFlow(state: MomentsFlowState, event: MomentsFlowEvent): M
 
 export interface MomentsBoard {
   fen: string;
-  /** The better move as a green arrow after a wrong answer. */
+  /** The better move as a green arrow, once «Показать ход» revealed it. */
   arrows: Array<{ from: string; to: string; brush: string }>;
   /** The better move's square after «Подсказка». */
   highlights: string[];
@@ -133,7 +150,7 @@ export function momentsBoard(state: MomentsFlowState): MomentsBoard | null {
   const { phase } = state.step;
   return {
     fen: state.pending?.fen ?? moment.fen,
-    arrows: phase === 'wrong' ? [{ from: best.from, to: best.to, brush: 'green' }] : [],
+    arrows: phase === 'wrong' && state.revealed ? [{ from: best.from, to: best.to, brush: 'green' }] : [],
     highlights: state.hint && (phase === 'idle' || phase === 'moved') ? [best.from] : [],
     movable: phase === 'idle',
     orientation: moment.fen.split(' ')[1] === 'b' ? 'black' : 'white',

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  canReveal,
   currentMoment,
   initialMomentsFlow,
   isBestMove,
@@ -85,21 +86,31 @@ describe('momentsFlow', () => {
     expect(momentsBoard(next)).toMatchObject({ fen: HANGING.fen, orientation: 'black', movable: true });
   });
 
-  it('a wrong move: red, taken back, the better move drawn; retry, then no first-try credit', () => {
+  it('a wrong move: red, taken back, the better move NOT shown; retry, then no first-try credit', () => {
     const s = run([play('e1', 'd2'), { type: 'check' }]);
     expect(s.step.phase).toBe('wrong');
     expect(s.checked).toMatchObject({ correct: false, move: { san: 'Kd2' } });
-    expect(momentsBoard(s)).toEqual({
-      fen: FORK.fen,
-      arrows: [{ from: 'b5', to: 'c7', brush: 'green' }],
-      highlights: [],
-      movable: false,
-      orientation: 'white',
-    });
+    // The first miss says only that it is one (tester 26.11: the answer and its arrow came with it).
+    expect(momentsBoard(s)).toEqual({ fen: FORK.fen, arrows: [], highlights: [], movable: false, orientation: 'white' });
+    expect(canReveal(s)).toBe(false);
+    expect(momentsFlow(s, { type: 'reveal' })).toBe(s);
     expect(momentsFlow(s, { type: 'next' })).toBe(s); // a wrong answer is not skipped
     const again = run([{ type: 'retry' }, play('b5', 'c7'), { type: 'check' }], s);
     expect(again.step).toMatchObject({ phase: 'correct', attempts: 2 });
     expect(again.firstTry).toBe(0);
+  });
+
+  it('after the second miss «Показать ход» draws the better move; the next moment starts hidden again', () => {
+    const twice = run([play('e1', 'd2'), { type: 'check' }, { type: 'retry' }, play('e1', 'f1'), { type: 'check' }]);
+    expect(twice.step).toMatchObject({ phase: 'wrong', attempts: 2 });
+    expect(momentsBoard(twice)?.arrows).toEqual([]);
+    expect(canReveal(twice)).toBe(true);
+    const shown = momentsFlow(twice, { type: 'reveal' });
+    expect(shown.revealed).toBe(true);
+    expect(canReveal(shown)).toBe(false);
+    expect(momentsBoard(shown)?.arrows).toEqual([{ from: 'b5', to: 'c7', brush: 'green' }]);
+    const solved = run([{ type: 'retry' }, play('b5', 'c7'), { type: 'check' }, { type: 'next' }], shown);
+    expect(solved.revealed).toBe(false);
   });
 
   it('«Подсказка» lights the better move’s square, and a hinted answer is not first-try', () => {

@@ -77,21 +77,41 @@ describe('MomentsFlow', () => {
     expect(onAsk).toHaveBeenCalledWith('Explain moment 1 (13.Ke2)');
   });
 
-  it('a wrong move: red panel with the student’s move, the better move drawn, a «why not» chip, retry', () => {
+  it('a wrong move: red panel with the student’s move and nothing of the answer; retry', () => {
     const onAsk = vi.fn();
     render(<Harness onAsk={onAsk} onExit={vi.fn()} />);
     fireEvent.click(screen.getByText('board-wrong'));
     fireEvent.click(screen.getByRole('button', { name: coach.stepCheck }));
     const panel = screen.getByTestId('step-feedback');
     expect(panel.textContent).toContain(`${coach.stepWrong} 13.Kd2`);
+    expect(panel.textContent).toContain(coach.momentsTryAgainNote);
+    // The first miss: no better move, no arrow, no chip that names it (tester 26.11).
+    expect(panel.textContent).not.toContain('Nc7');
+    expect(JSON.parse(board().dataset.arrows!)).toEqual([]);
+    expect(screen.queryByRole('button', { name: coach.momentsShowMove })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Why not 13.Kd2?' })).toBeNull();
+    expect(board().dataset.fen).toBe(REVIEW.moments[0].fen);
+    fireEvent.click(screen.getByRole('button', { name: coach.stepRetry }));
+    expect(screen.queryByTestId('step-feedback')).toBeNull();
+  });
+
+  it('the second miss offers «Показать ход»: the better move drawn and told, the «why not» chip', () => {
+    const onAsk = vi.fn();
+    render(<Harness onAsk={onAsk} onExit={vi.fn()} />);
+    for (let i = 0; i < 2; i += 1) {
+      fireEvent.click(screen.getByText('board-wrong'));
+      fireEvent.click(screen.getByRole('button', { name: coach.stepCheck }));
+      if (i === 0) fireEvent.click(screen.getByRole('button', { name: coach.stepRetry }));
+    }
+    expect(JSON.parse(board().dataset.arrows!)).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: coach.momentsShowMove }));
+    expect(onAsk).not.toHaveBeenCalled(); // shown on the board, not asked in the chat
+    const panel = screen.getByTestId('step-feedback');
     expect(panel.textContent).toContain('Better was 13.Nc7+');
     expect(panel.textContent).toContain(coach.motifFork);
     expect(JSON.parse(board().dataset.arrows!)).toEqual([{ from: 'b5', to: 'c7', brush: 'green' }]);
-    expect(board().dataset.fen).toBe(REVIEW.moments[0].fen);
     fireEvent.click(screen.getByRole('button', { name: 'Why not 13.Kd2?' }));
     expect(onAsk).toHaveBeenCalledWith('In moment 1, why is 13.Kd2 worse than 13.Nc7+?');
-    fireEvent.click(screen.getByRole('button', { name: coach.stepRetry }));
-    expect(screen.queryByTestId('step-feedback')).toBeNull();
   });
 
   it('a correct move: green panel, no XP while none is credited, then the next moment', () => {

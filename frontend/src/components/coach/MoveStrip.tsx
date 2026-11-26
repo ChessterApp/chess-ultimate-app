@@ -11,6 +11,11 @@ interface MoveStripProps {
   onJump: (index: number) => void;
   onPrev: () => void;
   onNext: () => void;
+  /**
+   * The board is not the strip's to move (a step-by-step review shows its own position): the strip only says where
+   * that position is in the game — the arrows are off and a tap on a move does nothing.
+   */
+  locked?: boolean;
 }
 
 const navButton =
@@ -20,7 +25,7 @@ const navButton =
  * The 36px strip under the full-bleed board on phones: the game's moves in one
  * sideways-scrolling line (tap to jump, the current one highlighted) and ‹ ›.
  */
-export default function MoveStrip({ moves, currentIndex, onJump, onPrev, onNext }: MoveStripProps) {
+export default function MoveStrip({ moves, currentIndex, onJump, onPrev, onNext, locked = false }: MoveStripProps) {
   const t = useTranslations('coach');
   const activeRef = useRef<HTMLButtonElement>(null);
 
@@ -38,7 +43,7 @@ export default function MoveStrip({ moves, currentIndex, onJump, onPrev, onNext 
             <button
               ref={i === currentIndex ? activeRef : undefined}
               type="button"
-              onClick={() => onJump(i)}
+              onClick={() => { if (!locked) onJump(i); }}
               aria-current={i === currentIndex}
               className={`h-7 shrink-0 rounded-[7px] px-[7px] text-sm tabular-nums transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-(--coach-accent) ${
                 i === currentIndex ? 'bg-(--coach-surface-2) font-semibold text-(--coach-text)' : 'text-(--coach-muted) hover:text-(--coach-text)'
@@ -49,13 +54,13 @@ export default function MoveStrip({ moves, currentIndex, onJump, onPrev, onNext 
           </React.Fragment>
         ))}
       </nav>
-      <button type="button" onClick={onPrev} disabled={currentIndex < 0} aria-label={t('previousMove')} className={navButton}>
+      <button type="button" onClick={onPrev} disabled={locked || currentIndex < 0} aria-label={t('previousMove')} className={navButton}>
         <ChevronLeft size={18} aria-hidden />
       </button>
       <button
         type="button"
         onClick={onNext}
-        disabled={currentIndex >= moves.length - 1}
+        disabled={locked || currentIndex >= moves.length - 1}
         aria-label={t('nextMove')}
         className={navButton}
       >

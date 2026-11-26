@@ -27,6 +27,7 @@ import GameNotation from '@/components/coach/GameNotation';
 import PlaySetupSheet from '@/components/coach/PlaySetupSheet';
 import PuzzleFlow, { usePuzzleStep } from '@/components/coach/PuzzleFlow';
 import MomentsFlow, { useMomentsFlow } from '@/components/coach/MomentsFlow';
+import { currentMoment } from '@/lib/coach/moments-flow';
 import type { ReviewMomentsSummary } from '@/lib/coach/tool-summary';
 import { VerdictBadge, VerdictToast } from '@/components/coach/VerdictBadge';
 import ViewerTabsSheet from '@/components/coach/ViewerTabsSheet';
@@ -344,6 +345,12 @@ export default function CoachPage() {
         board.applyBoardActions(allowed);
         setActiveGameId(null);
         if (live) return;
+        // Another game on the board, or a position the student put there themselves (a photo, a pasted FEN — no
+        // board_id): a step-by-step review that was on is over, its board and panel would hide what was just loaded
+        // («Распознал позицию с фото и поставил на доску» under the review's own position, tester 26.11).
+        if (forStudy.some((a) => a.type === 'load_pgn' || (a.type === 'set_fen' && !a.board_id))) {
+          dispatchMode({ type: 'moments_ended' });
+        }
         // Actions the coach produced arrive stamped with board_id and are
         // already applied to the server board; a pasted PGN / FEN (no id)
         // must be persisted from here or a reload would lose the game.
@@ -1064,6 +1071,13 @@ export default function CoachPage() {
   })();
 
   const momentBoard = momentsOn ? moments.board : null;
+  // The review's moment in the game's own notation: the move before it is the one lit. The strip kept the study
+  // board's own place — the game's last move, 42...Qxa3#, over the board of move 31 (tester 26.11). -2: none lit
+  // (the review of another game than the one in the strip).
+  const reviewMoment = momentsOn ? currentMoment(moments.state) : null;
+  const momentIndex = reviewMoment
+    ? (studyMoves[reviewMoment.ply - 1] === reviewMoment.played ? reviewMoment.ply - 2 : -2)
+    : null;
   const studyBoard = (
     <CoachBoard
       resetKey={boardResetKey}
@@ -1243,7 +1257,9 @@ export default function CoachPage() {
     let belowBoard: React.ReactNode = (
       <MoveStrip
         moves={studyMoves}
-        currentIndex={board.moveIndex - 1}
+        currentIndex={momentIndex ?? board.moveIndex - 1}
+        // In a review the board is the moment's: the strip shows where it is and does not walk the game under it.
+        locked={momentIndex !== null}
         onJump={(i) => board.goToMove(i + 1)}
         onPrev={board.prevMove}
         onNext={board.nextMove}

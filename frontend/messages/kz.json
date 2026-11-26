@@ -2295,6 +2295,8 @@
     "momentsAskMessage": "{n}-сәтті түсіндірші ({move})",
     "momentsWhyNotChip": "Неге {move} емес?",
     "momentsWhyNotMessage": "{n}-сәтте {move} жүрісі неге {best} жүрісінен нашар?",
+    "momentsShowMove": "Жүрісті көрсету",
+    "momentsTryAgainNote": "Одан күшті жүріс бар — тағы байқап көр.",
     "momentsDoneTitle": "Талдау аяқталды",
     "momentsDoneScore": "Бірінші әрекеттен: {total} ішінен {found}",
     "momentsDoneBack": "Чатқа оралу",

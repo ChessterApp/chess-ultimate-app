@@ -2295,6 +2295,8 @@
     "momentsAskMessage": "Explain moment {n} ({move})",
     "momentsWhyNotChip": "Why not {move}?",
     "momentsWhyNotMessage": "In moment {n}, why is {move} worse than {best}?",
+    "momentsShowMove": "Show the move",
+    "momentsTryAgainNote": "There is a stronger move — try again.",
     "momentsDoneTitle": "Review complete",
     "momentsDoneScore": "Found on the first try: {found} of {total}",
     "momentsDoneBack": "Back to chat",
