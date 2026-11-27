@@ -67,6 +67,12 @@ function validInviteJwt(): string {
   return `${b64url({ alg: 'HS256' })}.${b64url({ exp, first_name: 'Shokan' })}.sig`;
 }
 
+/** An invite JWT whose exp is `secondsAgo` in the past by this device's clock. */
+function inviteJwtExpiredAgo(secondsAgo: number): string {
+  const exp = Math.floor(Date.now() / 1000) - secondsAgo;
+  return `${b64url({ alg: 'HS256' })}.${b64url({ exp, first_name: 'Saken' })}.sig`;
+}
+
 beforeEach(() => {
   cleanup();
   routerReplace.mockReset();
@@ -170,5 +176,54 @@ describe('Sign-up bare-registration guard', () => {
       expect(screen.getByTestId('clerk-signup')).toBeTruthy(),
     );
     expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it('white-label + fresh invite in the link, device clock hours fast → proceeds', async () => {
+    // A 60-min invite issued seconds ago looks 2h expired on a device whose
+    // clock is 3h ahead. The server re-verifies exp, so the page must not
+    // bounce on the device's clock alone.
+    orgState.isWhiteLabel = true;
+    orgState.slug = 'chess-empire';
+    searchState.invite = inviteJwtExpiredAgo(2 * 3600);
+
+    render(<SignUpPage />);
+
+    expect(screen.getByTestId('clerk-signup')).toBeTruthy();
+    expect(routerReplace).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(sessionStorage.getItem(CE_INVITE_JWT_STORAGE_KEY)).toBe(
+        searchState.invite,
+      ),
+    );
+  });
+
+  it('white-label + invite in the link expired days ago → redirects', async () => {
+    orgState.isWhiteLabel = true;
+    orgState.slug = 'chess-empire';
+    sessionStorage.setItem(CE_WELCOME_URL_STORAGE_KEY, '/welcome/tok-abc');
+    searchState.invite = inviteJwtExpiredAgo(2 * 24 * 3600);
+
+    render(<SignUpPage />);
+
+    await waitFor(() =>
+      expect(routerReplace).toHaveBeenCalledWith('/welcome/tok-abc'),
+    );
+    expect(screen.queryByTestId('clerk-signup')).toBeNull();
+  });
+
+  it('white-label + no invite query, stored invite expired hours ago → still redirects', async () => {
+    // The grace is for a link that just arrived; a copy left in storage from an
+    // earlier visit is checked strictly so a returning user gets a fresh invite.
+    orgState.isWhiteLabel = true;
+    orgState.slug = 'chess-empire';
+    sessionStorage.setItem(CE_WELCOME_URL_STORAGE_KEY, '/welcome/tok-abc');
+    localStorage.setItem(CE_INVITE_JWT_STORAGE_KEY, inviteJwtExpiredAgo(2 * 3600));
+
+    render(<SignUpPage />);
+
+    await waitFor(() =>
+      expect(routerReplace).toHaveBeenCalledWith('/welcome/tok-abc'),
+    );
+    expect(screen.queryByTestId('clerk-signup')).toBeNull();
   });
 });

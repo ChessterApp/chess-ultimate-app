@@ -26,8 +26,13 @@ interface InvitePreview {
  * the first name for a warm "Welcome <Name>" greeting and to check `exp`.
  * The webhook re-verifies the signature server-side — never trust this for
  * any auth-relevant decision.
+ *
+ * `graceSeconds` widens the `exp` check to absorb a wrong device clock: the
+ * comparison uses `Date.now()`, so a device running an hour or more fast sees a
+ * just-issued invite as already expired and bounces the student back to the
+ * welcome search in a loop. The server enforces the real `exp` on claim.
  */
-function previewInvite(jwt: string | null): InvitePreview | null {
+function previewInvite(jwt: string | null, graceSeconds = 0): InvitePreview | null {
   if (!jwt) return null
   const parts = jwt.split('.')
   if (parts.length !== 3) return null
@@ -43,12 +48,20 @@ function previewInvite(jwt: string | null): InvitePreview | null {
     const now = Math.floor(Date.now() / 1000)
     return {
       firstName: claims.first_name ?? claims.student_first_name ?? null,
-      expired: typeof claims.exp === 'number' && claims.exp < now,
+      expired: typeof claims.exp === 'number' && claims.exp + graceSeconds < now,
     }
   } catch {
     return null
   }
 }
+
+/**
+ * Clock-skew grace for an invite that just arrived in the `?invite=` link from
+ * the welcome flow. Covers a wrong time zone or a clock off by up to a day. A
+ * copy replayed from storage gets no grace — it may be left over from an
+ * earlier visit, and a returning student should be sent for a fresh invite.
+ */
+const LINK_INVITE_CLOCK_GRACE_SECONDS = 24 * 60 * 60
 
 export default function SignUpPage() {
   const t = useTranslations()
@@ -67,7 +80,14 @@ export default function SignUpPage() {
   // so first paint uses the query param and matches the server render.
   const [storedInviteJwt, setStoredInviteJwt] = useState<string | null>(null)
   const inviteJwt = queryInviteJwt ?? storedInviteJwt
-  const invite = useMemo(() => previewInvite(inviteJwt), [inviteJwt])
+  const invite = useMemo(
+    () =>
+      previewInvite(
+        inviteJwt,
+        queryInviteJwt ? LINK_INVITE_CLOCK_GRACE_SECONDS : 0,
+      ),
+    [inviteJwt, queryInviteJwt],
+  )
   const isChessEmpire = org?.slug === 'chess-empire'
   const hasValidInvite = !!inviteJwt && invite !== null && !invite.expired
 
@@ -96,7 +116,10 @@ export default function SignUpPage() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setStoredInviteJwt(effectiveJwt)
     }
-    const preview = previewInvite(effectiveJwt)
+    const preview = previewInvite(
+      effectiveJwt,
+      queryInviteJwt ? LINK_INVITE_CLOCK_GRACE_SECONDS : 0,
+    )
     const effectiveHasValidInvite =
       !!effectiveJwt && preview !== null && !preview.expired
     const decision = computeSignupGuard({
