@@ -19,6 +19,8 @@ vi.mock('next-intl', () => ({
 // The auth-variant LanguageSwitcher imports the setLocale server action, which
 // pulls in next/headers — stub it so the page renders in jsdom.
 vi.mock('@/app/actions/setLocale', () => ({ setLocale: vi.fn() }));
+// …and it refreshes the route through the app router.
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 // Mock next/image so we don't hit Next's resolver in tests.
 vi.mock('next/image', () => ({

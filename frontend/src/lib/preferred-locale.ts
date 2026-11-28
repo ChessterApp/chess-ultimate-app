@@ -5,7 +5,7 @@ type ClerkUserLike = {
   update: (params: { unsafeMetadata: Record<string, unknown> }) => Promise<unknown>;
 };
 
-/** Cap on how long a locale switch waits for the Clerk write before reloading. */
+/** Cap on how long the Clerk write is awaited before the promise settles anyway. */
 export const PERSIST_WAIT_MS = 1000;
 
 /**
@@ -13,8 +13,7 @@ export const PERSIST_WAIT_MS = 1000;
  * `unsafeMetadata` (so emails can use it later). Reads the user from the
  * global `window.Clerk` instead of `useUser()` so the switcher keeps working
  * outside a ClerkProvider. Never rejects and resolves within PERSIST_WAIT_MS,
- * so the caller can await it before reloading without blocking the switch —
- * a reload would otherwise abort the in-flight request.
+ * so callers can fire it without awaiting or handling errors.
  */
 export function persistPreferredLocale(locale: Locale): Promise<void> {
   if (typeof window === 'undefined') return Promise.resolve();

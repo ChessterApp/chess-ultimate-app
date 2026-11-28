@@ -10,7 +10,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useTranslations, useLocale } from 'next-intl';
+import { useTranslations } from 'next-intl';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { TUG_LEVELS, TUG_THEMES, type TugLevel } from '@/lib/tug-of-war/prefetch';
 import { BOT_CALIBRATION, BOT_LEVELS, type BotLevel, type BotLevelId } from '@/lib/tug-of-war/bot';
@@ -46,7 +46,6 @@ export default function SetupScreen({
   initialBot = null,
 }: SetupScreenProps) {
   const t = useTranslations('tugOfWar');
-  const locale = useLocale();
   const [teamA, setTeamA] = useState(initialTeamA);
   const [teamB, setTeamB] = useState(initialTeamB);
   const [level, setLevel] = useState<TugLevel>('knight');
@@ -89,7 +88,7 @@ export default function SetupScreen({
   return (
     <div className="relative mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-8 px-6 py-10 text-white">
       <LanguageSwitcher
-        currentLocale={locale}
+       
         variant="minimal"
         className="absolute right-4 top-4 z-50 [&_button]:text-white/80 [&_button]:hover:bg-white/10 [&_button]:hover:text-white"
       />

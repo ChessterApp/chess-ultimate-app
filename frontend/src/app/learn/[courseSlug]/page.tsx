@@ -61,7 +61,6 @@ export default function CoursePage() {
   const params = useParams()
   const courseSlug = params?.courseSlug as string
   const { getToken, isLoaded, isSignedIn } = useAuth()
-  const [authError, setAuthError] = useState<string | null>(null)
   const t = useTranslations()
   const locale = useLocale()
   const { showToast } = useToast()
@@ -122,15 +121,6 @@ export default function CoursePage() {
     return () => { cancelled = true }
   }, [courseSlug, isLoaded, isSignedIn, locale, getToken, showToast, data, mutate])
 
-  // Handle auth state changes
-  useEffect(() => {
-    if (isLoaded && !isSignedIn) {
-      setAuthError(t('course.signInRequired'))
-    } else {
-      setAuthError(null)
-    }
-  }, [isLoaded, isSignedIn])
-
   const isLessonUnlocked = (lesson: Lesson): boolean => {
     if (!lesson.requires_lesson_id) return true
     const requiredProgress = data?.progress[lesson.requires_lesson_id]
@@ -142,12 +132,12 @@ export default function CoursePage() {
     return <LoadingScreen isVisible={true} />
   }
 
-  if (authError || !isSignedIn) {
+  if (!isSignedIn) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="text-xl text-red-500 mb-4">
-            {authError || t('course.signInRequired')}
+            {t('course.signInRequired')}
           </div>
           <SignInButton mode="modal">
             <button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded transition-colors">

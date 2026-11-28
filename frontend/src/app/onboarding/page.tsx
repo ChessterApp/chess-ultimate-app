@@ -69,7 +69,6 @@ function readStoredAnswers(): any | null {
 export default function OnboardingPage() {
   const t = useTranslations("onboarding");
   const router = useRouter();
-  const locale = useLocale();
   const { gameData, fetchGames, isLoading } = useGameData();
   const [step, setStep] = useState(1);
   const [direction, setDirection] = useState<"forward" | "back">("forward");
@@ -272,7 +271,7 @@ export default function OnboardingPage() {
     <div className="min-h-screen flex flex-col overflow-hidden">
       {/* Language switcher */}
       <div className="fixed top-12 right-6 z-50">
-        <LanguageSwitcher currentLocale={locale} variant="minimal" className="[&_button]:text-white/80 [&_button]:hover:text-white [&_button]:hover:bg-white/10" />
+        <LanguageSwitcher variant="minimal" className="[&_button]:text-white/80 [&_button]:hover:text-white [&_button]:hover:bg-white/10" />
       </div>
 
       {/* Segmented progress bar */}

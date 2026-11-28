@@ -80,7 +80,7 @@ export default function PuzzleSequence({
   const [totalCount, setTotalCount] = useState(0)
   const [completedCount, setCompletedCount] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState(false)
   const [allComplete, setAllComplete] = useState(false)
   const [justSolved, setJustSolved] = useState(false)
   const [resetting, setResetting] = useState(false)
@@ -131,7 +131,7 @@ export default function PuzzleSequence({
           showToast('Request timed out — try again', 'error')
         }
       }
-      setError(t('noPuzzles'))
+      setError(true)
     } finally {
       setLoading(false)
     }
@@ -287,7 +287,7 @@ export default function PuzzleSequence({
   if (error || !currentPuzzle) {
     return (
       <div className="text-center py-8 text-gray-500">
-        {error || t('noPuzzles')}
+        {t('noPuzzles')}
       </div>
     )
   }

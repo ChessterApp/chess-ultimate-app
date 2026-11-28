@@ -142,7 +142,7 @@ function ApexHomePage() {
           </div>
 
           {/* Language/Settings button (Duolingo-style) */}
-          <LanguageSwitcher currentLocale={locale} variant="minimal" />
+          <LanguageSwitcher variant="minimal" />
         </div>
       </header>
 

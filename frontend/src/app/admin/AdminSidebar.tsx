@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
-import { useLocale, useTranslations } from 'next-intl';
+import { useTranslations } from 'next-intl';
 import { useBranding } from '@/contexts/OrganizationContext';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 
@@ -41,7 +41,6 @@ export default function AdminSidebar({ currentRole, mobileOpen = false, onClose 
   const pathname = usePathname();
   const branding = useBranding();
   const t = useTranslations('adminNav');
-  const locale = useLocale();
 
   const visibleItems = NAV_ITEMS.filter(item => item.roles.includes(currentRole));
 
@@ -98,7 +97,7 @@ export default function AdminSidebar({ currentRole, mobileOpen = false, onClose 
         })}
 
         <div className="pt-3 mt-3 border-t border-gray-200 dark:border-gray-700 space-y-1">
-          <LanguageSwitcher currentLocale={locale} variant="minimal" />
+          <LanguageSwitcher variant="minimal" />
           <Link
             href="/dashboard"
             onClick={onClose}

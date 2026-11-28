@@ -1,25 +1,30 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { useLocale } from 'next-intl'
 import { locales, localeNames, localeFlags, type Locale } from '@/i18n/config'
 import { setLocale } from '@/app/actions/setLocale'
 import { persistPreferredLocale } from '@/lib/preferred-locale'
 import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events'
 
 interface LanguageSwitcherProps {
-  currentLocale: string
   variant?: 'default' | 'minimal' | 'auth'
   className?: string
   dropUp?: boolean
 }
 
 export default function LanguageSwitcher({
-  currentLocale,
   variant = 'default',
   className = '',
   dropUp = false
 }: LanguageSwitcherProps) {
+  const currentLocale = useLocale()
+  const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isRefreshing, startTransition] = useTransition()
+  const isPending = isSaving || isRefreshing
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Close dropdown when clicking outside
@@ -35,23 +40,36 @@ export default function LanguageSwitcher({
   }, [])
 
   const handleLocaleChange = async (newLocale: Locale) => {
-    if (newLocale !== currentLocale) {
-      track(ANALYTICS_EVENTS.LANGUAGE_SWITCHED, {
-        from: currentLocale,
-        to: newLocale,
-        surface: window.location.pathname === '/' ? 'landing' : window.location.pathname.split('/')[1],
-      })
-    }
-    // Clerk write runs alongside the cookie write; it never rejects and is
-    // capped, so the switch is never blocked on it.
-    const persisted = persistPreferredLocale(newLocale)
-    // Use server action to ensure cookie is set properly
-    await setLocale(newLocale)
-    await persisted
     setIsOpen(false)
-    // Full reload so client components consuming NextIntlClientProvider re-mount with the new messages
-    window.location.reload()
+    if (newLocale === currentLocale || isPending) return
+    track(ANALYTICS_EVENTS.LANGUAGE_SWITCHED, {
+      from: currentLocale,
+      to: newLocale,
+      surface: window.location.pathname === '/' ? 'landing' : window.location.pathname.split('/')[1],
+    })
+    setIsSaving(true)
+    try {
+      // Server action writes the NEXT_LOCALE cookie the root layout reads.
+      await setLocale(newLocale)
+    } catch {
+      // Cookie not written: stay on the old locale.
+      setIsSaving(false)
+      return
+    }
+    // Never rejects; no reload aborts it any more, so it needn't block the switch.
+    void persistPreferredLocale(newLocale)
+    // Re-render the server tree in place: NextIntlClientProvider gets the new
+    // messages and <html lang> / Clerk localization follow, while client state
+    // (Puzzle Rush runs, lesson progress, chats, timers) survives.
+    startTransition(() => {
+      setIsSaving(false)
+      router.refresh()
+    })
   }
+
+  // Disabled while switching, so a second pick can't race the first.
+  const pendingProps = { 'aria-busy': isPending, disabled: isPending }
+  const pendingClass = isPending ? ' opacity-60 cursor-wait' : ''
 
   const currentFlag = localeFlags[currentLocale as Locale] || '🌐'
   const currentName = localeNames[currentLocale as Locale] || currentLocale.toUpperCase()
@@ -61,7 +79,8 @@ export default function LanguageSwitcher({
       <div ref={dropdownRef} className={`relative ${className}`}>
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors text-gray-600"
+          {...pendingProps}
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors text-gray-600${pendingClass}`}
           aria-label="Change language"
         >
           <span className="text-sm font-semibold">🌐 {currentLocale === 'kz' ? 'KZ' : currentLocale.toUpperCase()}</span>
@@ -91,7 +110,8 @@ export default function LanguageSwitcher({
       <div ref={dropdownRef} className={`relative ${className}`}>
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/90 text-gray-800 md:bg-gray-100 md:text-gray-600 hover:bg-white md:hover:bg-gray-200 transition-colors text-sm font-semibold shadow-sm"
+          {...pendingProps}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/90 text-gray-800 md:bg-gray-100 md:text-gray-600 hover:bg-white md:hover:bg-gray-200 transition-colors text-sm font-semibold shadow-sm${pendingClass}`}
           aria-label="Change language"
         >
           <span>🌐 {currentLocale === 'kz' ? 'KZ' : currentLocale.toUpperCase()}</span>
@@ -121,7 +141,8 @@ export default function LanguageSwitcher({
     <div ref={dropdownRef} className={`relative ${className}`}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors text-white"
+          {...pendingProps}
+        className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors text-white${pendingClass}`}
         aria-label="Change language"
       >
         <span className="text-lg">{currentFlag}</span>

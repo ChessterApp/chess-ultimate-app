@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth, UserButton } from "@clerk/nextjs"
-import { useLocale } from 'next-intl'
 import Image from "next/image"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
 import { useOrganization, useBranding } from "@/contexts/OrganizationContext"
@@ -13,7 +12,6 @@ import AddFamilyIcon from "@/components/AddFamilyIcon"
 export default function NavBar() {
   const { isSignedIn } = useAuth()
   const router = useRouter()
-  const locale = useLocale()
   const branding = useBranding()
   const { org } = useOrganization()
 
@@ -45,7 +43,7 @@ export default function NavBar() {
 
           {/* Right side: Language Switcher + User Avatar (if signed in) */}
           <div className="flex items-center gap-3">
-            <LanguageSwitcher currentLocale={locale} variant="minimal" />
+            <LanguageSwitcher variant="minimal" />
 
             {mounted && isSignedIn && (
               <UserButton

@@ -10,7 +10,6 @@ import { UserButton, useAuth } from '@clerk/nextjs';
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
-import { useLocale } from 'next-intl';
 import { useBranding, useOrganization } from '@/contexts/OrganizationContext';
 import AddFamilyMember from '@/components/AddFamilyMember';
 import AddFamilyIcon from '@/components/AddFamilyIcon';
@@ -105,7 +104,6 @@ const bottomItems: SidebarItem[] = [
 export default function DesktopSidebar() {
   const pathname = usePathname();
   const t = useTranslations('navigation');
-  const locale = useLocale();
   const [collapsedStored, setCollapsed] = useLocalStorage('sidebar_collapsed', false);
   const { isSignedIn } = useAuth();
   const branding = useBranding();
@@ -250,7 +248,7 @@ export default function DesktopSidebar() {
 
       {/* Language + User */}
       <div className={`px-3 py-3 border-t border-gray-100 dark:border-[#2a2a2a] flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
-        {!collapsed && <LanguageSwitcher currentLocale={locale} variant="minimal" dropUp />}
+        {!collapsed && <LanguageSwitcher variant="minimal" dropUp />}
         {mounted && isSignedIn && (
           <UserButton
             appearance={{

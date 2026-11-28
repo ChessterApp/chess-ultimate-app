@@ -1083,7 +1083,7 @@ export default function DebutPage() {
     if (game.is_favorite) {
       setFavoriteGameIds(prev => new Set(prev).add(gameId));
     }
-  }, [openedGames, setSnackbar, fetchGamePgn]);
+  }, [openedGames, setSnackbar, fetchGamePgn, t]);
 
   // Fresh empty board tab for recording a variation; auto-save files it in My Games
   // once it has a move or a title.

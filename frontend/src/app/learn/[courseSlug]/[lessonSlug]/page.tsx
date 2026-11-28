@@ -25,6 +25,7 @@ import { shouldShowLevelComplete } from '@/lib/level-complete-guard'
 import { YOUTUBE_URL_REGEX, canCompleteLesson, lessonHasVideo } from '@/lib/lesson-completion'
 import { lessonXp } from '@/lib/gamification/lessonXp'
 import { useYouTubeEnded } from '@/hooks/useYouTubeEnded'
+import { useLocaleRefresh } from '@/hooks/useLocaleRefresh'
 import type { ReactNode } from 'react'
 import type { Components } from 'react-markdown'
 
@@ -104,6 +105,15 @@ interface Message {
   diagram?: TutorDiagram
 }
 
+// The lesson's fields the backend localizes; a language switch swaps only these.
+const LESSON_TEXT_FIELDS = ['title', 'content', 'hint_text', 'success_message', 'course_title'] as const
+
+function withLessonText(lesson: Lesson, fresh: Lesson): Lesson {
+  const next = { ...lesson }
+  for (const field of LESSON_TEXT_FIELDS) next[field] = fresh[field] as never
+  return next
+}
+
 // The squares' colours of the mini-board (the coach's variables are scoped to the coach's pages).
 const BOARD_COLOURS = { '--coach-board-light': '#f0d9b5', '--coach-board-dark': '#b58863' } as React.CSSProperties
 
@@ -118,11 +128,14 @@ export default function LessonPage() {
   const locale = useLocale()
   const { showToast } = useToast()
   const [lesson, setLesson] = useState<Lesson | null>(null)
+  // The locale the lesson's text on screen was fetched in.
+  const [lessonLocale, setLessonLocale] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [inputMessage, setInputMessage] = useState('')
   const [sendingMessage, setSendingMessage] = useState(false)
   const [completingLesson, setCompletingLesson] = useState(false)
   const [loading, setLoading] = useState(true)
+  // A message key, translated at render so it follows a language switch.
   const [error, setError] = useState<string | null>(null)
   const [isChatExpanded, setIsChatExpanded] = useState(true)
   const chatContentRef = useRef<HTMLDivElement>(null)
@@ -151,7 +164,7 @@ export default function LessonPage() {
         if (!isLoaded) return
 
         if (!isSignedIn) {
-          setError(t('lesson.signInRequired'))
+          setError('lesson.signInRequired')
           setLoading(false)
           return
         }
@@ -159,7 +172,7 @@ export default function LessonPage() {
         const token = await getToken()
 
         if (!token) {
-          setError(t('lesson.authError'))
+          setError('lesson.authError')
           setLoading(false)
           return
         }
@@ -176,12 +189,13 @@ export default function LessonPage() {
           ])
 
           setLesson(lessonData)
+          setLessonLocale(locale)
           progressStatus = lessonData.progress_status
           setError(null)
           setMessages(chatData.messages || [])
         } catch (e) {
           if (e instanceof ApiError && e.status === 401) {
-            setError(t('lesson.sessionExpired'))
+            setError('lesson.sessionExpired')
             setLoading(false)
             return
           }
@@ -200,7 +214,7 @@ export default function LessonPage() {
 
       } catch (err) {
         console.error('Failed to fetch lesson:', err)
-        setError(t('lesson.loadError'))
+        setError('lesson.loadError')
         if (err instanceof ApiError) {
           if (err.status === 408) {
             showToast(t('learn.errors.requestTimeout'), 'error')
@@ -217,6 +231,24 @@ export default function LessonPage() {
       fetchLesson()
     }
   }, [courseSlug, lessonSlug, getToken, isLoaded, isSignedIn])
+
+  // A language switch refreshes the lesson's text in place: the board, the
+  // solved/hint state, the chat and the progress stay as they are.
+  useLocaleRefresh(
+    locale,
+    lessonLocale,
+    async (next) => {
+      const token = await getToken()
+      return apiFetch<Lesson>(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/learn/${courseSlug}/${lessonSlug}?locale=${next}`,
+        { headers: { 'Authorization': `Bearer ${token}` } },
+      )
+    },
+    (fresh, next) => {
+      setLesson(prev => (prev?.id === fresh.id ? withLessonText(prev, fresh) : prev))
+      setLessonLocale(next)
+    },
+  )
 
   const sendMessage = async () => {
     if (!inputMessage.trim() || sendingMessage) return
@@ -465,7 +497,7 @@ export default function LessonPage() {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="text-xl text-red-500 mb-4">
-            {error || t('lesson.signInRequired')}
+            {t(error ?? 'lesson.signInRequired')}
           </div>
           <SignInButton mode="modal">
             <button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded transition-colors">
