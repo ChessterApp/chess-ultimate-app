@@ -64,6 +64,8 @@ export interface GameStateView {
   variations?: Array<{ at_ply: number; moves: string[] }>;
   student_to_move: boolean;
   in_check: boolean;
+  /** A warm-up was on when this game started (only on the start's answer): the puzzle it stopped at (28.11). */
+  warmup_paused?: { n: number; of: number };
   /** The student's move just played, with the engine's verdict. */
   student: {
     san: string;

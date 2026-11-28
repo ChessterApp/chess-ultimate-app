@@ -56,6 +56,7 @@ import { gameViewFromBoard, keepsLocalBoard } from '@/lib/coach/game-restore';
 import { coachErrorText } from '@/lib/coach/coach-errors';
 import type { Key } from 'chessground/types';
 import { Chess } from 'chess.js';
+import { startWithRetry } from '@/lib/coach/game-start';
 
 /** Rebuild an OpenedGame tab from a persisted master_game board, or a finished game against the coach. */
 function openedGameFromBoard(b: BoardRecord, labels: { you: string; coach: string }): OpenedGame | null {
@@ -633,7 +634,8 @@ export default function CoachPage() {
           sid = created.id;
           handleSessionCreated(sid);
         }
-        const view = await coachApi.startGame(sid, options);
+        const startSid = sid;
+        const view = await startWithRetry(() => coachApi.startGame(startSid, options));
         setLastGameOptions(options);
         setGameDialogOpen(false);
         setCoachLine(null);
@@ -641,6 +643,8 @@ export default function CoachPage() {
         setPlayChatOpen(false);
         board.resetBoard();
         applyGameView(view);
+        // A warm-up was on: it waits for after the game, said now — not at the end of the game's review (28.11).
+        if (view.warmup_paused) chatRef.current?.notice(t('warmupPausedForGame', view.warmup_paused));
         chatRef.current?.announceGame(view);  // the engine's first move when the student plays Black
       } catch (err: unknown) {
         const reason = gameFailureReason(err);
@@ -982,12 +986,18 @@ export default function CoachPage() {
     // A live game owns the board (coach-mode «moments_started»): say so instead of a button that does nothing
     // (tester 20.11, «Начать» on the card of the game just reviewed, during the rematch).
     if (mode === 'play') {
-      chatRef.current?.notice(t('momentsAfterGame'));
-      return;
+      if (game?.status === 'playing') {
+        chatRef.current?.notice(t('momentsAfterGame'));
+        return;
+      }
+      // A finished game only waits for its card to be closed: «Начать» is the student's word that it is done with,
+      // so it closes as «Закрыть» would and the review opens at once (tester 28.11: after resigning, «Разобрать» →
+      // «Начать» answered «доиграй её или закрой»).
+      handleGameClose();
     }
     setReview(summary);
     dispatchMode({ type: 'moments_started' });
-  }, [mode, t]);
+  }, [mode, game?.status, handleGameClose, t]);
   const exitMoments = useCallback(() => dispatchMode({ type: 'moments_ended' }), []);
   // Phones: a verdict opens the sheet to half so the feedback panel fits; the next moment drops it to peek.
   const momentPhase = momentsOn ? moments.state.step.phase : null;

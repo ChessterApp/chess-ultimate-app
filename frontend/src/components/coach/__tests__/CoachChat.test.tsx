@@ -748,16 +748,16 @@ describe('CoachChat — pasted games go straight to the board', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shows the reason when a link cannot be loaded', async () => {
+  it('shows the reason when a link cannot be loaded — in the student’s words, not the server’s (tester 28.11)', async () => {
     const onBoardActions = vi.fn();
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 400, json: async () => ({ error: 'Lichess does not know this game' }) })));
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 400, json: async () => ({ error: 'not_found:Lichess' }) })));
     render(
       <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
         <CoachChat currentFen="fen" sessionId={null} onBoardActions={onBoardActions} />
       </NextIntlClientProvider>,
     );
     fireEvent.paste(screen.getByPlaceholderText(coach.inputPlaceholder), { clipboardData: { getData: () => 'https://lichess.org/aaaaaaaa' } });
-    await vi.waitFor(() => expect(screen.getByText('Could not load the game from the link: Lichess does not know this game')).toBeTruthy());
+    await vi.waitFor(() => expect(screen.getByText('Lichess could not find this game — check the link: the game may be private.')).toBeTruthy());
     expect(onBoardActions).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });

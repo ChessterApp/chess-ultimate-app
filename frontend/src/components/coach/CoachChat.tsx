@@ -32,6 +32,7 @@ import { contextChips } from '@/lib/coach/context-chips';
 import type { CoachMode } from '@/lib/coach/coach-mode';
 import type { ReviewMomentsSummary } from '@/lib/coach/tool-summary';
 import { countDirectMessage, directPost } from '@/lib/coach/direct-client';
+import { urlFailure } from '@/lib/coach/url-failure';
 
 /** «ход чёрных», "black to move", «қаралардың жүрісі» → 'b' (and White likewise); else null. */
 export function sideToMoveCommand(text: string): 'w' | 'b' | null {
@@ -684,11 +685,12 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           pgn?: string; white?: string; black?: string; error?: string;
         };
         if (!res.ok || !data.pgn) {
-          // «variant:Chess960» — another game than chess (Hermes game_url, tester 20.11): said plainly.
-          const variant = /^variant:(.+)$/.exec(data.error ?? '')?.[1];
-          replaceLocalLine(lineId, variant
-            ? t('urlVariant', { variant: variant === 'Chess960' ? t('chess960') : variant })
-            : t('urlFailed', { reason: data.error || `HTTP ${res.status}` }));
+          // The coach server's code in the student's language (lib/coach/url-failure, tester 28.11); «variant:Chess960»
+          // — another game than chess (tester 20.11) — said plainly.
+          const failure = urlFailure(data.error, res.status, url);
+          replaceLocalLine(lineId, failure.key === 'urlVariant'
+            ? t('urlVariant', { variant: failure.variant === 'Chess960' ? t('chess960') : failure.variant })
+            : 'site' in failure ? t(failure.key, { site: failure.site }) : t(failure.key));
           return;
         }
         onBoardActions([{ type: 'load_pgn', pgn: data.pgn }]);
