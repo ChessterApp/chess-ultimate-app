@@ -13,22 +13,9 @@
  * V1 mockup and asserts that none of those strings leak into the HTML.
  */
 import { describe, it, expect, vi } from 'vitest';
+import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-
-vi.mock('next-intl/server', () => ({
-  getLocale: async () => 'en',
-  getTranslations: async () => (key: string, values?: Record<string, unknown>) => {
-    if (!values) return key;
-    const parts = Object.entries(values)
-      .map(([k, v]) => `${k}=${String(v)}`)
-      .join(',');
-    return `${key}[${parts}]`;
-  },
-}));
-
-vi.mock('next-intl', () => ({
-  useTranslations: () => (key: string) => key,
-}));
+import { IntlWrapper, tr } from './intl';
 
 vi.mock('../PendingConfirmBanner', () => ({
   __esModule: true,
@@ -41,7 +28,7 @@ import type { CEStudentProfile } from '@/lib/chess-empire-client';
 const forbidden = ['Vasco', 'dagamavasco', 'Turabay', 'user.firstName'];
 
 describe('EmpireHomePage — forbidden fallback strings', () => {
-  it('renders no forbidden identity fallback in verified state', async () => {
+  it('renders no forbidden identity fallback in verified state', () => {
     const profile: CEStudentProfile = {
       id: 'stu-vasco',
       first_name: 'Ali',
@@ -57,7 +44,7 @@ describe('EmpireHomePage — forbidden fallback strings', () => {
       current_lesson: 94,
       total_lessons: 120,
     };
-    const ui = await EmpireHomePage({
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile,
@@ -67,16 +54,15 @@ describe('EmpireHomePage — forbidden fallback strings', () => {
       ],
       rank: { branch_rank: null, school_rank: 1, branch_size: null, school_size: 85 },
     });
-    const html = renderToStaticMarkup(ui);
+    const html = renderToStaticMarkup(<IntlWrapper>{ui}</IntlWrapper>);
     for (const s of forbidden) {
       expect(html, `forbidden string "${s}" leaked into HTML`).not.toContain(s);
     }
     // Sanity: the greeting IS present with the resolved name.
-    expect(html).toContain('welcomeBackNamed');
-    expect(html).toContain('name=Ali');
+    expect(html).toContain(tr('empire')('welcomeBackNamed', { name: 'Ali' }));
   });
 
-  it('renders no forbidden identity fallback in name-less verified state', async () => {
+  it('renders no forbidden identity fallback in name-less verified state', () => {
     const profile: CEStudentProfile = {
       id: 'stu-x',
       first_name: '',
@@ -85,7 +71,7 @@ describe('EmpireHomePage — forbidden fallback strings', () => {
       status: 'active',
       date_of_birth: null,
     };
-    const ui = await EmpireHomePage({
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: null,
       profile,
@@ -97,11 +83,11 @@ describe('EmpireHomePage — forbidden fallback strings', () => {
         school_size: null,
       },
     });
-    const html = renderToStaticMarkup(ui);
+    const html = renderToStaticMarkup(<IntlWrapper>{ui}</IntlWrapper>);
     for (const s of forbidden) {
       expect(html).not.toContain(s);
     }
-    expect(html).toContain('welcomeBack');
-    expect(html).not.toContain('welcomeBackNamed');
+    expect(html).toContain(tr('empire')('welcomeBack'));
+    expect(html).not.toContain('Welcome back,');
   });
 });

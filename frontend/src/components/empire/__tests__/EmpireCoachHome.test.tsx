@@ -6,18 +6,12 @@
  * bio, roster rendering, and the graceful empty state when no enrichment data
  * is supplied (CE API down).
  */
-import { describe, it, expect, afterEach, vi } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { describe, it, expect, afterEach } from 'vitest';
+import React from 'react';
+import { cleanup } from '@testing-library/react';
+import { renderIntl } from './intl';
 import type { CEActiveStudent } from '@/lib/chess-empire-client';
 import type { CoachHomeStats } from '@/lib/empire-coach-stats';
-
-vi.mock('next-intl/server', () => ({
-  getLocale: async () => 'en',
-  getTranslations: async () => (key: string, values?: Record<string, unknown>) => {
-    if (!values) return key;
-    return `${key}(${JSON.stringify(values)})`;
-  },
-}));
 
 import EmpireCoachHome from '../EmpireCoachHome';
 
@@ -53,8 +47,8 @@ const stats: CoachHomeStats = {
 afterEach(cleanup);
 
 describe('EmpireCoachHome', () => {
-  it('renders photo avatar, branch, stats, bio and roster when data is present', async () => {
-    const ui = await EmpireCoachHome({
+  it('renders photo avatar, branch, stats, bio and roster when data is present', () => {
+    const ui = React.createElement(EmpireCoachHome, {
       coachDisplayName: 'Chingis',
       photoUrl: 'https://cdn.example.com/chingis.jpg',
       bio: 'Grandmaster, 15 years coaching.',
@@ -62,7 +56,7 @@ describe('EmpireCoachHome', () => {
       stats,
       roster,
     });
-    const { getByTestId, getAllByTestId, queryByTestId } = render(ui);
+    const { getByTestId, getAllByTestId, queryByTestId } = renderIntl(ui);
 
     const avatar = getByTestId('empire-coach-avatar') as HTMLImageElement;
     expect(avatar.tagName).toBe('IMG');
@@ -87,9 +81,9 @@ describe('EmpireCoachHome', () => {
     expect(getByTestId('empire-coach-link-games').getAttribute('href')).toBe('/games');
   });
 
-  it('falls back to an initials avatar and empty states with no enrichment', async () => {
-    const ui = await EmpireCoachHome({ coachDisplayName: 'Chingis' });
-    const { getByTestId } = render(ui);
+  it('falls back to an initials avatar and empty states with no enrichment', () => {
+    const ui = React.createElement(EmpireCoachHome, { coachDisplayName: 'Chingis' });
+    const { getByTestId } = renderIntl(ui);
 
     const avatar = getByTestId('empire-coach-avatar');
     expect(avatar.tagName).toBe('DIV');

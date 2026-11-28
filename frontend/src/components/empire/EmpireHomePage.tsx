@@ -13,8 +13,10 @@
  *  - `no_link` — no member row yet. Same name-less copy as Phase 4,
  *    restyled to the dark-slate palette.
  */
+'use client';
+
 import Link from 'next/link';
-import { getLocale, getTranslations } from 'next-intl/server';
+import { useLocale, useTranslations } from 'next-intl';
 import type {
   CEAchievement,
   CEBestBot,
@@ -134,10 +136,10 @@ function computeDelta(ratings: CERatingPoint[]): number | null {
   return last.rating - older.rating;
 }
 
-export default async function EmpireHomePage(props: EmpireHomePageProps) {
-  const t = await getTranslations('empire');
-  const tg = await getTranslations('gamification');
-  const locale = await getLocale();
+export default function EmpireHomePage(props: EmpireHomePageProps) {
+  const t = useTranslations('empire');
+  const tg = useTranslations('gamification');
+  const locale = useLocale();
 
   if (props.state === 'no_link') {
     return (

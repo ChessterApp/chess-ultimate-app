@@ -1,18 +1,13 @@
 /**
  * @vitest-environment jsdom
  *
- * Server-component tests for Achievements. Verifies empty state, grid
+ * Tests for Achievements. Verifies empty state, grid
  * rendering, the overflow "+N more" hint, and the icon / emoji fallback.
  */
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import React from 'react';
-import { cleanup, render } from '@testing-library/react';
-
-vi.mock('next-intl/server', () => ({
-  getLocale: async () => 'en',
-  getTranslations: async () => (key: string, opts?: Record<string, unknown>) =>
-    opts ? `${key}:${Object.entries(opts).map(([k, v]) => `${k}=${v}`).join(',')}` : key,
-}));
+import { cleanup } from '@testing-library/react';
+import { renderIntl, tr } from './intl';
 
 import Achievements from '../Achievements';
 import type { CEAchievement } from '@/lib/chess-empire-client';
@@ -31,40 +26,40 @@ function makeAchievements(n: number, withIcon = false): CEAchievement[] {
 }
 
 describe('Achievements', () => {
-  it('renders empty state when achievements is []', async () => {
-    const ui = await Achievements({ achievements: [] });
-    const { getByTestId, queryByTestId } = render(ui);
+  it('renders empty state when achievements is []', () => {
+    const ui = React.createElement(Achievements, { achievements: [] });
+    const { getByTestId, queryByTestId } = renderIntl(ui);
     expect(getByTestId('empire-achievements-empty')).toBeTruthy();
     expect(queryByTestId('empire-achievements-grid')).toBeNull();
   });
 
-  it('renders grid for ≤9 achievements without "+N more"', async () => {
-    const ui = await Achievements({ achievements: makeAchievements(5) });
-    const { getByTestId, queryByTestId, getAllByTestId } = render(ui);
+  it('renders grid for ≤9 achievements without "+N more"', () => {
+    const ui = React.createElement(Achievements, { achievements: makeAchievements(5) });
+    const { getByTestId, queryByTestId, getAllByTestId } = renderIntl(ui);
     expect(getByTestId('empire-achievements-grid')).toBeTruthy();
     expect(getAllByTestId('empire-achievement-card')).toHaveLength(5);
     expect(queryByTestId('empire-achievements-more')).toBeNull();
   });
 
-  it('renders 9 cards + "+N more" when >9 achievements', async () => {
-    const ui = await Achievements({ achievements: makeAchievements(14) });
-    const { getByTestId, getAllByTestId } = render(ui);
+  it('renders 9 cards + "+N more" when >9 achievements', () => {
+    const ui = React.createElement(Achievements, { achievements: makeAchievements(14) });
+    const { getByTestId, getAllByTestId } = renderIntl(ui);
     expect(getAllByTestId('empire-achievement-card')).toHaveLength(9);
     const more = getByTestId('empire-achievements-more');
-    expect(more.textContent).toContain('count=5');
+    expect(more.textContent).toBe(tr('empire')('achievementsMore', { count: 5 }));
   });
 
-  it('renders icon_url when present', async () => {
-    const ui = await Achievements({ achievements: makeAchievements(1, true) });
-    const { getByTestId, queryByTestId } = render(ui);
+  it('renders icon_url when present', () => {
+    const ui = React.createElement(Achievements, { achievements: makeAchievements(1, true) });
+    const { getByTestId, queryByTestId } = renderIntl(ui);
     const icon = getByTestId('empire-achievement-icon') as HTMLImageElement;
     expect(icon.src).toContain('https://cdn/icon-0.png');
     expect(queryByTestId('empire-achievement-fallback')).toBeNull();
   });
 
-  it('renders 🏆 fallback when icon_url is missing', async () => {
-    const ui = await Achievements({ achievements: makeAchievements(1, false) });
-    const { getByTestId, queryByTestId } = render(ui);
+  it('renders 🏆 fallback when icon_url is missing', () => {
+    const ui = React.createElement(Achievements, { achievements: makeAchievements(1, false) });
+    const { getByTestId, queryByTestId } = renderIntl(ui);
     expect(getByTestId('empire-achievement-fallback').textContent).toBe('🏆');
     expect(queryByTestId('empire-achievement-icon')).toBeNull();
   });

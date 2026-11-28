@@ -8,19 +8,8 @@
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import React from 'react';
-import { cleanup, render } from '@testing-library/react';
-
-vi.mock('next-intl/server', () => ({
-  getLocale: async () => 'en',
-  getTranslations: async () => (key: string, values?: Record<string, unknown>) => {
-    if (!values) return key;
-    return `${key}(${JSON.stringify(values)})`;
-  },
-}));
-
-vi.mock('next-intl', () => ({
-  useTranslations: () => (key: string) => key,
-}));
+import { cleanup } from '@testing-library/react';
+import { renderIntl, tr } from './intl';
 
 vi.mock('../PendingConfirmBanner', () => ({
   __esModule: true,
@@ -62,8 +51,8 @@ afterEach(() => {
 });
 
 describe('EmpireHomePage — verified state', () => {
-  it('renders greeting "Welcome back, Ali" for the Vasco fixture', async () => {
-    const ui = await EmpireHomePage({
+  it('renders greeting "Welcome back, Ali" for the Vasco fixture', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
@@ -73,27 +62,27 @@ describe('EmpireHomePage — verified state', () => {
       ],
       rank: { ...emptyRank, school_rank: 1, school_size: 85 },
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     const greeting = getByTestId('empire-home-greeting');
-    expect(greeting.textContent).toContain('welcomeBackNamed');
+    expect(greeting.textContent).toBe(tr('empire')('welcomeBackNamed', { name: 'Ali' }));
     expect(greeting.textContent).toContain('Ali');
   });
 
-  it('renders name-less greeting when studentDisplayName is null', async () => {
-    const ui = await EmpireHomePage({
+  it('renders name-less greeting when studentDisplayName is null', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: null,
       profile: aliProfile,
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     const greeting = getByTestId('empire-home-greeting');
-    expect(greeting.textContent).toBe('welcomeBack');
+    expect(greeting.textContent).toBe(tr('empire')('welcomeBack'));
   });
 
-  it('never leaks profile.first_name as a fallback greeting name', async () => {
-    const ui = await EmpireHomePage({
+  it('never leaks profile.first_name as a fallback greeting name', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: null,
       profile: {
@@ -104,14 +93,14 @@ describe('EmpireHomePage — verified state', () => {
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     const greeting = getByTestId('empire-home-greeting');
-    expect(greeting.textContent).toBe('welcomeBack');
+    expect(greeting.textContent).toBe(tr('empire')('welcomeBack'));
     expect(greeting.textContent).not.toContain('ShouldNotAppearInGreeting');
   });
 
-  it('renders V1 hero, stat pills, progress, next lesson, and achievements sections', async () => {
-    const ui = await EmpireHomePage({
+  it('renders V1 hero, stat pills, progress, next lesson, and achievements sections', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
@@ -122,7 +111,7 @@ describe('EmpireHomePage — verified state', () => {
       ],
       rank: { branch_rank: null, school_rank: 1, branch_size: null, school_size: 85 },
     });
-    const { getByTestId, queryByTestId } = render(ui);
+    const { getByTestId, queryByTestId } = renderIntl(ui);
     expect(getByTestId('empire-home')).toBeTruthy();
     expect(getByTestId('empire-hero')).toBeTruthy();
     const avatarInitial = getByTestId('empire-avatar');
@@ -151,15 +140,15 @@ describe('EmpireHomePage — verified state', () => {
     expect(queryByTestId('empire-trend-empty')).toBeNull();
   });
 
-  it('mounts the tournament CTA banner between the hero and the stat pills', async () => {
-    const ui = await EmpireHomePage({
+  it('mounts the tournament CTA banner between the hero and the stat pills', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     const hero = getByTestId('empire-hero');
     const banner = getByTestId('empire-tournament-cta');
     expect(banner).toBeTruthy();
@@ -170,15 +159,15 @@ describe('EmpireHomePage — verified state', () => {
     ).toBeTruthy();
   });
 
-  it('mounts the games CTA banner directly after the tournament banner', async () => {
-    const ui = await EmpireHomePage({
+  it('mounts the games CTA banner directly after the tournament banner', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     const tournament = getByTestId('empire-tournament-cta');
     const games = getByTestId('empire-games-cta');
     expect(games).toBeTruthy();
@@ -190,46 +179,46 @@ describe('EmpireHomePage — verified state', () => {
     ).toBeTruthy();
   });
 
-  it('renders the CE photo_url as the hero avatar when present', async () => {
+  it('renders the CE photo_url as the hero avatar when present', () => {
     const photoUrl =
       'https://papgcizhfkngubwofjuo.supabase.co/storage/v1/object/public/student-photos/students/stu-vasco_1766294728627.jpg';
-    const ui = await EmpireHomePage({
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, photo_url: photoUrl },
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     const avatar = getByTestId('empire-avatar');
     expect(avatar.tagName).toBe('IMG');
     expect(avatar.getAttribute('src')).toBe(photoUrl);
     expect(avatar.getAttribute('alt')).toBe('Ali');
   });
 
-  it('falls back to the initial when profile.photo_url is null', async () => {
-    const ui = await EmpireHomePage({
+  it('falls back to the initial when profile.photo_url is null', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, photo_url: null },
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     const avatar = getByTestId('empire-avatar');
     expect(avatar.tagName).toBe('DIV');
     expect(avatar.textContent).toBe('A');
   });
 
-  it('uses the dark-slate palette in the hero (no Chesster purple/blue)', async () => {
-    const ui = await EmpireHomePage({
+  it('uses the dark-slate palette in the hero (no Chesster purple/blue)', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     const hero = getByTestId('empire-hero');
     const cls = hero.className;
     expect(cls).toContain('from-slate-900');
@@ -237,52 +226,52 @@ describe('EmpireHomePage — verified state', () => {
     expect(cls).not.toMatch(/purple|indigo|blue/);
   });
 
-  it('shows an empty rating-trend state when there is no history', async () => {
-    const ui = await EmpireHomePage({
+  it('shows an empty rating-trend state when there is no history', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId, queryByTestId } = render(ui);
+    const { getByTestId, queryByTestId } = renderIntl(ui);
     expect(getByTestId('empire-trend-empty')).toBeTruthy();
     expect(queryByTestId('empire-trend-chart')).toBeNull();
   });
 
-  it('renders 8 level segments with the current segment highlighted', async () => {
-    const ui = await EmpireHomePage({
+  it('renders 8 level segments with the current segment highlighted', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, current_level: 4, current_lesson: 47, total_lessons: 120 },
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     for (let i = 1; i <= 8; i++) {
       expect(getByTestId(`empire-progress-segment-${i}`)).toBeTruthy();
     }
     expect(getByTestId('empire-progress-segment-current')).toBeTruthy();
     const seg4 = getByTestId('empire-progress-segment-4');
     expect(seg4.querySelector('[data-testid="empire-progress-segment-current"]')).toBeTruthy();
-    expect(seg4.getAttribute('title')).toContain('"level":4');
+    expect(seg4.getAttribute('title')).toBe(tr('empire')('journeyStepTitle', { level: 4, total: 15 }));
   });
 
-  it('derives current level from current_lesson when profile.current_level is missing', async () => {
-    const ui = await EmpireHomePage({
+  it('derives current level from current_lesson when profile.current_level is missing', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, current_level: undefined, current_lesson: 47, total_lessons: 120 },
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     const seg4 = getByTestId('empire-progress-segment-4');
     expect(seg4.querySelector('[data-testid="empire-progress-segment-current"]')).toBeTruthy();
   });
 
-  it('renders live Survivor and Bot Slayer card subtitles when data is present', async () => {
-    const ui = await EmpireHomePage({
+  it('renders live Survivor and Bot Slayer card subtitles when data is present', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
@@ -291,15 +280,15 @@ describe('EmpireHomePage — verified state', () => {
       bestSurvivalScore: 62,
       bestDefeatedBot: { name: 'Titan', rating: 2100 },
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     expect(getByTestId('empire-card-survivor-value').textContent).toBe('62');
     expect(getByTestId('empire-card-bot-slayer-value').textContent).toBe(
       'Titan · 2100',
     );
   });
 
-  it('renders "—" in both cards when there is no survival/bot data', async () => {
-    const ui = await EmpireHomePage({
+  it('renders "—" in both cards when there is no survival/bot data', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
@@ -308,26 +297,26 @@ describe('EmpireHomePage — verified state', () => {
       bestSurvivalScore: null,
       bestDefeatedBot: null,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     expect(getByTestId('empire-card-survivor-value').textContent).toBe('—');
     expect(getByTestId('empire-card-bot-slayer-value').textContent).toBe('—');
   });
 
-  it('defaults the highlight cards to "—" when props are omitted', async () => {
-    const ui = await EmpireHomePage({
+  it('defaults the highlight cards to "—" when props are omitted', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     expect(getByTestId('empire-card-survivor-value').textContent).toBe('—');
     expect(getByTestId('empire-card-bot-slayer-value').textContent).toBe('—');
   });
 
-  it('renders the rating trend section after achievements as the last card', async () => {
-    const ui = await EmpireHomePage({
+  it('renders the rating trend section after achievements as the last card', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
@@ -337,7 +326,7 @@ describe('EmpireHomePage — verified state', () => {
       ],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     const achievements = getByTestId('empire-achievements');
     const trend = getByTestId('empire-rating-trend');
     expect(
@@ -346,15 +335,15 @@ describe('EmpireHomePage — verified state', () => {
     ).toBeTruthy();
   });
 
-  it('no longer renders the placeholder achievements grid/empty or continue CTA', async () => {
-    const ui = await EmpireHomePage({
+  it('no longer renders the placeholder achievements grid/empty or continue CTA', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId, queryByTestId } = render(ui);
+    const { getByTestId, queryByTestId } = renderIntl(ui);
     // The live highlight cards remain…
     expect(getByTestId('empire-highlight-cards')).toBeTruthy();
     expect(getByTestId('empire-card-survivor')).toBeTruthy();
@@ -367,86 +356,86 @@ describe('EmpireHomePage — verified state', () => {
 });
 
 describe('EmpireHomePage — hero league column', () => {
-  it('renders the league letter from profile.current_league', async () => {
-    const ui = await EmpireHomePage({
+  it('renders the league letter from profile.current_league', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, current_league: 'A' },
       ratings: [{ date: '2026-06-01', rating: 856 }],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     expect(getByTestId('empire-league-value').textContent).toBe('A');
   });
 
-  it('normalizes the stored "League B" form to the bare letter', async () => {
-    const ui = await EmpireHomePage({
+  it('normalizes the stored "League B" form to the bare letter', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, current_league: 'League B' },
       ratings: [{ date: '2026-06-01', rating: 856 }],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     expect(getByTestId('empire-league-value').textContent).toBe('B');
   });
 
-  it('never guesses a league from the rating — shows "—" when the API has none', async () => {
-    const ui = await EmpireHomePage({
+  it('never guesses a league from the rating — shows "—" when the API has none', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, current_league: null },
       ratings: [{ date: '2026-06-01', rating: 1500 }],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     // Leagues are promotion-event driven in CE — a rating-derived guess can
     // be wrong (e.g. 856 is League A after a promotion), so render "—".
     expect(getByTestId('empire-league-value').textContent).toBe('—');
   });
 
-  it('shows "—" when both current_league and rating are missing', async () => {
-    const ui = await EmpireHomePage({
+  it('shows "—" when both current_league and rating are missing', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, current_league: null, current_rating: null },
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     expect(getByTestId('empire-league-value').textContent).toBe('—');
   });
 });
 
 describe('EmpireHomePage — pending_confirm state', () => {
-  it('renders PendingConfirmBanner with the display name', async () => {
-    const ui = await EmpireHomePage({
+  it('renders PendingConfirmBanner with the display name', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'pending_confirm',
       studentDisplayName: 'Ali',
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     const banner = getByTestId('pending-banner');
     expect(banner.getAttribute('data-name')).toBe('Ali');
   });
 
-  it('degrades to no_link copy when studentDisplayName is null', async () => {
-    const ui = await EmpireHomePage({
+  it('degrades to no_link copy when studentDisplayName is null', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'pending_confirm',
       studentDisplayName: null,
     });
-    const { queryByTestId } = render(ui);
+    const { queryByTestId } = renderIntl(ui);
     expect(queryByTestId('pending-banner')).toBeNull();
     expect(queryByTestId('empire-home-nolink')).toBeTruthy();
   });
 });
 
 describe('EmpireHomePage — no_link state', () => {
-  it('renders the name-less "getting your profile ready" copy', async () => {
-    const ui = await EmpireHomePage({
+  it('renders the name-less "getting your profile ready" copy', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'no_link',
       studentDisplayName: null,
     });
-    const { getByTestId, queryByTestId } = render(ui);
+    const { getByTestId, queryByTestId } = renderIntl(ui);
     expect(getByTestId('empire-home-nolink')).toBeTruthy();
     expect(queryByTestId('empire-hero')).toBeNull();
     expect(queryByTestId('pending-banner')).toBeNull();
@@ -456,48 +445,48 @@ describe('EmpireHomePage — no_link state', () => {
 describe('EmpireHomePage — tournament CTA is always present', () => {
   // The tournament CTA must never depend on tournament data and must be shown
   // for every state a chess-empire student can land in on the home page.
-  it('renders the CTA in the verified state', async () => {
-    const ui = await EmpireHomePage({
+  it('renders the CTA in the verified state', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
       rank: emptyRank,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     expect(getByTestId('empire-tournament-cta').getAttribute('href')).toBe(
       '/tournaments',
     );
   });
 
-  it('renders the CTA in the pending_confirm state', async () => {
-    const ui = await EmpireHomePage({
+  it('renders the CTA in the pending_confirm state', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'pending_confirm',
       studentDisplayName: 'Ali',
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     expect(getByTestId('empire-tournament-cta').getAttribute('href')).toBe(
       '/tournaments',
     );
   });
 
-  it('renders the CTA on the name-less pending_confirm screen', async () => {
-    const ui = await EmpireHomePage({
+  it('renders the CTA on the name-less pending_confirm screen', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'pending_confirm',
       studentDisplayName: null,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     expect(getByTestId('empire-tournament-cta').getAttribute('href')).toBe(
       '/tournaments',
     );
   });
 
-  it('renders the CTA in the no_link state', async () => {
-    const ui = await EmpireHomePage({
+  it('renders the CTA in the no_link state', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'no_link',
       studentDisplayName: null,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     expect(getByTestId('empire-tournament-cta').getAttribute('href')).toBe(
       '/tournaments',
     );
@@ -515,8 +504,8 @@ describe('EmpireHomePage — legion standing widget (§9.2)', () => {
     member_count: 8,
   };
 
-  it('renders the legion standing widget and the Top-N proximity line when scored', async () => {
-    const ui = await EmpireHomePage({
+  it('renders the legion standing widget and the Top-N proximity line when scored', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
@@ -532,18 +521,18 @@ describe('EmpireHomePage — legion standing widget (§9.2)', () => {
       },
       topN: 5,
     });
-    const { getByTestId } = render(ui);
+    const { getByTestId } = renderIntl(ui);
     const widget = getByTestId('empire-legion-standing');
     expect(widget.textContent).toContain('Snow Leopards');
     expect(widget.textContent).toContain('487');
     // gap-to-next uses gapToNext with the points behind the legion above.
-    expect(widget.textContent).toContain('legion.gapToNext');
+    expect(widget.textContent).toContain(tr('gamification')('legion.gapToNext', { points: 25 }));
     const proximity = getByTestId('empire-topn-proximity');
-    expect(proximity.textContent).toContain('legion.toTopN');
+    expect(proximity.textContent).toContain(tr('gamification')('legion.toTopN', { n: 5, points: 7 }));
   });
 
-  it('shows the in-Top-N copy when the caller is already in the cut', async () => {
-    const ui = await EmpireHomePage({
+  it('shows the in-Top-N copy when the caller is already in the cut', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
@@ -559,19 +548,19 @@ describe('EmpireHomePage — legion standing widget (§9.2)', () => {
       },
       topN: 5,
     });
-    const { getByTestId } = render(ui);
-    expect(getByTestId('empire-topn-proximity').textContent).toContain('legion.inTopN');
+    const { getByTestId } = renderIntl(ui);
+    expect(getByTestId('empire-topn-proximity').textContent).toContain(tr('gamification')('legion.inTopN', { n: 5 }));
   });
 
-  it('omits the widget entirely when there is no legion standing', async () => {
-    const ui = await EmpireHomePage({
+  it('omits the widget entirely when there is no legion standing', () => {
+    const ui = React.createElement(EmpireHomePage, {
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
       rank: emptyRank,
     });
-    const { queryByTestId } = render(ui);
+    const { queryByTestId } = renderIntl(ui);
     expect(queryByTestId('empire-legion-standing')).toBeNull();
   });
 });

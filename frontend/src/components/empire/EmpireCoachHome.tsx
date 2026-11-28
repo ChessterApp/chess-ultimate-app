@@ -11,9 +11,11 @@
  * Visual language mirrors the student home (`EmpireHomePage`): dark-slate hero
  * with an emerald-accented avatar, white stat cards, slate typography.
  */
+'use client';
+
 import Link from 'next/link';
 import { Trophy, Gamepad2 } from 'lucide-react';
-import { getTranslations } from 'next-intl/server';
+import { useTranslations } from 'next-intl';
 import type { CEActiveStudent } from '@/lib/chess-empire-client';
 import type { CoachHomeStats } from '@/lib/empire-coach-stats';
 
@@ -35,7 +37,7 @@ const EMPTY_STATS: CoachHomeStats = {
   leagueBreakdown: [],
 };
 
-export default async function EmpireCoachHome({
+export default function EmpireCoachHome({
   coachDisplayName,
   photoUrl = null,
   bio = null,
@@ -50,7 +52,7 @@ export default async function EmpireCoachHome({
   stats?: CoachHomeStats;
   roster?: CEActiveStudent[];
 }) {
-  const t = await getTranslations('empire');
+  const t = useTranslations('empire');
   const greeting = coachDisplayName
     ? t('coachWelcomeNamed', { name: coachDisplayName })
     : t('coachWelcome');

@@ -1,11 +1,14 @@
 /**
  * Achievements grid for the Chess Empire personalized homepage.
  *
- * Server component. Renders up to 9 cards (icon + name + earned date) and a
- * "+N more" link when the student has more than 9. Empty state shows a
- * "keep playing" nudge instead of an empty container.
+ * Client component, so its copy follows an in-place locale switch. Renders up
+ * to 9 cards (icon + name + earned date) and a "+N more" link when the student
+ * has more than 9. Empty state shows a "keep playing" nudge instead of an
+ * empty container.
  */
-import { getTranslations } from 'next-intl/server';
+'use client';
+
+import { useTranslations } from 'next-intl';
 import type { CEAchievement } from '@/lib/chess-empire-client';
 
 interface AchievementsProps {
@@ -21,11 +24,11 @@ function formatDate(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-export default async function Achievements({
+export default function Achievements({
   achievements,
   maxShown = 9,
 }: AchievementsProps) {
-  const t = await getTranslations('empire');
+  const t = useTranslations('empire');
 
   if (!achievements || achievements.length === 0) {
     return (
