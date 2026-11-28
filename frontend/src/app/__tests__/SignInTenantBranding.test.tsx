@@ -16,11 +16,11 @@ vi.mock('next-intl', () => ({
   useLocale: () => 'en',
 }));
 
-// The auth-variant LanguageSwitcher imports the setLocale server action, which
-// pulls in next/headers — stub it so the page renders in jsdom.
-vi.mock('@/app/actions/setLocale', () => ({ setLocale: vi.fn() }));
-// …and it refreshes the route through the app router.
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+// The auth-variant LanguageSwitcher switches through the root LocaleProvider —
+// stub its hook so the page renders without one.
+vi.mock('@/components/LocaleProvider', () => ({
+  useLocaleSwitch: () => ({ switchLocale: vi.fn(), prefetchLocale: vi.fn(), isSwitching: false }),
+}));
 
 // Mock next/image so we don't hit Next's resolver in tests.
 vi.mock('next/image', () => ({

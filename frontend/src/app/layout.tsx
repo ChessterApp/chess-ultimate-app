@@ -1,11 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from '@clerk/nextjs'
-import { NextIntlClientProvider } from 'next-intl';
-import { getLocale, getMessages } from 'next-intl/server';
+import { getLocale, getMessages, getTimeZone } from 'next-intl/server';
 import "./globals.css";
 import "../styles/chess-animations.css";
 import ClientShell from "@/components/ClientShell";
+import LocaleProvider from "@/components/LocaleProvider";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 import PrefetchManager from "@/components/PrefetchManager";
 import PostHogIdentify from "@/components/analytics/PostHogIdentify";
@@ -49,6 +49,7 @@ export default async function RootLayout({
 }>) {
   const locale = await getLocale();
   const messages = await getMessages();
+  const timeZone = await getTimeZone();
 
   const org = await loadOrgFromHeaders();
   const clerkLocalization = buildClerkLocalization(locale, org?.name || 'Chesster');
@@ -80,7 +81,7 @@ export default async function RootLayout({
           <OrganizationProvider org={org}>
             <BrandingInjector />
             <ImpersonationBanner />
-            <NextIntlClientProvider messages={messages}>
+            <LocaleProvider serverLocale={locale} serverMessages={messages} timeZone={timeZone}>
               <PowerSyncProvider>
                 <LocalStorageMigration />
                 <ServiceWorkerRegistration />
@@ -94,7 +95,7 @@ export default async function RootLayout({
                   </ClientShell>
                 </MembershipProvider>
               </PowerSyncProvider>
-            </NextIntlClientProvider>
+            </LocaleProvider>
           </OrganizationProvider>
         </body>
       </html>
