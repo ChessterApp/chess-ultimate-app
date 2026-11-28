@@ -327,9 +327,12 @@ def _close_unfinished(session) -> None:
 
 
 def start_game(session, color: str = "white", elo: int = 1500,
-               comment_mode: str = DEFAULT_COMMENT_MODE) -> tuple[Board, dict]:
+               comment_mode: str = DEFAULT_COMMENT_MODE, in_turn: bool = True) -> tuple[Board, dict]:
     """Create the game board (active) and, if the student is Black, make the
-    engine's first move. Returns (board record, the reply payload)."""
+    engine's first move. Returns (board record, the reply payload).
+
+    A warm-up on is paused here (src/warmup.left_for_game): *in_turn* — started from a chat turn, whose answer the
+    server ends with the break; else (the site's button) the payload's ``warmup_paused`` is the screen's to say."""
     color = (color or "white").lower()
     if color == "random":
         color = random.choice(("white", "black"))
@@ -344,7 +347,17 @@ def start_game(session, color: str = "white", elo: int = 1500,
         engine_move = _push_engine_move(state, board)
     _sync_board(board_rec, state, board)
     session.save_board(board_rec)
-    return board_rec, _payload(board_rec, state, board, student=None, engine=engine_move)
+    payload = _payload(board_rec, state, board, student=None, engine=engine_move)
+    try:
+        from src import warmup
+
+        paused = warmup.left_for_game(session, in_turn=in_turn)
+    except Exception:  # noqa: BLE001 — bookkeeping never stops a game
+        logger.debug("warm-up pause at the game's start failed", exc_info=True)
+        paused = None
+    if paused:
+        payload["warmup_paused"] = paused
+    return board_rec, payload
 
 
 def _absorb_variations(state: dict) -> None:

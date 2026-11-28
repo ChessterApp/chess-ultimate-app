@@ -196,7 +196,8 @@ def test_a_game_session_is_not_named_by_the_hint_button():
 def test_a_pasted_position_names_the_session_only_when_nothing_was_said():
     fen = "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"
     assert session_label.label(_session([_user(fen), _coach("…"), _user("Почему тут ничья?", 6)])) == "Почему тут ничья?"
-    assert session_label.label(_session([_user(fen)])) == fen
+    # nothing said: named by what the position is, in words (tester 28.11 — the FEN itself told a child nothing)
+    assert session_label.label(_session([_user(fen)])) == "Позиция: король и ферзь — король"
     assert session_label.is_board_paste("1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 1-0")
     assert session_label.is_board_paste("https://lichess.org/abcd1234")
     assert not session_label.is_board_paste("Разбери партию 1. e4 e5 2. Nf3")

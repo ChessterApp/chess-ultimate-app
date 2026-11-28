@@ -63,6 +63,12 @@ _TAIL = {
     "en": "The warm-up is paused at puzzle {n} of {of} — say “next” to go back to it.",
     "kk": "Жаттығу {of} есептің {n}-есебінде тоқтатылды — оған оралу үшін «келесі» деп жаз.",
 }
+# A game against the coach started in the middle of a warm-up: «дальше» belongs to after the game (28.11).
+_TAIL_GAME = {
+    "ru": "Разминка приостановлена на задаче {n} из {of} — после партии напиши «дальше», чтобы вернуться к ней.",
+    "en": "The warm-up is paused at puzzle {n} of {of} — after the game, say “next” to go back to it.",
+    "kk": "Жаттығу {of} есептің {n}-есебінде тоқтатылды — партиядан кейін оған оралу үшін «келесі» деп жаз.",
+}
 _OVER = {
     "ru": "Разминка из {of} задач окончена.",
     "en": "The warm-up of {of} puzzles is over.",
@@ -410,13 +416,14 @@ def left_for(session, result) -> None:
         "your own count.")
 
 
-def set_tail(session, place: Optional[dict], unless_said: bool = False) -> None:
+def set_tail(session, place: Optional[dict], unless_said: bool = False, game: bool = False) -> None:
     """The break is the server's to say at the END of this turn's answer (``tail_line``). *unless_said*: the coach was
-    asked to say it itself (a tool's note, which a voice coach follows too) — the server's line is then the net."""
+    asked to say it itself (a tool's note, which a voice coach follows too) — the server's line is then the net.
+    *game*: the break is a game against the coach — «дальше» is for after it."""
     state = getattr(session, "warmup", None)
     if state and isinstance(place, dict):
         state["tail"] = {"n": int(place["n"]), "of": int(place["of"]), "unless_said": bool(unless_said),
-                         "turn": session.user_turns()}
+                         "turn": session.user_turns(), "game": bool(game)}
         # the promise «дальше brings it back» is made now: the warm-up lives END_TURNS messages from here
         state["up_turn"] = session.user_turns()
 
@@ -439,7 +446,29 @@ def tail_line(session, answer: Optional[str], language: Optional[str]) -> str:
     state["pause_told_at"] = None
     if tail.get("unless_said") and _WARMUP_WORD.search(answer or ""):
         return ""
-    return _TAIL[_lang(language)].format(n=tail["n"], of=tail["of"])
+    return (_TAIL_GAME if tail.get("game") else _TAIL)[_lang(language)].format(n=tail["n"], of=tail["of"])
+
+
+def left_for_game(session, in_turn: bool = True) -> Optional[dict]:
+    """A game against the coach starts in the middle of a warm-up: {"n", "of"} of the puzzle it stops at, said NOW,
+    or None (no warm-up on, over, or its break already said).
+
+    Until 28.11 the break was found only by the next chat turn (``paused``) — and the next turn after a game is its
+    review: «Разминка приостановлена на задаче 2 из 5 — напиши «дальше»…» closed the review of the game just played
+    (tester 28.11: «к разбору это не относится, а ребёнок может решить, что это часть разбора»). A game started from
+    a chat turn (*in_turn*: «давай сыграем») gets the server's line at the end of that turn's answer; one started by
+    the site's button has no answer to end — the caller returns the place and the screen says it as the game opens."""
+    state = getattr(session, "warmup", None) if session is not None else None
+    if not state or state.get("over") or state.get("paused_said"):
+        return None
+    place = {"n": state["at"] + 1, "of": len(state["ids"])}
+    state["paused_said"] = True
+    state["pause_told_at"] = None
+    state["left"] = state["ids"][state["at"]]
+    state["up_turn"] = session.user_turns()
+    if in_turn:
+        set_tail(session, place, game=True)
+    return place
 
 
 def note_paused_said(session) -> None:

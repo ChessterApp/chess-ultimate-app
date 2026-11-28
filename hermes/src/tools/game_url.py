@@ -42,14 +42,26 @@ _TCN_PROMO = "qnrbkp"
 
 
 class GameUrlError(ValueError):
-    """A link that is not a supported game URL, or a game that could not be fetched."""
+    """A link that is not a supported game URL, or a game that could not be fetched.
+
+    ``code`` is what the site and the app read to say it in the student's language (28.11 — the English text itself
+    reached the student: «Не удалось загрузить партию по ссылке: Could not reach the site the link points to»):
+    ``not_game``, ``not_found:<site>``, ``rate_limited:<site>``, ``unreachable:<site>``, ``no_moves``,
+    ``variant:<name>``. The message stays the English words the model reads."""
+
+    def __init__(self, message: str, code: Optional[str] = None):
+        super().__init__(message)
+        self.code = code or (message if message.startswith("variant:") else "failed")
+
+
+_SITE = {"lichess": "Lichess", "chesscom": "Chess.com"}
 
 
 def parse_game_url(url: str) -> tuple[str, str]:
     """('lichess' | 'chesscom', game id) for a supported link; raises GameUrlError."""
     raw = (url or "").strip()
     if not raw:
-        raise GameUrlError("Empty link.")
+        raise GameUrlError("Empty link.", "not_game")
     if not re.match(r"^https?://", raw, re.I):
         raw = "https://" + raw
     parsed = urlparse(raw)
@@ -60,13 +72,13 @@ def parse_game_url(url: str) -> tuple[str, str]:
         m = re.match(r"^/(?:game/export/|embed/game/|study/[^/]+/)?([A-Za-z0-9]{8})(?:[A-Za-z0-9]{4})?(?:/|$)", path)
         if m:
             return "lichess", m.group(1)
-        raise GameUrlError("This Lichess link does not point to a game.")
+        raise GameUrlError("This Lichess link does not point to a game.", "not_game")
     if host.endswith("chess.com"):
         m = _CHESSCOM_ID.search(path)
         if m:
             return "chesscom", next(g for g in m.groups() if g)
-        raise GameUrlError("This Chess.com link does not point to a game.")
-    raise GameUrlError("Only Lichess and Chess.com game links are supported.")
+        raise GameUrlError("This Chess.com link does not point to a game.", "not_game")
+    raise GameUrlError("Only Lichess and Chess.com game links are supported.", "not_game")
 
 
 def looks_like_game_url(text: str) -> bool:
@@ -87,9 +99,9 @@ def _lichess_pgn(game_id: str, client: httpx.Client) -> str:
         headers={"Accept": "application/x-chess-pgn", "User-Agent": USER_AGENT},
     )
     if resp.status_code == 404:
-        raise GameUrlError("Lichess does not know this game (private or wrong id).")
+        raise GameUrlError("Lichess does not know this game (private or wrong id).", "not_found:Lichess")
     if resp.status_code == 429:
-        raise GameUrlError("Lichess rate limit — try again in a minute.")
+        raise GameUrlError("Lichess rate limit — try again in a minute.", "rate_limited:Lichess")
     resp.raise_for_status()
     return resp.text.strip()
 
@@ -173,15 +185,24 @@ def _chesscom_pgn(game_id: str, client: httpx.Client) -> str:
         headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
     )
     if resp.status_code == 404:
-        raise GameUrlError("Chess.com does not know this game.")
+        raise GameUrlError("Chess.com does not know this game.", "not_found:Chess.com")
     if resp.status_code == 429:
-        raise GameUrlError("Chess.com rate limit — try again in a minute.")
-    resp.raise_for_status()
-    data = resp.json()
+        raise GameUrlError("Chess.com rate limit — try again in a minute.", "rate_limited:Chess.com")
+    try:
+        data = resp.json() if resp.status_code == 200 else None
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        # What Chess.com answered, for the log: a Cloudflare refusal of the server's address (403 with «cf-mitigated:
+        # challenge», or a 200 that is an HTML page) is told from a site that is down (tester 28.11: every Chess.com
+        # link failed on the production coach while Lichess, and the same request from another host, worked).
+        logger.warning("chess.com callback for game %s: HTTP %s, content-type %s, cf-mitigated %s",
+                       game_id, resp.status_code, resp.headers.get("content-type"), resp.headers.get("cf-mitigated"))
+        raise GameUrlError(f"Chess.com did not give the game (HTTP {resp.status_code}).", "unreachable:Chess.com")
     game = data.get("game") or {}
     headers = game.get("pgnHeaders") or {}
     if not headers.get("White") or not headers.get("Black"):
-        raise GameUrlError("Chess.com returned no game data for this link.")
+        raise GameUrlError("Chess.com returned no game data for this link.", "not_found:Chess.com")
     # Another chess variant, read before the moves (tester 23.11: a Chess960 game from Chess.com came back «could not
     # load the game» — its TCN moves were rebuilt on the standard board, which drops the «Variant» header, and failed).
     variant = _chesscom_variant(headers, game)
@@ -195,7 +216,7 @@ def _chesscom_pgn(game_id: str, client: httpx.Client) -> str:
             logger.info("chess.com TCN decode failed for %s (%s); trying the archive", game_id, exc)
     pgn = _chesscom_archive_pgn(headers, game_id, client)
     if not pgn:
-        raise GameUrlError("Could not read the moves of this Chess.com game.")
+        raise GameUrlError("Could not read the moves of this Chess.com game.", "no_moves")
     return pgn
 
 
@@ -245,11 +266,15 @@ def fetch_game_by_url(url: str, client: httpx.Client = None) -> dict:
     client = client or httpx.Client(timeout=TIMEOUT, follow_redirects=True)
     try:
         pgn = _lichess_pgn(game_id, client) if provider == "lichess" else _chesscom_pgn(game_id, client)
+    except httpx.HTTPError as exc:
+        # the site did not answer (a timeout, a refused connection, an error status): said as such, logged with why
+        logger.warning("%s game %s: %s: %s", _SITE[provider], game_id, type(exc).__name__, exc)
+        raise GameUrlError(f"Could not reach {_SITE[provider]}: {exc}", f"unreachable:{_SITE[provider]}") from exc
     finally:
         if own:
             client.close()
     if not pgn or "1." not in pgn and "1-0" not in pgn:
-        raise GameUrlError("The game has no moves.")
+        raise GameUrlError("The game has no moves.", "no_moves")
     # Another game than chess (Lichess / Chess.com «Variant»: Chess960, Crazyhouse, Atomic…): the board of the site and
     # the app holds none of them, and the review reads its moves by the usual rules (tester 20.11: a Chess960 game left
     # the earlier game on the board while the coach reviewed this one). The page tells it by this code.
@@ -299,7 +324,11 @@ def _handle_import_game_from_url(args: dict, **kwargs) -> str:
         result = fetch_game_by_url(url)
         result["hint"] = "Call board_control(action_type='load_pgn', pgn=<pgn>) to put the game on the board."
     except GameUrlError as exc:
-        result = {"error": str(exc), "url": url}
+        result = {"error": str(exc), "code": exc.code, "url": url}
+        if exc.code.startswith("unreachable:Chess.com"):
+            result["student_hint"] = (
+                "Tell the student, in their language, that Chess.com did not give this game, and how to bring it "
+                "anyway: on the game's page on Chess.com — «Поделиться» (Share) → «PGN» → copy, then paste it here.")
     except httpx.HTTPError as exc:
         result = {"error": f"Could not reach the site: {exc}", "url": url}
     return json.dumps(result, ensure_ascii=False)

@@ -174,7 +174,8 @@ class TestImportUrlEndpoint:
         resp = self.client.post("/api/coach/import-url", headers={"X-User-Id": "u"},
                                 json={"url": "https://chesster.io/coach"})
         assert resp.status_code == 400
-        assert "Lichess and Chess.com" in resp.json()["detail"]
+        # the code the page says in the student's language (tester 28.11: the English words reached the student)
+        assert resp.json()["detail"] == "not_game"
 
     def test_upstream_failure_is_502(self):
         with patch("src.tools.game_url.fetch_game_by_url", side_effect=httpx.ConnectError("boom")):

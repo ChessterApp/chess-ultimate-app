@@ -6275,7 +6275,7 @@ async def coach_game_start(session_id: str, body: CoachGameStartRequest, request
     loop = asyncio.get_event_loop()
     try:
         _, payload = await loop.run_in_executor(
-            None, lambda: game_mode.start_game(session, body.color, body.elo, body.comment_mode))
+            None, lambda: game_mode.start_game(session, body.color, body.elo, body.comment_mode, in_turn=False))
     except game_mode.GameError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:  # noqa: BLE001 — engine failure
@@ -6521,10 +6521,11 @@ async def coach_import_url(body: CoachImportUrlRequest, request: Request):
     try:
         return await loop.run_in_executor(None, fetch_game_by_url, url)
     except GameUrlError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        # The detail is the code the page says in the student's language (src/tools/game_url.GameUrlError, 28.11).
+        raise HTTPException(status_code=502 if exc.code.startswith("unreachable:") else 400, detail=exc.code)
     except Exception as exc:  # noqa: BLE001 — network / upstream failure
-        logger.info("import-url failed for %s: %s", url[:120], exc)
-        raise HTTPException(status_code=502, detail="Could not reach the site the link points to.")
+        logger.warning("import-url failed for %s: %s", url[:120], exc)
+        raise HTTPException(status_code=502, detail="unreachable:")
 
 
 @app.post("/api/coach/feedback")
